@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Global brand application for the AfricanSTN information system.
+ * Follows STZA Brand Guidelines v1.0.
+ */
+
+@layer base {
+  :root {
+    --brand-dark: #1A1C1E;
+    --brand-gold: #C5A059;
+    --warm-grey: #8E9196;
+    --near-black: #0F1113;
+    --warm-light: #F5F0E8;
+    --gold-border: #D4C5A9;
+    --alert-red: #CC0000;
+    --warning-amber: #CC7700;
+    --success-green: #2E7D32;
+  }
+
+  html {
+    font-family: 'Calibri', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    color: var(--near-black);
+    background-color: #FFFFFF;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  /* Brand-correct headings (memo Section 2.2) */
+  h1 {
+    @apply text-h1-app text-brand-dark font-bold;
+  }
+  h2 {
+    @apply text-h2-app text-brand-gold font-bold;
+  }
+  h3 {
+    @apply text-h3-app text-brand-dark font-bold;
+  }
+}
+
+@layer components {
+  /* Primary button: Brand Gold background, Brand Dark text */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-brand
+           bg-brand-gold text-brand-dark font-bold text-body-app
+           transition-all duration-150
+           hover:brightness-95 hover:shadow-brand-card-hover
+           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Secondary button: White background, Brand Gold border */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-brand
+           bg-white text-brand-gold font-bold text-body-app border-2 border-brand-gold
+           transition-all duration-150
+           hover:bg-warm-light
+           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
+  }
+
+  /* Tertiary / text button */
+  .btn-text {
+    @apply inline-flex items-center justify-center px-3 py-1.5 rounded-brand
+           text-brand-gold font-bold text-body-app
+           transition-colors duration-150
+           hover:bg-warm-light
+           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
+  }
+
+  /* Brand card: white background, gold border, subtle shadow */
+  .card {
+    @apply bg-white border border-gold-border rounded-brand-lg shadow-brand-card;
+  }
+
+  /* Warm-light card for secondary surfaces */
+  .card-warm {
+    @apply bg-warm-light border border-gold-border rounded-brand-lg;
+  }
+
+  /* Brand-correct table */
+  .table-brand {
+    @apply w-full border-collapse;
+  }
+  .table-brand thead tr {
+    @apply bg-brand-dark text-white;
+  }
+  .table-brand th {
+    @apply px-3 py-2.5 text-left text-tag uppercase tracking-wider font-bold;
+  }
+  .table-brand td {
+    @apply px-3 py-2.5 text-body-table border-b border-gold-border;
+  }
+  .table-brand tbody tr:nth-child(even) {
+    @apply bg-warm-light;
+  }
+  .table-brand tbody tr:hover {
+    @apply bg-warm-light brightness-95;
+  }
+
+  /* Status pills (memo Section 2.1) */
+  .pill {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-tag uppercase tracking-wider;
+  }
+  .pill-high {
+    @apply bg-success-green text-white;
+  }
+  .pill-medium {
+    @apply bg-warning-amber text-white;
+  }
+  .pill-low {
+    @apply bg-alert-red text-white;
+  }
+  .pill-neutral {
+    @apply bg-warm-grey text-white;
+  }
+
+  /* Form inputs */
+  .input-brand {
+    @apply w-full px-3 py-2 rounded-brand bg-white border border-gold-border
+           text-body-app text-near-black
+           focus:outline-none focus:border-brand-gold focus:ring-2 focus:ring-brand-gold/20
+           disabled:bg-warm-light disabled:cursor-not-allowed;
+  }
+
+  .label-brand {
+    @apply block text-tag uppercase tracking-wider text-brand-dark mb-1.5 font-bold;
+  }
+}
+
+@layer utilities {
+  /* Subtle protea watermark for empty states */
+  .protea-watermark {
+    background-image: url('/logos/protea-mono-gold.png');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 120px;
+    opacity: 0.08;
+  }
+}

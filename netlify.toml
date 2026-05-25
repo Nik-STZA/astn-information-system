@@ -1,0 +1,23 @@
+# Netlify deployment configuration for the AfricanSTN information system.
+#
+# This file lives at the repository root and is read by Netlify automatically
+# when the site is connected to this repository. It establishes the build
+# command, the publish directory, and the Next.js runtime plugin.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Security headers applied to all responses.
+# Tightened for a private application that should not be embeddable or indexed.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    X-Robots-Tag = "noindex, nofollow, noarchive, nosnippet"
