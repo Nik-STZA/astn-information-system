@@ -43,12 +43,21 @@ export default async function OrganizationDetailPage({
         <Link href="/registry" className="btn-text">
           ← Back to registry
         </Link>
-        {band === "High" && <span className="pill pill-high">High confidence</span>}
-        {band === "Medium" && <span className="pill pill-medium">Medium confidence</span>}
-        {(band === "Medium-Low" || band === "Low") && (
-          <span className="pill pill-low">{band} confidence</span>
-        )}
-        {band === null && <span className="pill pill-neutral">Unverified</span>}
+        <div className="flex items-center gap-3">
+          {band === "High" && <span className="pill pill-high">High confidence</span>}
+          {band === "Medium" && <span className="pill pill-medium">Medium confidence</span>}
+          {(band === "Medium-Low" || band === "Low") && (
+            <span className="pill pill-low">{band} confidence</span>
+          )}
+          {band === null && <span className="pill pill-neutral">Unverified</span>}
+          <a
+            href={`/registry/${org.id}/report`}
+            className="btn-secondary"
+            download
+          >
+            Generate profile report
+          </a>
+        </div>
       </div>
 
       <div>
