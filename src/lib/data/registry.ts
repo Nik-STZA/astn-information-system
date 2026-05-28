@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   REGISTRY_PAGE_SIZE,
   type FilterOptions,
+  type OrganizationDetail,
   type RegistryFilters,
   type RegistryRow,
 } from "@/lib/data/registry-shared";
@@ -102,4 +103,14 @@ export async function fetchOrganizations(
     rows: (data ?? []) as RegistryRow[],
     totalCount: count ?? 0,
   };
+}
+
+export async function fetchOrganization(id: string): Promise<OrganizationDetail | null> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("organizations")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as OrganizationDetail | null) ?? null;
 }

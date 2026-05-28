@@ -1,3 +1,4 @@
+import Link from "next/link";
 import RegistryFilters from "@/components/RegistryFilters";
 import RegistryPagination from "@/components/RegistryPagination";
 import {
@@ -89,7 +90,14 @@ export default async function RegistryPage({ searchParams }: PageProps) {
                 const band = confidenceBand(org.source_confidence);
                 return (
                   <tr key={org.id}>
-                    <td className="font-medium text-brand-dark">{org.organization_name ?? "—"}</td>
+                    <td className="font-medium text-brand-dark">
+                      <Link
+                        href={`/registry/${org.id}`}
+                        className="hover:text-brand-gold transition-colors"
+                      >
+                        {org.organization_name ?? "—"}
+                      </Link>
+                    </td>
                     <td className="text-warm-grey">{org.country ?? "—"}</td>
                     <td className="text-warm-grey">{org.sport ?? "—"}</td>
                     <td>{org.organization_type ?? "—"}</td>
