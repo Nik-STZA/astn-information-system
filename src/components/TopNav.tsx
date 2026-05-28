@@ -14,6 +14,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { href: "/overview", label: "Overview" },
   { href: "/registry", label: "Registry" },
+  { href: "/registry/verify", label: "Verify" },
   { href: "/reports", label: "Reports" },
 ];
 
@@ -61,7 +62,17 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
         {/* Centre: Navigation */}
         <div className="hidden md:flex items-center gap-1">
           {NAV_ITEMS.map((item) => {
-            const isActive = pathname.startsWith(item.href);
+            // Longest-match: this item is active only if no other nav item
+            // has a more specific path that also matches. Prevents /registry
+            // from staying highlighted while we're on /registry/verify.
+            const matches = pathname.startsWith(item.href);
+            const hasMoreSpecific = NAV_ITEMS.some(
+              (other) =>
+                other.href !== item.href &&
+                other.href.length > item.href.length &&
+                pathname.startsWith(other.href),
+            );
+            const isActive = matches && !hasMoreSpecific;
             return (
               <Link
                 key={item.href}

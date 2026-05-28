@@ -106,6 +106,48 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
         </div>
       </Section>
 
+      <Section title="Verification">
+        <p className="text-caption text-warm-grey -mt-1">
+          source_confidence is a free-text descriptive string. Keep the band as the first word ({"\""}High{"\""}, {"\""}Medium{"\""}, {"\""}Medium-Low{"\""}, {"\""}Low{"\""}) so pills and filters still match.
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TextField
+            name="source_confidence"
+            label="Source confidence"
+            defaultValue={org.source_confidence}
+            placeholder="High (operator verified)"
+          />
+          <TextField
+            name="verification_date"
+            label="Verification date"
+            defaultValue={org.verification_date}
+            placeholder="YYYY-MM-DD"
+          />
+          <TextField
+            name="verification_source"
+            label="Verification source"
+            defaultValue={org.verification_source}
+          />
+          <TextField
+            name="verification_source_label"
+            label="Source label"
+            defaultValue={org.verification_source_label}
+          />
+          <TextField
+            name="verification_source_primary"
+            label="Primary source"
+            defaultValue={org.verification_source_primary}
+            placeholder="URL or citation"
+          />
+          <TextField
+            name="verification_source_xref"
+            label="Cross-reference"
+            defaultValue={org.verification_source_xref}
+            placeholder="URL or citation"
+          />
+        </div>
+      </Section>
+
       <div className="flex items-center justify-end gap-3 pt-2 border-t border-gold-border">
         <StatusBadge state={state} />
         <SubmitButton />

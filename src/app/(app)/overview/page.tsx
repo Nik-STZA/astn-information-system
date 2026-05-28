@@ -7,6 +7,7 @@ import {
   fetchTopOrgTypes,
   fetchRecentItems,
 } from "@/lib/data/overview";
+import { fetchVerificationQueueCount } from "@/lib/data/registry";
 
 /**
  * Overview page - the home page after sign-in.
@@ -25,12 +26,14 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
-  const [metrics, topCountries, topOrgTypes, recentItems] = await Promise.all([
-    fetchOverviewMetrics(),
-    fetchTopCountries(10),
-    fetchTopOrgTypes(10),
-    fetchRecentItems(15),
-  ]);
+  const [metrics, topCountries, topOrgTypes, recentItems, pendingVerification] =
+    await Promise.all([
+      fetchOverviewMetrics(),
+      fetchTopCountries(10),
+      fetchTopOrgTypes(10),
+      fetchRecentItems(15),
+      fetchVerificationQueueCount(),
+    ]);
 
   // Today's date in the brand format
   const today = new Date().toLocaleDateString("en-GB", {
@@ -52,7 +55,7 @@ export default async function OverviewPage() {
       </div>
 
       {/* Counters */}
-      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
         <CounterCard value={metrics.totalOrganisations} label="Organisations" />
         <CounterCard value={metrics.totalCountries} label="Countries + pan-African" />
         <CounterCard value={metrics.totalSports} label="Sports" />
@@ -63,6 +66,11 @@ export default async function OverviewPage() {
         />
         <CounterCard value={metrics.totalPartnerships} label="Partnerships tracked" />
         <CounterCard value={metrics.itemsThisWeek} label="Items this week" />
+        <CounterCard
+          value={pendingVerification}
+          label="Pending verification"
+          href="/registry/verify"
+        />
       </section>
 
       {/* Charts */}

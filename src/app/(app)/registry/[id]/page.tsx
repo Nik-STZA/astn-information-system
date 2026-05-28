@@ -101,14 +101,8 @@ function ReferenceSection({ org }: { org: OrganizationDetail }) {
       />
 
       <FieldGroup
-        title="Verification"
+        title="Provenance (read-only)"
         rows={[
-          ["Source confidence", org.source_confidence],
-          ["Verification source", org.verification_source],
-          ["Primary source", org.verification_source_primary],
-          ["Cross-reference", org.verification_source_xref],
-          ["Source label", org.verification_source_label],
-          ["Verification date", org.verification_date],
           ["Data source", org.data_source],
           ["Last updated (legacy)", org.last_updated],
         ]}

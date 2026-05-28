@@ -92,6 +92,12 @@ export const EDITABLE_FIELDS = [
   "owner",
   "review_date",
   "astn_vertical",
+  "source_confidence",
+  "verification_source",
+  "verification_source_primary",
+  "verification_source_xref",
+  "verification_source_label",
+  "verification_date",
 ] as const;
 
 export type EditableField = (typeof EDITABLE_FIELDS)[number];

@@ -63,10 +63,17 @@ export async function fetchFilterOptions(): Promise<FilterOptions> {
   };
 }
 
+type FetchOrganizationsOpts = {
+  // When true, the result is restricted to rows that don't already match the
+  // High confidence band - powers the verification queue.
+  verifyMode?: boolean;
+};
+
 export async function fetchOrganizations(
   filters: RegistryFilters,
   page: number,
   pageSize: number = REGISTRY_PAGE_SIZE,
+  opts: FetchOrganizationsOpts = {},
 ): Promise<RegistryPage> {
   const supabase = await createSupabaseServerClient();
 
@@ -97,12 +104,28 @@ export async function fetchOrganizations(
     }
   }
 
+  if (opts.verifyMode) {
+    // Anything not at High band - includes Medium / Medium-Low / Low and null.
+    query = query.or("source_confidence.is.null,source_confidence.not.ilike.High%");
+  }
+
   const { data, count } = await query;
 
   return {
     rows: (data ?? []) as RegistryRow[],
     totalCount: count ?? 0,
   };
+}
+
+// Headline count of organisations awaiting verification - anything not at the
+// High band, including rows with a null source_confidence.
+export async function fetchVerificationQueueCount(): Promise<number> {
+  const supabase = await createSupabaseServerClient();
+  const { count } = await supabase
+    .from("organizations")
+    .select("*", { count: "exact", head: true })
+    .or("source_confidence.is.null,source_confidence.not.ilike.High%");
+  return count ?? 0;
 }
 
 export async function fetchOrganization(id: string): Promise<OrganizationDetail | null> {

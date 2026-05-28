@@ -6,9 +6,13 @@ type Props = {
   totalCount: number;
   // The current URL search params, used so prev/next preserve filters.
   searchParams: Record<string, string | string[] | undefined>;
+  // Path the prev/next links point at. Defaults to /registry so existing
+  // callers don't change; the verification queue passes /registry/verify.
+  basePath?: string;
 };
 
 function buildHref(
+  basePath: string,
   searchParams: Record<string, string | string[] | undefined>,
   page: number,
 ): string {
@@ -19,10 +23,16 @@ function buildHref(
   }
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
-  return qs ? `/registry?${qs}` : "/registry";
+  return qs ? `${basePath}?${qs}` : basePath;
 }
 
-export default function RegistryPagination({ page, pageSize, totalCount, searchParams }: Props) {
+export default function RegistryPagination({
+  page,
+  pageSize,
+  totalCount,
+  searchParams,
+  basePath = "/registry",
+}: Props) {
   if (totalCount === 0) return null;
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -45,7 +55,7 @@ export default function RegistryPagination({ page, pageSize, totalCount, searchP
         {prevDisabled ? (
           <span className="btn-secondary opacity-50 cursor-not-allowed">Previous</span>
         ) : (
-          <Link href={buildHref(searchParams, safePage - 1)} className="btn-secondary">
+          <Link href={buildHref(basePath, searchParams, safePage - 1)} className="btn-secondary">
             Previous
           </Link>
         )}
@@ -55,7 +65,7 @@ export default function RegistryPagination({ page, pageSize, totalCount, searchP
         {nextDisabled ? (
           <span className="btn-secondary opacity-50 cursor-not-allowed">Next</span>
         ) : (
-          <Link href={buildHref(searchParams, safePage + 1)} className="btn-secondary">
+          <Link href={buildHref(basePath, searchParams, safePage + 1)} className="btn-secondary">
             Next
           </Link>
         )}
