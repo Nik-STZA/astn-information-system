@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { updateOrganization } from "@/lib/data/registry-actions";
 import {
   CANONICAL_COMMERCIAL_PRIORITY,
@@ -72,9 +73,25 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
   const action = updateOrganization.bind(null, org.id);
   const [state, formAction] = useFormState(action, INITIAL);
   const formRef = useRef<HTMLFormElement>(null);
+  // A hidden submit button inside the form. We click it (rather than calling
+  // form.requestSubmit()) because React's server-action handler is more
+  // reliable when triggered by a real submit button.
+  const submitterRef = useRef<HTMLButtonElement>(null);
   const [pendingDiff, setPendingDiff] = useState<FieldDiff[] | null>(null);
   const [noChangesAt, setNoChangesAt] = useState<number | null>(null);
   const parsedConfidence = parseSourceConfidence(org.source_confidence);
+  const router = useRouter();
+  const lastRefreshedAt = useRef<number>(0);
+
+  // After a successful save, refresh the server components so the audit
+  // log section picks up the new row. useFormState doesn't do this on its
+  // own - it only updates the local form state.
+  useEffect(() => {
+    if (state.status === "ok" && state.savedAt !== lastRefreshedAt.current) {
+      lastRefreshedAt.current = state.savedAt;
+      router.refresh();
+    }
+  }, [state, router]);
 
   function handleSaveClick() {
     const form = formRef.current;
@@ -88,9 +105,8 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
   }
 
   function handleConfirm() {
-    const form = formRef.current;
     setPendingDiff(null);
-    form?.requestSubmit();
+    submitterRef.current?.click();
   }
 
   function handleCancel() {
@@ -247,6 +263,15 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
           <StatusBadge state={state} />
           <SaveButton onClick={handleSaveClick} />
         </div>
+
+        {/* Hidden submit button - the actual trigger for the server action. */}
+        <button
+          ref={submitterRef}
+          type="submit"
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
       </form>
 
       {pendingDiff && (
