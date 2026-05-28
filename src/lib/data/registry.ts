@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   REGISTRY_PAGE_SIZE,
   type FilterOptions,
+  type OrganizationChange,
   type OrganizationDetail,
   type RegistryFilters,
   type RegistryRow,
@@ -136,4 +137,42 @@ export async function fetchOrganization(id: string): Promise<OrganizationDetail 
     .eq("id", id)
     .maybeSingle();
   return (data as OrganizationDetail | null) ?? null;
+}
+
+// Stringify a JSON-encoded audit value for display. The diff column stores
+// jsonb so values come back as JS primitives - we render them tightly.
+function formatAuditValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "string") return v;
+  return JSON.stringify(v);
+}
+
+export async function fetchOrganizationChanges(
+  orgId: string,
+  limit = 20,
+): Promise<OrganizationChange[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("organization_changes")
+    .select("id, changed_by, changed_at, diff")
+    .eq("org_id", orgId)
+    .order("changed_at", { ascending: false })
+    .limit(limit);
+
+  if (!data) return [];
+
+  return data.map((row) => {
+    const diff = (row.diff ?? {}) as Record<string, { old: unknown; new: unknown }>;
+    const fields = Object.entries(diff).map(([field, pair]) => ({
+      field,
+      oldValue: formatAuditValue(pair?.old),
+      newValue: formatAuditValue(pair?.new),
+    }));
+    return {
+      id: row.id,
+      changedBy: row.changed_by,
+      changedAt: row.changed_at,
+      fields,
+    };
+  });
 }

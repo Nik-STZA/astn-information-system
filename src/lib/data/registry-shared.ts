@@ -177,6 +177,45 @@ export type UpdateResult =
   | { status: "ok"; savedAt: number }
   | { status: "error"; message: string };
 
+// One row from the organization_changes audit log, shaped for the UI.
+export type OrganizationChange = {
+  id: string;
+  changedBy: string;
+  changedAt: string;
+  // Per-field diff: field name -> { old, new } values stringified for display.
+  fields: Array<{ field: string; oldValue: string; newValue: string }>;
+};
+
+// Human-readable labels for editable / verification fields. Used by both the
+// confirm modal and the change-history view so they stay consistent.
+export const FIELD_LABELS: Record<string, string> = {
+  organization_type: "Organisation type",
+  status: "Status",
+  astn_vertical: "AfricanSTN vertical",
+  organization_website: "Organisation website",
+  contact_email: "Contact email",
+  contact_phone: "Contact phone",
+  social_media: "Social media",
+  partnership_type: "Partnership type",
+  commercial_priority: "Commercial priority",
+  outreach_candidate: "Outreach candidate",
+  owner: "Owner",
+  review_date: "Review date",
+  tags: "Tags",
+  notes: "Notes",
+  next_action: "Next action",
+  source_confidence: "Source confidence",
+  verification_source: "Verification source",
+  verification_source_primary: "Primary source",
+  verification_source_xref: "Cross-reference",
+  verification_source_label: "Source label",
+  verification_date: "Verification date",
+};
+
+export function fieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field;
+}
+
 // source_confidence is a descriptive string ("High (via governing body listing)",
 // "Medium-Low (Wikipedia)", etc.). Map to a band by prefix. Order matters:
 // check "Medium-Low" before "Medium".

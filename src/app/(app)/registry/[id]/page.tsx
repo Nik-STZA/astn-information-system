@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import ChangeHistory from "@/components/ChangeHistory";
 import OrganizationEditForm from "@/components/OrganizationEditForm";
 import {
   confidenceBand,
   fetchFilterOptions,
   fetchOrganization,
+  fetchOrganizationChanges,
 } from "@/lib/data/registry";
 import type { OrganizationDetail } from "@/lib/data/registry-shared";
 
@@ -26,9 +28,10 @@ export default async function OrganizationDetailPage({
 }: {
   params: { id: string };
 }) {
-  const [org, options] = await Promise.all([
+  const [org, options, changes] = await Promise.all([
     fetchOrganization(params.id),
     fetchFilterOptions(),
+    fetchOrganizationChanges(params.id, 20),
   ]);
 
   if (!org) {
@@ -76,6 +79,8 @@ export default async function OrganizationDetailPage({
       </div>
 
       <OrganizationEditForm org={org} typeOptions={options.types} />
+
+      <ChangeHistory changes={changes} />
 
       <ReferenceSection org={org} />
     </div>
