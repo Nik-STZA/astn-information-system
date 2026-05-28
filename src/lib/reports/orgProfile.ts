@@ -130,24 +130,85 @@ async function loadLogoBytes(): Promise<Buffer | null> {
   }
 }
 
+// Detect format + native dimensions from an image header so docx can render
+// it at the right aspect ratio. The brand "PNG" assets in /public/logos/ are
+// actually JPEGs (1536x1024) - forcing them into a square caused the visible
+// squish reported on the Day 3 profile report.
+function readImageInfo(buf: Buffer): { format: "png" | "jpg"; width: number; height: number } | null {
+  // PNG: 89 50 4E 47 ...; IHDR width/height at fixed offsets.
+  if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return {
+      format: "png",
+      width: buf.readUInt32BE(16),
+      height: buf.readUInt32BE(20),
+    };
+  }
+  // JPEG: FF D8 ... scan for the Start-of-Frame marker, which holds dimensions.
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i < buf.length - 8) {
+      if (buf[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const marker = buf[i + 1];
+      const isSof =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isSof) {
+        return {
+          format: "jpg",
+          height: buf.readUInt16BE(i + 5),
+          width: buf.readUInt16BE(i + 7),
+        };
+      }
+      // Standalone markers (no payload) are FF01 and FFD0-FFD9. Skip 2 bytes.
+      const isStandalone =
+        marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9);
+      if (isStandalone) {
+        i += 2;
+      } else {
+        // Length-prefixed segment: 2-byte big-endian length follows the marker.
+        i += 2 + buf.readUInt16BE(i + 2);
+      }
+    }
+  }
+  return null;
+}
+
+// Scale (w, h) so the larger dimension fits into maxPx, preserving ratio.
+function fitToBox(width: number, height: number, maxPx: number): { width: number; height: number } {
+  const scale = maxPx / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
 export async function buildOrganizationProfileDocx(org: OrganizationDetail): Promise<Buffer> {
   const logoBytes = await loadLogoBytes();
 
   const heading: Paragraph[] = [];
 
   if (logoBytes) {
-    heading.push(
-      new Paragraph({
-        spacing: { after: 120 },
-        children: [
-          new ImageRun({
-            data: logoBytes,
-            transformation: { width: 36, height: 36 },
-            type: "png",
-          }),
-        ],
-      }),
-    );
+    const info = readImageInfo(logoBytes);
+    if (info) {
+      const { width, height } = fitToBox(info.width, info.height, 56);
+      heading.push(
+        new Paragraph({
+          spacing: { after: 120 },
+          children: [
+            new ImageRun({
+              data: logoBytes,
+              transformation: { width, height },
+              type: info.format,
+            }),
+          ],
+        }),
+      );
+    }
   }
 
   heading.push(
