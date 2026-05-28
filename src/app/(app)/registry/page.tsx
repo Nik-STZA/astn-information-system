@@ -1,4 +1,5 @@
 import Link from "next/link";
+import RegistryExportButtons from "@/components/RegistryExportButtons";
 import RegistryFilters from "@/components/RegistryFilters";
 import RegistryPagination from "@/components/RegistryPagination";
 import {
@@ -60,12 +61,15 @@ export default async function RegistryPage({ searchParams }: PageProps) {
 
       <RegistryFilters options={options} />
 
-      <RegistryPagination
-        page={page}
-        pageSize={REGISTRY_PAGE_SIZE}
-        totalCount={result.totalCount}
-        searchParams={searchParams}
-      />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <RegistryPagination
+          page={page}
+          pageSize={REGISTRY_PAGE_SIZE}
+          totalCount={result.totalCount}
+          searchParams={searchParams}
+        />
+        <RegistryExportButtons searchParams={searchParams} />
+      </div>
 
       <div className="card overflow-hidden">
         {result.rows.length === 0 ? (

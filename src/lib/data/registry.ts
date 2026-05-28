@@ -129,6 +129,50 @@ export async function fetchVerificationQueueCount(): Promise<number> {
   return count ?? 0;
 }
 
+// Bulk fetch every row matching the filters - used by /registry/export.
+// Pages through the 1,000-row PostgREST cap. No limit on result size; callers
+// that have an upper bound (the docx generator) should impose their own.
+export async function fetchAllOrganizationsMatching(
+  filters: RegistryFilters,
+  opts: FetchOrganizationsOpts = {},
+): Promise<OrganizationDetail[]> {
+  const supabase = await createSupabaseServerClient();
+  const pageSize = 1000;
+  const all: OrganizationDetail[] = [];
+  let from = 0;
+  for (;;) {
+    let query = supabase
+      .from("organizations")
+      .select("*")
+      .order("organization_name", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (filters.country) query = query.eq("country", filters.country);
+    if (filters.sport) query = query.eq("sport", filters.sport);
+    if (filters.type) query = query.eq("organization_type", filters.type);
+    if (filters.confidence) {
+      if (filters.confidence === "Medium") {
+        query = query
+          .ilike("source_confidence", "Medium%")
+          .not("source_confidence", "ilike", "Medium-Low%");
+      } else {
+        query = query.ilike("source_confidence", `${filters.confidence}%`);
+      }
+    }
+    if (opts.verifyMode) {
+      query = query.or("source_confidence.is.null,source_confidence.not.ilike.High%");
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) break;
+    all.push(...(data as OrganizationDetail[]));
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 export async function fetchOrganization(id: string): Promise<OrganizationDetail | null> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase
