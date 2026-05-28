@@ -52,9 +52,23 @@ export async function updateOrganization(
   const descriptor = typeof descriptorRaw === "string" ? descriptorRaw : "";
   patch.source_confidence = composeSourceConfidence(band, descriptor);
 
-  const { error } = await supabase.from("organizations").update(patch).eq("id", id);
+  // .select() so we can detect 0-rows-affected (RLS denial). Without it,
+  // PostgREST returns 200 with no body on UPDATE and we can't tell the
+  // difference between "saved" and "silently blocked by row-level security".
+  const { data, error } = await supabase
+    .from("organizations")
+    .update(patch)
+    .eq("id", id)
+    .select("id");
   if (error) {
     return { status: "error", message: error.message };
+  }
+  if (!data || data.length === 0) {
+    return {
+      status: "error",
+      message:
+        "Update was not applied. This usually means a row-level security policy blocked it. Check your sign-in and the organizations policies.",
+    };
   }
 
   revalidatePath(`/registry/${id}`);
