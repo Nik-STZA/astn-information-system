@@ -75,8 +75,10 @@ export type OrganizationDetail = {
 // Fields the edit form is allowed to write. Structural/denormalised fields
 // (country, sport, country_iso, sport_code, level) are excluded - changing
 // them without touching the matching ISO/code pair would create drift.
+// Identity fields (organization_name, astn_id) are also excluded - they come
+// from the trusted upstream source and shouldn't be operator-editable in the
+// standard flow.
 export const EDITABLE_FIELDS = [
-  "organization_name",
   "organization_type",
   "status",
   "organization_website",
@@ -101,6 +103,74 @@ export const EDITABLE_FIELDS = [
 ] as const;
 
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+// Canonical controlled vocabularies for enumerated edit-form fields. Sourced
+// from the distinct values in production with one-off junk pruned (see
+// `project-registry-edit-form-known-gaps`). The form preserves any existing
+// non-canonical row value by adding it as an extra option for that row.
+export const CANONICAL_STATUS = [
+  "Active",
+  "Inactive",
+  "Dormant",
+  "Held for review",
+  "Unverified",
+] as const;
+
+export const CANONICAL_VERTICALS = [
+  "Performance",
+  "Grassroots Participation",
+  "Fan Engagement",
+  "Broadcast",
+] as const;
+
+export const CANONICAL_PARTNERSHIP_TYPES = [
+  "Federation/Governance",
+  "Club",
+  "National Team",
+  "Academy/Development",
+  "Facility",
+  "League",
+  "Media",
+  "Startup/Tech",
+  "Sponsor/Commercial",
+  "Event",
+  "Investor",
+] as const;
+
+export const CANONICAL_COMMERCIAL_PRIORITY = ["High", "Medium", "Low"] as const;
+
+export const CANONICAL_OUTREACH_CANDIDATE = ["Yes", "Maybe", "No"] as const;
+
+// Split a stored source_confidence string into its band and optional
+// descriptor in parentheses. Returns nulls for an unrecognised band so the
+// caller can fall back to free text or leave empty.
+//
+// "High (via governing body listing)" -> { band: "High", descriptor: "via governing body listing" }
+// "Medium-Low"                        -> { band: "Medium-Low", descriptor: "" }
+// "high (typo)"                       -> { band: null, descriptor: "" } - case-sensitive on purpose
+export function parseSourceConfidence(value: string | null | undefined): {
+  band: ConfidenceBand | null;
+  descriptor: string;
+} {
+  if (!value) return { band: null, descriptor: "" };
+  const match = value.match(/^(High|Medium-Low|Medium|Low)\s*(?:\(([^)]*)\))?\s*$/);
+  if (!match) return { band: null, descriptor: "" };
+  return {
+    band: match[1] as ConfidenceBand,
+    descriptor: (match[2] ?? "").trim(),
+  };
+}
+
+// Compose the band + descriptor back into a single source_confidence string.
+// Empty band -> null so the field gets cleared.
+export function composeSourceConfidence(
+  band: ConfidenceBand | null | "",
+  descriptor: string,
+): string | null {
+  if (!band) return null;
+  const trimmed = descriptor.trim();
+  return trimmed ? `${band} (${trimmed})` : band;
+}
 
 export type UpdateResult =
   | { status: "idle" }

@@ -63,11 +63,16 @@ export default async function OrganizationDetailPage({
       <div>
         <h1>{org.organization_name ?? "Untitled organisation"}</h1>
         <p className="text-caption text-warm-grey mt-1">
-          {[org.country, org.sport, org.organization_type].filter(Boolean).join(" · ") || "—"}
+          {[org.country, org.sport, org.organization_type, org.level]
+            .filter(Boolean)
+            .join(" · ") || "—"}
         </p>
         {org.astn_id && (
           <p className="text-caption text-warm-grey mt-0.5">AfricanSTN ID: {org.astn_id}</p>
         )}
+        <p className="text-caption text-warm-grey mt-2 italic">
+          Organisation name, AfricanSTN ID, country, sport, and level are locked. Open a separate flow to correct identity fields.
+        </p>
       </div>
 
       <OrganizationEditForm org={org} typeOptions={options.types} />

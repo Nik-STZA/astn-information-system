@@ -3,7 +3,17 @@
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect, useState } from "react";
 import { updateOrganization } from "@/lib/data/registry-actions";
-import type { OrganizationDetail, UpdateResult } from "@/lib/data/registry-shared";
+import {
+  CANONICAL_COMMERCIAL_PRIORITY,
+  CANONICAL_OUTREACH_CANDIDATE,
+  CANONICAL_PARTNERSHIP_TYPES,
+  CANONICAL_STATUS,
+  CANONICAL_VERTICALS,
+  CONFIDENCE_BANDS,
+  parseSourceConfidence,
+  type OrganizationDetail,
+  type UpdateResult,
+} from "@/lib/data/registry-shared";
 
 type Props = {
   org: OrganizationDetail;
@@ -15,15 +25,11 @@ const INITIAL: UpdateResult = { status: "idle" };
 export default function OrganizationEditForm({ org, typeOptions }: Props) {
   const action = updateOrganization.bind(null, org.id);
   const [state, formAction] = useFormState(action, INITIAL);
+  const parsedConfidence = parseSourceConfidence(org.source_confidence);
 
   return (
     <form action={formAction} className="card p-5 space-y-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TextField
-          name="organization_name"
-          label="Organisation name"
-          defaultValue={org.organization_name}
-        />
         <SelectField
           name="organization_type"
           label="Organisation type"
@@ -31,11 +37,19 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
           options={typeOptions}
           placeholder="Select type"
         />
-        <TextField name="status" label="Status" defaultValue={org.status} />
-        <TextField
+        <SelectField
+          name="status"
+          label="Status"
+          defaultValue={org.status}
+          options={[...CANONICAL_STATUS]}
+          placeholder="Select status"
+        />
+        <SelectField
           name="astn_vertical"
           label="AfricanSTN vertical"
           defaultValue={org.astn_vertical}
+          options={[...CANONICAL_VERTICALS]}
+          placeholder="Select vertical"
         />
       </div>
 
@@ -68,27 +82,32 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
 
       <Section title="Partnership & outreach">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TextField
+          <SelectField
             name="partnership_type"
             label="Partnership type"
             defaultValue={org.partnership_type}
+            options={[...CANONICAL_PARTNERSHIP_TYPES]}
+            placeholder="Select partnership type"
           />
-          <TextField
+          <SelectField
             name="commercial_priority"
             label="Commercial priority"
             defaultValue={org.commercial_priority}
+            options={[...CANONICAL_COMMERCIAL_PRIORITY]}
+            placeholder="Select priority"
           />
-          <TextField
+          <SelectField
             name="outreach_candidate"
             label="Outreach candidate"
             defaultValue={org.outreach_candidate}
+            options={[...CANONICAL_OUTREACH_CANDIDATE]}
+            placeholder="Select"
           />
           <TextField name="owner" label="Owner" defaultValue={org.owner} />
-          <TextField
+          <DateField
             name="review_date"
             label="Review date"
             defaultValue={org.review_date}
-            placeholder="YYYY-MM-DD"
           />
         </div>
       </Section>
@@ -107,31 +126,35 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
       </Section>
 
       <Section title="Verification">
-        <p className="text-caption text-warm-grey -mt-1">
-          source_confidence is a free-text descriptive string. Keep the band as the first word ({"\""}High{"\""}, {"\""}Medium{"\""}, {"\""}Medium-Low{"\""}, {"\""}Low{"\""}) so pills and filters still match.
-        </p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TextField
-            name="source_confidence"
+          <SelectField
+            name="source_confidence_band"
             label="Source confidence"
-            defaultValue={org.source_confidence}
-            placeholder="High (operator verified)"
+            defaultValue={parsedConfidence.band}
+            options={[...CONFIDENCE_BANDS]}
+            placeholder="Select band"
           />
           <TextField
+            name="source_confidence_descriptor"
+            label="Confidence descriptor (optional)"
+            defaultValue={parsedConfidence.descriptor}
+            placeholder="e.g. via StadiumDB"
+          />
+          <DateField
             name="verification_date"
             label="Verification date"
             defaultValue={org.verification_date}
-            placeholder="YYYY-MM-DD"
-          />
-          <TextField
-            name="verification_source"
-            label="Verification source"
-            defaultValue={org.verification_source}
           />
           <TextField
             name="verification_source_label"
             label="Source label"
             defaultValue={org.verification_source_label}
+            placeholder="e.g. CAF, StadiumDB"
+          />
+          <TextField
+            name="verification_source"
+            label="Verification source"
+            defaultValue={org.verification_source}
           />
           <TextField
             name="verification_source_primary"
@@ -192,6 +215,38 @@ function TextField({
   );
 }
 
+function DateField({
+  name,
+  label,
+  defaultValue,
+}: {
+  name: string;
+  label: string;
+  defaultValue: string | null;
+}) {
+  // Existing data is 100% YYYY-MM-DD per a one-time audit, but defend
+  // against legacy stragglers by only pre-filling when it parses.
+  const isoLike = defaultValue && /^\d{4}-\d{2}-\d{2}$/.test(defaultValue)
+    ? defaultValue
+    : "";
+  return (
+    <label className="block">
+      <span className="label-brand">{label}</span>
+      <input
+        type="date"
+        name={name}
+        defaultValue={isoLike}
+        className="input-brand"
+      />
+      {defaultValue && !isoLike && (
+        <span className="text-caption text-warning-amber mt-1 block">
+          Existing non-standard value: {defaultValue}. Saving here will replace it.
+        </span>
+      )}
+    </label>
+  );
+}
+
 function SelectField({
   name,
   label,
@@ -212,7 +267,9 @@ function SelectField({
       <span className="label-brand">{label}</span>
       <select name={name} defaultValue={current} className="input-brand">
         <option value="">{placeholder}</option>
-        {!includesCurrent && current && <option value={current}>{current}</option>}
+        {!includesCurrent && current && (
+          <option value={current}>{current} (legacy)</option>
+        )}
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
