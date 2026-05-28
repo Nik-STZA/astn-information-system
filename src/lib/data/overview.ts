@@ -31,7 +31,33 @@ export type RecentItem = {
   createdAt: string;
   verticals: string[];
   url: string | null;
+  // Display code for the item's language. May come from the original_language
+  // tag, OR be overridden via script detection on the title (the upstream
+  // classifier mis-tags Arabic-script content as 'en').
+  languageCode: string | null;
 };
+
+// classified_items.original_language is unreliable for non-Latin scripts -
+// Arabic-script titles are tagged 'en' in production. Inspect the title's
+// Unicode ranges first; fall back to the stored tag.
+function detectScriptCode(text: string): string | null {
+  if (/[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/.test(text)) return "AR";
+  if (/[Ѐ-ӿ]/.test(text)) return "RU";
+  if (/[֐-׿]/.test(text)) return "HE";
+  if (/[ሀ-፿]/.test(text)) return "AM";
+  if (/[一-鿿぀-ゟ゠-ヿ가-힯]/.test(text)) return "CJK";
+  if (/[ऀ-ॿ]/.test(text)) return "HI";
+  if (/[฀-๿]/.test(text)) return "TH";
+  if (/[Ͱ-Ͽ]/.test(text)) return "EL";
+  return null;
+}
+
+function effectiveLanguage(title: string, tagged: string | null): string | null {
+  const detected = detectScriptCode(title);
+  if (detected) return detected;
+  if (!tagged) return null;
+  return tagged.toUpperCase();
+}
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -147,18 +173,22 @@ export async function fetchRecentItems(limit = 15): Promise<RecentItem[]> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase
     .from("classified_items")
-    .select("id, title, source_name, created_at, verticals, source_url")
+    .select("id, title, source_name, created_at, verticals, source_url, original_language")
     .order("created_at", { ascending: false })
     .limit(limit);
 
   if (!data) return [];
 
-  return data.map((row) => ({
-    id: row.id,
-    title: row.title ?? "Untitled",
-    source: row.source_name ?? "Unknown source",
-    createdAt: row.created_at ?? "",
-    verticals: Array.isArray(row.verticals) ? row.verticals : [],
-    url: row.source_url ?? null,
-  }));
+  return data.map((row) => {
+    const title = row.title ?? "Untitled";
+    return {
+      id: row.id,
+      title,
+      source: row.source_name ?? "Unknown source",
+      createdAt: row.created_at ?? "",
+      verticals: Array.isArray(row.verticals) ? row.verticals : [],
+      url: row.source_url ?? null,
+      languageCode: effectiveLanguage(title, row.original_language ?? null),
+    };
+  });
 }

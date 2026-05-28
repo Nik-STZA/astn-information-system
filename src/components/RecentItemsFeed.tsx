@@ -56,6 +56,17 @@ export default function RecentItemsFeed({ items }: { items: RecentItem[] }) {
                       <span>{formatDate(item.createdAt)}</span>
                     </>
                   )}
+                  {item.languageCode && item.languageCode !== "EN" && (
+                    <>
+                      <span>&middot;</span>
+                      <span
+                        className="pill bg-warm-light text-brand-dark border border-gold-border"
+                        title="Non-English source"
+                      >
+                        {item.languageCode}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
               {item.verticals.length > 0 && (
