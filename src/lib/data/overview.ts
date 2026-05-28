@@ -28,10 +28,39 @@ export type RecentItem = {
   id: string;
   title: string;
   source: string;
-  publishedAt: string;
+  createdAt: string;
   verticals: string[];
   url: string | null;
 };
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+// PostgREST caps a single response at 1,000 rows. For full-table aggregations
+// (distinct counts, top-N groupings) we must page through with .range().
+async function fetchAllColumnValues(
+  supabase: SupabaseServerClient,
+  table: string,
+  column: string,
+): Promise<string[]> {
+  const pageSize = 1000;
+  const all: string[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(column)
+      .not(column, "is", null)
+      .range(from, from + pageSize - 1);
+    if (error || !data || data.length === 0) break;
+    for (const row of data) {
+      const v = (row as unknown as Record<string, unknown>)[column];
+      if (typeof v === "string" && v.length > 0) all.push(v);
+    }
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
 
 export async function fetchOverviewMetrics(): Promise<OverviewMetrics> {
   const supabase = await createSupabaseServerClient();
@@ -41,30 +70,19 @@ export async function fetchOverviewMetrics(): Promise<OverviewMetrics> {
     .from("organizations")
     .select("*", { count: "exact", head: true });
 
-  // Distinct countries (we know it is 54 + pan-African per the audit corrections,
-  // but we calculate from the data to keep it live)
-  const { data: countryRows } = await supabase
-    .from("organizations")
-    .select("country_iso")
-    .not("country_iso", "is", null);
+  // Distinct countries and sports - paginate past the 1,000-row cap.
+  const countryIsoValues = await fetchAllColumnValues(supabase, "organizations", "country_iso");
+  const totalCountries = new Set(countryIsoValues).size;
 
-  const uniqueCountries = new Set(countryRows?.map((r) => r.country_iso) ?? []);
-  const totalCountries = uniqueCountries.size;
+  const sportCodeValues = await fetchAllColumnValues(supabase, "organizations", "sport_code");
+  const totalSports = new Set(sportCodeValues).size;
 
-  // Distinct sports
-  const { data: sportRows } = await supabase
-    .from("organizations")
-    .select("sport_code")
-    .not("sport_code", "is", null);
-
-  const uniqueSports = new Set(sportRows?.map((r) => r.sport_code) ?? []);
-  const totalSports = uniqueSports.size;
-
-  // High confidence percentage
+  // High-confidence percentage. `source_confidence` is a descriptive string
+  // ("High (via governing body listing)" etc.), so prefix-match, not equals.
   const { count: highCount } = await supabase
     .from("organizations")
     .select("*", { count: "exact", head: true })
-    .eq("source_confidence", "High");
+    .ilike("source_confidence", "High%");
 
   const highConfidencePercent =
     orgCount && orgCount > 0 ? Math.round(((highCount ?? 0) / orgCount) * 1000) / 10 : 0;
@@ -74,7 +92,7 @@ export async function fetchOverviewMetrics(): Promise<OverviewMetrics> {
     .from("partnerships")
     .select("*", { count: "exact", head: true });
 
-  // Items classified this week
+  // Items classified this week (no published_at column - use created_at).
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   const { count: itemsThisWeek } = await supabase
@@ -95,39 +113,28 @@ export async function fetchOverviewMetrics(): Promise<OverviewMetrics> {
 export async function fetchTopCountries(limit = 10): Promise<CountryBreakdown[]> {
   const supabase = await createSupabaseServerClient();
 
-  // Get all organisations and aggregate by country in JS.
-  // For v1 this is fine; v1.2 might switch to a database view if performance suffers.
-  const { data } = await supabase.from("organizations").select("country_iso");
-  if (!data) return [];
-
-  // Get country name lookup
-  const { data: countries } = await supabase.from("lookup_countries").select("iso, name");
-  const countryNameByIso = new Map(countries?.map((c) => [c.iso, c.name]) ?? []);
+  // The denormalised `country` column on organizations holds the human-readable
+  // name, so we can aggregate directly without joining lookup_countries.
+  const values = await fetchAllColumnValues(supabase, "organizations", "country");
 
   const counts = new Map<string, number>();
-  for (const row of data) {
-    if (!row.country_iso) continue;
-    counts.set(row.country_iso, (counts.get(row.country_iso) ?? 0) + 1);
+  for (const country of values) {
+    counts.set(country, (counts.get(country) ?? 0) + 1);
   }
 
   return Array.from(counts.entries())
-    .map(([iso, count]) => ({
-      country: countryNameByIso.get(iso) ?? iso,
-      count,
-    }))
+    .map(([country, count]) => ({ country, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
 }
 
 export async function fetchTopOrgTypes(limit = 10): Promise<OrgTypeBreakdown[]> {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.from("organizations").select("organization_type");
-  if (!data) return [];
+  const values = await fetchAllColumnValues(supabase, "organizations", "organization_type");
 
   const counts = new Map<string, number>();
-  for (const row of data) {
-    if (!row.organization_type) continue;
-    counts.set(row.organization_type, (counts.get(row.organization_type) ?? 0) + 1);
+  for (const type of values) {
+    counts.set(type, (counts.get(type) ?? 0) + 1);
   }
 
   return Array.from(counts.entries())
@@ -140,8 +147,8 @@ export async function fetchRecentItems(limit = 15): Promise<RecentItem[]> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase
     .from("classified_items")
-    .select("id, title, source_name, published_at, verticals, source_url")
-    .order("published_at", { ascending: false })
+    .select("id, title, source_name, created_at, verticals, source_url")
+    .order("created_at", { ascending: false })
     .limit(limit);
 
   if (!data) return [];
@@ -150,7 +157,7 @@ export async function fetchRecentItems(limit = 15): Promise<RecentItem[]> {
     id: row.id,
     title: row.title ?? "Untitled",
     source: row.source_name ?? "Unknown source",
-    publishedAt: row.published_at ?? "",
+    createdAt: row.created_at ?? "",
     verticals: Array.isArray(row.verticals) ? row.verticals : [],
     url: row.source_url ?? null,
   }));

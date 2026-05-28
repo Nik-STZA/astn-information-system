@@ -50,10 +50,10 @@ export default function RecentItemsFeed({ items }: { items: RecentItem[] }) {
                 )}
                 <div className="flex items-center gap-2 mt-1 text-caption text-warm-grey">
                   <span>{item.source}</span>
-                  {item.publishedAt && (
+                  {item.createdAt && (
                     <>
                       <span>&middot;</span>
-                      <span>{formatDate(item.publishedAt)}</span>
+                      <span>{formatDate(item.createdAt)}</span>
                     </>
                   )}
                 </div>

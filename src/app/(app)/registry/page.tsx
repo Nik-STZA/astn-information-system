@@ -14,14 +14,29 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  */
 export const dynamic = "force-dynamic";
 
+type ConfidenceBand = "High" | "Medium" | "Medium-Low" | "Low" | null;
+
+// source_confidence holds descriptive strings ("High (via governing body
+// listing)", "Medium-Low (Wikipedia)", etc.). Map to a band by prefix.
+// Order matters: check "Medium-Low" before "Medium".
+function confidenceBand(value: string | null): ConfidenceBand {
+  if (!value) return null;
+  if (value.startsWith("High")) return "High";
+  if (value.startsWith("Medium-Low")) return "Medium-Low";
+  if (value.startsWith("Medium")) return "Medium";
+  if (value.startsWith("Low")) return "Low";
+  return null;
+}
+
 export default async function RegistryPage() {
   const supabase = await createSupabaseServerClient();
   const { data: organisations, count } = await supabase
     .from("organizations")
-    .select("id, name, country_iso, sport_code, organization_type, source_confidence", {
-      count: "exact",
-    })
-    .order("name", { ascending: true })
+    .select(
+      "id, organization_name, country, sport, organization_type, source_confidence",
+      { count: "exact" },
+    )
+    .order("organization_name", { ascending: true })
     .limit(50);
 
   return (
@@ -53,29 +68,25 @@ export default async function RegistryPage() {
             </tr>
           </thead>
           <tbody>
-            {organisations?.map((org) => (
-              <tr key={org.id}>
-                <td className="font-medium text-brand-dark">{org.name}</td>
-                <td className="text-warm-grey">{org.country_iso ?? "—"}</td>
-                <td className="text-warm-grey">{org.sport_code ?? "—"}</td>
-                <td>{org.organization_type ?? "—"}</td>
-                <td>
-                  {org.source_confidence === "High" && (
-                    <span className="pill pill-high">High</span>
-                  )}
-                  {org.source_confidence === "Medium" && (
-                    <span className="pill pill-medium">Medium</span>
-                  )}
-                  {(org.source_confidence === "Medium-Low" ||
-                    org.source_confidence === "Low") && (
-                    <span className="pill pill-low">{org.source_confidence}</span>
-                  )}
-                  {!org.source_confidence && (
-                    <span className="pill pill-neutral">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {organisations?.map((org) => {
+              const band = confidenceBand(org.source_confidence);
+              return (
+                <tr key={org.id}>
+                  <td className="font-medium text-brand-dark">{org.organization_name}</td>
+                  <td className="text-warm-grey">{org.country ?? "—"}</td>
+                  <td className="text-warm-grey">{org.sport ?? "—"}</td>
+                  <td>{org.organization_type ?? "—"}</td>
+                  <td>
+                    {band === "High" && <span className="pill pill-high">High</span>}
+                    {band === "Medium" && <span className="pill pill-medium">Medium</span>}
+                    {(band === "Medium-Low" || band === "Low") && (
+                      <span className="pill pill-low">{band}</span>
+                    )}
+                    {band === null && <span className="pill pill-neutral">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
