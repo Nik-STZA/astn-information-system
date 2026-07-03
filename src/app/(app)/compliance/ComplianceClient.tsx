@@ -90,6 +90,23 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+function DetailRow({ label, value, link }: { label: string; value: string | null | undefined; link?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-3">
+      <span className="text-sm text-gray-500 w-40 shrink-0">{label}</span>
+      {value ? (
+        link ? (
+          <a href={value.startsWith("http") ? value : `https://${value}`} target="_blank" rel="noopener noreferrer" className="text-sm text-[#C5A059] hover:underline truncate">{value}</a>
+        ) : (
+          <span className="text-sm text-[#1A1C1E]">{value}</span>
+        )
+      ) : (
+        <span className="text-sm text-gray-400">—</span>
+      )}
+    </div>
+  );
+}
+
 const inputClass = "w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C5A059] focus:border-transparent";
 const selectClass = inputClass;
 const btnPrimary = "px-4 py-2 bg-[#C5A059] text-[#1A1C1E] text-sm font-medium rounded hover:bg-[#b8933f] transition-colors";
@@ -220,6 +237,190 @@ function ProspectForm({
   );
 }
 
+// ─── Prospect detail (read-only slide-out) ─────────────────────────────────
+
+function ProspectDetail({
+  prospect,
+  onClose,
+  onEdit,
+}: {
+  prospect: Prospect;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-end">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white h-full w-full max-w-xl overflow-y-auto shadow-xl">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-[#1A1C1E]">{prospect.company_name}</h3>
+          <div className="flex items-center gap-3">
+            <button onClick={onEdit} className={btnPrimary}>Edit</button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          </div>
+        </div>
+
+        <div className="px-6 py-6 space-y-6">
+          {/* Status cards */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center p-3 rounded-lg border border-gray-200">
+              <Badge value={prospect.priority} map={PRIORITY_COLOURS} />
+              <div className="text-xs text-gray-500 mt-2">Priority</div>
+            </div>
+            <div className="text-center p-3 rounded-lg border border-gray-200">
+              <Badge value={prospect.outreach_status} map={STATUS_COLOURS} />
+              <div className="text-xs text-gray-500 mt-2">Status</div>
+            </div>
+            <div className="text-center p-3 rounded-lg border border-gray-200">
+              <div className="text-lg">
+                {prospect.ir_registered === true ? <span className="text-emerald-600 font-medium">Yes</span>
+                  : prospect.ir_registered === false ? <span className="text-red-500 font-medium">No</span>
+                  : <span className="text-gray-400">Unknown</span>}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">IR registered</div>
+            </div>
+          </div>
+
+          {/* Company details */}
+          <div>
+            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Company details</h4>
+            <div className="space-y-2">
+              <DetailRow label="Country" value={prospect.company_country} />
+              <DetailRow label="Sector" value={prospect.sector} />
+              <DetailRow label="Website" value={prospect.company_website} link />
+              <DetailRow label="Estimated tier" value={prospect.estimated_tier} />
+            </div>
+          </div>
+
+          {/* SA presence */}
+          {prospect.sa_presence_evidence && (
+            <div>
+              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">SA presence evidence</h4>
+              <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">{prospect.sa_presence_evidence}</p>
+            </div>
+          )}
+
+          {/* Outreach timeline */}
+          <div>
+            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Outreach timeline</h4>
+            <div className="space-y-2">
+              <DetailRow label="Outreach date" value={prospect.outreach_date?.slice(0, 10)} />
+              <DetailRow label="Channel" value={prospect.outreach_channel} />
+              <DetailRow label="Response date" value={prospect.response_date?.slice(0, 10)} />
+            </div>
+          </div>
+
+          {/* Notes */}
+          {prospect.notes && (
+            <div>
+              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">Notes</h4>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{prospect.notes}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Client detail (read-only slide-out) ───────────────────────────────────
+
+function ClientDetail({
+  client,
+  onClose,
+  onEdit,
+  onAddActivity,
+}: {
+  client: Client;
+  onClose: () => void;
+  onEdit: () => void;
+  onAddActivity: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-end">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white h-full w-full max-w-xl overflow-y-auto shadow-xl">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-[#1A1C1E]">{client.company_name}</h3>
+          <div className="flex items-center gap-3">
+            <button onClick={onAddActivity} className={btnSecondary}>+ Activity</button>
+            <button onClick={onEdit} className={btnPrimary}>Edit</button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          </div>
+        </div>
+
+        <div className="px-6 py-6 space-y-6">
+          {/* Status cards */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center p-3 rounded-lg border border-gray-200">
+              <Badge value={client.status} map={CLIENT_STATUS_COLOURS} />
+              <div className="text-xs text-gray-500 mt-2">Status</div>
+            </div>
+            <div className="text-center p-3 rounded-lg border border-gray-200">
+              <div className="text-lg font-bold text-[#1A1C1E]">{client.service_tier ?? "—"}</div>
+              <div className="text-xs text-gray-500 mt-1">Service tier</div>
+            </div>
+            <div className="text-center p-3 rounded-lg border border-gray-200">
+              <div className="text-lg font-bold text-[#1A1C1E]">
+                {client.annual_fee_gbp != null ? `£${Number(client.annual_fee_gbp).toLocaleString()}` : "—"}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Annual fee</div>
+            </div>
+          </div>
+
+          {/* Company & contact details */}
+          <div>
+            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Company details</h4>
+            <div className="space-y-2">
+              <DetailRow label="Country" value={client.company_country} />
+              <DetailRow label="Website" value={client.company_website} link />
+              <DetailRow label="Engagement start" value={client.engagement_start?.slice(0, 10)} />
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Contact</h4>
+            <div className="space-y-2">
+              <DetailRow label="Name" value={client.contact_name} />
+              <DetailRow label="Email" value={client.contact_email} />
+              <DetailRow label="Role" value={client.contact_role} />
+            </div>
+          </div>
+
+          {/* Data processing flags */}
+          <div>
+            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Data processing</h4>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`w-2.5 h-2.5 rounded-full ${client.processes_biometric ? "bg-amber-500" : "bg-gray-300"}`} />
+                Biometric data: {client.processes_biometric ? "Yes" : "No"}
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`w-2.5 h-2.5 rounded-full ${client.processes_minors ? "bg-red-500" : "bg-gray-300"}`} />
+                Minors' data: {client.processes_minors ? "Yes" : "No"}
+              </div>
+            </div>
+          </div>
+
+          {/* Activity summary */}
+          <div>
+            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">Activities</h4>
+            <p className="text-sm text-gray-600">{client.activity_count} activities logged</p>
+          </div>
+
+          {/* Notes */}
+          {client.notes && (
+            <div>
+              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">Notes</h4>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{client.notes}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Client form ────────────────────────────────────────────────────────────
 
 function ClientForm({
@@ -323,6 +524,10 @@ export default function ComplianceClient({
   const [statusFilter, setStatusFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [clientStatusFilter, setClientStatusFilter] = useState("");
+
+  // Detail panels (read-only first, then edit)
+  const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
 
   // Modal state
   const [showProspectForm, setShowProspectForm] = useState(false);
@@ -526,7 +731,11 @@ export default function ComplianceClient({
                 <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">No prospects match your filters</td></tr>
               ) : (
                 filteredProspects.map((p, i) => (
-                  <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <tr
+                    key={p.id}
+                    onClick={() => setSelectedProspect(p)}
+                    className={`cursor-pointer hover:bg-[#C5A059]/5 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
+                  >
                     <td className="px-3 py-2">
                       <div className="font-medium text-[#1A1C1E]">{p.company_name}</div>
                       {p.company_website && (
@@ -545,13 +754,13 @@ export default function ComplianceClient({
                     <td className="px-3 py-2">
                       <div className="flex gap-1">
                         <button
-                          onClick={() => { setEditingProspect(p); setShowProspectForm(true); }}
+                          onClick={(e) => { e.stopPropagation(); setEditingProspect(p); setShowProspectForm(true); }}
                           className="px-2 py-1 text-xs text-[#C5A059] hover:bg-[#C5A059]/10 rounded transition-colors"
                         >
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(p.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
                           disabled={deletingId === p.id}
                           className={btnDanger}
                         >
@@ -589,7 +798,11 @@ export default function ComplianceClient({
                 </td></tr>
               ) : (
                 filteredClients.map((c, i) => (
-                  <tr key={c.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <tr
+                    key={c.id}
+                    onClick={() => setSelectedClient(c)}
+                    className={`cursor-pointer hover:bg-[#C5A059]/5 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
+                  >
                     <td className="px-3 py-2">
                       <div className="font-medium text-[#1A1C1E]">{c.company_name}</div>
                       {c.company_website && <div className="text-xs text-gray-400 truncate max-w-[180px]">{c.company_website}</div>}
@@ -607,13 +820,13 @@ export default function ComplianceClient({
                     <td className="px-3 py-2">
                       <div className="flex gap-1">
                         <button
-                          onClick={() => { setEditingClient(c); setShowClientForm(true); }}
+                          onClick={(e) => { e.stopPropagation(); setEditingClient(c); setShowClientForm(true); }}
                           className="px-2 py-1 text-xs text-[#C5A059] hover:bg-[#C5A059]/10 rounded transition-colors"
                         >
                           Edit
                         </button>
                         <button
-                          onClick={() => openAddActivity(c.id)}
+                          onClick={(e) => { e.stopPropagation(); openAddActivity(c.id); }}
                           className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition-colors"
                         >
                           + Activity
@@ -663,6 +876,37 @@ export default function ComplianceClient({
           onClose={() => setShowActivityForm(false)}
         />
       </Modal>
+
+      {/* Prospect detail slide-out */}
+      {selectedProspect && (
+        <ProspectDetail
+          prospect={selectedProspect}
+          onClose={() => setSelectedProspect(null)}
+          onEdit={() => {
+            setEditingProspect(selectedProspect);
+            setSelectedProspect(null);
+            setShowProspectForm(true);
+          }}
+        />
+      )}
+
+      {/* Client detail slide-out */}
+      {selectedClient && (
+        <ClientDetail
+          client={selectedClient}
+          onClose={() => setSelectedClient(null)}
+          onEdit={() => {
+            setEditingClient(selectedClient);
+            setSelectedClient(null);
+            setShowClientForm(true);
+          }}
+          onAddActivity={() => {
+            setActivityClientId(selectedClient.id);
+            setSelectedClient(null);
+            setShowActivityForm(true);
+          }}
+        />
+      )}
     </div>
   );
 }
