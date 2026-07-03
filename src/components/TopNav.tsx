@@ -15,12 +15,14 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 type NavItem = { href: string; label: string };
 
 const NAV_ITEMS: NavItem[] = [
+  // Dashboard
+  { href: "/dashboard", label: "Dashboard" },
   // Existing pages
   { href: "/overview", label: "Overview" },
   { href: "/registry", label: "Registry" },
   { href: "/registry/verify", label: "Verify" },
   { href: "/reports", label: "Reports" },
-  // OS modules — new
+  // OS modules
   { href: "/data-protection", label: "Data protection" },
   { href: "/compliance", label: "Compliance" },
   { href: "/content", label: "Content" },
@@ -42,7 +44,7 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
       <div className="flex items-center gap-6">
         {/* Brand */}
         <Link
-          href="/overview"
+          href="/dashboard"
           className="font-bold text-lg tracking-tight text-[#C5A059]"
         >
           AfricanSTN
@@ -54,7 +56,9 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
             // Longest-match active detection
             const isActive =
               pathname === item.href ||
-              (pathname.startsWith(item.href) && item.href !== "/overview");
+              (pathname.startsWith(item.href) &&
+                item.href !== "/overview" &&
+                item.href !== "/dashboard");
 
             return (
               <Link
