@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useCallback } from "react";
 import type { Prospect, Client } from "@/lib/data/compliance";
+import type { Country, EnforcementAction } from "@/lib/data/data-protection";
 import {
   addProspect,
   editProspect,
@@ -243,10 +244,12 @@ function ProspectDetail({
   prospect,
   onClose,
   onEdit,
+  onReport,
 }: {
   prospect: Prospect;
   onClose: () => void;
   onEdit: () => void;
+  onReport: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end">
@@ -255,6 +258,7 @@ function ProspectDetail({
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-[#1A1C1E]">{prospect.company_name}</h3>
           <div className="flex items-center gap-3">
+            <button onClick={onReport} className={btnSecondary}>Assessment</button>
             <button onClick={onEdit} className={btnPrimary}>Edit</button>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
           </div>
@@ -514,9 +518,13 @@ type Tab = "prospects" | "clients";
 export default function ComplianceClient({
   initialProspects,
   initialClients,
+  countries = [],
+  enforcement = [],
 }: {
   initialProspects: Prospect[];
   initialClients: Client[];
+  countries?: Country[];
+  enforcement?: EnforcementAction[];
 }) {
   const [tab, setTab] = useState<Tab>("prospects");
   const [search, setSearch] = useState("");
@@ -528,6 +536,7 @@ export default function ComplianceClient({
   // Detail panels (read-only first, then edit)
   const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [reportProspect, setReportProspect] = useState<Prospect | null>(null);
 
   // Modal state
   const [showProspectForm, setShowProspectForm] = useState(false);
@@ -887,6 +896,10 @@ export default function ComplianceClient({
             setSelectedProspect(null);
             setShowProspectForm(true);
           }}
+          onReport={() => {
+            setReportProspect(selectedProspect);
+            setSelectedProspect(null);
+          }}
         />
       )}
 
@@ -907,6 +920,282 @@ export default function ComplianceClient({
           }}
         />
       )}
+
+      {/* Compliance assessment report */}
+      {reportProspect && (
+        <ComplianceReport
+          prospect={reportProspect}
+          country={countries.find(c => c.country_name === "South Africa") ?? null}
+          enforcement={enforcement}
+          onClose={() => setReportProspect(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Compliance assessment report ───────────────────────────────────────────
+
+function ScoreGauge({ label, score, max = 10 }: { label: string; score: number | null; max?: number }) {
+  const pct = score != null ? Math.round((score / max) * 100) : 0;
+  const colour = pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div>
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-gray-600">{label}</span>
+        <span className="font-medium text-[#1A1C1E]">{score?.toFixed(1) ?? "—"}/{max}</span>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${colour}`} style={{ width: `${Math.max(pct, 2)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ComplianceReport({
+  prospect,
+  country,
+  enforcement,
+  onClose,
+}: {
+  prospect: Prospect;
+  country: Country | null;
+  enforcement: EnforcementAction[];
+  onClose: () => void;
+}) {
+  const reportRef = useRef<HTMLDivElement>(null);
+  const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
+  const tierColour = (tier: string | null) => {
+    const t = tier?.toLowerCase();
+    if (t === "leader") return "text-emerald-700 bg-emerald-50 border-emerald-200";
+    if (t === "advanced") return "text-blue-700 bg-blue-50 border-blue-200";
+    if (t === "developing") return "text-amber-700 bg-amber-50 border-amber-200";
+    return "text-red-700 bg-red-50 border-red-200";
+  };
+
+  const saEnforcement = enforcement.filter(e => e.country_name === "South Africa").slice(0, 5);
+
+  const riskFactors: { factor: string; level: "high" | "medium" | "low"; note: string }[] = [];
+
+  if (prospect.ir_registered === false) {
+    riskFactors.push({ factor: "IR registration", level: "high", note: "Not registered with Information Regulator — non-compliance with s39" });
+  } else if (prospect.ir_registered === null) {
+    riskFactors.push({ factor: "IR registration", level: "medium", note: "Registration status unknown — verification required" });
+  } else {
+    riskFactors.push({ factor: "IR registration", level: "low", note: "Registered with Information Regulator" });
+  }
+
+  if (prospect.sa_presence_evidence) {
+    riskFactors.push({ factor: "SA presence", level: "high", note: `Evidence of SA data processing: ${prospect.sa_presence_evidence}` });
+  } else {
+    riskFactors.push({ factor: "SA presence", level: "medium", note: "SA presence not yet evidenced — investigation needed" });
+  }
+
+  if (prospect.sector === "Sports Technology") {
+    riskFactors.push({ factor: "Sector sensitivity", level: "high", note: "Sports tech — likely processes biometric, performance, and potentially minors' data" });
+  } else if (prospect.sector) {
+    riskFactors.push({ factor: "Sector sensitivity", level: "medium", note: `${prospect.sector} — sector-specific data processing risks apply` });
+  }
+
+  const riskColour = { high: "bg-red-100 text-red-700", medium: "bg-amber-100 text-amber-800", low: "bg-emerald-100 text-emerald-700" };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 overflow-y-auto py-8 px-4" id="compliance-report-overlay">
+      {/* Print styles — hide everything except the report */}
+      <style>{`
+        @media print {
+          body > *:not(#__next), nav, aside, header { display: none !important; }
+          #compliance-report-overlay { position: static !important; background: none !important; padding: 0 !important; overflow: visible !important; }
+          #compliance-report-overlay > div:first-child { display: none !important; }
+        }
+      `}</style>
+
+      {/* Print-hidden controls */}
+      <div className="fixed top-4 right-4 z-[70] flex gap-2 print:hidden">
+        <button onClick={handlePrint} className={btnPrimary}>Download PDF</button>
+        <button onClick={onClose} className={btnSecondary}>Close</button>
+      </div>
+
+      {/* Report */}
+      <div ref={reportRef} className="bg-white rounded-lg shadow-2xl w-full max-w-3xl print:shadow-none print:max-w-none print:rounded-none" style={{ fontFamily: "Calibri, sans-serif" }}>
+        {/* Header */}
+        <div className="bg-[#1A1C1E] text-white px-8 py-6 rounded-t-lg print:rounded-none">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-[#C5A059] mb-1">POPIA Compliance Assessment</div>
+              <h1 className="text-2xl font-bold">{prospect.company_name}</h1>
+              <div className="text-sm text-gray-400 mt-1">{prospect.sector ?? "Sector unclassified"} &middot; {prospect.company_country ?? "Country unknown"}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-gray-400">Prepared by</div>
+              <div className="text-sm font-medium text-[#C5A059]">AfricanSTN</div>
+              <div className="text-xs text-gray-400 mt-1">{today}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-8 py-6 space-y-6">
+          {/* Executive summary */}
+          <section>
+            <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Executive summary</h2>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              This assessment evaluates <strong>{prospect.company_name}</strong>&apos;s compliance position under South Africa&apos;s
+              Protection of Personal Information Act (POPIA). As an international {prospect.sector?.toLowerCase() ?? "technology"} company
+              {prospect.sa_presence_evidence ? ` with evidence of South African data processing (${prospect.sa_presence_evidence.toLowerCase()})` : ""},
+              the company is subject to POPIA&apos;s extraterritorial provisions. Section 39 of POPIA requires non-South African
+              responsible parties to appoint an Information Officer registered with the Information Regulator.
+            </p>
+          </section>
+
+          {/* Risk assessment */}
+          <section>
+            <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Risk assessment</h2>
+            <div className="space-y-2">
+              {riskFactors.map((r, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium shrink-0 mt-0.5 ${riskColour[r.level]}`}>
+                    {r.level}
+                  </span>
+                  <div>
+                    <div className="text-sm font-medium text-[#1A1C1E]">{r.factor}</div>
+                    <div className="text-xs text-gray-600">{r.note}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* SA regulatory landscape */}
+          {country && (
+            <section>
+              <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">
+                South Africa — regulatory landscape
+              </h2>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="p-3 rounded-lg border border-gray-200 text-center">
+                  <div className={`inline-block px-3 py-1 rounded-full text-sm font-bold border ${tierColour(country.tier)}`}>
+                    {country.tier ?? "—"}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">DPMI tier</div>
+                </div>
+                <div className="p-3 rounded-lg border border-gray-200 text-center">
+                  <div className="text-xl font-bold text-[#1A1C1E]">{country.overall_score?.toFixed(1) ?? "—"}</div>
+                  <div className="text-xs text-gray-500 mt-1">Overall score /10</div>
+                </div>
+                <div className="p-3 rounded-lg border border-gray-200 text-center">
+                  <div className="text-sm font-medium text-[#1A1C1E]">{country.law_name ?? "POPIA"}</div>
+                  <div className="text-xs text-gray-500 mt-1">{country.law_year ?? "2013"}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                <DetailRow label="Regulator" value={country.authority_name} />
+                <DetailRow label="Breach notification" value={country.breach_notification_required ? `Yes (${country.breach_notification_hours ?? "ASAP"}h)` : "No"} />
+                <DetailRow label="Transfer mechanism" value={country.data_transfer_mechanism} />
+                <DetailRow label="Max penalty" value={country.max_penalty_description} />
+              </div>
+            </section>
+          )}
+
+          {/* Enforcement snapshot */}
+          {saEnforcement.length > 0 && (
+            <section>
+              <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">
+                Recent enforcement actions — South Africa
+              </h2>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Date</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Entity</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Type</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {saEnforcement.map((e) => (
+                      <tr key={e.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.action_date?.slice(0, 10) ?? "—"}</td>
+                        <td className="px-3 py-2 text-gray-700 font-medium">{e.entity_involved ?? "—"}</td>
+                        <td className="px-3 py-2 text-gray-600">{e.action_type}</td>
+                        <td className="px-3 py-2 text-gray-600">{e.description.length > 80 ? `${e.description.slice(0, 80)}...` : e.description}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* POPIA obligations summary */}
+          <section>
+            <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">
+              Key POPIA obligations for international companies
+            </h2>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              {[
+                { title: "Information Officer", desc: "Appoint and register with IR (s55–56). International entities must designate a local representative." },
+                { title: "Lawful processing", desc: "Personal information must be processed lawfully for a defined purpose with data subject consent or another s11 ground." },
+                { title: "Cross-border transfers", desc: "s72 requires adequate protection in recipient country, binding corporate rules, or data subject consent." },
+                { title: "Data subject rights", desc: "Right to access, correction, deletion of personal information. Respond within 30 days of request." },
+                { title: "Breach notification", desc: "Notify IR and affected data subjects as soon as reasonably possible after becoming aware of a breach." },
+                { title: "Special categories", desc: "Biometric data, children&apos;s data, and health data require explicit consent and additional safeguards." },
+              ].map((item, i) => (
+                <div key={i} className="p-3 bg-gray-50 rounded-lg">
+                  <div className="font-semibold text-[#1A1C1E] mb-1">{item.title}</div>
+                  <div className="text-gray-600 leading-relaxed">{item.desc}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Recommended next steps */}
+          <section>
+            <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">
+              Recommended next steps
+            </h2>
+            <div className="space-y-2 text-sm text-gray-700">
+              <div className="flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">1</span>
+                <span><strong>Gap assessment:</strong> Full review of current data processing activities involving South African personal information.</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">2</span>
+                <span><strong>IR registration:</strong> Appoint a POPIA representative and register with the Information Regulator.</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">3</span>
+                <span><strong>Policy alignment:</strong> Update privacy policies, data processing agreements, and cross-border transfer mechanisms.</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">4</span>
+                <span><strong>Ongoing compliance:</strong> Establish breach notification procedures and data subject request handling processes.</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Footer */}
+          <div className="border-t border-gray-200 pt-4 mt-6">
+            <div className="flex items-center justify-between text-xs text-gray-400">
+              <div>
+                <span className="font-medium text-[#C5A059]">AfricanSTN</span> &middot; POPIA Representative Services
+              </div>
+              <div>Confidential — prepared for {prospect.company_name}</div>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2 leading-relaxed">
+              This document is for informational purposes only and does not constitute legal advice.
+              AfricanSTN recommends engaging qualified legal counsel for jurisdiction-specific compliance guidance.
+              Data sourced from AfricanSTN Data Protection Maturity Index (DPMI) and public regulatory records.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

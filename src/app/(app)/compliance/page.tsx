@@ -4,16 +4,21 @@
  */
 
 import { fetchProspects, fetchClients } from "@/lib/data/compliance";
+import { fetchCountries, fetchEnforcement } from "@/lib/data/data-protection";
 import ComplianceClient from "./ComplianceClient";
 
 export default async function CompliancePage() {
-  const [prospectsRes, clientsRes] = await Promise.all([
+  const [prospectsRes, clientsRes, countriesRes, enforcementRes] = await Promise.all([
     fetchProspects(),
     fetchClients(),
+    fetchCountries(),
+    fetchEnforcement(),
   ]);
 
   const prospects = prospectsRes.data?.data ?? [];
   const clients = clientsRes.data?.data ?? [];
+  const countries = countriesRes.data?.data ?? [];
+  const enforcement = enforcementRes.data?.data ?? [];
 
   if (prospectsRes.error || clientsRes.error) {
     return (
@@ -29,6 +34,8 @@ export default async function CompliancePage() {
     <ComplianceClient
       initialProspects={prospects}
       initialClients={clients}
+      countries={countries}
+      enforcement={enforcement}
     />
   );
 }
