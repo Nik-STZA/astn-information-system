@@ -937,13 +937,13 @@ export default function ComplianceClient({
 // ─── Compliance assessment report ───────────────────────────────────────────
 
 function ScoreGauge({ label, score, max = 10 }: { label: string; score: number | null; max?: number }) {
-  const pct = score != null ? Math.round((score / max) * 100) : 0;
+  const pct = score != null ? Math.round((Number(score) / max) * 100) : 0;
   const colour = pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
         <span className="text-gray-600">{label}</span>
-        <span className="font-medium text-[#1A1C1E]">{score?.toFixed(1) ?? "—"}/{max}</span>
+        <span className="font-medium text-[#1A1C1E]">{score != null ? Number(score).toFixed(1) : "—"}/{max}</span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${colour}`} style={{ width: `${Math.max(pct, 2)}%` }} />
@@ -1090,7 +1090,7 @@ function ComplianceReport({
                   <div className="text-xs text-gray-500 mt-2">DPMI tier</div>
                 </div>
                 <div className="p-3 rounded-lg border border-gray-200 text-center">
-                  <div className="text-xl font-bold text-[#1A1C1E]">{country.overall_score?.toFixed(1) ?? "—"}</div>
+                  <div className="text-xl font-bold text-[#1A1C1E]">{country.overall_score != null ? Number(country.overall_score).toFixed(1) : "—"}</div>
                   <div className="text-xs text-gray-500 mt-1">Overall score /10</div>
                 </div>
                 <div className="p-3 rounded-lg border border-gray-200 text-center">
