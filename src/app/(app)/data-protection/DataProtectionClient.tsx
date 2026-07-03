@@ -26,15 +26,17 @@ function TierBadge({ tier }: { tier: string | null }) {
   );
 }
 
-function ScoreBar({ score }: { score: number | null }) {
+function ScoreBar({ score }: { score: number | string | null }) {
   if (score == null) return <span className="text-xs text-gray-400">—</span>;
-  const pct = Math.round(score * 10);
+  const n = Number(score);
+  if (isNaN(n)) return <span className="text-xs text-gray-400">—</span>;
+  const pct = Math.round(n * 10);
   return (
     <div className="flex items-center gap-2">
       <div className="h-2 w-20 bg-gray-100 rounded-full overflow-hidden">
         <div className="h-full bg-[#C5A059] rounded-full" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs text-gray-600">{score.toFixed(1)}</span>
+      <span className="text-xs text-gray-600">{n.toFixed(1)}</span>
     </div>
   );
 }
@@ -50,16 +52,18 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
 
 // ─── Sub-score bar for detail view ──────────────────────────────────────────
 
-function SubScoreRow({ label, score }: { label: string; score: number | null }) {
+function SubScoreRow({ label, score }: { label: string; score: number | string | null }) {
   if (score == null) return null;
-  const pct = Math.round(score * 10);
+  const n = Number(score);
+  if (isNaN(n)) return null;
+  const pct = Math.round(n * 10);
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm text-gray-600 w-44">{label}</span>
       <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
         <div className="h-full bg-[#C5A059] rounded-full transition-all" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-sm font-medium text-[#1A1C1E] w-10 text-right">{score.toFixed(1)}</span>
+      <span className="text-sm font-medium text-[#1A1C1E] w-10 text-right">{n.toFixed(1)}</span>
     </div>
   );
 }
@@ -115,7 +119,7 @@ function CountryDetail({
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center p-3 rounded-lg border border-gray-200">
               <div className="text-2xl font-bold text-[#1A1C1E]">
-                {row.overall_score?.toFixed(1) ?? "—"}
+                {row.overall_score != null ? Number(row.overall_score).toFixed(1) : "—"}
               </div>
               <div className="text-xs text-gray-500 mt-1">Overall score</div>
             </div>
