@@ -5,23 +5,29 @@ import type { Country, MaturityRow, EnforcementAction } from "@/lib/data/data-pr
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const TIERS = ["Leader", "Advanced", "Developing", "Nascent", "Absent"];
+const TIERS = ["leader", "advanced", "developing", "nascent", "absent"];
 
 const TIER_COLOURS: Record<string, string> = {
-  Leader: "bg-emerald-100 text-emerald-800",
-  Advanced: "bg-blue-100 text-blue-800",
-  Developing: "bg-amber-100 text-amber-800",
-  Nascent: "bg-orange-100 text-orange-800",
-  Absent: "bg-red-100 text-red-800",
+  leader: "bg-emerald-100 text-emerald-800",
+  advanced: "bg-blue-100 text-blue-800",
+  developing: "bg-amber-100 text-amber-800",
+  nascent: "bg-orange-100 text-orange-800",
+  absent: "bg-red-100 text-red-800",
 };
+
+/** Capitalise first letter for display */
+function cap(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 // ─── Shared ─────────────────────────────────────────────────────────────────
 
 function TierBadge({ tier }: { tier: string | null }) {
   if (!tier) return <span className="text-xs text-gray-400">—</span>;
+  const key = tier.toLowerCase();
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${TIER_COLOURS[tier] ?? "bg-gray-100 text-gray-700"}`}>
-      {tier}
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${TIER_COLOURS[key] ?? "bg-gray-100 text-gray-700"}`}>
+      {cap(key)}
     </span>
   );
 }
@@ -228,7 +234,10 @@ export default function DataProtectionClient({
   const withLaw = countries.filter((c) => c.has_dp_law).length;
   const withAuthority = countries.filter((c) => c.authority_name).length;
   const tierCounts = maturity.reduce((acc, m) => {
-    if (m.tier) acc[m.tier] = (acc[m.tier] || 0) + 1;
+    if (m.tier) {
+      const key = m.tier.toLowerCase();
+      acc[key] = (acc[key] || 0) + 1;
+    }
     return acc;
   }, {} as Record<string, number>);
 
@@ -309,7 +318,7 @@ export default function DataProtectionClient({
           className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
         >
           <option value="">All tiers</option>
-          {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+          {TIERS.map(t => <option key={t} value={t}>{cap(t)}</option>)}
         </select>
         <select
           value={lawFilter}

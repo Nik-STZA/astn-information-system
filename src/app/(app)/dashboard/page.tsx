@@ -77,17 +77,19 @@ function FunnelBar({
 }
 
 function TierDot({ tier, count }: { tier: string; count: number }) {
+  const key = tier.toLowerCase();
   const colours: Record<string, string> = {
-    Leader: "bg-emerald-500",
-    Advanced: "bg-blue-500",
-    Developing: "bg-amber-500",
-    Nascent: "bg-orange-500",
-    Absent: "bg-red-500",
+    leader: "bg-emerald-500",
+    advanced: "bg-blue-500",
+    developing: "bg-amber-500",
+    nascent: "bg-orange-500",
+    absent: "bg-red-500",
   };
+  const label = key.charAt(0).toUpperCase() + key.slice(1);
   return (
     <div className="flex items-center gap-2">
-      <div className={`w-3 h-3 rounded-full ${colours[tier] ?? "bg-gray-400"}`} />
-      <span className="text-sm text-gray-600">{tier}</span>
+      <div className={`w-3 h-3 rounded-full ${colours[key] ?? "bg-gray-400"}`} />
+      <span className="text-sm text-gray-600">{label}</span>
       <span className="text-sm font-bold text-[#1A1C1E] ml-auto">{count}</span>
     </div>
   );
@@ -115,7 +117,10 @@ export default async function DashboardPage() {
   }
 
   const tierCounts = maturity.reduce((acc, m) => {
-    if (m.tier) acc[m.tier] = (acc[m.tier] || 0) + 1;
+    if (m.tier) {
+      const key = m.tier.toLowerCase();
+      acc[key] = (acc[key] || 0) + 1;
+    }
     return acc;
   }, {} as Record<string, number>);
 
@@ -169,7 +174,7 @@ export default async function DashboardPage() {
             <Link href="/data-protection" className="text-sm text-[#C5A059] hover:underline">View all</Link>
           </div>
           <div className="space-y-3 p-4 border border-gray-200 rounded-xl">
-            {["Leader", "Advanced", "Developing", "Nascent", "Absent"].map((tier) => (
+            {["leader", "advanced", "developing", "nascent", "absent"].map((tier) => (
               <TierDot key={tier} tier={tier} count={tierCounts[tier] ?? 0} />
             ))}
           </div>
