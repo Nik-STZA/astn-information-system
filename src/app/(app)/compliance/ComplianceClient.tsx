@@ -1006,12 +1006,18 @@ function ComplianceReport({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 overflow-y-auto py-8 px-4" id="compliance-report-overlay">
-      {/* Print styles — hide everything except the report */}
+      {/* Print styles — hide page chrome, show only report */}
       <style>{`
         @media print {
-          body > *:not(#__next), nav, aside, header { display: none !important; }
-          #compliance-report-overlay { position: static !important; background: none !important; padding: 0 !important; overflow: visible !important; }
-          #compliance-report-overlay > div:first-child { display: none !important; }
+          nav, aside, header, [data-topnav], [data-sidebar] { display: none !important; }
+          main { padding: 0 !important; margin: 0 !important; }
+          #compliance-report-overlay {
+            position: static !important;
+            background: none !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            z-index: auto !important;
+          }
         }
       `}</style>
 
