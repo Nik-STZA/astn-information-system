@@ -13,6 +13,30 @@ const API_BASE =
   process.env.CLOUD_RUN_API_URL ||
   "https://africastn-api-782190795609.europe-west1.run.app";
 
+/**
+ * Shared secret sent on every request so the Cloud Run API can reject callers
+ * that are not this app. CORS does not protect a publicly-reachable API — it
+ * only restricts browser cross-origin reads — so a direct/server request needs
+ * a real credential. Set CLOUD_RUN_API_KEY in Netlify env vars and in the
+ * Cloud Run service; the server must reject requests whose header does not match.
+ *
+ * Server-side only — this value must never reach the browser bundle, so it is
+ * read from a non-NEXT_PUBLIC env var and only used inside these server helpers.
+ */
+const API_KEY = process.env.CLOUD_RUN_API_KEY;
+
+/**
+ * Base headers for every API call, including the shared secret when configured.
+ * Kept as a helper so both the read and mutate wrappers stay in sync.
+ */
+function apiHeaders(extra?: HeadersInit): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+    ...extra,
+  };
+}
+
 export type ApiResponse<T> = {
   data: T | null;
   error: string | null;
@@ -29,10 +53,7 @@ export async function cloudRunFetch<T>(
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers: apiHeaders(options?.headers),
       // Revalidate every 60 seconds for server components
       next: { revalidate: 60 },
     });
@@ -63,7 +84,7 @@ export async function cloudRunMutate<T>(
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
     });
