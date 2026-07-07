@@ -545,7 +545,7 @@ export default function ComplianceClient({
   const [editingClient, setEditingClient] = useState<Client | undefined>();
   const [showActivityForm, setShowActivityForm] = useState(false);
   const [activityClientId, setActivityClientId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingId, setdeletingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   // Derived data
@@ -579,7 +579,7 @@ export default function ComplianceClient({
     return acc;
   }, {} as Record<string, number>);
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (!confirm("Delete this prospect? This cannot be undone.")) return;
     setDeletingId(id);
     startTransition(async () => {
