@@ -22,6 +22,12 @@ export type Prospect = {
   outreach_date: string | null;
   outreach_channel: string | null;
   response_date: string | null;
+  // Pipeline columns (migration 003)
+  research_status: string;
+  last_research_date: string | null;
+  document_count: number;
+  finding_count: number;
+  critical_finding_count: number;
   created_at: string;
   updated_at: string;
 };
