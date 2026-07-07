@@ -8,7 +8,7 @@ import { cloudRunFetch, cloudRunMutate } from "../cloud-run";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type Prospect = {
-  id: number;
+  id: string;  // UUID
   company_name: string;
   company_website: string | null;
   company_country: string | null;
@@ -91,7 +91,7 @@ export async function createProspect(data: Partial<Prospect>) {
   return cloudRunMutate<Prospect>("/api/compliance/prospects", "POST", data);
 }
 
-export async function updateProspect(id: number, data: Partial<Prospect>) {
+export async function updateProspect(id: string, data: Partial<Prospect>) {
   return cloudRunMutate<Prospect>(
     `/api/compliance/prospects/${id}`,
     "PUT",
@@ -99,7 +99,7 @@ export async function updateProspect(id: number, data: Partial<Prospect>) {
   );
 }
 
-export async function deleteProspect(id: number) {
+export async function deleteProspect(id: string) {
   return cloudRunMutate<{ deleted: boolean }>(
     `/api/compliance/prospects/${id}`,
     "DELETE"

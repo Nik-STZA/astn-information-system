@@ -58,7 +58,7 @@ export type ResearchStatus =
 
 export type ProspectDocument = {
   id: number;
-  prospect_id: number;
+  prospect_id: string;  // UUID
   document_type: DocumentType;
   document_title: string | null;
   source_url: string | null;
@@ -76,7 +76,7 @@ export type ProspectDocument = {
 
 export type AnalysisFinding = {
   id: number;
-  prospect_id: number;
+  prospect_id: string;  // UUID
   document_id: number | null;
   analysis_date: string;
   jurisdiction: string;
@@ -118,7 +118,7 @@ export type Recommendation = {
 
 export type ProspectAssessment = {
   id: number;
-  prospect_id: number;
+  prospect_id: string;  // UUID
   assessment_date: string;
   assessment_version: number;
   status: AssessmentStatus;
@@ -147,7 +147,7 @@ export type ProspectAssessment = {
 
 // ─── Document Fetchers ───────────────────────────────────────────────────────
 
-export async function fetchProspectDocuments(prospectId: number) {
+export async function fetchProspectDocuments(prospectId: string) {
   return cloudRunFetch<{ count: number; data: ProspectDocument[] }>(
     `/api/compliance/prospects/${prospectId}/documents`
   );
@@ -160,7 +160,7 @@ export async function fetchDocument(documentId: number) {
 }
 
 export async function createDocument(
-  prospectId: number,
+  prospectId: string,
   data: Partial<ProspectDocument>
 ) {
   return cloudRunMutate<ProspectDocument>(
@@ -191,7 +191,7 @@ export async function deleteDocument(documentId: number) {
 // ─── Analysis Fetchers ───────────────────────────────────────────────────────
 
 export async function fetchProspectAnalysis(
-  prospectId: number,
+  prospectId: string,
   filters?: { jurisdiction?: string; severity?: string; category?: string }
 ) {
   const params = new URLSearchParams();
@@ -206,7 +206,7 @@ export async function fetchProspectAnalysis(
 }
 
 export async function createAnalysisFinding(
-  prospectId: number,
+  prospectId: string,
   data: Partial<AnalysisFinding>
 ) {
   return cloudRunMutate<AnalysisFinding>(
@@ -229,7 +229,7 @@ export async function updateAnalysisFinding(
 
 // ─── Assessment Fetchers ─────────────────────────────────────────────────────
 
-export async function fetchProspectAssessments(prospectId: number) {
+export async function fetchProspectAssessments(prospectId: string) {
   return cloudRunFetch<{ count: number; data: ProspectAssessment[] }>(
     `/api/compliance/prospects/${prospectId}/assessments`
   );
@@ -242,7 +242,7 @@ export async function fetchAssessment(assessmentId: number) {
 }
 
 export async function createAssessment(
-  prospectId: number,
+  prospectId: string,
   data: Partial<ProspectAssessment>
 ) {
   return cloudRunMutate<ProspectAssessment>(
