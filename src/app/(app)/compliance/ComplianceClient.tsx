@@ -1098,7 +1098,7 @@ function ComplianceReport({
   const riskFactors: { factor: string; level: "high" | "medium" | "low"; note: string }[] = [];
 
   if (prospect.ir_registered === false) {
-    riskFactors.push({ factor: "IR registration", level: "high", note: "Not registered with Information Regulator — non-compliance with s39" });
+    riskFactors.push({ factor: "IR registration", level: "high", note: "Not registered with Information Regulator — non-compliance with s55 and IR Guidance Note" });
   } else if (prospect.ir_registered === null) {
     riskFactors.push({ factor: "IR registration", level: "medium", note: "Registration status unknown — verification required" });
   } else {
@@ -1170,8 +1170,8 @@ function ComplianceReport({
               This assessment evaluates <strong>{prospect.company_name}</strong>&apos;s compliance position under South Africa&apos;s
               Protection of Personal Information Act (POPIA). As an international {prospect.sector?.toLowerCase() ?? "technology"} company
               {prospect.sa_presence_evidence ? ` with evidence of South African data processing (${prospect.sa_presence_evidence.toLowerCase()})` : ""},
-              the company is subject to POPIA&apos;s extraterritorial provisions. Section 39 of POPIA requires non-South African
-              responsible parties to appoint an Information Officer registered with the Information Regulator.
+              the company is subject to POPIA's extraterritorial provisions under Section 3(1)(b)(ii). The Information
+              Regulator requires non-South African responsible parties to appoint a local Information Officer.
             </p>
           </section>
 
@@ -1181,7 +1181,7 @@ function ComplianceReport({
             <div className="space-y-2">
               {riskFactors.map((r, i) => (
                 <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium shrink-0 mt-0.5 ${riskColour[r.level]}`}>
+                  <span className={`inline-block px-2 rounded text-xs font-medium shrink-0 ${riskColour[r.level]}`} style={{ lineHeight: "20px", height: "20px", marginTop: "1px" }}>
                     {r.level}
                   </span>
                   <div>
@@ -1201,7 +1201,7 @@ function ComplianceReport({
               </h2>
               <div className="grid grid-cols-3 gap-4 mb-4">
                 <div className="p-3 rounded-lg border border-gray-200 text-center">
-                  <div className={`inline-block px-3 py-1 rounded-full text-sm font-bold border ${tierColour(country.tier)}`}>
+                  <div className={`inline-block px-3 rounded-full text-sm font-bold border ${tierColour(country.tier)}`} style={{ lineHeight: "28px", height: "28px" }}>
                     {country.tier ?? "—"}
                   </div>
                   <div className="text-xs text-gray-500 mt-2">DPMI tier</div>
@@ -1285,19 +1285,19 @@ function ComplianceReport({
             </h2>
             <div className="space-y-2 text-sm text-gray-700">
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">1</span>
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>1</span>
                 <span><strong>Gap assessment:</strong> Full review of current data processing activities involving South African personal information.</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">2</span>
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>2</span>
                 <span><strong>IR registration:</strong> Appoint a POPIA representative and register with the Information Regulator.</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">3</span>
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>3</span>
                 <span><strong>Policy alignment:</strong> Update privacy policies, data processing agreements, and cross-border transfer mechanisms.</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs flex items-center justify-center shrink-0 mt-0.5">4</span>
+                <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>4</span>
                 <span><strong>Ongoing compliance:</strong> Establish breach notification procedures and data subject request handling processes.</span>
               </div>
             </div>
