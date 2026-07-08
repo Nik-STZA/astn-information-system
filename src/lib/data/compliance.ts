@@ -28,6 +28,12 @@ export type Prospect = {
   document_count: number;
   finding_count: number;
   critical_finding_count: number;
+  // Document/URL fields for agent review (migration 005)
+  privacy_policy_url: string | null;
+  terms_url: string | null;
+  linkedin_url: string | null;
+  app_store_url: string | null;
+  other_urls: string | null;
   created_at: string;
   updated_at: string;
 };

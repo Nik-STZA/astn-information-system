@@ -25,6 +25,11 @@ export async function addProspect(formData: FormData) {
     priority: (formData.get("priority") as string) || "medium",
     estimated_tier: (formData.get("estimated_tier") as string) || null,
     notes: (formData.get("notes") as string) || null,
+    privacy_policy_url: (formData.get("privacy_policy_url") as string) || null,
+    terms_url: (formData.get("terms_url") as string) || null,
+    linkedin_url: (formData.get("linkedin_url") as string) || null,
+    app_store_url: (formData.get("app_store_url") as string) || null,
+    other_urls: (formData.get("other_urls") as string) || null,
   };
 
   const res = await createProspect(data);
@@ -38,6 +43,7 @@ export async function editProspect(id: string, formData: FormData) {
     "company_name", "company_website", "company_country", "sector",
     "sa_presence_evidence", "outreach_status", "priority", "estimated_tier",
     "notes", "outreach_date", "outreach_channel", "response_date",
+    "privacy_policy_url", "terms_url", "linkedin_url", "app_store_url", "other_urls",
   ];
   for (const f of fields) {
     const v = formData.get(f);

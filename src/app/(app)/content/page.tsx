@@ -4,6 +4,7 @@
  */
 
 import { fetchEditions, type Edition } from "@/lib/data/content";
+import Link from "next/link";
 
 const STATUS_COLOURS: Record<string, string> = {
   planned: "bg-gray-100 text-gray-700",
@@ -80,7 +81,10 @@ export default async function ContentPage() {
 
 function EditionCard({ edition }: { edition: Edition }) {
   return (
-    <div className="border border-gray-200 rounded-lg p-4 flex flex-col justify-between">
+    <Link
+      href={`/content/${edition.id}`}
+      className="border border-gray-200 rounded-lg p-4 flex flex-col justify-between hover:border-[#C5A059] hover:shadow-sm transition-all cursor-pointer group"
+    >
       <div>
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400 font-medium">
@@ -92,7 +96,7 @@ function EditionCard({ edition }: { edition: Edition }) {
             {edition.status}
           </span>
         </div>
-        <h3 className="font-semibold text-[#1A1C1E] text-sm leading-tight">
+        <h3 className="font-semibold text-[#1A1C1E] text-sm leading-tight group-hover:text-[#C5A059] transition-colors">
           {edition.title}
         </h3>
         {edition.subtitle && (
@@ -103,13 +107,18 @@ function EditionCard({ edition }: { edition: Edition }) {
         <span className="text-xs text-gray-400">
           {edition.country_name ?? "—"}
         </span>
-        {edition.word_count != null && (
-          <span className="text-xs text-gray-400">
-            {edition.word_count.toLocaleString()} words
+        <div className="flex items-center gap-2">
+          {edition.word_count != null && (
+            <span className="text-xs text-gray-400">
+              {edition.word_count.toLocaleString()} words
+            </span>
+          )}
+          <span className="text-xs text-[#C5A059] opacity-0 group-hover:opacity-100 transition-opacity">
+            View →
           </span>
-        )}
+        </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

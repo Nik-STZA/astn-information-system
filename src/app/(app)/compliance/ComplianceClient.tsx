@@ -212,6 +212,29 @@ function ProspectForm({
       <FormField label="SA presence evidence">
         <input name="sa_presence_evidence" defaultValue={prospect?.sa_presence_evidence ?? ""} className={inputClass} placeholder="e.g. App available on SA App Store" />
       </FormField>
+
+      {/* Document / URL fields for agent review */}
+      <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Documents &amp; URLs for review</div>
+        <FormField label="Privacy policy URL">
+          <input name="privacy_policy_url" type="url" defaultValue={prospect?.privacy_policy_url ?? ""} className={inputClass} placeholder="https://example.com/privacy" />
+        </FormField>
+        <FormField label="Terms of service URL">
+          <input name="terms_url" type="url" defaultValue={prospect?.terms_url ?? ""} className={inputClass} placeholder="https://example.com/terms" />
+        </FormField>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="LinkedIn URL">
+            <input name="linkedin_url" type="url" defaultValue={prospect?.linkedin_url ?? ""} className={inputClass} placeholder="https://linkedin.com/company/..." />
+          </FormField>
+          <FormField label="App Store / Play Store URL">
+            <input name="app_store_url" type="url" defaultValue={prospect?.app_store_url ?? ""} className={inputClass} placeholder="https://apps.apple.com/..." />
+          </FormField>
+        </div>
+        <FormField label="Other review URLs (one per line)">
+          <textarea name="other_urls" rows={2} defaultValue={prospect?.other_urls ?? ""} className={inputClass} placeholder="Paste additional URLs for compliance review" />
+        </FormField>
+      </div>
+
       <FormField label="Notes">
         <textarea name="notes" rows={3} defaultValue={prospect?.notes ?? ""} className={inputClass} />
       </FormField>
@@ -301,6 +324,29 @@ function ProspectDetail({
             <div>
               <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">SA presence evidence</h4>
               <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">{prospect.sa_presence_evidence}</p>
+            </div>
+          )}
+
+          {/* Documents & URLs */}
+          {(prospect.privacy_policy_url || prospect.terms_url || prospect.linkedin_url || prospect.app_store_url || prospect.other_urls) && (
+            <div>
+              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Documents &amp; URLs</h4>
+              <div className="space-y-2">
+                <DetailRow label="Privacy policy" value={prospect.privacy_policy_url} link />
+                <DetailRow label="Terms of service" value={prospect.terms_url} link />
+                <DetailRow label="LinkedIn" value={prospect.linkedin_url} link />
+                <DetailRow label="App Store" value={prospect.app_store_url} link />
+                {prospect.other_urls && (
+                  <div>
+                    <span className="text-xs text-gray-400">Other URLs</span>
+                    <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2 mt-1 space-y-1">
+                      {prospect.other_urls.split("\n").filter(Boolean).map((url, i) => (
+                        <a key={i} href={url.trim()} target="_blank" rel="noopener noreferrer" className="block text-[#C5A059] hover:underline truncate">{url.trim()}</a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -966,9 +1012,77 @@ function ComplianceReport({
   const reportRef = useRef<HTMLDivElement>(null);
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
-  const handlePrint = useCallback(() => {
-    window.print();
-  }, []);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!reportRef.current || exporting) return;
+    setExporting(true);
+    try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+
+      const el = reportRef.current;
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const pxWidth = canvas.width;
+      const pxHeight = canvas.height;
+
+      // A4 dimensions in mm
+      const pdfWidth = 210;
+      const pdfHeight = 297;
+      const contentWidth = pdfWidth - 20; // 10mm margins
+      const scaledHeight = (pxHeight * contentWidth) / pxWidth;
+
+      const pdf = new jsPDF("p", "mm", "a4");
+
+      // Paginate if content exceeds one page
+      let yOffset = 0;
+      const pageContentHeight = pdfHeight - 20; // 10mm top+bottom margin
+      let page = 0;
+
+      while (yOffset < scaledHeight) {
+        if (page > 0) pdf.addPage();
+        // Source coordinates in canvas pixels
+        const srcY = (yOffset / scaledHeight) * pxHeight;
+        const srcH = Math.min(
+          (pageContentHeight / scaledHeight) * pxHeight,
+          pxHeight - srcY
+        );
+        const destH = (srcH / pxHeight) * scaledHeight;
+
+        // Create a sub-canvas for this page
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = pxWidth;
+        pageCanvas.height = srcH;
+        const ctx = pageCanvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(canvas, 0, srcY, pxWidth, srcH, 0, 0, pxWidth, srcH);
+          const pageImg = pageCanvas.toDataURL("image/png");
+          pdf.addImage(pageImg, "PNG", 10, 10, contentWidth, destH);
+        }
+
+        yOffset += pageContentHeight;
+        page++;
+      }
+
+      const filename = `POPIA-Assessment-${prospect.company_name.replace(/[^a-zA-Z0-9]/g, "-")}-${today.replace(/\s/g, "-")}.pdf`;
+      pdf.save(filename);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      // Fallback to print
+      window.print();
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, prospect.company_name, today]);
 
   const tierColour = (tier: string | null) => {
     const t = tier?.toLowerCase();
@@ -1023,7 +1137,9 @@ function ComplianceReport({
 
       {/* Print-hidden controls */}
       <div className="fixed top-4 right-4 z-[70] flex gap-2 print:hidden">
-        <button onClick={handlePrint} className={btnPrimary}>Download PDF</button>
+        <button onClick={handleExportPDF} disabled={exporting} className={btnPrimary}>
+          {exporting ? "Generating PDF..." : "Download PDF"}
+        </button>
         <button onClick={onClose} className={btnSecondary}>Close</button>
       </div>
 
