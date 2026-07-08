@@ -1024,7 +1024,8 @@ function ComplianceReport({
       ]);
 
       const el = reportRef.current;
-      const canvas = await html2canvas(el, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const canvas = await (html2canvas as any)(el, {
         scale: 2,
         useCORS: true,
         logging: false,
