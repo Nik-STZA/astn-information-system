@@ -193,12 +193,12 @@ function CountryDetail({
                         {e.action_date ? new Date(e.action_date).toLocaleDateString("en-GB") : "—"}
                       </div>
                     </div>
-                    {e.entity_involved && (
-                      <div className="text-xs text-gray-500 mt-1">Entity: {e.entity_involved}</div>
+                    {e.target_entity && (
+                      <div className="text-xs text-gray-500 mt-1">Entity: {e.target_entity}</div>
                     )}
-                    {e.penalty_amount != null && (
+                    {e.fine_amount != null && (
                       <div className="text-xs font-medium text-[#C5A059] mt-1">
-                        Penalty: {e.penalty_currency} {e.penalty_amount.toLocaleString()}
+                        Penalty: {e.fine_currency} {Number(e.fine_amount).toLocaleString()}
                       </div>
                     )}
                   </div>
@@ -415,10 +415,10 @@ export default function DataProtectionClient({
                     {e.action_date ? new Date(e.action_date).toLocaleDateString("en-GB") : "—"}
                   </div>
                 </div>
-                {e.entity_involved && <div className="text-xs text-gray-500 mt-2">Entity: {e.entity_involved}</div>}
-                {e.penalty_amount != null && (
+                {e.target_entity && <div className="text-xs text-gray-500 mt-2">Entity: {e.target_entity}</div>}
+                {e.fine_amount != null && (
                   <div className="text-xs font-medium text-[#C5A059] mt-1">
-                    Penalty: {e.penalty_currency} {e.penalty_amount.toLocaleString()}
+                    Penalty: {e.fine_currency} {Number(e.fine_amount).toLocaleString()}
                   </div>
                 )}
               </div>

@@ -1208,7 +1208,7 @@ function ComplianceReport({
                 </div>
                 <div className="p-3 rounded-lg border border-gray-200 text-center">
                   <div className="text-xl font-bold text-[#1A1C1E]">{country.overall_score != null ? Number(country.overall_score).toFixed(1) : "—"}</div>
-                  <div className="text-xs text-gray-500 mt-1">Overall score /10</div>
+                  <div className="text-xs text-gray-500 mt-1">DPMI score /10</div>
                 </div>
                 <div className="p-3 rounded-lg border border-gray-200 text-center">
                   <div className="text-sm font-medium text-[#1A1C1E]">{country.law_name ?? "POPIA"}</div>
@@ -1218,9 +1218,9 @@ function ComplianceReport({
 
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <DetailRow label="Regulator" value={country.authority_name} />
-                <DetailRow label="Breach notification" value={country.breach_notification_required ? `Yes (${country.breach_notification_hours ?? "ASAP"}h)` : "No"} />
-                <DetailRow label="Transfer mechanism" value={country.data_transfer_mechanism} />
-                <DetailRow label="Max penalty" value={country.max_penalty_description} />
+                <DetailRow label="Breach notification" value={country.breach_notification_detail ? `Yes — ${country.breach_notification_detail}` : (country.breach_notification_hours ? `Yes (${country.breach_notification_hours}h)` : "No")} />
+                <DetailRow label="Transfer mechanism" value={country.transfer_mechanisms} />
+                <DetailRow label="Max penalty" value={country.max_fine_description} />
               </div>
             </section>
           )}
@@ -1245,7 +1245,7 @@ function ComplianceReport({
                     {saEnforcement.map((e) => (
                       <tr key={e.id} className="border-t border-gray-100">
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.action_date?.slice(0, 10) ?? "—"}</td>
-                        <td className="px-3 py-2 text-gray-700 font-medium">{e.entity_involved ?? "—"}</td>
+                        <td className="px-3 py-2 text-gray-700 font-medium">{e.target_entity ?? "—"}</td>
                         <td className="px-3 py-2 text-gray-600">{e.action_type}</td>
                         <td className="px-3 py-2 text-gray-600">{e.description.length > 80 ? `${e.description.slice(0, 80)}...` : e.description}</td>
                       </tr>
@@ -1268,7 +1268,7 @@ function ComplianceReport({
                 { title: "Cross-border transfers", desc: "s72 requires adequate protection in recipient country, binding corporate rules, or data subject consent." },
                 { title: "Data subject rights", desc: "Right to access, correction, deletion of personal information. Respond within 30 days of request." },
                 { title: "Breach notification", desc: "Notify IR and affected data subjects as soon as reasonably possible after becoming aware of a breach." },
-                { title: "Special categories", desc: "Biometric data, children&apos;s data, and health data require explicit consent and additional safeguards." },
+                { title: "Special categories", desc: "Biometric data, children’s data, and health data require explicit consent and additional safeguards." },
               ].map((item, i) => (
                 <div key={i} className="p-3 bg-gray-50 rounded-lg">
                   <div className="font-semibold text-[#1A1C1E] mb-1">{item.title}</div>
@@ -1314,7 +1314,9 @@ function ComplianceReport({
             <p className="text-[10px] text-gray-400 mt-2 leading-relaxed">
               This document is for informational purposes only and does not constitute legal advice.
               AfricanSTN recommends engaging qualified legal counsel for jurisdiction-specific compliance guidance.
-              Data sourced from AfricanSTN Data Protection Maturity Index (DPMI) and public regulatory records.
+              The DPMI (Data Protection Maturity Index) is AfricanSTN&apos;s proprietary scoring framework that
+              rates African jurisdictions across regulatory maturity, enforcement activity, and cross-border complexity.
+              Data sourced from DLA Piper, Bowmans, and public regulatory records.
             </p>
           </div>
         </div>

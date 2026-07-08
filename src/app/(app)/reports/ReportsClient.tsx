@@ -140,18 +140,18 @@ export default function ReportsClient({
     ];
     const rows = countries.map((c) => [
       c.country_name,
-      c.country_code,
-      c.region,
+      c.iso_code,
+      "",
       c.has_dp_law ? "Yes" : "No",
       c.law_name ?? "",
       c.law_status ?? "",
       c.law_year?.toString() ?? "",
       c.authority_name ?? "",
       c.authority_website ?? "",
-      c.data_transfer_mechanism ?? "",
-      c.breach_notification_required ? "Yes" : "No",
+      c.transfer_mechanisms ?? "",
+      c.breach_notification_detail ? "Yes" : "No",
       c.breach_notification_hours?.toString() ?? "",
-      c.max_penalty_description ?? "",
+      c.max_fine_description ?? "",
       c.overall_score?.toString() ?? "",
       c.tier ?? "",
     ]);
