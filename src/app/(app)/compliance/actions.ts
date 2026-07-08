@@ -19,11 +19,11 @@ export async function addProspect(formData: FormData) {
     company_country: (formData.get("company_country") as string) || null,
     sector: (formData.get("sector") as string) || null,
     sa_presence_evidence:
-      (formData.get("sa_presence_evidhence") as string) || null,
+      (formData.get("sa_presence_evidence") as string) || null,
     ir_registered: formData.get("ir_registered") === "true" ? true : formData.get("ir_registered") === "false" ? false : null,
     outreach_status: (formData.get("outreach_status") as string) || "identified",
     priority: (formData.get("priority") as string) || "medium",
-    estimated_tier: (formData.get("estimated_tier") as string) || null,h
+    estimated_tier: (formData.get("estimated_tier") as string) || null,
     notes: (formData.get("notes") as string) || null,
   };
 
