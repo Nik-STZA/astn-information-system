@@ -1012,78 +1012,9 @@ function ComplianceReport({
   const reportRef = useRef<HTMLDivElement>(null);
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
-  const [exporting, setExporting] = useState(false);
-
-  const handleExportPDF = useCallback(async () => {
-    if (!reportRef.current || exporting) return;
-    setExporting(true);
-    try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-
-      const el = reportRef.current;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = await (html2canvas as any)(el, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-      });
-
-      const imgData = canvas.toDataURL("image/png");
-      const pxWidth = canvas.width;
-      const pxHeight = canvas.height;
-
-      // A4 dimensions in mm
-      const pdfWidth = 210;
-      const pdfHeight = 297;
-      const contentWidth = pdfWidth - 20; // 10mm margins
-      const scaledHeight = (pxHeight * contentWidth) / pxWidth;
-
-      const pdf = new jsPDF("p", "mm", "a4");
-
-      // Paginate if content exceeds one page
-      let yOffset = 0;
-      const pageContentHeight = pdfHeight - 20; // 10mm top+bottom margin
-      let page = 0;
-
-      while (yOffset < scaledHeight) {
-        if (page > 0) pdf.addPage();
-        // Source coordinates in canvas pixels
-        const srcY = (yOffset / scaledHeight) * pxHeight;
-        const srcH = Math.min(
-          (pageContentHeight / scaledHeight) * pxHeight,
-          pxHeight - srcY
-        );
-        const destH = (srcH / pxHeight) * scaledHeight;
-
-        // Create a sub-canvas for this page
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = pxWidth;
-        pageCanvas.height = srcH;
-        const ctx = pageCanvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(canvas, 0, srcY, pxWidth, srcH, 0, 0, pxWidth, srcH);
-          const pageImg = pageCanvas.toDataURL("image/png");
-          pdf.addImage(pageImg, "PNG", 10, 10, contentWidth, destH);
-        }
-
-        yOffset += pageContentHeight;
-        page++;
-      }
-
-      const filename = `POPIA-Assessment-${prospect.company_name.replace(/[^a-zA-Z0-9]/g, "-")}-${today.replace(/\s/g, "-")}.pdf`;
-      pdf.save(filename);
-    } catch (err) {
-      console.error("PDF export failed:", err);
-      // Fallback to print
-      window.print();
-    } finally {
-      setExporting(false);
-    }
-  }, [exporting, prospect.company_name, today]);
+  const handleExportPDF = useCallback(() => {
+    window.print();
+  }, []);
 
   const tierColour = (tier: string | null) => {
     const t = tier?.toLowerCase();
@@ -1121,43 +1052,145 @@ function ComplianceReport({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 overflow-y-auto py-8 px-4" id="compliance-report-overlay">
-      {/* Print styles — hide page chrome, show only report */}
+      {/* Print styles — proper paged document with running header/footer */}
       <style>{`
         @media print {
-          nav, aside, header, [data-topnav], [data-sidebar] { display: none !important; }
-          main { padding: 0 !important; margin: 0 !important; }
+          /* Page setup */
+          @page {
+            size: A4;
+            margin: 20mm 18mm 25mm 18mm;
+          }
+
+          /* Hide everything except the report */
+          body > *:not(#compliance-report-overlay),
+          nav, aside, header, [data-topnav], [data-sidebar],
+          .print\\:hidden { display: none !important; }
+
+          body { background: white !important; }
+
+          /* Reset overlay to normal flow */
           #compliance-report-overlay {
             position: static !important;
             background: none !important;
             padding: 0 !important;
             overflow: visible !important;
             z-index: auto !important;
+            display: block !important;
           }
+
+          /* Report container — full width, no shadow */
+          #compliance-report-content {
+            max-width: none !important;
+            width: 100% !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+
+          /* Running header — position:fixed repeats on every printed page in Chrome */
+          .print-running-header {
+            display: flex !important;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 0 0 4pt 0;
+            border-bottom: 1pt solid #D4C5A9;
+            font-size: 7pt;
+            color: #8E9196;
+            justify-content: space-between;
+            z-index: 1000;
+          }
+
+          /* Running footer — repeats on every printed page */
+          .print-running-footer {
+            display: flex !important;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 4pt 0 0 0;
+            border-top: 1pt solid #D4C5A9;
+            font-size: 7pt;
+            color: #8E9196;
+            justify-content: space-between;
+            z-index: 1000;
+          }
+
+          /* Print header — lighter version, no full-bleed dark band */
+          .report-header-print {
+            background: #F5F0E8 !important;
+            color: #1A1C1E !important;
+            border-bottom: 2pt solid #C5A059;
+            border-radius: 0 !important;
+          }
+          .report-header-print .header-subtitle { color: #8E9196 !important; }
+          .report-header-print .header-brand { color: #C5A059 !important; }
+          .report-header-print .header-title { color: #1A1C1E !important; }
+          .report-header-print .header-label { color: #1A1C1E !important; }
+
+          /* Pagination — avoid breaks inside sections, cards, rows */
+          section { break-inside: avoid; }
+          .risk-card, .obligation-card, .step-card, .landscape-card {
+            break-inside: avoid;
+          }
+          tr { break-inside: avoid; }
+          thead { display: table-header-group; }
+
+          /* Un-truncate all text */
+          .truncate, [class*="truncate"] {
+            overflow: visible !important;
+            text-overflow: unset !important;
+            white-space: normal !important;
+          }
+
+          /* Ensure enforcement descriptions show fully */
+          .enforcement-desc {
+            overflow: visible !important;
+            white-space: normal !important;
+          }
+
+          /* Keep disclaimer on same page as footer content */
+          .report-disclaimer { break-inside: avoid; }
+        }
+
+        /* Hide running header/footer on screen */
+        @media screen {
+          .print-running-header, .print-running-footer { display: none !important; }
         }
       `}</style>
 
       {/* Print-hidden controls */}
       <div className="fixed top-4 right-4 z-[70] flex gap-2 print:hidden">
-        <button onClick={handleExportPDF} disabled={exporting} className={btnPrimary}>
-          {exporting ? "Generating PDF..." : "Download PDF"}
-        </button>
+        <button onClick={handleExportPDF} className={btnPrimary}>Download PDF</button>
         <button onClick={onClose} className={btnSecondary}>Close</button>
       </div>
 
+      {/* Running header — repeats on every printed page via position:fixed */}
+      <div className="print-running-header" style={{ fontFamily: "Calibri, sans-serif" }}>
+        <span><strong style={{ color: "#C5A059" }}>AfricanSTN</strong> &middot; POPIA Compliance Assessment &middot; {prospect.company_name}</span>
+        <span>Confidential</span>
+      </div>
+
+      {/* Running footer — repeats on every printed page */}
+      <div className="print-running-footer" style={{ fontFamily: "Calibri, sans-serif" }}>
+        <span>Prepared {today} &middot; AfricanSTN POPIA Representative Services</span>
+        <span>africastn.com</span>
+      </div>
+
       {/* Report */}
-      <div ref={reportRef} className="bg-white rounded-lg shadow-2xl w-full max-w-3xl print:shadow-none print:max-w-none print:rounded-none" style={{ fontFamily: "Calibri, sans-serif" }}>
+      <div ref={reportRef} id="compliance-report-content" className="bg-white rounded-lg shadow-2xl w-full max-w-3xl print:shadow-none print:max-w-none print:rounded-none" style={{ fontFamily: "Calibri, sans-serif" }}>
         {/* Header */}
-        <div className="bg-[#1A1C1E] text-white px-8 py-6 rounded-t-lg print:rounded-none">
+        <div className="report-header-print bg-[#1A1C1E] text-white px-8 py-6 rounded-t-lg print:rounded-none">
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-xs uppercase tracking-widest text-[#C5A059] mb-1">POPIA Compliance Assessment</div>
-              <h1 className="text-2xl font-bold">{prospect.company_name}</h1>
-              <div className="text-sm text-gray-400 mt-1">{prospect.sector ?? "Sector unclassified"} &middot; {prospect.company_country ?? "Country unknown"}</div>
+              <div className="header-label text-xs uppercase tracking-widest text-[#C5A059] mb-1">POPIA Compliance Assessment</div>
+              <h1 className="header-title text-2xl font-bold">{prospect.company_name}</h1>
+              <div className="header-subtitle text-sm text-gray-400 mt-1">{prospect.sector ?? "Sector unclassified"} &middot; {prospect.company_country ?? "Country unknown"}</div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-gray-400">Prepared by</div>
-              <div className="text-sm font-medium text-[#C5A059]">AfricanSTN</div>
-              <div className="text-xs text-gray-400 mt-1">{today}</div>
+              <div className="header-subtitle text-xs text-gray-400">Prepared by</div>
+              <div className="header-brand text-sm font-medium text-[#C5A059]">AfricanSTN</div>
+              <div className="header-subtitle text-xs text-gray-400 mt-1">{today}</div>
             </div>
           </div>
         </div>
@@ -1180,7 +1213,7 @@ function ComplianceReport({
             <h2 className="text-sm font-bold text-[#1A1C1E] uppercase tracking-wide border-b border-gray-200 pb-1 mb-3">Risk assessment</h2>
             <div className="space-y-2">
               {riskFactors.map((r, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
+                <div key={i} className="risk-card flex items-start gap-3 p-3 rounded-lg bg-gray-50">
                   <span className={`inline-block px-2 rounded text-xs font-medium shrink-0 ${riskColour[r.level]}`} style={{ lineHeight: "20px", height: "20px", marginTop: "1px" }}>
                     {r.level}
                   </span>
@@ -1200,17 +1233,17 @@ function ComplianceReport({
                 South Africa — regulatory landscape
               </h2>
               <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="p-3 rounded-lg border border-gray-200 text-center">
+                <div className="landscape-card p-3 rounded-lg border border-gray-200 text-center">
                   <div className={`inline-block px-3 rounded-full text-sm font-bold border ${tierColour(country.tier)}`} style={{ lineHeight: "28px", height: "28px" }}>
                     {country.tier ?? "—"}
                   </div>
                   <div className="text-xs text-gray-500 mt-2">DPMI tier</div>
                 </div>
-                <div className="p-3 rounded-lg border border-gray-200 text-center">
+                <div className="landscape-card p-3 rounded-lg border border-gray-200 text-center">
                   <div className="text-xl font-bold text-[#1A1C1E]">{country.overall_score != null ? Number(country.overall_score).toFixed(1) : "—"}</div>
                   <div className="text-xs text-gray-500 mt-1">DPMI score /10</div>
                 </div>
-                <div className="p-3 rounded-lg border border-gray-200 text-center">
+                <div className="landscape-card p-3 rounded-lg border border-gray-200 text-center">
                   <div className="text-sm font-medium text-[#1A1C1E]">{country.law_name ?? "POPIA"}</div>
                   <div className="text-xs text-gray-500 mt-1">{country.law_year ?? "2013"}</div>
                 </div>
@@ -1247,7 +1280,7 @@ function ComplianceReport({
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.action_date?.slice(0, 10) ?? "—"}</td>
                         <td className="px-3 py-2 text-gray-700 font-medium">{e.target_entity ?? "—"}</td>
                         <td className="px-3 py-2 text-gray-600">{e.action_type}</td>
-                        <td className="px-3 py-2 text-gray-600">{e.description.length > 80 ? `${e.description.slice(0, 80)}...` : e.description}</td>
+                        <td className="enforcement-desc px-3 py-2 text-gray-600">{e.description}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1270,7 +1303,7 @@ function ComplianceReport({
                 { title: "Breach notification", desc: "Notify IR and affected data subjects as soon as reasonably possible after becoming aware of a breach." },
                 { title: "Special categories", desc: "Biometric data, children’s data, and health data require explicit consent and additional safeguards." },
               ].map((item, i) => (
-                <div key={i} className="p-3 bg-gray-50 rounded-lg">
+                <div key={i} className="obligation-card p-3 bg-gray-50 rounded-lg">
                   <div className="font-semibold text-[#1A1C1E] mb-1">{item.title}</div>
                   <div className="text-gray-600 leading-relaxed">{item.desc}</div>
                 </div>
@@ -1284,19 +1317,19 @@ function ComplianceReport({
               Recommended next steps
             </h2>
             <div className="space-y-2 text-sm text-gray-700">
-              <div className="flex items-start gap-3">
+              <div className="step-card flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>1</span>
                 <span><strong>Gap assessment:</strong> Full review of current data processing activities involving South African personal information.</span>
               </div>
-              <div className="flex items-start gap-3">
+              <div className="step-card flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>2</span>
                 <span><strong>IR registration:</strong> Appoint a POPIA representative and register with the Information Regulator.</span>
               </div>
-              <div className="flex items-start gap-3">
+              <div className="step-card flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>3</span>
                 <span><strong>Policy alignment:</strong> Update privacy policies, data processing agreements, and cross-border transfer mechanisms.</span>
               </div>
-              <div className="flex items-start gap-3">
+              <div className="step-card flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-[#C5A059] text-white text-xs shrink-0" style={{ lineHeight: "24px", textAlign: "center", display: "inline-block" }}>4</span>
                 <span><strong>Ongoing compliance:</strong> Establish breach notification procedures and data subject request handling processes.</span>
               </div>
@@ -1304,7 +1337,7 @@ function ComplianceReport({
           </section>
 
           {/* Footer */}
-          <div className="border-t border-gray-200 pt-4 mt-6">
+          <div className="report-disclaimer border-t border-gray-200 pt-4 mt-6">
             <div className="flex items-center justify-between text-xs text-gray-400">
               <div>
                 <span className="font-medium text-[#C5A059]">AfricanSTN</span> &middot; POPIA Representative Services
