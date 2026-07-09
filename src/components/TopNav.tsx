@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   // OS modules
   { href: "/data-protection", label: "Data protection" },
   { href: "/compliance", label: "Compliance" },
+  { href: "/clients", label: "Clients" },
   { href: "/content", label: "Content" },
   { href: "/pipeline", label: "Pipeline" },
 ];
