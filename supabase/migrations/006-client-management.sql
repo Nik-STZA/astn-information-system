@@ -9,7 +9,7 @@
 -- Client engagements (the service agreement linking a client to a service tier)
 CREATE TABLE IF NOT EXISTS client_engagements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id INTEGER NOT NULL REFERENCES compliance_clients(id),
+  client_id UUID NOT NULL REFERENCES compliance_clients(id),
   service_tier TEXT NOT NULL CHECK (service_tier IN ('representative', 'authorised_io')),
   engagement_status TEXT NOT NULL DEFAULT 'draft'
     CHECK (engagement_status IN ('draft', 'sent', 'signed', 'active', 'suspended', 'terminated')),
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS client_engagements (
 -- Per IR guidance: representative = IO, client = DIO
 CREATE TABLE IF NOT EXISTS io_registrations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id INTEGER NOT NULL REFERENCES compliance_clients(id),
+  client_id UUID NOT NULL REFERENCES compliance_clients(id),
   registration_type TEXT NOT NULL
     CHECK (registration_type IN ('information_officer', 'deputy_information_officer')),
   registrant_name TEXT NOT NULL,
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS io_registrations (
 -- Breach / security compromise incidents
 CREATE TABLE IF NOT EXISTS breach_incidents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id INTEGER NOT NULL REFERENCES compliance_clients(id),
+  client_id UUID NOT NULL REFERENCES compliance_clients(id),
   incident_date TIMESTAMPTZ NOT NULL,
   reported_to_ir BOOLEAN DEFAULT FALSE,
   ir_report_date TIMESTAMPTZ,
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS breach_incidents (
 -- Compliance tasks (IO duties performed for Tier 2 clients)
 CREATE TABLE IF NOT EXISTS compliance_tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id INTEGER NOT NULL REFERENCES compliance_clients(id),
+  client_id UUID NOT NULL REFERENCES compliance_clients(id),
   task_type TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS compliance_tasks (
 -- Regulatory correspondence log
 CREATE TABLE IF NOT EXISTS regulatory_correspondence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id INTEGER REFERENCES compliance_clients(id),
+  client_id UUID REFERENCES compliance_clients(id),
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
   correspondent TEXT NOT NULL DEFAULT 'Information Regulator',
   subject TEXT NOT NULL,
