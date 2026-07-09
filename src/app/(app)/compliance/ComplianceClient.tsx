@@ -1061,12 +1061,24 @@ function ComplianceReport({
             margin: 20mm 18mm 25mm 18mm;
           }
 
-          /* Hide everything except the report */
-          body > *:not(#compliance-report-overlay),
+          /* Hide nav and non-report chrome */
           nav, aside, header, [data-topnav], [data-sidebar],
           .print\\:hidden { display: none !important; }
 
-          body { background: white !important; }
+          /* Reset all ancestor wrappers so the report flows naturally */
+          body,
+          body > div,
+          body > div > div,
+          body > div > div > main {
+            display: block !important;
+            position: static !important;
+            overflow: visible !important;
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: none !important;
+            min-height: auto !important;
+          }
 
           /* Reset overlay to normal flow */
           #compliance-report-overlay {
@@ -1076,6 +1088,7 @@ function ComplianceReport({
             overflow: visible !important;
             z-index: auto !important;
             display: block !important;
+            inset: auto !important;
           }
 
           /* Report container — full width, no shadow */
