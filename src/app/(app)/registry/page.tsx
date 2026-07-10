@@ -8,8 +8,11 @@ import {
   confidenceBand,
   fetchFilterOptions,
   fetchOrganizations,
+  isRegistrySortField,
   type ConfidenceBand,
   type RegistryFilters as RegistryFilterValues,
+  type RegistrySortField,
+  type SortDir,
 } from "@/lib/data/registry";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +39,7 @@ function readPage(value: string | string[] | undefined): number {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
-/* ── Confidence pill colours ─────────────────────────────────────── */
+/* -- Confidence pill colours ---------------------------------------- */
 
 const PILL_META: Record<string, { bg: string; color: string; border: string }> = {
   High:        { bg: "#E7F1EA", color: "#2E7D32", border: "#C7E1D1" },
@@ -71,7 +74,41 @@ function ConfidencePill({ band }: { band: string | null }) {
   );
 }
 
-/* ── Page ────────────────────────────────────────────────────────── */
+/* -- Sortable column config ----------------------------------------- */
+
+const SORT_COLUMNS: Array<{ label: string; field: RegistrySortField }> = [
+  { label: "Organisation", field: "organization_name" },
+  { label: "Country",      field: "country" },
+  { label: "Sport",        field: "sport" },
+  { label: "Type",         field: "organization_type" },
+  { label: "Confidence",   field: "source_confidence" },
+];
+
+function sortIndicator(field: RegistrySortField, activeSort: RegistrySortField, activeDir: SortDir): string {
+  if (field !== activeSort) return "";
+  return activeDir === "asc" ? " ▲" : " ▼";
+}
+
+function sortHref(
+  field: RegistrySortField,
+  activeSort: RegistrySortField,
+  activeDir: SortDir,
+  searchParams: Record<string, string | string[] | undefined>,
+): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (k === "sort" || k === "dir" || k === "page") continue;
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val) params.set(k, val);
+  }
+  params.set("sort", field);
+  const nextDir = field === activeSort && activeDir === "asc" ? "desc" : "asc";
+  params.set("dir", nextDir);
+  const qs = params.toString();
+  return qs ? `/registry?${qs}` : "/registry";
+}
+
+/* -- Page ----------------------------------------------------------- */
 
 export default async function RegistryPage({ searchParams }: PageProps) {
   const filters: RegistryFilterValues = {
@@ -83,9 +120,14 @@ export default async function RegistryPage({ searchParams }: PageProps) {
   };
   const page = readPage(searchParams.page);
 
+  const sortRaw = readParam(searchParams.sort);
+  const activeSort: RegistrySortField = isRegistrySortField(sortRaw) ? sortRaw : "organization_name";
+  const dirRaw = readParam(searchParams.dir);
+  const activeDir: SortDir = dirRaw === "desc" ? "desc" : "asc";
+
   const [options, result] = await Promise.all([
     fetchFilterOptions(),
-    fetchOrganizations(filters, page, REGISTRY_PAGE_SIZE),
+    fetchOrganizations(filters, page, REGISTRY_PAGE_SIZE, { sort: activeSort, sortDir: activeDir }),
   ]);
 
   const fmt = (n: number) => n.toLocaleString("en-GB");
@@ -211,26 +253,34 @@ export default async function RegistryPage({ searchParams }: PageProps) {
                   borderBottom: "1.5px solid #E4D9C4",
                 }}
               >
-                {["Organisation", "Country", "Sport", "Type", "Confidence"].map(
-                  (h) => (
-                    <th
-                      key={h}
+                <th style={{ width: 40, padding: "13px 0 13px 18px" }} />
+                {SORT_COLUMNS.map(({ label, field }) => (
+                  <th
+                    key={field}
+                    style={{
+                      textAlign: "left",
+                      fontWeight: 700,
+                      fontSize: 10.5,
+                      lineHeight: 1,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#6E6A62",
+                      padding: "13px 18px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Link
+                      href={sortHref(field, activeSort, activeDir, searchParams)}
                       style={{
-                        textAlign: "left",
-                        fontWeight: 700,
-                        fontSize: 10.5,
-                        lineHeight: 1,
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                        color: "#6E6A62",
-                        padding: "13px 18px",
-                        whiteSpace: "nowrap",
+                        color: field === activeSort ? "#B08D3F" : "#6E6A62",
+                        textDecoration: "none",
+                        cursor: "pointer",
                       }}
                     >
-                      {h}
-                    </th>
-                  ),
-                )}
+                      {label}{sortIndicator(field, activeSort, activeDir)}
+                    </Link>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -245,6 +295,19 @@ export default async function RegistryPage({ searchParams }: PageProps) {
                     }}
                     className="hover:!bg-[#FBF6EC]"
                   >
+                    <td style={{ padding: "12px 0 12px 18px", width: 40 }}>
+                      {org.country_iso ? (
+                        <span style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden", display: "block", border: "1px solid #E4D9C4" }}>
+                          <img
+                            src={`https://flagcdn.com/w40/${org.country_iso.toLowerCase()}.png`}
+                            alt=""
+                            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                          />
+                        </span>
+                      ) : (
+                        <span style={{ width: 20, height: 20, borderRadius: "50%", display: "block", background: "#F2F0EB", border: "1px solid #E4D9C4" }} />
+                      )}
+                    </td>
                     <td
                       style={{
                         fontWeight: 600,

@@ -21,6 +21,7 @@ export type RegistryRow = {
   id: string;
   organization_name: string | null;
   country: string | null;
+  country_iso: string | null;
   sport: string | null;
   organization_type: string | null;
   source_confidence: string | null;

@@ -506,7 +506,7 @@ export default async function DashboardPage() {
         {/* Pipeline + Content */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div
-            className="card"
+            className={pipelineValue === 0 && pipelineTotal === 0 ? "card-empty" : "card"}
             style={{
               padding: 20,
               borderRadius: 12,
@@ -516,6 +516,7 @@ export default async function DashboardPage() {
           >
             <h2 style={{ fontSize: 14, margin: "0 0 14px" }}>BD pipeline</h2>
             <div
+              className={pipelineValue === 0 && pipelineTotal === 0 ? "kpi-number-empty" : ""}
               style={{
                 fontWeight: 800,
                 fontSize: 26,
@@ -537,8 +538,7 @@ export default async function DashboardPage() {
                 flex: 1,
               }}
             >
-              {pipelineTotal} opportunities &middot;{" "}
-              {pipelineValue === 0 ? "no value yet" : "total value"}
+              {pipelineTotal === 0 ? "Awaiting first opportunity" : `${pipelineTotal} opportunities · ${pipelineValue === 0 ? "no value yet" : "total value"}`}
             </div>
             <Link
               href="/pipeline"
@@ -560,7 +560,7 @@ export default async function DashboardPage() {
           </div>
 
           <div
-            className="card"
+            className={contentTotal === 0 ? "card-empty" : "card"}
             style={{
               padding: 20,
               borderRadius: 12,
@@ -570,6 +570,7 @@ export default async function DashboardPage() {
           >
             <h2 style={{ fontSize: 14, margin: "0 0 14px" }}>Content engine</h2>
             <div
+              className={contentTotal === 0 ? "kpi-number-empty" : ""}
               style={{
                 fontWeight: 800,
                 fontSize: 26,
@@ -589,8 +590,7 @@ export default async function DashboardPage() {
                 flex: 1,
               }}
             >
-              editions &middot; {contentPublished} published &middot;{" "}
-              {Number(stats.content.in_progress)} in progress
+              {contentTotal === 0 ? "Awaiting first edition" : `editions · ${contentPublished} published · ${Number(stats.content.in_progress)} in progress`}
             </div>
             <Link
               href="/content"

@@ -64,10 +64,34 @@ export async function fetchFilterOptions(): Promise<FilterOptions> {
   };
 }
 
+// Sortable column keys — matches the select list in fetchOrganizations.
+export type RegistrySortField =
+  | "organization_name"
+  | "country"
+  | "sport"
+  | "organization_type"
+  | "source_confidence";
+
+export type SortDir = "asc" | "desc";
+
+const VALID_SORT_FIELDS: readonly string[] = [
+  "organization_name",
+  "country",
+  "sport",
+  "organization_type",
+  "source_confidence",
+];
+
+export function isRegistrySortField(v: string | null): v is RegistrySortField {
+  return !!v && VALID_SORT_FIELDS.includes(v);
+}
+
 type FetchOrganizationsOpts = {
   // When true, the result is restricted to rows that don't already match the
   // High confidence band - powers the verification queue.
   verifyMode?: boolean;
+  sort?: RegistrySortField;
+  sortDir?: SortDir;
 };
 
 export async function fetchOrganizations(
@@ -81,13 +105,16 @@ export async function fetchOrganizations(
   const from = Math.max(0, (page - 1) * pageSize);
   const to = from + pageSize - 1;
 
+  const sortField = opts.sort ?? "organization_name";
+  const ascending = (opts.sortDir ?? "asc") === "asc";
+
   let query = supabase
     .from("organizations")
     .select(
-      "id, organization_name, country, sport, organization_type, source_confidence",
+      "id, organization_name, country, country_iso, sport, organization_type, source_confidence",
       { count: "exact" },
     )
-    .order("organization_name", { ascending: true })
+    .order(sortField, { ascending })
     .range(from, to);
 
   if (filters.q) query = query.ilike("organization_name", `%${filters.q}%`);

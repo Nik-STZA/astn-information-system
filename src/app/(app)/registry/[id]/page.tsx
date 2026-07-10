@@ -83,9 +83,8 @@ export default async function OrganizationDetailPage({ params }: Props) {
               Unverified
             </span>
           )}
-          <a
-            href={`/registry/${org.id}/report`}
-            download
+          <Link
+            href={`/registry/${org.id}/profile`}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               padding: "10px 20px", borderRadius: 8,
@@ -95,8 +94,8 @@ export default async function OrganizationDetailPage({ params }: Props) {
               textDecoration: "none",
             }}
           >
-            Generate profile report
-          </a>
+            View profile report
+          </Link>
         </div>
       </div>
 
@@ -105,10 +104,15 @@ export default async function OrganizationDetailPage({ params }: Props) {
         <h1 style={{ fontSize: 27, fontWeight: 800, color: "var(--tx)", margin: 0 }}>
           {org.organization_name ?? "Untitled organisation"}
         </h1>
-        <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 4 }}>
-          {[org.country, org.sport, org.organization_type, org.level]
+        <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+          {org.country_iso && (
+            <span style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden", display: "inline-flex", flexShrink: 0, border: "1px solid #E4D9C4" }}>
+              <img src={`https://flagcdn.com/w40/${org.country_iso.toLowerCase()}.png`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </span>
+          )}
+          <span>{[org.country, org.sport, org.organization_type, org.level]
             .filter(Boolean)
-            .join(" · ") || "—"}
+            .join(" · ") || "—"}</span>
         </p>
         {org.astn_id && (
           <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 2 }}>

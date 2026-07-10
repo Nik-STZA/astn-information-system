@@ -53,7 +53,7 @@ function formatDateLong(iso: string | null): string | null {
 function plain(text: string, opts: { color?: string; bold?: boolean; size?: number } = {}): TextRun {
   return new TextRun({
     text,
-    font: "Calibri",
+    font: "Manrope",
     color: opts.color,
     bold: opts.bold,
     size: opts.size,
@@ -328,7 +328,7 @@ export async function buildOrganizationProfileDocx(org: OrganizationDetail): Pro
     styles: {
       default: {
         document: {
-          run: { font: "Calibri", color: BRAND_DARK, size: 22 },
+          run: { font: "Manrope", color: BRAND_DARK, size: 22 },
         },
       },
     },

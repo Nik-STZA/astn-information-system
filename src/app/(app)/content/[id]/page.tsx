@@ -87,7 +87,7 @@ export default async function EditionDetailPage({ params }: Props) {
         <MetaCard label="Series" value={edition.series} />
         <MetaCard label="Country" value={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {iso && <img src={`https://flagcdn.com/w40/${iso}.png`} alt="" style={{ width: 18, height: 13, borderRadius: 2, objectFit: "cover" }} />}
+            {iso && <span style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden", display: "inline-flex", flexShrink: 0, border: "1px solid #E4D9C4" }}><img src={`https://flagcdn.com/w40/${iso}.png`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
             {edition.country_name ?? "—"}
           </span>
         } />

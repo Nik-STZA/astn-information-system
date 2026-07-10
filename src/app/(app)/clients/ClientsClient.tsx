@@ -345,11 +345,11 @@ function CorrespondenceCard({ c }: { c: Correspondence }) {
 
 function EmptyTab({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div style={{ padding: "36px 20px", textAlign: "center" }}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 14, fontWeight: 700, lineHeight: 1.3, color: "#2E7D32", marginBottom: 4 }}>
+    <div className="card-empty" style={{ padding: "36px 20px", textAlign: "center", margin: 16 }}>
+      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 14, fontWeight: 700, lineHeight: 1.3, color: "#8E9196", marginBottom: 4 }}>
         {title}
       </div>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#8E9196" }}>
+      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#B9B2A2" }}>
         {subtitle}
       </div>
     </div>

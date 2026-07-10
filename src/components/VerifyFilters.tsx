@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+import { useRef, useTransition, useCallback } from "react";
 import { CONFIDENCE_BANDS, type FilterOptions } from "@/lib/data/registry-shared";
 
 type Props = {
@@ -54,23 +54,34 @@ export default function VerifyFilters({ options }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function currentValue(key: string): string {
     return searchParams.get(key) ?? "";
   }
 
-  function setFilter(key: string, value: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value) {
-      params.set(key, value);
-    } else {
-      params.delete(key);
-    }
-    params.delete("page");
-    const qs = params.toString();
-    startTransition(() => {
-      router.push(qs ? `${pathname}?${qs}` : pathname);
-    });
+  const setFilter = useCallback(
+    (key: string, value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+      params.delete("page");
+      const qs = params.toString();
+      startTransition(() => {
+        router.push(qs ? `${pathname}?${qs}` : pathname);
+      });
+    },
+    [searchParams, pathname, router],
+  );
+
+  function handleSearchChange(value: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      if (value !== currentValue("q")) setFilter("q", value);
+    }, 300);
   }
 
   const anyActive =
@@ -96,21 +107,18 @@ export default function VerifyFilters({ options }: Props) {
           gap: 12,
         }}
       >
-        {/* Search */}
+        {/* Search — debounced as-you-type */}
         <div>
           <span style={labelStyle}>Search organisation</span>
           <input
             type="text"
             placeholder="Type a name…"
             defaultValue={currentValue("q")}
+            onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
+                if (debounceRef.current) clearTimeout(debounceRef.current);
                 setFilter("q", (e.target as HTMLInputElement).value);
-              }
-            }}
-            onBlur={(e) => {
-              if (e.target.value !== currentValue("q")) {
-                setFilter("q", e.target.value);
               }
             }}
             disabled={isPending}

@@ -590,10 +590,8 @@ export default function PipelineClient({
 
       {opportunities.length === 0 ? (
         <div
+          className="card-empty"
           style={{
-            background: "#fff",
-            border: "1px dashed #D9CDB4",
-            borderRadius: 12,
             padding: "56px 24px",
             textAlign: "center",
             marginBottom: 26,

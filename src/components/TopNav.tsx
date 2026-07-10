@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import ThemeToggle from "@/components/ThemeToggle";
 
 interface NavItem {
   href: string;
@@ -118,8 +119,18 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
           flexWrap: "wrap",
         }}
       >
-        {/* STZA wordmark */}
-        <Link href="/dashboard" style={{ flexShrink: 0 }}>
+        {/* STZA wordmark + co-brand */}
+        <Link
+          href="/dashboard"
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 2,
+            textDecoration: "none",
+          }}
+        >
           <Image
             src="/logos/stza-logo-white-crop.png"
             alt="STZA"
@@ -128,6 +139,17 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
             style={{ height: 30, width: "auto" }}
             priority
           />
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 500,
+              color: "#8F7A45",
+              letterSpacing: "0.04em",
+              paddingLeft: 1,
+            }}
+          >
+            An STZA platform
+          </span>
         </Link>
 
         {/* Separator */}
@@ -215,6 +237,7 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
             flexShrink: 0,
           }}
         >
+          <ThemeToggle />
           <span
             className="hidden md:inline"
             style={{ fontWeight: 500, fontSize: 12, color: "#8E9196" }}

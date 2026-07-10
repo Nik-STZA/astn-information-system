@@ -88,14 +88,12 @@ function Pill({ value, meta }: { value: string | null; meta: Record<string, { co
 function StatCard({ label, value, dashed }: { label: string; value: string; dashed?: boolean }) {
   return (
     <div
+      className={dashed ? "card-empty" : "card"}
       style={{
-        background: "var(--pnl)",
-        border: dashed ? "1.5px dashed #D9CDB4" : "1px solid var(--bd)",
-        borderRadius: 10,
         padding: "16px 18px",
       }}
     >
-      <div style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.1, color: dashed ? "#B9B2A2" : "var(--tx)" }}>
+      <div className={dashed ? "kpi-number-empty" : ""} style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.1, color: dashed ? "#B9B2A2" : "var(--tx)" }}>
         {value}
       </div>
       <div style={{ fontWeight: 500, fontSize: 11.5, color: "#8E9196", marginTop: 4 }}>

@@ -268,10 +268,7 @@ function SnapshotCard({
   emptyMessage?: string;
 }) {
   return (
-    <div style={{
-      borderRadius: 14,
-      border: emptyMessage ? "1px dashed #D9CDB4" : "1px solid var(--bd)",
-      backgroundColor: emptyMessage ? "#F7F2E9" : "var(--pnl)",
+    <div className={emptyMessage ? "card-empty" : "card"} style={{
       padding: "18px 20px",
     }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)", marginBottom: 14 }}>{title}</div>

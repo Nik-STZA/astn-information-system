@@ -85,18 +85,15 @@ export default function ContentClient({ editions, error }: Props) {
       </div>
 
       {editions.length === 0 ? (
-        <div style={{
-          border: "1px dashed #D9CDB4",
-          borderRadius: 14,
+        <div className="card-empty" style={{
           padding: "48px 24px",
           textAlign: "center",
-          backgroundColor: "#F7F2E9",
           marginTop: 16,
         }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#2E7D32", marginBottom: 6 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#8E9196", marginBottom: 6 }}>
             No editions yet
           </div>
-          <div style={{ fontSize: 12.5, color: "#A29C8E" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: "#B9B2A2" }}>
             Create your first edition to start the content pipeline.
           </div>
         </div>
