@@ -121,11 +121,11 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
         {/* STZA wordmark */}
         <Link href="/dashboard" style={{ flexShrink: 0 }}>
           <Image
-            src="/logos/stza-logo-white.png"
+            src="/logos/stza-logo-white-crop.png"
             alt="STZA"
-            width={76}
-            height={19}
-            style={{ height: 19, width: "auto" }}
+            width={120}
+            height={30}
+            style={{ height: 30, width: "auto" }}
             priority
           />
         </Link>

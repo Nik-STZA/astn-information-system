@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useRef, useCallback } from "react";
 import type { Prospect, Client } from "@/lib/data/compliance";
+import { flagUrl as sharedFlagUrl } from "@/lib/country-iso";
 import type { Country, EnforcementAction } from "@/lib/data/data-protection";
 import {
   addProspect,
@@ -745,8 +746,7 @@ export default function ComplianceClient({
     [startTransition],
   );
 
-  const flagUrl = (iso?: string | null) =>
-    iso ? `https://flagcdn.com/w40/${iso.toLowerCase()}.png` : null;
+  const compFlagUrl = (country?: string | null) => sharedFlagUrl(country ?? null);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -878,7 +878,7 @@ export default function ComplianceClient({
               </thead>
               <tbody>
                 {filteredProspects.map((p, idx) => {
-                  const flag = flagUrl(p.company_country === "South Africa" ? "za" : null);
+                  const flag = compFlagUrl(p.company_country);
                   return (
                     <tr
                       key={p.id}

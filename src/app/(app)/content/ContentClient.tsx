@@ -4,30 +4,8 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Edition } from "@/lib/data/content";
 
-/* ── ISO lookup for flag CDN ─────────────────────────────────────────────── */
-const COUNTRY_ISO: Record<string, string> = {
-  "South Africa": "za", "Kenya": "ke", "Nigeria": "ng", "Egypt": "eg",
-  "Ghana": "gh", "Tanzania": "tz", "Ethiopia": "et", "Rwanda": "rw",
-  "Uganda": "ug", "Senegal": "sn", "Morocco": "ma", "Tunisia": "tn",
-  "Cameroon": "cm", "Côte d'Ivoire": "ci", "Botswana": "bw",
-  "Mauritius": "mu", "Zambia": "zm", "Zimbabwe": "zw", "Mozambique": "mz",
-  "Angola": "ao", "Namibia": "na", "Malawi": "mw", "DRC": "cd",
-  "Algeria": "dz", "Libya": "ly", "Sudan": "sd", "Madagascar": "mg",
-  "Mali": "ml", "Burkina Faso": "bf", "Niger": "ne", "Chad": "td",
-  "Guinea": "gn", "Benin": "bj", "Togo": "tg", "Sierra Leone": "sl",
-  "Liberia": "lr", "Gambia": "gm", "Gabon": "ga", "Congo": "cg",
-  "Mauritania": "mr", "Eritrea": "er", "Djibouti": "dj", "Somalia": "so",
-  "South Sudan": "ss", "Comoros": "km", "Cabo Verde": "cv",
-  "Equatorial Guinea": "gq", "Eswatini": "sz", "Lesotho": "ls",
-  "Central African Republic": "cf", "Seychelles": "sc",
-  "São Tomé and Príncipe": "st", "Burundi": "bi",
-};
-
-function flagUrl(country: string | null): string | null {
-  if (!country) return null;
-  const iso = COUNTRY_ISO[country];
-  return iso ? `https://flagcdn.com/w40/${iso}.png` : null;
-}
+/* ── Flag lookup (shared utility) ────────────────────────────────────────── */
+import { flagUrl } from "@/lib/country-iso";
 
 /* ── Status config ───────────────────────────────────────────────────────── */
 type StatusMeta = { label: string; bg: string; text: string; border: string };

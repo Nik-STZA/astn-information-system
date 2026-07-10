@@ -364,7 +364,15 @@ function OpportunityForm({
               <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Service type
               </label>
-              <input name="service_type" defaultValue={initial?.service_type ?? ""} style={inputStyle} placeholder="e.g. Representative" />
+              <select name="service_type" defaultValue={initial?.service_type ?? ""} style={inputStyle}>
+                <option value="">— Select —</option>
+                <option value="POPIA Representative">POPIA Representative</option>
+                <option value="Compliance Assessment">Compliance Assessment</option>
+                <option value="Data Protection Consulting">Data Protection Consulting</option>
+                <option value="Information Officer (Outsourced)">Information Officer (Outsourced)</option>
+                <option value="Training & Awareness">Training &amp; Awareness</option>
+                <option value="Other">Other</option>
+              </select>
             </div>
             <div>
               <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>

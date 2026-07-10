@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Client } from "@/lib/data/compliance";
+import { flagUrl } from "@/lib/country-iso";
 import type {
   Engagement,
   IORegistration,
@@ -27,9 +28,9 @@ import { createClient } from "@/lib/data/compliance";
 // ─── Status pill metadata ────────────────────────────────────────────────────
 
 const CLIENT_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
-  active:    { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
   prospect:  { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
   onboarding:{ color: "#3E6B8E", bg: "#E5EDF3", border: "#C5D6E4" },
+  engaged:   { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
   paused:    { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
   churned:   { color: "#CC0000", bg: "#FDF2F2", border: "#FCA5A5" },
 };
@@ -94,15 +95,7 @@ function fmtDate(d: string | null): string {
   return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function flagUrl(country: string | null): string | null {
-  if (!country) return null;
-  const map: Record<string, string> = {
-    australia: "au", "south africa": "za", "united kingdom": "gb", "united states": "us",
-    kenya: "ke", nigeria: "ng", egypt: "eg", ghana: "gh", tanzania: "tz", uganda: "ug",
-  };
-  const iso = map[country.toLowerCase()];
-  return iso ? `https://flagcdn.com/w40/${iso}.png` : null;
-}
+
 
 const inputStyle: React.CSSProperties = {
   fontFamily: "Manrope, sans-serif",
@@ -743,10 +736,10 @@ function AddClientModal({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <label style={labelStyle}>Status</label>
-              <select name="status" defaultValue="active" style={inputStyle}>
+              <select name="status" defaultValue="engaged" style={inputStyle}>
                 <option value="prospect">Prospect</option>
                 <option value="onboarding">Onboarding</option>
-                <option value="active">Active</option>
+                <option value="engaged">Engaged</option>
                 <option value="paused">Paused</option>
                 <option value="churned">Churned</option>
               </select>
