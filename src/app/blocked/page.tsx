@@ -9,32 +9,53 @@ import Link from "next/link";
  */
 export default function BlockedPage() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-near-black p-6">
-      <div className="flex flex-col items-center max-w-md w-full">
+    <div style={{
+      minHeight: "100vh", display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      background: "#0F1113", padding: 24,
+      fontFamily: "'Manrope', sans-serif",
+    }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", maxWidth: 440, width: "100%" }}>
         <Image
           src="/logos/protea-mono-gold.png"
           alt=""
           width={120}
           height={120}
-          className="mb-8 opacity-60"
+          style={{ marginBottom: 32, opacity: 0.6 }}
         />
 
-        <h1 className="text-h1-app text-brand-gold text-center mb-4 font-bold">
+        <h1 style={{
+          fontSize: 27, fontWeight: 800, color: "#C5A059",
+          textAlign: "center", marginBottom: 16,
+        }}>
           This system is private
         </h1>
 
-        <p className="text-body-app text-warm-grey text-center mb-8">
+        <p style={{
+          fontSize: 13, fontWeight: 400, color: "#8E9196",
+          textAlign: "center", marginBottom: 32, lineHeight: 1.6,
+        }}>
           If you believe you should have access, contact{" "}
           <a
             href="mailto:nik@stza.io"
-            className="text-brand-gold underline hover:text-brand-gold/80"
+            style={{ color: "#C5A059", textDecoration: "underline" }}
           >
             nik@stza.io
           </a>
           .
         </p>
 
-        <Link href="/login" className="btn-secondary">
+        <Link
+          href="/login"
+          style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            padding: "10px 20px", borderRadius: 8,
+            fontWeight: 700, fontSize: 13,
+            color: "#B08D3F", background: "#FFFFFF",
+            border: "1px solid rgba(212,197,169,.5)",
+            textDecoration: "none",
+          }}
+        >
           Return to sign-in
         </Link>
       </div>

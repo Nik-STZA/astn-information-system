@@ -3,12 +3,30 @@
 @tailwind utilities;
 
 /**
- * Global brand application for the AfricanSTN information system.
- * Follows STZA Brand Guidelines v1.0.
+ * Global styles for AfricanSTN information system — reskin July 2026.
+ *
+ * Theme system: CSS custom properties with light/dark palettes.
+ * Light is the default; the toggle (deferred) will swap to dark via JS.
+ * Variable names match the Index design file exactly:
+ *   --pg    page background
+ *   --pnl   panel / card background
+ *   --bd    border colour
+ *   --tx    primary text
+ *   --sub   subtitle / muted text
+ *   --cardhover  card hover surface
  */
 
 @layer base {
+  /* ── Light palette (default for app pages) ── */
   :root {
+    --pg: #EFE8DA;
+    --pnl: #FFFFFF;
+    --bd: #E4D9C4;
+    --tx: #1A1C1E;
+    --sub: #6E6A62;
+    --cardhover: #FAF6EE;
+
+    /* Static brand tokens (not theme-switched) */
     --brand-dark: #1A1C1E;
     --brand-gold: #C5A059;
     --warm-grey: #8E9196;
@@ -18,34 +36,85 @@
     --alert-red: #CC0000;
     --warning-amber: #CC7700;
     --success-green: #2E7D32;
+
+    /* Reskin additions */
+    --card-border: #E4D9C4;
+    --empty-bg: #F7F2E9;
+    --empty-border: #D9CDB4;
+    --empty-text: #B9B2A2;
+    --gold-dark: #B08D3F;
+    --label-text: #55524C;
+    --table-header: #F6F1E7;
+    --risk-red: #B4432C;
+    --status-blue: #3E6B8E;
+  }
+
+  /* ── Dark palette (for future theme toggle) ── */
+  :root[data-theme="dark"] {
+    --pg: #0F1113;
+    --pnl: #17191C;
+    --bd: rgba(197,160,89,.20);
+    --tx: #F4F1EA;
+    --sub: #94918A;
+    --cardhover: rgba(255,255,255,.04);
+  }
+
+  /* ── Auto: follow OS preference ── */
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="auto"] {
+      --pg: #0F1113;
+      --pnl: #17191C;
+      --bd: rgba(197,160,89,.20);
+      --tx: #F4F1EA;
+      --sub: #94918A;
+      --cardhover: rgba(255,255,255,.04);
+    }
   }
 
   html {
-    font-family: 'Calibri', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-    color: var(--near-black);
-    background-color: #FFFFFF;
+    font-family: 'Manrope', sans-serif;
+    color: var(--tx);
+    background-color: var(--pg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 
   body {
     margin: 0;
   }
 
-  /* Brand-correct headings (memo Section 2.2) */
+  ::selection {
+    background: rgba(197, 160, 89, 0.28);
+  }
+
+  /* Headings */
   h1 {
-    @apply text-h1-app text-brand-dark font-bold;
+    font-weight: 800;
+    font-size: 27px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--tx);
+    margin: 0;
   }
   h2 {
-    @apply text-h2-app text-brand-gold font-bold;
+    font-weight: 700;
+    font-size: 18px;
+    line-height: 1.4;
+    color: var(--tx);
+    margin: 0;
   }
   h3 {
-    @apply text-h3-app text-brand-dark font-bold;
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--tx);
+    margin: 0;
   }
 }
 
 @layer components {
-  /* Primary button: Brand Gold background, Brand Dark text */
+  /* ── Buttons ── */
   .btn-primary {
     @apply inline-flex items-center justify-center px-5 py-2.5 rounded-brand
            bg-brand-gold text-brand-dark font-bold text-body-app
@@ -55,81 +124,204 @@
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
-  /* Secondary button: White background, Brand Gold border */
   .btn-secondary {
     @apply inline-flex items-center justify-center px-5 py-2.5 rounded-brand
-           bg-white text-brand-gold font-bold text-body-app border-2 border-brand-gold
+           bg-white font-bold text-body-app border
            transition-all duration-150
-           hover:bg-warm-light
+           hover:bg-card-hover
            focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
+    color: var(--gold-dark);
+    border-color: var(--card-border);
   }
 
-  /* Tertiary / text button */
   .btn-text {
     @apply inline-flex items-center justify-center px-3 py-1.5 rounded-brand
            text-brand-gold font-bold text-body-app
            transition-colors duration-150
-           hover:bg-warm-light
+           hover:bg-card-hover
            focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
   }
 
-  /* Brand card: white background, gold border, subtle shadow */
+  /* ── Cards ── */
   .card {
-    @apply bg-white border border-gold-border rounded-brand-lg shadow-brand-card;
+    background: var(--pnl);
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(26, 28, 30, 0.04), 0 1px 2px rgba(26, 28, 30, 0.03);
+    transition: background 0.25s ease, border-color 0.25s ease;
   }
 
-  /* Warm-light card for secondary surfaces */
+  .card-empty {
+    background: var(--empty-bg);
+    border: 1px dashed var(--empty-border);
+    border-radius: 10px;
+  }
+
   .card-warm {
-    @apply bg-warm-light border border-gold-border rounded-brand-lg;
+    background: var(--cardhover);
+    border: 1px solid var(--bd);
+    border-radius: 10px;
   }
 
-  /* Brand-correct table */
+  /* ── Tables ── */
   .table-brand {
     @apply w-full border-collapse;
   }
   .table-brand thead tr {
-    @apply bg-brand-dark text-white;
+    background: var(--table-header);
   }
   .table-brand th {
-    @apply px-3 py-2.5 text-left text-tag uppercase tracking-wider font-bold;
+    @apply px-3 py-2.5 text-left text-tag uppercase tracking-wider;
+    font-weight: 600;
+    color: var(--label-text);
   }
   .table-brand td {
-    @apply px-3 py-2.5 text-body-table border-b border-gold-border;
+    @apply px-3 py-2.5 text-body-table;
+    border-bottom: 1px solid var(--bd);
+    color: var(--tx);
   }
   .table-brand tbody tr:nth-child(even) {
-    @apply bg-warm-light;
+    background: var(--cardhover);
   }
   .table-brand tbody tr:hover {
-    @apply bg-warm-light brightness-95;
+    background: var(--cardhover);
+    filter: brightness(0.98);
   }
 
-  /* Status pills (memo Section 2.1) */
+  /* ── Status pills — outlined style ── */
   .pill {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-tag uppercase tracking-wider;
-  }
-  .pill-high {
-    @apply bg-success-green text-white;
-  }
-  .pill-medium {
-    @apply bg-warning-amber text-white;
-  }
-  .pill-low {
-    @apply bg-alert-red text-white;
-  }
-  .pill-neutral {
-    @apply bg-warm-grey text-white;
+    font-weight: 600;
   }
 
-  /* Form inputs */
+  /* Confidence pills */
+  .pill-high {
+    color: #2E7D32;
+    background: #E8F5E9;
+    border: 1px solid #C8E6C9;
+  }
+  .pill-medium {
+    color: #A67514;
+    background: #FBF1DE;
+    border: 1px solid #F0E0B6;
+  }
+  .pill-low {
+    color: #B4432C;
+    background: #FBE7E1;
+    border: 1px solid #EDCBBF;
+  }
+  .pill-neutral {
+    color: #6E6A62;
+    background: #F2F0EB;
+    border: 1px solid #DDD9D1;
+  }
+
+  /* Status-specific pills (compliance) */
+  .pill-identified {
+    color: #6E6A62;
+    background: #F2F0EB;
+    border: 1px solid #DDD9D1;
+  }
+  .pill-researched {
+    color: #3E6B8E;
+    background: #E7EEF4;
+    border: 1px solid #C9D9E6;
+  }
+  .pill-contacted {
+    color: #A67514;
+    background: #FBF1DE;
+    border: 1px solid #F0E0B6;
+  }
+  .pill-responded {
+    color: #2E7D32;
+    background: #E8F5E9;
+    border: 1px solid #C8E6C9;
+  }
+  .pill-converted {
+    color: #2E7D32;
+    background: #E8F5E9;
+    border: 1px solid #C8E6C9;
+  }
+
+  /* Priority pills */
+  .pill-priority-high {
+    color: #B4432C;
+    background: #FBE7E1;
+    border: 1px solid #EDCBBF;
+  }
+  .pill-priority-low {
+    color: #6E6A62;
+    background: #F2F0EB;
+    border: 1px solid #DDD9D1;
+  }
+
+  /* ── Form inputs ── */
   .input-brand {
-    @apply w-full px-3 py-2 rounded-brand bg-white border border-gold-border
-           text-body-app text-near-black
-           focus:outline-none focus:border-brand-gold focus:ring-2 focus:ring-brand-gold/20
-           disabled:bg-warm-light disabled:cursor-not-allowed;
+    @apply w-full px-3 py-2 rounded-brand bg-white text-body-app
+           focus:outline-none focus:ring-2;
+    border: 1px solid var(--card-border);
+    color: var(--tx);
+    --tw-ring-color: rgba(197, 160, 89, 0.2);
+  }
+  .input-brand:focus {
+    border-color: var(--brand-gold);
+  }
+  .input-brand:disabled {
+    background: var(--empty-bg);
+    cursor: not-allowed;
   }
 
   .label-brand {
-    @apply block text-tag uppercase tracking-wider text-brand-dark mb-1.5 font-bold;
+    @apply block text-tag uppercase tracking-wider mb-1.5;
+    font-weight: 600;
+    color: var(--label-text);
+  }
+
+  /* ── Page layout ── */
+  .page-container {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px 26px 48px;
+  }
+
+  /* ── Page header pattern ── */
+  .page-breadcrumb {
+    font-weight: 600;
+    font-size: 11.5px;
+    color: var(--gold-dark);
+    margin-bottom: 4px;
+  }
+  .page-subtitle {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--sub);
+  }
+
+  /* ── KPI number (tabular-nums for aligned digits) ── */
+  .kpi-number {
+    font-weight: 800;
+    font-size: 30px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--tx);
+  }
+  .kpi-number-empty {
+    font-weight: 800;
+    font-size: 30px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--empty-text);
+  }
+
+  .kpi-label {
+    font-weight: 600;
+    font-size: 11.5px;
+    color: var(--label-text);
+  }
+  .kpi-sub {
+    font-weight: 500;
+    font-size: 10.5px;
+    color: var(--sub);
   }
 }
 
@@ -141,5 +333,10 @@
     background-position: center;
     background-size: 120px;
     opacity: 0.08;
+  }
+
+  /* Tabular numbers for aligned digits in tables/KPIs */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }

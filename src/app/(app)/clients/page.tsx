@@ -1,24 +1,19 @@
 /**
- * Client Management page — server component wrapper.
- * Fetches clients + cross-client task/correspondence data,
- * passes to interactive client component.
+ * Clients page — server component wrapper.
+ * Fetches clients from the compliance API, plus summary data for the management tabs.
  */
 
 import { fetchClients } from "@/lib/data/compliance";
-import { fetchAllTasks, fetchAllCorrespondence, fetchClientManagementSummary } from "@/lib/data/client-management";
-import ClientManagementClient from "./ClientManagementClient";
+import { fetchClientManagementSummary } from "@/lib/data/client-management";
+import ClientsClient from "./ClientsClient";
 
-export default async function ClientManagementPage() {
-  const [clientsRes, tasksRes, correspondenceRes, summaryRes] = await Promise.all([
+export default async function ClientsPage() {
+  const [clientsRes, summaryRes] = await Promise.all([
     fetchClients(),
-    fetchAllTasks(),
-    fetchAllCorrespondence(),
     fetchClientManagementSummary(),
   ]);
 
   const clients = clientsRes.data?.data ?? [];
-  const tasks = tasksRes.data?.data ?? [];
-  const correspondence = correspondenceRes.data?.data ?? [];
   const summary = summaryRes.data ?? null;
 
   if (clientsRes.error) {
@@ -31,12 +26,5 @@ export default async function ClientManagementPage() {
     );
   }
 
-  return (
-    <ClientManagementClient
-      initialClients={clients}
-      initialTasks={tasks}
-      initialCorrespondence={correspondence}
-      summary={summary}
-    />
-  );
+  return <ClientsClient initialClients={clients} summary={summary} />;
 }

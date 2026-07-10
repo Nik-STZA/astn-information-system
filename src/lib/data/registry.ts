@@ -90,6 +90,7 @@ export async function fetchOrganizations(
     .order("organization_name", { ascending: true })
     .range(from, to);
 
+  if (filters.q) query = query.ilike("organization_name", `%${filters.q}%`);
   if (filters.country) query = query.eq("country", filters.country);
   if (filters.sport) query = query.eq("sport", filters.sport);
   if (filters.type) query = query.eq("organization_type", filters.type);

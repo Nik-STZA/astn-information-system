@@ -8,9 +8,6 @@ type Props = {
   options: FilterOptions;
 };
 
-const FILTER_KEYS = ["country", "sport", "type", "confidence"] as const;
-type FilterKey = (typeof FILTER_KEYS)[number];
-
 const labelStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: 9.5,
@@ -49,17 +46,20 @@ const selectStyle: React.CSSProperties = {
   paddingRight: 30,
 };
 
-export default function RegistryFilters({ options }: Props) {
+// Verify queue only shows non-High confidence bands
+const VERIFY_BANDS = CONFIDENCE_BANDS.filter((b) => b !== "High");
+
+export default function VerifyFilters({ options }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  function currentValue(key: FilterKey | "q"): string {
+  function currentValue(key: string): string {
     return searchParams.get(key) ?? "";
   }
 
-  function setFilter(key: FilterKey | "q", value: string) {
+  function setFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
       params.set(key, value);
@@ -73,7 +73,11 @@ export default function RegistryFilters({ options }: Props) {
     });
   }
 
-  const anyFilterActive = FILTER_KEYS.some((k) => currentValue(k)) || currentValue("q");
+  const anyActive =
+    currentValue("country") ||
+    currentValue("type") ||
+    currentValue("confidence") ||
+    currentValue("q");
 
   return (
     <div
@@ -88,7 +92,7 @@ export default function RegistryFilters({ options }: Props) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr",
+          gridTemplateColumns: "1.6fr 1fr 1fr 1fr",
           gap: 12,
         }}
       >
@@ -132,24 +136,6 @@ export default function RegistryFilters({ options }: Props) {
           </select>
         </div>
 
-        {/* Sport */}
-        <div>
-          <span style={labelStyle}>Sport</span>
-          <select
-            value={currentValue("sport")}
-            onChange={(e) => setFilter("sport", e.target.value)}
-            disabled={isPending}
-            style={selectStyle}
-          >
-            <option value="">All sports</option>
-            {options.sports.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-
         {/* Type */}
         <div>
           <span style={labelStyle}>Type</span>
@@ -178,7 +164,7 @@ export default function RegistryFilters({ options }: Props) {
             style={selectStyle}
           >
             <option value="">All confidence</option>
-            {CONFIDENCE_BANDS.map((b) => (
+            {VERIFY_BANDS.map((b) => (
               <option key={b} value={b}>
                 {b}
               </option>
@@ -187,7 +173,7 @@ export default function RegistryFilters({ options }: Props) {
         </div>
       </div>
 
-      {anyFilterActive && (
+      {anyActive && (
         <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
           <button
             type="button"

@@ -1,466 +1,812 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import type { PipelineOpportunity, Interaction } from "@/lib/data/pipeline";
-import { addOpportunity, editOpportunity, addInteraction } from "./actions";
+import { useState } from "react";
+import type { PipelineOpportunity, DashboardStats } from "@/lib/data/pipeline";
+import { createOpportunity, updateOpportunity } from "@/lib/data/pipeline";
 
-const STAGE_COLOURS: Record<string, string> = {
-  identified: "bg-gray-100 text-gray-700",
-  qualified: "bg-blue-100 text-blue-800",
-  proposal: "bg-amber-100 text-amber-800",
-  negotiation: "bg-purple-100 text-purple-800",
-  won: "bg-emerald-100 text-emerald-800",
-  lost: "bg-red-100 text-red-700",
+// ─── Stage metadata ──────────────────────────────────────────────────────────
+
+const STAGES = [
+  { key: "identified",   label: "Identified",   color: "#8E9196" },
+  { key: "qualified",    label: "Qualified",     color: "#3E6B8E" },
+  { key: "proposal",     label: "Proposal",      color: "#C5A059" },
+  { key: "negotiation",  label: "Negotiation",   color: "#8156A6" },
+  { key: "won",          label: "Won",           color: "#2E7D32" },
+  { key: "lost",         label: "Lost",          color: "#CC0000" },
+] as const;
+
+type StageKey = (typeof STAGES)[number]["key"];
+
+function stageColor(stage: string): string {
+  return STAGES.find((s) => s.key === stage.toLowerCase())?.color ?? "#8E9196";
+}
+
+// ─── Formatting helpers ──────────────────────────────────────────────────────
+
+function gbp(n: number | null | undefined): string {
+  if (n == null || n === 0) return "£0";
+  return "£" + n.toLocaleString("en-GB");
+}
+
+// ─── Style constants ─────────────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  fontFamily: "Manrope, sans-serif",
+  fontSize: 13,
+  fontWeight: 500,
+  color: "#1A1C1E",
+  background: "#fff",
+  border: "1px solid #D4C5A9",
+  borderRadius: 7,
+  padding: "9px 12px",
+  width: "100%",
+  outline: "none",
 };
 
-const STAGES = ["identified", "qualified", "proposal", "negotiation", "won", "lost"];
-const SERVICE_TYPES = [
-  "POPIA Representative",
-  "Compliance Assessment",
-  "Data Protection Consulting",
-  "Information Officer (Outsourced)",
-  "Training & Awareness",
-  "Other",
-];
-
-const btnPrimary =
-  "px-4 py-2 bg-[#C5A059] text-white text-sm font-medium rounded-lg hover:bg-[#B08A3E] transition-colors";
-const btnSecondary =
-  "px-4 py-2 border border-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors text-gray-600";
-const inputClass =
-  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C5A059]/30 focus:border-[#C5A059]";
-const labelClass = "block text-xs font-medium text-gray-600 mb-1";
-
-type Props = {
-  opportunities: PipelineOpportunity[];
-  interactions: Interaction[];
-  stats: {
-    pipeline: { total: number; total_value: number; active_value: number; won: number };
-    prospects: { total: number; high_priority: number; identified: number; contacted: number; responded: number; converted: number };
-    clients: { total: number; active: number; arr: number };
-    content: { total: number; published: number; in_progress: number };
-  } | null;
+const btnPrimary: React.CSSProperties = {
+  fontFamily: "Manrope, sans-serif",
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#141414",
+  background: "#C5A059",
+  border: "none",
+  borderRadius: 7,
+  padding: "10px 14px",
+  cursor: "pointer",
 };
 
-export default function PipelineClient({ opportunities, interactions, stats }: Props) {
-  const [showForm, setShowForm] = useState(false);
-  const [selected, setSelected] = useState<PipelineOpportunity | null>(null);
-  const [showInteraction, setShowInteraction] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+const btnSecondary: React.CSSProperties = {
+  fontFamily: "Manrope, sans-serif",
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#55524C",
+  background: "#fff",
+  border: "1px solid #D4C5A9",
+  borderRadius: 7,
+  padding: "10px 14px",
+  cursor: "pointer",
+};
 
-  const totalValue = opportunities.reduce((sum, o) => sum + (o.value_gbp ?? 0), 0);
-  const byStage = opportunities.reduce((acc, o) => {
-    acc[o.stage] = (acc[o.stage] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+// ─── Stat card ───────────────────────────────────────────────────────────────
 
-  const handleAddOpportunity = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
+function StatCard({ value, label, dashed }: { value: string; label: string; dashed?: boolean }) {
+  return (
+    <div
+      style={{
+        background: dashed ? "#F7F2E9" : "#fff",
+        border: dashed ? "1px dashed #D9CDB4" : "1px solid #E4D9C4",
+        borderRadius: 10,
+        padding: "16px 18px",
+        boxShadow: dashed ? "none" : "0 1px 3px rgba(26,28,30,.05)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 26,
+          fontWeight: 800,
+          lineHeight: 1,
+          color: dashed ? "#B9B2A2" : "#1A1C1E",
+          fontVariantNumeric: "tabular-nums",
+          marginBottom: 6,
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 11,
+          fontWeight: 600,
+          lineHeight: 1.3,
+          color: "#8E9196",
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage card ──────────────────────────────────────────────────────────────
+
+function StageCard({ count, label, color }: { count: number; label: string; color: string }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 120,
+        background: "#fff",
+        border: "1px solid #E4D9C4",
+        borderRadius: 9,
+        padding: "14px 16px",
+        boxShadow: "0 1px 3px rgba(26,28,30,.05)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 22,
+          fontWeight: 800,
+          lineHeight: 1,
+          color: count === 0 ? "#B9B2A2" : "#1A1C1E",
+          fontVariantNumeric: "tabular-nums",
+          marginBottom: 7,
+        }}
+      >
+        {count}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            background: color,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "Manrope, sans-serif",
+            fontSize: 11,
+            fontWeight: 600,
+            lineHeight: 1.2,
+            color: "#55524C",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Pill ────────────────────────────────────────────────────────────────────
+
+function StagePill({ stage }: { stage: string }) {
+  const c = stageColor(stage);
+  return (
+    <span
+      style={{
+        fontFamily: "Manrope, sans-serif",
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: ".05em",
+        color: c,
+        background: c + "18",
+        border: `1px solid ${c}40`,
+        borderRadius: 20,
+        padding: "4px 9px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {stage}
+    </span>
+  );
+}
+
+// ─── Cross-module summary card ───────────────────────────────────────────────
+
+function SummaryCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: { label: string; value: string; color?: string; muted?: boolean }[];
+}) {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #E4D9C4",
+        borderRadius: 12,
+        padding: "20px 22px",
+        boxShadow: "0 1px 3px rgba(26,28,30,.05)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 13.5,
+          fontWeight: 700,
+          lineHeight: 1.2,
+          color: "#1A1C1E",
+          marginBottom: 14,
+        }}
+      >
+        {title}
+      </div>
+      {rows.map((r, i) => (
+        <div
+          key={r.label}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "9px 0",
+            borderBottom: i < rows.length - 1 ? "1px solid #F0E8D8" : "none",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 12,
+              fontWeight: 500,
+              lineHeight: 1,
+              color: r.muted ? "#9A968B" : "#55524C",
+            }}
+          >
+            {r.label}
+          </span>
+          <span
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 700,
+              lineHeight: 1,
+              fontVariantNumeric: "tabular-nums",
+              color: r.color ?? (r.muted ? "#B9B2A2" : "#1A1C1E"),
+            }}
+          >
+            {r.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Opportunity form modal ──────────────────────────────────────────────────
+
+function OpportunityForm({
+  initial,
+  onClose,
+  onSaved,
+}: {
+  initial?: PipelineOpportunity;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSubmitting(true);
+    setSaving(true);
+    setError(null);
     const fd = new FormData(e.currentTarget);
-    await addOpportunity(fd);
-    setShowForm(false);
-    setSubmitting(false);
-  }, []);
+    const payload: Record<string, unknown> = {
+      opportunity_name: fd.get("opportunity_name") as string,
+      service_type: (fd.get("service_type") as string) || null,
+      stage: fd.get("stage") as string,
+      value_gbp: fd.get("value_gbp") ? Number(fd.get("value_gbp")) : null,
+      value_recurring: fd.get("value_recurring") === "on",
+      expected_close_date: (fd.get("expected_close_date") as string) || null,
+      owner: (fd.get("owner") as string) || null,
+      notes: (fd.get("notes") as string) || null,
+    };
 
-  const handleStageChange = useCallback(async (opp: PipelineOpportunity, newStage: string) => {
-    const fd = new FormData();
-    fd.set("stage", newStage);
-    await editOpportunity(opp.id, fd);
-  }, []);
-
-  const handleAddInteraction = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setSubmitting(true);
-    const fd = new FormData(e.currentTarget);
-    await addInteraction(fd);
-    setShowInteraction(false);
-    setSubmitting(false);
-  }, []);
-
-  const oppInteractions = selected
-    ? interactions.filter((i) => i.pipeline_id === selected.id)
-    : [];
+    const res = initial
+      ? await updateOpportunity(initial.id, payload)
+      : await createOpportunity(payload);
+    setSaving(false);
+    if (res.error) {
+      setError(res.error);
+    } else {
+      onSaved();
+    }
+  }
 
   return (
-    <div className="space-y-8" style={{ fontFamily: "Calibri, sans-serif" }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(15,17,19,.45)",
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 14,
+          border: "1px solid #E4D9C4",
+          width: 500,
+          maxHeight: "90vh",
+          overflow: "auto",
+          padding: "24px 28px",
+          boxShadow: "0 8px 30px rgba(26,28,30,.15)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "Manrope, sans-serif",
+            fontSize: 18,
+            fontWeight: 800,
+            color: "#1A1C1E",
+            marginBottom: 20,
+          }}
+        >
+          {initial ? "Edit opportunity" : "Add opportunity"}
+        </div>
+        {error && (
+          <div
+            style={{
+              background: "#FDF2F2",
+              border: "1px solid #FCA5A5",
+              borderRadius: 8,
+              padding: "9px 14px",
+              marginBottom: 16,
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 12,
+              fontWeight: 500,
+              color: "#CC0000",
+            }}
+          >
+            {error}
+          </div>
+        )}
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Opportunity name *
+              </label>
+              <input name="opportunity_name" required defaultValue={initial?.opportunity_name ?? ""} style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Service type
+              </label>
+              <input name="service_type" defaultValue={initial?.service_type ?? ""} style={inputStyle} placeholder="e.g. Representative" />
+            </div>
+            <div>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Stage *
+              </label>
+              <select name="stage" required defaultValue={initial?.stage ?? "identified"} style={inputStyle}>
+                {STAGES.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Value (GBP)
+              </label>
+              <input name="value_gbp" type="number" defaultValue={initial?.value_gbp ?? ""} style={inputStyle} placeholder="0" />
+            </div>
+            <div>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Expected close
+              </label>
+              <input name="expected_close_date" type="date" defaultValue={initial?.expected_close_date ?? ""} style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Owner
+              </label>
+              <input name="owner" defaultValue={initial?.owner ?? ""} style={inputStyle} placeholder="e.g. nik@stza.io" />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 18 }}>
+              <input name="value_recurring" type="checkbox" defaultChecked={initial?.value_recurring ?? false} />
+              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#55524C" }}>Recurring value</span>
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+                Notes
+              </label>
+              <textarea name="notes" rows={3} defaultValue={initial?.notes ?? ""} style={{ ...inputStyle, resize: "vertical" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+            <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving…" : initial ? "Update" : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ──────────────────────────────────────────────────────────
+
+export default function PipelineClient({
+  opportunities: initialOpportunities,
+  stats,
+}: {
+  opportunities: PipelineOpportunity[];
+  stats: DashboardStats | null;
+}) {
+  const [opportunities, setOpportunities] = useState(initialOpportunities);
+  const [showForm, setShowForm] = useState(false);
+  const [editOpp, setEditOpp] = useState<PipelineOpportunity | undefined>();
+
+  // Derived stats from actual data
+  const totalOpps = opportunities.length;
+  const totalValue = opportunities.reduce((s, o) => s + (o.value_gbp ?? 0), 0);
+  const activeStages = ["identified", "qualified", "proposal", "negotiation"];
+  const activeValue = opportunities
+    .filter((o) => activeStages.includes(o.stage.toLowerCase()))
+    .reduce((s, o) => s + (o.value_gbp ?? 0), 0);
+  const wonCount = opportunities.filter((o) => o.stage.toLowerCase() === "won").length;
+
+  // Stage counts
+  const stageCounts: Record<string, number> = {};
+  STAGES.forEach((s) => (stageCounts[s.key] = 0));
+  opportunities.forEach((o) => {
+    const k = o.stage.toLowerCase() as StageKey;
+    if (k in stageCounts) stageCounts[k]++;
+  });
+
+  // Cross-module stats (from dashboard endpoint)
+  const p = stats?.prospects;
+  const c = stats?.clients;
+  const content = stats?.content;
+
+  const isDashed = totalOpps === 0;
+
+  function handleSaved() {
+    setShowForm(false);
+    setEditOpp(undefined);
+    // Reload page to get fresh data
+    window.location.reload();
+  }
+
+  return (
+    <div
+      style={{
+        maxWidth: 1320,
+        margin: "0 auto",
+        padding: "30px 26px 60px",
+      }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 20,
+          marginBottom: 22,
+        }}
+      >
         <div>
-          <h1 className="text-2xl font-bold text-[#1A1C1E]">Business development pipeline</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Opportunities &middot; revenue tracking &middot; interactions
+          <div
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: ".2em",
+              textTransform: "uppercase",
+              color: "#B08D3F",
+              marginBottom: 9,
+            }}
+          >
+            AfricanSTN · Commercial
+          </div>
+          <h1
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 27,
+              fontWeight: 800,
+              lineHeight: 1.1,
+              letterSpacing: "-.02em",
+              color: "#1A1C1E",
+              margin: "0 0 5px",
+            }}
+          >
+            Business development pipeline
+          </h1>
+          <p
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 13,
+              fontWeight: 500,
+              lineHeight: 1.4,
+              color: "#8E9196",
+              margin: 0,
+            }}
+          >
+            Opportunities · revenue tracking · interactions.
           </p>
         </div>
-        <button onClick={() => { setShowForm(true); setSelected(null); }} className={btnPrimary}>
+        <button
+          onClick={() => {
+            setEditOpp(undefined);
+            setShowForm(true);
+          }}
+          style={{ ...btnPrimary, flexShrink: 0 }}
+        >
           + Add opportunity
         </button>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Pipeline opportunities" value={opportunities.length.toString()} />
-          <StatCard label="Total value (GBP)" value={`£${totalValue.toLocaleString()}`} />
-          <StatCard label="Active value (GBP)" value={`£${Number(stats.pipeline.active_value).toLocaleString()}`} />
-          <StatCard label="Won" value={String(stats.pipeline.won)} />
-        </div>
-      )}
+      {/* Stat cards */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 22,
+        }}
+      >
+        <StatCard value={String(totalOpps)} label="Pipeline opportunities" dashed={isDashed} />
+        <StatCard value={gbp(totalValue)} label="Total value" dashed={isDashed} />
+        <StatCard value={gbp(activeValue)} label="Active value" dashed={isDashed} />
+        <StatCard value={String(wonCount)} label="Won" dashed={isDashed} />
+      </div>
 
-      {/* Stage funnel */}
-      <section>
-        <h2 className="text-lg font-semibold text-[#1A1C1E] mb-3">Stage breakdown</h2>
-        <div className="flex flex-wrap gap-3">
-          {STAGES.map((stage) => (
-            <div key={stage} className="px-4 py-2 rounded-lg border border-gray-200 text-center min-w-[100px]">
-              <div className="text-xl font-bold text-[#1A1C1E]">{byStage[stage] ?? 0}</div>
-              <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${STAGE_COLOURS[stage]}`}>
-                {stage}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* Stage breakdown */}
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: ".06em",
+          textTransform: "uppercase",
+          color: "#8E9196",
+          marginBottom: 14,
+        }}
+      >
+        Stage breakdown
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 26, flexWrap: "wrap" }}>
+        {STAGES.map((s) => (
+          <StageCard key={s.key} count={stageCounts[s.key] ?? 0} label={s.label} color={s.color} />
+        ))}
+      </div>
 
-      {/* Opportunities table */}
-      <section>
-        <h2 className="text-lg font-semibold text-[#1A1C1E] mb-3">Opportunities</h2>
-        {opportunities.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-gray-200 rounded-lg">
-            <p className="text-sm text-gray-500 mb-3">No pipeline opportunities yet.</p>
-            <button onClick={() => setShowForm(true)} className={btnPrimary}>
-              Add your first opportunity
-            </button>
+      {/* Opportunities table or empty state */}
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: ".06em",
+          textTransform: "uppercase",
+          color: "#8E9196",
+          marginBottom: 14,
+        }}
+      >
+        Opportunities
+      </div>
+
+      {opportunities.length === 0 ? (
+        <div
+          style={{
+            background: "#fff",
+            border: "1px dashed #D9CDB4",
+            borderRadius: 12,
+            padding: "56px 24px",
+            textAlign: "center",
+            marginBottom: 26,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 16,
+              fontWeight: 700,
+              lineHeight: 1.3,
+              color: "#1A1C1E",
+              marginBottom: 6,
+            }}
+          >
+            No pipeline opportunities yet
           </div>
-        ) : (
-          <div className="overflow-x-auto border border-gray-200 rounded-lg">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-[#1A1C1E] text-white">
-                  <th className="px-3 py-2 text-left font-medium">Opportunity</th>
-                  <th className="px-3 py-2 text-left font-medium">Prospect / client</th>
-                  <th className="px-3 py-2 text-left font-medium">Service</th>
-                  <th className="px-3 py-2 text-left font-medium">Stage</th>
-                  <th className="px-3 py-2 text-right font-medium">Value (GBP)</th>
-                  <th className="px-3 py-2 text-left font-medium">Expected close</th>
-                </tr>
-              </thead>
-              <tbody>
-                {opportunities.map((o, i) => (
-                  <tr
-                    key={o.id}
-                    onClick={() => { setSelected(o); setShowForm(false); }}
-                    className={`cursor-pointer hover:bg-[#C5A059]/5 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-gray-50"} ${selected?.id === o.id ? "ring-2 ring-[#C5A059]/30" : ""}`}
+          <p
+            style={{
+              fontFamily: "Manrope, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 500,
+              lineHeight: 1.5,
+              color: "#8E9196",
+              margin: "0 0 18px",
+              maxWidth: 420,
+              marginLeft: "auto",
+              marginRight: "auto",
+            }}
+          >
+            Add an opportunity to track deal stages, values, expected close dates and interaction
+            history against a prospect or client.
+          </p>
+          <button
+            onClick={() => {
+              setEditOpp(undefined);
+              setShowForm(true);
+            }}
+            style={btnPrimary}
+          >
+            + Add your first opportunity
+          </button>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: "#fff",
+            border: "1px solid #E4D9C4",
+            borderRadius: 12,
+            overflow: "hidden",
+            marginBottom: 26,
+            boxShadow: "0 1px 3px rgba(26,28,30,.05)",
+          }}
+        >
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#F6F1E7" }}>
+                {["Opportunity", "Service", "Stage", "Value", "Close date", "Owner"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      fontFamily: "Manrope, sans-serif",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: ".08em",
+                      textTransform: "uppercase",
+                      color: "#8E9196",
+                      textAlign: "left",
+                      padding: "11px 16px",
+                      borderBottom: "1px solid #E4D9C4",
+                    }}
                   >
-                    <td className="px-3 py-2 font-medium text-[#1A1C1E]">{o.opportunity_name}</td>
-                    <td className="px-3 py-2 text-gray-600">{o.prospect_name || o.client_name || "—"}</td>
-                    <td className="px-3 py-2 text-gray-600">{o.service_type ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${STAGE_COLOURS[o.stage] ?? "bg-gray-100 text-gray-700"}`}>
-                        {o.stage}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {o.value_gbp != null ? `£${o.value_gbp.toLocaleString()}` : "—"}
-                      {o.value_recurring && <span className="text-xs text-[#C5A059] ml-1">/yr</span>}
-                    </td>
-                    <td className="px-3 py-2 text-gray-500 text-xs">
-                      {o.expected_close_date ? new Date(o.expected_close_date).toLocaleDateString("en-GB") : "—"}
-                    </td>
-                  </tr>
+                    {h}
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* ── ADD OPPORTUNITY FORM ── */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={() => setShowForm(false)}>
-          <div className="w-full max-w-lg bg-white h-full overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#1A1C1E]">Add opportunity</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
-            </div>
-            <form onSubmit={handleAddOpportunity} className="p-6 space-y-4">
-              <div>
-                <label className={labelClass}>Opportunity name *</label>
-                <input name="opportunity_name" required className={inputClass} placeholder="e.g. Catapult Sports — POPIA Representative" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClass}>Prospect / company</label>
-                  <input name="prospect_name" className={inputClass} placeholder="Company name" />
-                </div>
-                <div>
-                  <label className={labelClass}>Service type</label>
-                  <select name="service_type" className={inputClass}>
-                    <option value="">Select...</option>
-                    {SERVICE_TYPES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClass}>Stage</label>
-                  <select name="stage" className={inputClass} defaultValue="identified">
-                    {STAGES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className={labelClass}>Value (GBP)</label>
-                  <input name="value_gbp" type="number" className={inputClass} placeholder="e.g. 2500" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClass}>Expected close date</label>
-                  <input name="expected_close_date" type="date" className={inputClass} />
-                </div>
-                <div>
-                  <label className={labelClass}>Recurring?</label>
-                  <select name="value_recurring" className={inputClass}>
-                    <option value="true">Yes — annual</option>
-                    <option value="false">No — one-off</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className={labelClass}>Owner</label>
-                <input name="owner" className={inputClass} defaultValue="Nik" />
-              </div>
-              <div>
-                <label className={labelClass}>Notes</label>
-                <textarea name="notes" className={inputClass} rows={3} placeholder="Context, next steps..." />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="submit" disabled={submitting} className={btnPrimary}>
-                  {submitting ? "Saving..." : "Save opportunity"}
-                </button>
-                <button type="button" onClick={() => setShowForm(false)} className={btnSecondary}>Cancel</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── OPPORTUNITY DETAIL PANEL ── */}
-      {selected && !showForm && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={() => setSelected(null)}>
-          <div className="w-full max-w-lg bg-white h-full overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#1A1C1E]">{selected.opportunity_name}</h2>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
-            </div>
-            <div className="p-6 space-y-6">
-              {/* Key info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-gray-400">Prospect / Client</span>
-                  <p className="text-sm font-medium text-[#1A1C1E]">{selected.prospect_name || selected.client_name || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-400">Service</span>
-                  <p className="text-sm font-medium text-[#1A1C1E]">{selected.service_type ?? "—"}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-400">Value</span>
-                  <p className="text-sm font-medium text-[#1A1C1E]">
-                    {selected.value_gbp != null ? `£${selected.value_gbp.toLocaleString()}` : "—"}
-                    {selected.value_recurring && <span className="text-[#C5A059] ml-1">/yr</span>}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-400">Expected close</span>
-                  <p className="text-sm font-medium text-[#1A1C1E]">
-                    {selected.expected_close_date ? new Date(selected.expected_close_date).toLocaleDateString("en-GB") : "—"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-400">Owner</span>
-                  <p className="text-sm font-medium text-[#1A1C1E]">{selected.owner ?? "—"}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-400">Created</span>
-                  <p className="text-sm text-gray-500">{new Date(selected.created_at).toLocaleDateString("en-GB")}</p>
-                </div>
-              </div>
-
-              {selected.notes && (
-                <div>
-                  <span className="text-xs text-gray-400">Notes</span>
-                  <p className="text-sm text-gray-600 mt-1">{selected.notes}</p>
-                </div>
-              )}
-
-              {/* Stage progression */}
-              <div>
-                <span className="text-xs text-gray-400 block mb-2">Stage</span>
-                <div className="flex gap-1">
-                  {STAGES.map((stage) => (
-                    <button
-                      key={stage}
-                      onClick={() => handleStageChange(selected, stage)}
-                      className={`flex-1 py-1.5 text-xs font-medium rounded transition-colors ${
-                        selected.stage === stage
-                          ? "bg-[#C5A059] text-white"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                      }`}
-                    >
-                      {stage.charAt(0).toUpperCase() + stage.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Interactions */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs text-gray-400">Interactions ({oppInteractions.length})</span>
-                  <button onClick={() => setShowInteraction(true)} className="text-xs text-[#C5A059] hover:underline">
-                    + Add interaction
-                  </button>
-                </div>
-                {oppInteractions.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">No interactions logged yet.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {oppInteractions.map((i) => (
-                      <div key={i.id} className="border border-gray-100 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-[#1A1C1E]">
-                            {i.channel ?? "—"} · {i.direction}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {new Date(i.interaction_date).toLocaleDateString("en-GB")}
-                          </span>
-                        </div>
-                        {i.summary && <p className="text-xs text-gray-600">{i.summary}</p>}
-                        {i.next_action && (
-                          <p className="text-xs text-[#C5A059] mt-1">
-                            Next: {i.next_action}
-                            {i.next_action_date && ` (${new Date(i.next_action_date).toLocaleDateString("en-GB")})`}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Add interaction form */}
-              {showInteraction && (
-                <form onSubmit={handleAddInteraction} className="border border-[#C5A059]/30 rounded-lg p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#1A1C1E]">Log interaction</h3>
-                  <input type="hidden" name="pipeline_id" value={selected.id} />
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className={labelClass}>Date</label>
-                      <input name="interaction_date" type="date" className={inputClass} defaultValue={new Date().toISOString().split("T")[0]} />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Channel</label>
-                      <select name="channel" className={inputClass}>
-                        <option value="email">Email</option>
-                        <option value="call">Call</option>
-                        <option value="meeting">Meeting</option>
-                        <option value="linkedin">LinkedIn</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Direction</label>
-                      <select name="direction" className={inputClass}>
-                        <option value="outbound">Outbound</option>
-                        <option value="inbound">Inbound</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Summary</label>
-                    <textarea name="summary" className={inputClass} rows={2} placeholder="What happened?" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={labelClass}>Next action</label>
-                      <input name="next_action" className={inputClass} placeholder="Follow up with proposal" />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Next action date</label>
-                      <input name="next_action_date" type="date" className={inputClass} />
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <button type="submit" disabled={submitting} className={btnPrimary}>
-                      {submitting ? "Saving..." : "Log interaction"}
-                    </button>
-                    <button type="button" onClick={() => setShowInteraction(false)} className={btnSecondary}>Cancel</button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
+              </tr>
+            </thead>
+            <tbody>
+              {opportunities.map((opp, i) => (
+                <tr
+                  key={opp.id}
+                  onClick={() => {
+                    setEditOpp(opp);
+                    setShowForm(true);
+                  }}
+                  className="hover:!bg-[#FBF6EC]"
+                  style={{
+                    background: i % 2 === 0 ? "#FFFFFF" : "#FBF8F1",
+                    cursor: "pointer",
+                    borderBottom: "1px solid #F0E8D8",
+                  }}
+                >
+                  <td
+                    style={{
+                      fontFamily: "Manrope, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#1A1C1E",
+                      padding: "12px 16px",
+                    }}
+                  >
+                    {opp.opportunity_name}
+                  </td>
+                  <td
+                    style={{
+                      fontFamily: "Manrope, sans-serif",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "#55524C",
+                      padding: "12px 16px",
+                    }}
+                  >
+                    {opp.service_type ?? "—"}
+                  </td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <StagePill stage={opp.stage} />
+                  </td>
+                  <td
+                    style={{
+                      fontFamily: "Manrope, sans-serif",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#1A1C1E",
+                      fontVariantNumeric: "tabular-nums",
+                      padding: "12px 16px",
+                    }}
+                  >
+                    {gbp(opp.value_gbp)}
+                    {opp.value_recurring && (
+                      <span style={{ fontSize: 10, fontWeight: 500, color: "#8E9196", marginLeft: 4 }}>
+                        /yr
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    style={{
+                      fontFamily: "Manrope, sans-serif",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "#55524C",
+                      padding: "12px 16px",
+                    }}
+                  >
+                    {opp.expected_close_date
+                      ? new Date(opp.expected_close_date).toLocaleDateString("en-GB", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "—"}
+                  </td>
+                  <td
+                    style={{
+                      fontFamily: "Manrope, sans-serif",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "#8E9196",
+                      padding: "12px 16px",
+                    }}
+                  >
+                    {opp.owner ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
       {/* Cross-module summary */}
-      {stats && (
-        <section>
-          <h2 className="text-lg font-semibold text-[#1A1C1E] mb-3">Cross-module summary</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <SummaryCard
-              title="Compliance prospects"
-              items={[
-                { label: "Total", value: stats.prospects.total },
-                { label: "High priority", value: stats.prospects.high_priority },
-                { label: "Contacted", value: stats.prospects.contacted },
-              ]}
-            />
-            <SummaryCard
-              title="Clients"
-              items={[
-                { label: "Total", value: stats.clients.total },
-                { label: "Active", value: stats.clients.active },
-                { label: "ARR", value: `£${Number(stats.clients.arr).toLocaleString()}` },
-              ]}
-            />
-            <SummaryCard
-              title="Content"
-              items={[
-                { label: "Editions", value: stats.content.total },
-                { label: "Published", value: stats.content.published },
-                { label: "In progress", value: stats.content.in_progress },
-              ]}
-            />
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-gray-200 p-4">
-      <div className="text-2xl font-bold text-[#1A1C1E]">{value}</div>
-      <div className="text-xs text-gray-500 mt-1">{label}</div>
-    </div>
-  );
-}
-
-function SummaryCard({ title, items }: { title: string; items: Array<{ label: string; value: number | string }> }) {
-  return (
-    <div className="border border-gray-200 rounded-lg p-4">
-      <h3 className="font-semibold text-[#1A1C1E] text-sm mb-2">{title}</h3>
-      <div className="space-y-1">
-        {items.map((item) => (
-          <div key={item.label} className="flex justify-between text-xs">
-            <span className="text-gray-500">{item.label}</span>
-            <span className="font-medium text-[#1A1C1E]">{item.value}</span>
-          </div>
-        ))}
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: ".06em",
+          textTransform: "uppercase",
+          color: "#8E9196",
+          marginBottom: 14,
+        }}
+      >
+        Cross-module summary
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        <SummaryCard
+          title="Compliance prospects"
+          rows={[
+            { label: "Total", value: String(p?.total ?? 0) },
+            { label: "High priority", value: String(p?.high_priority ?? 0), color: "#B4432C" },
+            { label: "Contacted", value: String(p?.contacted ?? 0) },
+          ]}
+        />
+        <SummaryCard
+          title="Clients"
+          rows={[
+            { label: "Total", value: String(c?.total ?? 0), muted: (c?.total ?? 0) === 0 },
+            { label: "Active", value: String(c?.active ?? 0), muted: (c?.active ?? 0) === 0 },
+            { label: "ARR", value: gbp(c?.arr ?? 0), muted: (c?.arr ?? 0) === 0 },
+          ]}
+        />
+        <SummaryCard
+          title="Content"
+          rows={[
+            { label: "Editions", value: String(content?.total ?? 0) },
+            { label: "Published", value: String(content?.published ?? 0), muted: (content?.published ?? 0) === 0 },
+            { label: "In progress", value: String(content?.in_progress ?? 0), color: (content?.in_progress ?? 0) > 0 ? "#A67514" : undefined },
+          ]}
+        />
+      </div>
+
+      {/* Form modal */}
+      {showForm && (
+        <OpportunityForm
+          initial={editOpp}
+          onClose={() => {
+            setShowForm(false);
+            setEditOpp(undefined);
+          }}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   );
 }

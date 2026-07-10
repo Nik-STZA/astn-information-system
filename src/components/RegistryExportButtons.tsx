@@ -1,7 +1,5 @@
 type Props = {
   searchParams: Record<string, string | string[] | undefined>;
-  // Pass true when rendered from /registry/verify so the export reflects the
-  // verification queue scope, not the full registry.
   verifyMode?: boolean;
 };
 
@@ -20,23 +18,62 @@ function buildHref(
   return `/registry/export?${params.toString()}`;
 }
 
-/**
- * Two download links that preserve the current filter querystring.
- * CSV is the full data dump for analysis; Word is a brand-styled table-shape
- * summary capped at 1,000 rows.
- */
-export default function RegistryExportButtons({ searchParams, verifyMode = false }: Props) {
+const btnGold: React.CSSProperties = {
+  fontWeight: 600,
+  fontSize: 12,
+  lineHeight: 1,
+  color: "#141414",
+  background: "#C5A059",
+  borderRadius: 7,
+  padding: "9px 14px",
+  textDecoration: "none",
+  display: "inline-block",
+};
+
+const btnOutline: React.CSSProperties = {
+  fontWeight: 600,
+  fontSize: 12,
+  lineHeight: 1,
+  color: "#B08D3F",
+  background: "#fff",
+  border: "1px solid #D4C5A9",
+  borderRadius: 7,
+  padding: "9px 14px",
+  textDecoration: "none",
+  display: "inline-block",
+};
+
+export default function RegistryExportButtons({
+  searchParams,
+  verifyMode = false,
+}: Props) {
   const csvHref = buildHref("csv", searchParams, verifyMode);
   const docxHref = buildHref("docx", searchParams, verifyMode);
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-caption text-warm-grey uppercase tracking-wider font-bold">
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          fontWeight: 600,
+          fontSize: 10,
+          lineHeight: 1,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          color: "#A29C8E",
+        }}
+      >
         Export
       </span>
-      <a href={csvHref} className="btn-text" download>
+      <a href={csvHref} style={btnGold} download>
         CSV
       </a>
-      <a href={docxHref} className="btn-text" download>
+      <a href={docxHref} style={btnOutline} download>
         Word
       </a>
     </div>

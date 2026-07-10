@@ -29,9 +29,9 @@ export default async function AuthenticatedLayout({
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen" style={{ background: "var(--pg)" }}>
       <TopNav userEmail={session.user.email!} />
-      <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+      <main className="page-container">{children}</main>
     </div>
   );
 }

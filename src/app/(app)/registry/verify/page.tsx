@@ -1,7 +1,7 @@
 import Link from "next/link";
 import RegistryExportButtons from "@/components/RegistryExportButtons";
-import RegistryFilters from "@/components/RegistryFilters";
 import RegistryPagination from "@/components/RegistryPagination";
+import VerifyFilters from "@/components/VerifyFilters";
 import {
   CONFIDENCE_BANDS,
   REGISTRY_PAGE_SIZE,
@@ -37,14 +37,49 @@ function readPage(value: string | string[] | undefined): number {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
+/* ── Confidence pill ─────────────────────────────────────────────── */
+
+const PILL_META: Record<string, { bg: string; color: string; border: string }> = {
+  Medium:      { bg: "#FBF1DE", color: "#A67514", border: "#EAD6A6" },
+  "Medium-Low":{ bg: "#FBE7E1", color: "#B4432C", border: "#EDCBBF" },
+  Low:         { bg: "#FBE3E3", color: "#B02020", border: "#E6C4C4" },
+};
+const PILL_UNSET = { bg: "#EEECE7", color: "#8E9196", border: "#DED9CE" };
+
+function ConfidencePill({ band }: { band: string | null }) {
+  const m = band ? PILL_META[band] ?? PILL_UNSET : PILL_UNSET;
+  const label = band ?? "Unset";
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        fontWeight: 700,
+        fontSize: 10,
+        lineHeight: 1,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        color: m.color,
+        background: m.bg,
+        border: `1px solid ${m.border}`,
+        borderRadius: 20,
+        padding: "4px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/* ── Page ────────────────────────────────────────────────────────── */
+
 export default async function VerificationQueuePage({ searchParams }: PageProps) {
-  // The High band would be empty in verify mode, so we intentionally let
-  // users still narrow within the queue by picking Medium / Medium-Low / Low.
   const filters: RegistryFilterValues = {
     country: readParam(searchParams.country),
     sport: readParam(searchParams.sport),
     type: readParam(searchParams.type),
     confidence: readConfidence(searchParams.confidence),
+    q: readParam(searchParams.q),
   };
   const page = readPage(searchParams.page);
 
@@ -55,24 +90,95 @@ export default async function VerificationQueuePage({ searchParams }: PageProps)
   ]);
 
   const filteredCount = result.totalCount;
+  const fmt = (n: number) => n.toLocaleString("en-GB");
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 20,
+        }}
+      >
         <div>
-          <h1>Verification queue</h1>
-          <p className="text-caption text-warm-grey mt-1">
-            {queueTotal.toLocaleString("en-GB")} organisations need verification (Medium, Medium-Low, Low, or unset). Updating an org&apos;s source confidence to High removes it from this queue.
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: 10,
+              lineHeight: 1,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: "#B08D3F",
+              marginBottom: 9,
+            }}
+          >
+            AfricanSTN &middot; Registry
+          </div>
+          <h1
+            style={{
+              fontWeight: 800,
+              fontSize: 27,
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+              color: "var(--tx)",
+              margin: "0 0 5px",
+            }}
+          >
+            Verification queue
+          </h1>
+          <p
+            style={{
+              fontWeight: 500,
+              fontSize: 13,
+              lineHeight: 1.45,
+              color: "#8E9196",
+              margin: 0,
+              maxWidth: 640,
+            }}
+          >
+            Organisations below High confidence. Add a primary or secondary
+            source and set the confidence — raising it to High clears the
+            item from the queue.
           </p>
         </div>
-        <Link href="/registry" className="btn-text">
+        <Link
+          href="/registry"
+          style={{
+            fontWeight: 600,
+            fontSize: 12,
+            lineHeight: 1,
+            color: "#B08D3F",
+            textDecoration: "none",
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+          }}
+        >
           Browse all organisations →
         </Link>
       </div>
 
-      <RegistryFilters options={options} />
+      {/* Filter bar */}
+      <VerifyFilters options={options} />
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* Result bar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          padding: "0 4px",
+        }}
+      >
+        <div
+          style={{ fontWeight: 600, fontSize: 12.5, color: "#55524C" }}
+        >
+          <span style={{ color: "#B08D3F" }}>{fmt(filteredCount)}</span>{" "}
+          of {fmt(queueTotal)} awaiting verification
+        </div>
         <RegistryPagination
           page={page}
           pageSize={REGISTRY_PAGE_SIZE}
@@ -80,51 +186,171 @@ export default async function VerificationQueuePage({ searchParams }: PageProps)
           searchParams={searchParams}
           basePath="/registry/verify"
         />
-        <RegistryExportButtons searchParams={searchParams} verifyMode />
       </div>
 
-      <div className="card overflow-hidden">
+      {/* Table */}
+      <div
+        style={{
+          background: "var(--pnl)",
+          border: "1px solid var(--bd)",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 1px 3px rgba(26,28,30,.05)",
+        }}
+      >
         {result.rows.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-body-app text-warm-grey">
-              {queueTotal === 0
-                ? "Queue is clear - every organisation is at High confidence."
-                : "No organisations match the current filters within the verification queue."}
-            </p>
+          <div
+            style={{
+              padding: "40px 18px",
+              textAlign: "center",
+            }}
+          >
+            {queueTotal === 0 ? (
+              <>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 14,
+                    lineHeight: 1.3,
+                    color: "#2E7D32",
+                    marginBottom: 4,
+                  }}
+                >
+                  Queue clear
+                </div>
+                <div
+                  style={{
+                    fontWeight: 500,
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                    color: "#8E9196",
+                  }}
+                >
+                  Every organisation is at High confidence.
+                </div>
+              </>
+            ) : (
+              <div
+                style={{
+                  fontWeight: 500,
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  color: "#8E9196",
+                }}
+              >
+                No organisations match the current filters.
+              </div>
+            )}
           </div>
         ) : (
-          <table className="table-brand">
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr>
-                <th>Organisation</th>
-                <th>Country</th>
-                <th>Sport</th>
-                <th>Type</th>
-                <th>Confidence</th>
+              <tr
+                style={{
+                  background: "#F6F1E7",
+                  borderBottom: "1.5px solid #E4D9C4",
+                }}
+              >
+                {["Organisation", "Country", "Type", "Confidence", ""].map(
+                  (h) => (
+                    <th
+                      key={h || "action"}
+                      style={{
+                        textAlign: h === "" ? "right" : "left",
+                        fontWeight: 700,
+                        fontSize: 10.5,
+                        lineHeight: 1,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "#6E6A62",
+                        padding: "13px 18px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h || "Action"}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
-              {result.rows.map((org) => {
+              {result.rows.map((org, idx) => {
                 const band = confidenceBand(org.source_confidence);
                 return (
-                  <tr key={org.id}>
-                    <td className="font-medium text-brand-dark">
+                  <tr
+                    key={org.id}
+                    style={{
+                      background: idx % 2 ? "#FBF8F1" : "#FFFFFF",
+                      borderBottom: "1px solid #F0E8D8",
+                    }}
+                    className="hover:!bg-[#FBF6EC]"
+                  >
+                    <td
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 13,
+                        lineHeight: 1.3,
+                        color: "var(--tx)",
+                        padding: "12px 18px",
+                      }}
+                    >
+                      {org.organization_name ?? "—"}
+                    </td>
+                    <td
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 12.5,
+                        lineHeight: 1.3,
+                        color: "#55524C",
+                        padding: "12px 18px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {org.country ?? "—"}
+                    </td>
+                    <td
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 12.5,
+                        lineHeight: 1.3,
+                        color: "#55524C",
+                        padding: "12px 18px",
+                      }}
+                    >
+                      {org.organization_type ?? "—"}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px 18px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <ConfidencePill band={band} />
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px 18px",
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       <Link
                         href={`/registry/${org.id}`}
-                        className="hover:text-brand-gold transition-colors"
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 11.5,
+                          lineHeight: 1,
+                          color: "#141414",
+                          background: "#C5A059",
+                          border: "none",
+                          borderRadius: 6,
+                          padding: "8px 13px",
+                          textDecoration: "none",
+                          display: "inline-block",
+                        }}
                       >
-                        {org.organization_name ?? "—"}
+                        Verify
                       </Link>
-                    </td>
-                    <td className="text-warm-grey">{org.country ?? "—"}</td>
-                    <td className="text-warm-grey">{org.sport ?? "—"}</td>
-                    <td>{org.organization_type ?? "—"}</td>
-                    <td>
-                      {band === "Medium" && <span className="pill pill-medium">Medium</span>}
-                      {(band === "Medium-Low" || band === "Low") && (
-                        <span className="pill pill-low">{band}</span>
-                      )}
-                      {band === null && <span className="pill pill-neutral">Unset</span>}
                     </td>
                   </tr>
                 );
@@ -134,14 +360,17 @@ export default async function VerificationQueuePage({ searchParams }: PageProps)
         )}
       </div>
 
+      {/* Bottom pagination */}
       {result.rows.length > 0 && (
-        <RegistryPagination
-          page={page}
-          pageSize={REGISTRY_PAGE_SIZE}
-          totalCount={filteredCount}
-          searchParams={searchParams}
-          basePath="/registry/verify"
-        />
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <RegistryPagination
+            page={page}
+            pageSize={REGISTRY_PAGE_SIZE}
+            totalCount={filteredCount}
+            searchParams={searchParams}
+            basePath="/registry/verify"
+          />
+        </div>
       )}
     </div>
   );

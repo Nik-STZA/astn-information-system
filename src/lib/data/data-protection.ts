@@ -42,6 +42,7 @@ export type Country = {
 
 export type MaturityRow = {
   country_name: string;
+  iso_code: string;
   has_dp_law: boolean;
   law_status: string | null;
   authority_name: string | null;

@@ -14,6 +14,7 @@ export type RegistryFilters = {
   sport: string | null;
   type: string | null;
   confidence: ConfidenceBand | null;
+  q?: string | null;
 };
 
 export type RegistryRow = {

@@ -12,6 +12,14 @@ import type { OrganizationDetail } from "@/lib/data/registry-shared";
 
 export const dynamic = "force-dynamic";
 
+/* ── Confidence pill colours ─────────────────────────────────────────── */
+const CONF_META: Record<string, { bg: string; text: string; border: string }> = {
+  High:       { bg: "#E8F5E9", text: "#2E7D32", border: "#C8E6C9" },
+  Medium:     { bg: "#FBF1DE", text: "#A67514", border: "#F0E0B6" },
+  "Medium-Low": { bg: "#FBE7E1", text: "#B4432C", border: "#EDCBBF" },
+  Low:        { bg: "#FBE7E1", text: "#B4432C", border: "#EDCBBF" },
+};
+
 function formatDate(value: string | null): string {
   if (!value) return "—";
   const d = new Date(value);
@@ -23,15 +31,14 @@ function formatDate(value: string | null): string {
   });
 }
 
-export default async function OrganizationDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+type Props = { params: Promise<{ id: string }> };
+
+export default async function OrganizationDetailPage({ params }: Props) {
+  const { id } = await params;
   const [org, options, changes] = await Promise.all([
-    fetchOrganization(params.id),
+    fetchOrganization(id),
     fetchFilterOptions(),
-    fetchOrganizationChanges(params.id, 20),
+    fetchOrganizationChanges(id, 20),
   ]);
 
   if (!org) {
@@ -39,59 +46,104 @@ export default async function OrganizationDetailPage({
   }
 
   const band = confidenceBand(org.source_confidence);
+  const confStyle = band ? CONF_META[band] ?? CONF_META.Medium : null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <Link href="/registry" className="btn-text">
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Top bar: back link + confidence pill + report button */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <Link
+          href="/registry"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: 13, fontWeight: 700, color: "#C5A059",
+            textDecoration: "none", padding: "6px 12px", borderRadius: 8,
+          }}
+        >
           ← Back to registry
         </Link>
-        <div className="flex items-center gap-3">
-          {band === "High" && <span className="pill pill-high">High confidence</span>}
-          {band === "Medium" && <span className="pill pill-medium">Medium confidence</span>}
-          {(band === "Medium-Low" || band === "Low") && (
-            <span className="pill pill-low">{band} confidence</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {confStyle && (
+            <span style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "5px 10px", borderRadius: 999,
+              fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em",
+              color: confStyle.text, background: confStyle.bg, border: `1px solid ${confStyle.border}`,
+            }}>
+              {band} confidence
+            </span>
           )}
-          {band === null && <span className="pill pill-neutral">Unverified</span>}
+          {!confStyle && (
+            <span style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "5px 10px", borderRadius: 999,
+              fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em",
+              color: "#6E6A62", background: "#F2F0EB", border: "1px solid #DDD9D1",
+            }}>
+              Unverified
+            </span>
+          )}
           <a
             href={`/registry/${org.id}/report`}
-            className="btn-secondary"
             download
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              padding: "10px 20px", borderRadius: 8,
+              fontWeight: 700, fontSize: 13,
+              color: "#B08D3F", background: "#FFFFFF",
+              border: "1px solid var(--bd)",
+              textDecoration: "none",
+            }}
           >
             Generate profile report
           </a>
         </div>
       </div>
 
+      {/* Organisation header */}
       <div>
-        <h1>{org.organization_name ?? "Untitled organisation"}</h1>
-        <p className="text-caption text-warm-grey mt-1">
+        <h1 style={{ fontSize: 27, fontWeight: 800, color: "var(--tx)", margin: 0 }}>
+          {org.organization_name ?? "Untitled organisation"}
+        </h1>
+        <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 4 }}>
           {[org.country, org.sport, org.organization_type, org.level]
             .filter(Boolean)
             .join(" · ") || "—"}
         </p>
         {org.astn_id && (
-          <p className="text-caption text-warm-grey mt-0.5">AfricanSTN ID: {org.astn_id}</p>
+          <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 2 }}>
+            AfricanSTN ID: {org.astn_id}
+          </p>
         )}
-        <p className="text-caption text-warm-grey mt-2 italic">
+        <p style={{ fontSize: 12, fontWeight: 400, color: "var(--sub)", marginTop: 8, fontStyle: "italic" }}>
           Organisation name, AfricanSTN ID, country, sport, and level are locked. Open a separate flow to correct identity fields.
         </p>
       </div>
 
+      {/* Edit form (already reskinned via globals.css component classes) */}
       <OrganizationEditForm org={org} typeOptions={options.types} />
 
+      {/* Audit trail */}
       <ChangeHistory changes={changes} />
 
+      {/* Reference fields */}
       <ReferenceSection org={org} />
     </div>
   );
 }
 
+/* ── Reference fields (read-only) ────────────────────────────────────── */
 function ReferenceSection({ org }: { org: OrganizationDetail }) {
   return (
-    <div className="card p-5 space-y-5">
-      <h2>Reference fields</h2>
-      <p className="text-caption text-warm-grey">
+    <div style={{
+      background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10,
+      padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20,
+      boxShadow: "0 1px 3px rgba(26,28,30,.04), 0 1px 2px rgba(26,28,30,.03)",
+    }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--tx)", margin: 0 }}>
+        Reference fields
+      </h2>
+      <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)" }}>
         Read-only here. Country, sport, and level edits need to update the matching ISO/code pair, so they are deferred to a later flow.
       </p>
 
@@ -129,6 +181,7 @@ function ReferenceSection({ org }: { org: OrganizationDetail }) {
   );
 }
 
+/* ── Field group ─────────────────────────────────────────────────────── */
 function FieldGroup({
   title,
   rows,
@@ -137,15 +190,29 @@ function FieldGroup({
   rows: Array<[string, string | null]>;
 }) {
   return (
-    <div className="space-y-2">
-      <h3 className="text-h3-app text-brand-dark font-bold">{title}</h3>
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--tx)", margin: 0 }}>
+        {title}
+      </h3>
+      <dl style={{
+        display: "grid", gridTemplateColumns: "repeat(2, 1fr)",
+        gap: "8px 24px", margin: 0,
+      }}>
         {rows.map(([label, value]) => (
-          <div key={label} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 border-b border-gold-border/50 pb-1.5">
-            <dt className="text-tag uppercase tracking-wider text-warm-grey font-bold sm:w-44 sm:flex-shrink-0">
+          <div
+            key={label}
+            style={{
+              display: "flex", flexDirection: "column", gap: 2,
+              borderBottom: "1px solid rgba(212,197,169,.5)", paddingBottom: 6,
+            }}
+          >
+            <dt style={{
+              fontSize: 10.5, fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: ".04em", color: "var(--sub)",
+            }}>
               {label}
             </dt>
-            <dd className="text-body-app text-near-black break-words">
+            <dd style={{ fontSize: 13, fontWeight: 400, color: "var(--tx)", margin: 0, wordBreak: "break-word" }}>
               {value && value.length > 0 ? value : "—"}
             </dd>
           </div>

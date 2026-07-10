@@ -8,6 +8,7 @@ import {
   updateClient,
   createActivity,
 } from "@/lib/data/compliance";
+import { cloudRunMutate } from "@/lib/cloud-run";
 import { revalidatePath } from "next/cache";
 
 // ─── Prospect actions ───────────────────────────────────────────────────────
@@ -134,6 +135,68 @@ export async function addActivity(formData: FormData) {
   };
 
   const res = await createActivity(data);
+  revalidatePath("/compliance");
+  return res;
+}
+
+// ─── Agent pipeline actions ─────────────────────────────────────────────────
+
+export type PipelineStageResult = {
+  status: number;
+  [key: string]: unknown;
+};
+
+export type PipelineResult = {
+  prospect_id: string;
+  pipeline_status: string;
+  stages: {
+    ingest?: PipelineStageResult;
+    analyse?: PipelineStageResult;
+    assess?: PipelineStageResult;
+  };
+  elapsed_seconds?: number;
+};
+
+/** Ingest documents for a prospect (fetch URLs, convert to markdown, store). */
+export async function ingestProspectDocuments(prospectId: string) {
+  const res = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/prospects/${prospectId}/ingest`,
+    "POST"
+  );
+  revalidatePath("/compliance");
+  return res;
+}
+
+/** Run POPIA compliance analysis on stored documents. */
+export async function analyseProspect(prospectId: string) {
+  const res = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/prospects/${prospectId}/analyse`,
+    "POST"
+  );
+  revalidatePath("/compliance");
+  return res;
+}
+
+/** Generate scored assessment from analysis findings. */
+export async function assessProspect(prospectId: string) {
+  const res = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/prospects/${prospectId}/assess`,
+    "POST"
+  );
+  revalidatePath("/compliance");
+  return res;
+}
+
+/** Run the full pipeline: ingest -> analyse -> assess. */
+export async function runProspectPipeline(
+  prospectId: string,
+  options?: { skip_ingest?: boolean },
+) {
+  const res = await cloudRunMutate<PipelineResult>(
+    `/api/compliance/prospects/${prospectId}/run-pipeline`,
+    "POST",
+    options,
+  );
   revalidatePath("/compliance");
   return res;
 }

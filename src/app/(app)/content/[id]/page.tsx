@@ -1,191 +1,158 @@
 /**
- * Edition detail page.
- * Shows full content for a single AfricanSTN weekly edition.
+ * Edition detail page — reskinned to match design system.
+ * Server component — fetches edition data directly.
  */
 
-import { fetchEditions, type Edition } from "@/lib/data/content";
+import { fetchEditions } from "@/lib/data/content";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-const STATUS_COLOURS: Record<string, string> = {
-  planned: "bg-gray-100 text-gray-700",
-  researching: "bg-blue-100 text-blue-800",
-  drafting: "bg-amber-100 text-amber-800",
-  draft: "bg-amber-100 text-amber-800",
-  drafted: "bg-amber-100 text-amber-800",
-  review: "bg-purple-100 text-purple-800",
-  scheduled: "bg-indigo-100 text-indigo-800",
-  published: "bg-emerald-100 text-emerald-800",
-  archived: "bg-gray-100 text-gray-500",
+/* ── Status pill colours (matches ContentClient) ──────────────────────── */
+const STATUS_META: Record<string, { bg: string; text: string; border: string }> = {
+  planned:     { bg: "#F0ECE3", text: "#8E9196", border: "#D9CDB4" },
+  researching: { bg: "#EBF0F5", text: "#3E6B8E", border: "#C4D4E4" },
+  drafting:    { bg: "#FBF1DE", text: "#A67514", border: "#E6D5A3" },
+  draft:       { bg: "#FBF1DE", text: "#A67514", border: "#E6D5A3" },
+  drafted:     { bg: "#FBF1DE", text: "#A67514", border: "#E6D5A3" },
+  review:      { bg: "#F0E8F5", text: "#8156A6", border: "#D4C4E4" },
+  scheduled:   { bg: "#EBF0F5", text: "#3E6B8E", border: "#C4D4E4" },
+  published:   { bg: "#E8F5E9", text: "#2E7D32", border: "#C7E1D1" },
+  archived:    { bg: "#F0ECE3", text: "#8E9196", border: "#D9CDB4" },
 };
 
-export default async function EditionDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+/* ── Country → flag lookup ─────────────────────────────────────────────── */
+const COUNTRY_ISO: Record<string, string> = {
+  "South Africa": "za", "Kenya": "ke", "Nigeria": "ng", "Egypt": "eg",
+  "Ghana": "gh", "Tanzania": "tz", "Ethiopia": "et", "Rwanda": "rw",
+  "Uganda": "ug", "Senegal": "sn", "Morocco": "ma", "Cameroon": "cm",
+};
+
+function formatDate(d: string): string {
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatDateTime(d: string): string {
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+type Props = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function EditionDetailPage({ params }: Props) {
+  const { id } = await params;
   const editionsRes = await fetchEditions();
   const editions = editionsRes.data?.data ?? [];
-  const edition = editions.find((e) => String(e.id) === params.id);
+  const edition = editions.find((e) => String(e.id) === id);
 
   if (!edition) return notFound();
 
+  const sm = STATUS_META[edition.status] ?? STATUS_META.planned;
+  const iso = edition.country_name ? COUNTRY_ISO[edition.country_name] : null;
+
   return (
-    <div className="space-y-6" style={{ fontFamily: "Calibri, sans-serif" }}>
+    <div style={{ fontFamily: "'Manrope', sans-serif" }}>
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm">
-        <Link
-          href="/content"
-          className="text-[#C5A059] hover:underline"
-        >
-          Content
-        </Link>
-        <span className="text-gray-300">/</span>
-        <span className="text-gray-500">Edition #{edition.edition_number}</span>
+      <div style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", marginBottom: 8 }}>
+        <Link href="/content" style={{ color: "#B08D3F", textDecoration: "none" }}>Content engine</Link>
+        <span style={{ margin: "0 6px", opacity: 0.5 }}>&middot;</span>
+        <span>Edition #{edition.edition_number}</span>
       </div>
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 24 }}>
         <div>
-          <h1 className="text-2xl font-bold text-[#1A1C1E]">
-            {edition.title}
-          </h1>
+          <h1 style={{ fontSize: 27, fontWeight: 800, color: "var(--tx)", margin: "0 0 4px" }}>{edition.title}</h1>
           {edition.subtitle && (
-            <p className="text-sm text-gray-500 mt-1">{edition.subtitle}</p>
+            <p style={{ fontSize: 14, fontWeight: 400, color: "#A29C8E", margin: 0 }}>{edition.subtitle}</p>
           )}
         </div>
-        <span
-          className={`inline-block px-3 py-1 rounded text-xs font-medium whitespace-nowrap ${STATUS_COLOURS[edition.status] ?? "bg-gray-100 text-gray-700"}`}
-        >
+        <span style={{
+          flexShrink: 0,
+          fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11, lineHeight: "1",
+          textTransform: "uppercase", letterSpacing: ".04em",
+          color: sm.text, background: sm.bg, border: `1px solid ${sm.border}`,
+          borderRadius: 6, padding: "7px 12px", whiteSpace: "nowrap",
+        }}>
           {edition.status}
         </span>
       </div>
 
-      {/* Meta */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Meta cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
         <MetaCard label="Series" value={edition.series} />
-        <MetaCard label="Country" value={edition.country_name ?? "—"} />
-        <MetaCard
-          label="Word count"
-          value={edition.word_count?.toLocaleString() ?? "—"}
-        />
-        <MetaCard
-          label="Target publish"
-          value={
-            edition.target_publish_date
-              ? new Date(edition.target_publish_date).toLocaleDateString(
-                  "en-GB",
-                  { day: "numeric", month: "short", year: "numeric" }
-                )
-              : "—"
-          }
-        />
+        <MetaCard label="Country" value={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {iso && <img src={`https://flagcdn.com/w40/${iso}.png`} alt="" style={{ width: 18, height: 13, borderRadius: 2, objectFit: "cover" }} />}
+            {edition.country_name ?? "—"}
+          </span>
+        } />
+        <MetaCard label="Word count" value={edition.word_count?.toLocaleString("en-GB") ?? "—"} />
+        <MetaCard label="Target publish" value={edition.target_publish_date ? formatDate(edition.target_publish_date) : "—"} />
       </div>
 
       {/* Content area */}
-      <section className="border border-gray-200 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-[#1A1C1E] mb-4">
-          Edition content
-        </h2>
+      <div style={{ border: "1px solid var(--bd)", borderRadius: 14, padding: "22px 24px", marginBottom: 24, background: "var(--pnl)" }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", margin: "0 0 14px" }}>Edition content</h2>
         {edition.file_path ? (
-          <div className="prose prose-sm max-w-none text-gray-600">
-            <p className="text-sm text-gray-500 italic">
-              Content file: {edition.file_path}
-            </p>
-            <p className="text-sm text-gray-400 mt-2">
-              Content rendering from file storage will be available once the
-              content pipeline is connected. The file exists at the path above.
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 500, color: "#A29C8E" }}>Content file: <span style={{ color: "var(--tx)" }}>{edition.file_path}</span></p>
+            <p style={{ fontSize: 12, color: "#B9B2A2", marginTop: 8 }}>
+              Content rendering from file storage will be available once the content pipeline is connected.
             </p>
           </div>
         ) : (
-          <div className="text-center py-12 text-gray-400">
-            <p className="text-sm">
-              No content file attached to this edition yet.
-            </p>
-            <p className="text-xs mt-1">
-              Content will appear here once drafted by the Content Agent or
-              uploaded manually.
-            </p>
+          <div style={{ textAlign: "center", padding: "36px 0", border: "1px dashed #D9CDB4", borderRadius: 10, background: "#F7F2E9" }}>
+            <p style={{ fontSize: 13, fontWeight: 500, color: "#B9B2A2", margin: "0 0 4px" }}>No content file attached to this edition yet</p>
+            <p style={{ fontSize: 11.5, color: "#C8C1B3", margin: 0 }}>Content will appear here once drafted by the Content Agent or uploaded manually.</p>
           </div>
         )}
-      </section>
+      </div>
 
       {/* Timeline */}
-      <section className="border border-gray-200 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-[#1A1C1E] mb-4">
-          Timeline
-        </h2>
-        <div className="space-y-3">
-          <TimelineItem
-            label="Created"
-            date={edition.created_at}
-            active
-          />
-          <TimelineItem
-            label="Last updated"
-            date={edition.updated_at}
-            active
-          />
+      <div style={{ border: "1px solid var(--bd)", borderRadius: 14, padding: "22px 24px", marginBottom: 24, background: "var(--pnl)" }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", margin: "0 0 14px" }}>Timeline</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <TimelineItem label="Created" date={formatDateTime(edition.created_at)} active />
+          <TimelineItem label="Last updated" date={formatDateTime(edition.updated_at)} active />
           {edition.target_publish_date && (
-            <TimelineItem
-              label="Target publish"
-              date={edition.target_publish_date}
-              active={!!edition.actual_publish_date}
-            />
+            <TimelineItem label="Target publish" date={formatDate(edition.target_publish_date)} active={!!edition.actual_publish_date} />
           )}
           {edition.actual_publish_date && (
-            <TimelineItem
-              label="Published"
-              date={edition.actual_publish_date}
-              active
-            />
+            <TimelineItem label="Published" date={formatDate(edition.actual_publish_date)} active />
           )}
         </div>
-      </section>
+      </div>
 
       {/* Back link */}
-      <Link
-        href="/content"
-        className="inline-flex items-center gap-1 text-sm text-[#C5A059] hover:underline"
-      >
-        ← Back to all editions
+      <Link href="/content" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, color: "#C5A059", textDecoration: "none" }}>
+        &larr; Back to all editions
       </Link>
     </div>
   );
 }
 
-function MetaCard({ label, value }: { label: string; value: string }) {
+/* ── MetaCard ─────────────────────────────────────────────────────────── */
+function MetaCard({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-gray-200 p-3">
-      <div className="text-sm font-semibold text-[#1A1C1E]">{value}</div>
-      <div className="text-xs text-gray-400 mt-0.5">{label}</div>
+    <div style={{ borderRadius: 10, border: "1px solid var(--bd)", background: "var(--pnl)", padding: "14px 16px" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tx)", marginBottom: 2 }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 500, color: "#A29C8E" }}>{label}</div>
     </div>
   );
 }
 
-function TimelineItem({
-  label,
-  date,
-  active,
-}: {
-  label: string;
-  date: string;
-  active: boolean;
-}) {
-  const formatted = new Date(date).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/* ── TimelineItem ─────────────────────────────────────────────────────── */
+function TimelineItem({ label, date, active }: { label: string; date: string; active: boolean }) {
   return (
-    <div className="flex items-center gap-3">
-      <div
-        className={`w-2.5 h-2.5 rounded-full ${active ? "bg-[#C5A059]" : "bg-gray-200"}`}
-      />
-      <span className="text-sm text-gray-600 w-32">{label}</span>
-      <span className="text-sm text-gray-400">{formatted}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ width: 10, height: 10, borderRadius: "50%", background: active ? "#C5A059" : "#D9CDB4", flexShrink: 0 }} />
+      <span style={{ fontSize: 13, fontWeight: 500, color: "#A29C8E", width: 120 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 400, color: "var(--tx)" }}>{date}</span>
     </div>
   );
 }

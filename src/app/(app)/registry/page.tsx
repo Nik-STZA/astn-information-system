@@ -36,12 +36,50 @@ function readPage(value: string | string[] | undefined): number {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
+/* ── Confidence pill colours ─────────────────────────────────────── */
+
+const PILL_META: Record<string, { bg: string; color: string; border: string }> = {
+  High:        { bg: "#E7F1EA", color: "#2E7D32", border: "#C7E1D1" },
+  Medium:      { bg: "#FBF1DE", color: "#A67514", border: "#EAD6A6" },
+  "Medium-Low":{ bg: "#FBE7E1", color: "#B4432C", border: "#EDCBBF" },
+  Low:         { bg: "#FBE3E3", color: "#B02020", border: "#E6C4C4" },
+};
+const PILL_UNSET = { bg: "#EEECE7", color: "#8E9196", border: "#DED9CE" };
+
+function ConfidencePill({ band }: { band: string | null }) {
+  const m = band ? PILL_META[band] ?? PILL_UNSET : PILL_UNSET;
+  const label = band ?? "—";
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        fontWeight: 700,
+        fontSize: 10,
+        lineHeight: 1,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        color: m.color,
+        background: m.bg,
+        border: `1px solid ${m.border}`,
+        borderRadius: 20,
+        padding: "4px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/* ── Page ────────────────────────────────────────────────────────── */
+
 export default async function RegistryPage({ searchParams }: PageProps) {
   const filters: RegistryFilterValues = {
     country: readParam(searchParams.country),
     sport: readParam(searchParams.sport),
     type: readParam(searchParams.type),
     confidence: readConfidence(searchParams.confidence),
+    q: readParam(searchParams.q),
   };
   const page = readPage(searchParams.page);
 
@@ -50,68 +88,220 @@ export default async function RegistryPage({ searchParams }: PageProps) {
     fetchOrganizations(filters, page, REGISTRY_PAGE_SIZE),
   ]);
 
+  const fmt = (n: number) => n.toLocaleString("en-GB");
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1>Registry</h1>
-        <p className="text-caption text-warm-grey mt-1">
-          Browse and filter the {result.totalCount.toLocaleString("en-GB")} organisations matching your selection.
-        </p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 20,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: 10,
+              lineHeight: 1,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: "#B08D3F",
+              marginBottom: 9,
+            }}
+          >
+            AfricanSTN &middot; Registry
+          </div>
+          <h1
+            style={{
+              fontWeight: 800,
+              fontSize: 27,
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+              color: "var(--tx)",
+              margin: "0 0 5px",
+            }}
+          >
+            Registry
+          </h1>
+          <p
+            style={{
+              fontWeight: 500,
+              fontSize: 13,
+              lineHeight: 1.4,
+              color: "#8E9196",
+              margin: 0,
+            }}
+          >
+            Browse and filter the full organisation registry.
+          </p>
+        </div>
+        <RegistryExportButtons searchParams={searchParams} />
       </div>
 
+      {/* Filter bar */}
       <RegistryFilters options={options} />
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* Result bar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          padding: "0 4px",
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 600,
+            fontSize: 12.5,
+            color: "#55524C",
+          }}
+        >
+          Showing{" "}
+          <span style={{ color: "#B08D3F" }}>
+            {fmt(result.totalCount)}
+          </span>{" "}
+          organisations
+        </div>
         <RegistryPagination
           page={page}
           pageSize={REGISTRY_PAGE_SIZE}
           totalCount={result.totalCount}
           searchParams={searchParams}
         />
-        <RegistryExportButtons searchParams={searchParams} />
       </div>
 
-      <div className="card overflow-hidden">
+      {/* Table */}
+      <div
+        style={{
+          background: "var(--pnl)",
+          border: "1px solid var(--bd)",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 1px 3px rgba(26,28,30,.05)",
+        }}
+      >
         {result.rows.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-body-app text-warm-grey">
-              No organisations match the current filters.
-            </p>
+          <div
+            style={{
+              padding: "32px 18px",
+              textAlign: "center",
+              color: "#8E9196",
+              fontSize: 13,
+            }}
+          >
+            No organisations match the current filters.
           </div>
         ) : (
-          <table className="table-brand">
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+            }}
+          >
             <thead>
-              <tr>
-                <th>Organisation</th>
-                <th>Country</th>
-                <th>Sport</th>
-                <th>Type</th>
-                <th>Confidence</th>
+              <tr
+                style={{
+                  background: "#F6F1E7",
+                  borderBottom: "1.5px solid #E4D9C4",
+                }}
+              >
+                {["Organisation", "Country", "Sport", "Type", "Confidence"].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: "left",
+                        fontWeight: 700,
+                        fontSize: 10.5,
+                        lineHeight: 1,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "#6E6A62",
+                        padding: "13px 18px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
-              {result.rows.map((org) => {
+              {result.rows.map((org, idx) => {
                 const band = confidenceBand(org.source_confidence);
                 return (
-                  <tr key={org.id}>
-                    <td className="font-medium text-brand-dark">
+                  <tr
+                    key={org.id}
+                    style={{
+                      background: idx % 2 ? "#FBF8F1" : "#FFFFFF",
+                      borderBottom: "1px solid #F0E8D8",
+                    }}
+                    className="hover:!bg-[#FBF6EC]"
+                  >
+                    <td
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 13,
+                        lineHeight: 1.3,
+                        color: "var(--tx)",
+                        padding: "12px 18px",
+                      }}
+                    >
                       <Link
                         href={`/registry/${org.id}`}
-                        className="hover:text-brand-gold transition-colors"
+                        style={{
+                          color: "var(--tx)",
+                          textDecoration: "none",
+                        }}
+                        className="hover:!text-[#B08D3F]"
                       >
                         {org.organization_name ?? "—"}
                       </Link>
                     </td>
-                    <td className="text-warm-grey">{org.country ?? "—"}</td>
-                    <td className="text-warm-grey">{org.sport ?? "—"}</td>
-                    <td>{org.organization_type ?? "—"}</td>
-                    <td>
-                      {band === "High" && <span className="pill pill-high">High</span>}
-                      {band === "Medium" && <span className="pill pill-medium">Medium</span>}
-                      {(band === "Medium-Low" || band === "Low") && (
-                        <span className="pill pill-low">{band}</span>
-                      )}
-                      {band === null && <span className="pill pill-neutral">—</span>}
+                    <td
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 12.5,
+                        lineHeight: 1.3,
+                        color: "#55524C",
+                        padding: "12px 14px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {org.country ?? "—"}
+                    </td>
+                    <td
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 12.5,
+                        lineHeight: 1.3,
+                        color: "#55524C",
+                        padding: "12px 14px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {org.sport ?? "—"}
+                    </td>
+                    <td
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 12.5,
+                        lineHeight: 1.3,
+                        color: "#55524C",
+                        padding: "12px 14px",
+                      }}
+                    >
+                      {org.organization_type ?? "—"}
+                    </td>
+                    <td style={{ padding: "12px 18px", whiteSpace: "nowrap" }}>
+                      <ConfidencePill band={band} />
                     </td>
                   </tr>
                 );
@@ -121,13 +311,16 @@ export default async function RegistryPage({ searchParams }: PageProps) {
         )}
       </div>
 
+      {/* Bottom pagination */}
       {result.rows.length > 0 && (
-        <RegistryPagination
-          page={page}
-          pageSize={REGISTRY_PAGE_SIZE}
-          totalCount={result.totalCount}
-          searchParams={searchParams}
-        />
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <RegistryPagination
+            page={page}
+            pageSize={REGISTRY_PAGE_SIZE}
+            totalCount={result.totalCount}
+            searchParams={searchParams}
+          />
+        </div>
       )}
     </div>
   );

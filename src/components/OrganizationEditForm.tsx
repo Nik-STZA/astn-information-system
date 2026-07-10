@@ -73,9 +73,6 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
   const action = updateOrganization.bind(null, org.id);
   const [state, formAction] = useFormState(action, INITIAL);
   const formRef = useRef<HTMLFormElement>(null);
-  // A hidden submit button inside the form. We click it (rather than calling
-  // form.requestSubmit()) because React's server-action handler is more
-  // reliable when triggered by a real submit button.
   const submitterRef = useRef<HTMLButtonElement>(null);
   const [pendingDiff, setPendingDiff] = useState<FieldDiff[] | null>(null);
   const [noChangesAt, setNoChangesAt] = useState<number | null>(null);
@@ -83,9 +80,6 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
   const router = useRouter();
   const lastRefreshedAt = useRef<number>(0);
 
-  // After a successful save, refresh the server components so the audit
-  // log section picks up the new row. useFormState doesn't do this on its
-  // own - it only updates the local form state.
   useEffect(() => {
     if (state.status === "ok" && state.savedAt !== lastRefreshedAt.current) {
       lastRefreshedAt.current = state.savedAt;
@@ -115,8 +109,16 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
 
   return (
     <>
-      <form ref={formRef} action={formAction} className="card p-5 space-y-5">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <form
+        ref={formRef}
+        action={formAction}
+        style={{
+          background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10,
+          padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20,
+          boxShadow: "0 1px 3px rgba(26,28,30,.04), 0 1px 2px rgba(26,28,30,.03)",
+        }}
+      >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
           <SelectField
             name="organization_type"
             label="Organisation type"
@@ -141,137 +143,54 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
         </div>
 
         <Section title="Web & contact">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <TextField
-              name="organization_website"
-              label="Organisation website"
-              defaultValue={org.organization_website}
-              type="url"
-            />
-            <TextField
-              name="contact_email"
-              label="Contact email"
-              defaultValue={org.contact_email}
-              type="email"
-            />
-            <TextField
-              name="contact_phone"
-              label="Contact phone"
-              defaultValue={org.contact_phone}
-            />
-            <TextField
-              name="social_media"
-              label="Social media"
-              defaultValue={org.social_media}
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+            <TextField name="organization_website" label="Organisation website" defaultValue={org.organization_website} type="url" />
+            <TextField name="contact_email" label="Contact email" defaultValue={org.contact_email} type="email" />
+            <TextField name="contact_phone" label="Contact phone" defaultValue={org.contact_phone} />
+            <TextField name="social_media" label="Social media" defaultValue={org.social_media} />
           </div>
         </Section>
 
         <Section title="Partnership & outreach">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <SelectField
-              name="partnership_type"
-              label="Partnership type"
-              defaultValue={org.partnership_type}
-              options={[...CANONICAL_PARTNERSHIP_TYPES]}
-              placeholder="Select partnership type"
-            />
-            <SelectField
-              name="commercial_priority"
-              label="Commercial priority"
-              defaultValue={org.commercial_priority}
-              options={[...CANONICAL_COMMERCIAL_PRIORITY]}
-              placeholder="Select priority"
-            />
-            <SelectField
-              name="outreach_candidate"
-              label="Outreach candidate"
-              defaultValue={org.outreach_candidate}
-              options={[...CANONICAL_OUTREACH_CANDIDATE]}
-              placeholder="Select"
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+            <SelectField name="partnership_type" label="Partnership type" defaultValue={org.partnership_type} options={[...CANONICAL_PARTNERSHIP_TYPES]} placeholder="Select partnership type" />
+            <SelectField name="commercial_priority" label="Commercial priority" defaultValue={org.commercial_priority} options={[...CANONICAL_COMMERCIAL_PRIORITY]} placeholder="Select priority" />
+            <SelectField name="outreach_candidate" label="Outreach candidate" defaultValue={org.outreach_candidate} options={[...CANONICAL_OUTREACH_CANDIDATE]} placeholder="Select" />
             <TextField name="owner" label="Owner" defaultValue={org.owner} />
-            <DateField
-              name="review_date"
-              label="Review date"
-              defaultValue={org.review_date}
-            />
+            <DateField name="review_date" label="Review date" defaultValue={org.review_date} />
           </div>
         </Section>
 
         <Section title="Notes & tags">
-          <div className="space-y-4">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <TextField name="tags" label="Tags" defaultValue={org.tags} />
             <TextAreaField name="notes" label="Notes" defaultValue={org.notes} rows={4} />
-            <TextAreaField
-              name="next_action"
-              label="Next action"
-              defaultValue={org.next_action}
-              rows={3}
-            />
+            <TextAreaField name="next_action" label="Next action" defaultValue={org.next_action} rows={3} />
           </div>
         </Section>
 
         <Section title="Verification">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <SelectField
-              name="source_confidence_band"
-              label="Source confidence"
-              defaultValue={parsedConfidence.band}
-              options={[...CONFIDENCE_BANDS]}
-              placeholder="Select band"
-            />
-            <TextField
-              name="source_confidence_descriptor"
-              label="Confidence descriptor (optional)"
-              defaultValue={parsedConfidence.descriptor}
-              placeholder="e.g. via StadiumDB"
-            />
-            <DateField
-              name="verification_date"
-              label="Verification date"
-              defaultValue={org.verification_date}
-            />
-            <TextField
-              name="verification_source_label"
-              label="Source label"
-              defaultValue={org.verification_source_label}
-              placeholder="e.g. CAF, StadiumDB"
-            />
-            <TextField
-              name="verification_source"
-              label="Verification source"
-              defaultValue={org.verification_source}
-            />
-            <TextField
-              name="verification_source_primary"
-              label="Primary source"
-              defaultValue={org.verification_source_primary}
-              placeholder="URL or citation"
-            />
-            <TextField
-              name="verification_source_xref"
-              label="Cross-reference"
-              defaultValue={org.verification_source_xref}
-              placeholder="URL or citation"
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+            <SelectField name="source_confidence_band" label="Source confidence" defaultValue={parsedConfidence.band} options={[...CONFIDENCE_BANDS]} placeholder="Select band" />
+            <TextField name="source_confidence_descriptor" label="Confidence descriptor (optional)" defaultValue={parsedConfidence.descriptor} placeholder="e.g. via StadiumDB" />
+            <DateField name="verification_date" label="Verification date" defaultValue={org.verification_date} />
+            <TextField name="verification_source_label" label="Source label" defaultValue={org.verification_source_label} placeholder="e.g. CAF, StadiumDB" />
+            <TextField name="verification_source" label="Verification source" defaultValue={org.verification_source} />
+            <TextField name="verification_source_primary" label="Primary source" defaultValue={org.verification_source_primary} placeholder="URL or citation" />
+            <TextField name="verification_source_xref" label="Cross-reference" defaultValue={org.verification_source_xref} placeholder="URL or citation" />
           </div>
         </Section>
 
-        <div className="flex items-center justify-end gap-3 pt-2 border-t border-gold-border">
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "flex-end",
+          gap: 12, paddingTop: 8, borderTop: "1px solid var(--bd)",
+        }}>
           <NoChangesNote at={noChangesAt} />
           <StatusBadge state={state} />
           <SaveButton onClick={handleSaveClick} />
         </div>
 
-        {/* Hidden submit button - the actual trigger for the server action. */}
-        <button
-          ref={submitterRef}
-          type="submit"
-          className="hidden"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
+        <button ref={submitterRef} type="submit" style={{ display: "none" }} tabIndex={-1} aria-hidden="true" />
       </form>
 
       {pendingDiff && (
@@ -286,10 +205,12 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
   );
 }
 
+/* ── Sub-components ──────────────────────────────────────────────────── */
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-3">
-      <h3 className="text-h3-app text-brand-dark font-bold">{title}</h3>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--tx)", margin: 0 }}>{title}</h3>
       {children}
     </div>
   );
@@ -309,7 +230,7 @@ function TextField({
   placeholder?: string;
 }) {
   return (
-    <label className="block">
+    <label style={{ display: "block" }}>
       <span className="label-brand">{label}</span>
       <input
         type={type}
@@ -335,7 +256,7 @@ function DateField({
     ? defaultValue
     : "";
   return (
-    <label className="block">
+    <label style={{ display: "block" }}>
       <span className="label-brand">{label}</span>
       <input
         type="date"
@@ -344,7 +265,7 @@ function DateField({
         className="input-brand"
       />
       {defaultValue && !isoLike && (
-        <span className="text-caption text-warning-amber mt-1 block">
+        <span style={{ fontSize: 12, fontWeight: 500, color: "#CC7700", marginTop: 4, display: "block" }}>
           Existing non-standard value: {defaultValue}. Saving here will replace it.
         </span>
       )}
@@ -368,7 +289,7 @@ function SelectField({
   const current = defaultValue ?? "";
   const includesCurrent = current === "" || options.includes(current);
   return (
-    <label className="block">
+    <label style={{ display: "block" }}>
       <span className="label-brand">{label}</span>
       <select name={name} defaultValue={current} className="input-brand">
         <option value="">{placeholder}</option>
@@ -397,20 +318,19 @@ function TextAreaField({
   rows: number;
 }) {
   return (
-    <label className="block">
+    <label style={{ display: "block" }}>
       <span className="label-brand">{label}</span>
       <textarea
         name={name}
         defaultValue={defaultValue ?? ""}
         rows={rows}
-        className="input-brand resize-y"
+        className="input-brand"
+        style={{ resize: "vertical" }}
       />
     </label>
   );
 }
 
-// Button lives inside the form so useFormStatus picks up pending state from
-// the React server action triggered by requestSubmit().
 function SaveButton({ onClick }: { onClick: () => void }) {
   const { pending } = useFormStatus();
   return (
@@ -434,7 +354,11 @@ function NoChangesNote({ at }: { at: number | null }) {
     return () => clearTimeout(t);
   }, [at]);
   if (!visible) return null;
-  return <span className="text-caption text-warm-grey">No changes to save.</span>;
+  return (
+    <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)" }}>
+      No changes to save.
+    </span>
+  );
 }
 
 function StatusBadge({ state }: { state: UpdateResult }) {
@@ -449,17 +373,25 @@ function StatusBadge({ state }: { state: UpdateResult }) {
 
   if (!visible || state.status === "idle") return null;
   if (state.status === "ok") {
-    return <span className="pill pill-high">Saved</span>;
+    return (
+      <span style={{
+        display: "inline-flex", alignItems: "center",
+        padding: "5px 10px", borderRadius: 999,
+        fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em",
+        color: "#2E7D32", background: "#E8F5E9", border: "1px solid #C8E6C9",
+      }}>
+        Saved
+      </span>
+    );
   }
   return (
-    <span className="text-caption text-alert-red" role="alert">
+    <span style={{ fontSize: 12.5, fontWeight: 500, color: "#CC0000" }} role="alert">
       {state.message || "Save failed"}
     </span>
   );
 }
 
-// Modal listing the diff. Confirm calls form.requestSubmit() to fire the
-// server action; cancel preserves the form contents.
+/* ── Confirmation modal ──────────────────────────────────────────────── */
 function ConfirmChangesModal({
   orgName,
   diffs,
@@ -485,47 +417,89 @@ function ConfirmChangesModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-near-black/50 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-changes-title"
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(15,17,19,.5)", padding: 16,
+      }}
     >
-      <div className="card max-w-2xl w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto">
-        <h2 id="confirm-changes-title" className="m-0">
+      <div style={{
+        background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10,
+        maxWidth: 640, width: "100%", padding: 24,
+        display: "flex", flexDirection: "column", gap: 16,
+        maxHeight: "85vh", overflowY: "auto",
+        boxShadow: "0 4px 24px rgba(0,0,0,.15)",
+      }}>
+        <h2 id="confirm-changes-title" style={{ fontSize: 18, fontWeight: 700, color: "var(--tx)", margin: 0 }}>
           Confirm changes
         </h2>
-        <p className="text-body-app text-near-black">
+        <p style={{ fontSize: 13, fontWeight: 400, color: "var(--tx)", margin: 0 }}>
           Apply the following {diffs.length === 1 ? "change" : `${diffs.length} changes`} to{" "}
           <strong>{orgName}</strong>?
         </p>
 
-        <ul className="space-y-2 border-t border-b border-gold-border py-3">
+        <ul style={{
+          listStyle: "none", padding: 0, margin: 0,
+          display: "flex", flexDirection: "column", gap: 8,
+          borderTop: "1px solid var(--bd)", borderBottom: "1px solid var(--bd)",
+          paddingTop: 12, paddingBottom: 12,
+        }}>
           {diffs.map(({ field, oldValue, newValue }) => (
             <li
               key={field}
-              className="grid grid-cols-1 sm:grid-cols-[12rem_1fr] gap-x-3 gap-y-0.5"
+              style={{
+                display: "grid", gridTemplateColumns: "12rem 1fr",
+                gap: "2px 12px",
+              }}
             >
-              <span className="text-tag uppercase tracking-wider text-warm-grey font-bold pt-0.5">
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: ".04em", color: "var(--sub)", paddingTop: 2,
+              }}>
                 {fieldLabel(field)}
               </span>
-              <span className="text-body-app text-near-black break-words">
-                <span className="text-alert-red line-through opacity-80">{oldValue}</span>
-                <span className="mx-2 text-warm-grey">→</span>
-                <span className="text-success-green font-bold">{newValue}</span>
+              <span style={{ fontSize: 13, fontWeight: 400, color: "var(--tx)", wordBreak: "break-word" }}>
+                <span style={{ color: "#CC0000", textDecoration: "line-through", opacity: 0.8 }}>{oldValue}</span>
+                <span style={{ margin: "0 8px", color: "var(--sub)" }}>→</span>
+                <span style={{ color: "#2E7D32", fontWeight: 700 }}>{newValue}</span>
               </span>
             </li>
           ))}
         </ul>
 
-        <p className="text-caption text-warm-grey">
+        <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", margin: 0 }}>
           The change will be recorded in the audit trail with your email and timestamp.
         </p>
 
-        <div className="flex items-center justify-end gap-3 pt-1">
-          <button type="button" onClick={onCancel} className="btn-secondary">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 4 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              padding: "10px 20px", borderRadius: 8,
+              fontWeight: 700, fontSize: 13,
+              color: "#B08D3F", background: "#FFFFFF",
+              border: "1px solid var(--bd)",
+              cursor: "pointer",
+            }}
+          >
             Cancel
           </button>
-          <button type="button" onClick={onConfirm} className="btn-primary">
+          <button
+            type="button"
+            onClick={onConfirm}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              padding: "10px 20px", borderRadius: 8,
+              fontWeight: 700, fontSize: 13,
+              color: "#1A1C1E", background: "#C5A059",
+              border: "none", cursor: "pointer",
+            }}
+          >
             Confirm and save
           </button>
         </div>

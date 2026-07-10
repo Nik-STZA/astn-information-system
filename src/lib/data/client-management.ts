@@ -10,8 +10,8 @@ import { cloudRunFetch, cloudRunMutate } from "../cloud-run";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type Engagement = {
-  id: string; // UUID
-  client_id: string; // UUID FK → compliance_clients
+  id: number; // SERIAL PK
+  client_id: number; // INTEGER FK → compliance_clients
   service_tier: "representative" | "authorised_io";
   engagement_status: "draft" | "sent" | "signed" | "active" | "suspended" | "terminated";
   start_date: string | null;
@@ -26,8 +26,8 @@ export type Engagement = {
 };
 
 export type IORegistration = {
-  id: string; // UUID
-  client_id: string; // UUID FK
+  id: number; // SERIAL PK
+  client_id: number; // INTEGER FK
   registration_type: "information_officer" | "deputy_information_officer";
   registrant_name: string;
   registrant_email: string | null;
@@ -45,8 +45,8 @@ export type IORegistration = {
 };
 
 export type BreachIncident = {
-  id: string; // UUID
-  client_id: string; // UUID FK
+  id: number; // SERIAL PK
+  client_id: number; // INTEGER FK
   incident_date: string;
   reported_to_ir: boolean;
   ir_report_date: string | null;
@@ -62,8 +62,8 @@ export type BreachIncident = {
 };
 
 export type ComplianceTask = {
-  id: string; // UUID
-  client_id: string; // UUID FK
+  id: number; // SERIAL PK
+  client_id: number; // INTEGER FK
   client_name?: string; // joined from compliance_clients on /api/tasks
   task_type: string;
   title: string;
@@ -77,8 +77,8 @@ export type ComplianceTask = {
 };
 
 export type Correspondence = {
-  id: string; // UUID
-  client_id: string | null; // UUID FK (nullable — some may be general)
+  id: number; // SERIAL PK
+  client_id: number | null; // INTEGER FK (nullable — some may be general)
   client_name?: string; // joined
   direction: "inbound" | "outbound";
   correspondent: string;
@@ -104,55 +104,55 @@ export type ClientManagementSummary = {
 // ─── Fetchers ────────────────────────────────────────────────────────────────
 
 // Engagements
-export async function fetchEngagements(clientId: string) {
+export async function fetchEngagements(clientId: number | string) {
   return cloudRunFetch<{ count: number; data: Engagement[] }>(
     `/api/clients/${clientId}/engagements`
   );
 }
-export async function createEngagement(clientId: string, data: Partial<Engagement>) {
+export async function createEngagement(clientId: number | string, data: Partial<Engagement>) {
   return cloudRunMutate<Engagement>(`/api/clients/${clientId}/engagements`, "POST", data);
 }
-export async function updateEngagement(id: string, data: Partial<Engagement>) {
+export async function updateEngagement(id: number | string, data: Partial<Engagement>) {
   return cloudRunMutate<Engagement>(`/api/engagements/${id}`, "PUT", data);
 }
-export async function deleteEngagement(id: string) {
+export async function deleteEngagement(id: number | string) {
   return cloudRunMutate<{ deleted: boolean }>(`/api/engagements/${id}`, "DELETE");
 }
 
 // IO Registrations
-export async function fetchRegistrations(clientId: string) {
+export async function fetchRegistrations(clientId: number | string) {
   return cloudRunFetch<{ count: number; data: IORegistration[] }>(
     `/api/clients/${clientId}/registrations`
   );
 }
-export async function createRegistration(clientId: string, data: Partial<IORegistration>) {
+export async function createRegistration(clientId: number | string, data: Partial<IORegistration>) {
   return cloudRunMutate<IORegistration>(`/api/clients/${clientId}/registrations`, "POST", data);
 }
-export async function updateRegistration(id: string, data: Partial<IORegistration>) {
+export async function updateRegistration(id: number | string, data: Partial<IORegistration>) {
   return cloudRunMutate<IORegistration>(`/api/registrations/${id}`, "PUT", data);
 }
-export async function deleteRegistration(id: string) {
+export async function deleteRegistration(id: number | string) {
   return cloudRunMutate<{ deleted: boolean }>(`/api/registrations/${id}`, "DELETE");
 }
 
 // Breach Incidents
-export async function fetchBreaches(clientId: string) {
+export async function fetchBreaches(clientId: number | string) {
   return cloudRunFetch<{ count: number; data: BreachIncident[] }>(
     `/api/clients/${clientId}/breaches`
   );
 }
-export async function createBreach(clientId: string, data: Partial<BreachIncident>) {
+export async function createBreach(clientId: number | string, data: Partial<BreachIncident>) {
   return cloudRunMutate<BreachIncident>(`/api/clients/${clientId}/breaches`, "POST", data);
 }
-export async function updateBreach(id: string, data: Partial<BreachIncident>) {
+export async function updateBreach(id: number | string, data: Partial<BreachIncident>) {
   return cloudRunMutate<BreachIncident>(`/api/breaches/${id}`, "PUT", data);
 }
-export async function deleteBreach(id: string) {
+export async function deleteBreach(id: number | string) {
   return cloudRunMutate<{ deleted: boolean }>(`/api/breaches/${id}`, "DELETE");
 }
 
 // Compliance Tasks
-export async function fetchClientTasks(clientId: string) {
+export async function fetchClientTasks(clientId: number | string) {
   return cloudRunFetch<{ count: number; data: ComplianceTask[] }>(
     `/api/clients/${clientId}/tasks`
   );
@@ -161,18 +161,18 @@ export async function fetchAllTasks(status?: string) {
   const path = status ? `/api/tasks?status=${status}` : "/api/tasks";
   return cloudRunFetch<{ count: number; data: ComplianceTask[] }>(path);
 }
-export async function createTask(clientId: string, data: Partial<ComplianceTask>) {
+export async function createTask(clientId: number | string, data: Partial<ComplianceTask>) {
   return cloudRunMutate<ComplianceTask>(`/api/clients/${clientId}/tasks`, "POST", data);
 }
-export async function updateTask(id: string, data: Partial<ComplianceTask>) {
+export async function updateTask(id: number | string, data: Partial<ComplianceTask>) {
   return cloudRunMutate<ComplianceTask>(`/api/tasks/${id}`, "PUT", data);
 }
-export async function deleteTask(id: string) {
+export async function deleteTask(id: number | string) {
   return cloudRunMutate<{ deleted: boolean }>(`/api/tasks/${id}`, "DELETE");
 }
 
 // Regulatory Correspondence
-export async function fetchClientCorrespondence(clientId: string) {
+export async function fetchClientCorrespondence(clientId: number | string) {
   return cloudRunFetch<{ count: number; data: Correspondence[] }>(
     `/api/clients/${clientId}/correspondence`
   );
@@ -180,13 +180,13 @@ export async function fetchClientCorrespondence(clientId: string) {
 export async function fetchAllCorrespondence() {
   return cloudRunFetch<{ count: number; data: Correspondence[] }>("/api/correspondence");
 }
-export async function createCorrespondence(clientId: string, data: Partial<Correspondence>) {
+export async function createCorrespondence(clientId: number | string, data: Partial<Correspondence>) {
   return cloudRunMutate<Correspondence>(`/api/clients/${clientId}/correspondence`, "POST", data);
 }
-export async function updateCorrespondence(id: string, data: Partial<Correspondence>) {
+export async function updateCorrespondence(id: number | string, data: Partial<Correspondence>) {
   return cloudRunMutate<Correspondence>(`/api/correspondence/${id}`, "PUT", data);
 }
-export async function deleteCorrespondence(id: string) {
+export async function deleteCorrespondence(id: number | string) {
   return cloudRunMutate<{ deleted: boolean }>(`/api/correspondence/${id}`, "DELETE");
 }
 

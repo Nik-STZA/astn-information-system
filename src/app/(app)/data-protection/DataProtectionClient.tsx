@@ -3,78 +3,62 @@
 import { useState } from "react";
 import type { Country, MaturityRow, EnforcementAction } from "@/lib/data/data-protection";
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+/* ── Tier metadata ─────────────────────────────────────────────── */
 
-const TIERS = ["leader", "advanced", "developing", "nascent", "absent"];
-
-const TIER_COLOURS: Record<string, string> = {
-  leader: "bg-emerald-100 text-emerald-800",
-  advanced: "bg-blue-100 text-blue-800",
-  developing: "bg-amber-100 text-amber-800",
-  nascent: "bg-orange-100 text-orange-800",
-  absent: "bg-red-100 text-red-800",
+const TIER_META: Record<string, { color: string; bg: string; border: string }> = {
+  leader:     { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
+  advanced:   { color: "#3E6B8E", bg: "#E7EEF4", border: "#C6D8E5" },
+  developing: { color: "#C5A059", bg: "#FBF1DE", border: "#EAD6A6" },
+  nascent:    { color: "#CC7700", bg: "#FBE7DB", border: "#EDD0B5" },
+  absent:     { color: "#CC0000", bg: "#FBE3E3", border: "#E6C4C4" },
 };
+const TIER_UNSET = { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" };
+const TIER_ORDER = ["leader", "advanced", "developing", "nascent", "absent"];
 
-/** Capitalise first letter for display */
+function tierMeta(tier: string | null) {
+  if (!tier) return TIER_UNSET;
+  return TIER_META[tier.toLowerCase()] ?? TIER_UNSET;
+}
+
 function cap(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// ─── Shared ─────────────────────────────────────────────────────────────────
+/* ── Flag helper ───────────────────────────────────────────────── */
 
-function TierBadge({ tier }: { tier: string | null }) {
-  if (!tier) return <span className="text-xs text-gray-400">—</span>;
-  const key = tier.toLowerCase();
+function flagUrl(iso: string | null | undefined, size = 40): string | null {
+  if (!iso) return null;
+  return `https://flagcdn.com/w${size}/${iso.toLowerCase()}.png`;
+}
+
+/* ── TierPill ──────────────────────────────────────────────────── */
+
+function TierPill({ tier }: { tier: string | null }) {
+  const m = tierMeta(tier);
+  const label = tier ? cap(tier.toLowerCase()) : "—";
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${TIER_COLOURS[key] ?? "bg-gray-100 text-gray-700"}`}>
-      {cap(key)}
+    <span
+      style={{
+        display: "inline-block",
+        fontWeight: 700,
+        fontSize: 10,
+        lineHeight: 1,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        color: m.color,
+        background: m.bg,
+        border: `1px solid ${m.border}`,
+        borderRadius: 20,
+        padding: "4px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
     </span>
   );
 }
 
-function ScoreBar({ score }: { score: number | string | null }) {
-  if (score == null) return <span className="text-xs text-gray-400">—</span>;
-  const n = Number(score);
-  if (isNaN(n)) return <span className="text-xs text-gray-400">—</span>;
-  const pct = Math.round(n * 10);
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-20 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full bg-[#C5A059] rounded-full" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs text-gray-600">{n.toFixed(1)}</span>
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg border border-gray-200 p-4">
-      <div className="text-2xl font-bold text-[#1A1C1E]">{value}</div>
-      <div className="text-xs text-gray-500 mt-1">{label}</div>
-    </div>
-  );
-}
-
-// ─── Sub-score bar for detail view ──────────────────────────────────────────
-
-function SubScoreRow({ label, score }: { label: string; score: number | string | null }) {
-  if (score == null) return null;
-  const n = Number(score);
-  if (isNaN(n)) return null;
-  const pct = Math.round(n * 10);
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-600 w-44">{label}</span>
-      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full bg-[#C5A059] rounded-full transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-sm font-medium text-[#1A1C1E] w-10 text-right">{n.toFixed(1)}</span>
-    </div>
-  );
-}
-
-// ─── Sort helper ────────────────────────────────────────────────────────────
+/* ── Sort helper ───────────────────────────────────────────────── */
 
 type SortField = "country_name" | "overall_score" | "tier" | "has_dp_law";
 type SortDir = "asc" | "desc";
@@ -87,8 +71,8 @@ function sortMaturity(data: MaturityRow[], field: SortField, dir: SortDir): Matu
     } else if (field === "overall_score") {
       cmp = (a.overall_score ?? -1) - (b.overall_score ?? -1);
     } else if (field === "tier") {
-      const order = { Leader: 0, Advanced: 1, Developing: 2, Nascent: 3, Absent: 4 };
-      cmp = (order[a.tier as keyof typeof order] ?? 5) - (order[b.tier as keyof typeof order] ?? 5);
+      const order: Record<string, number> = { Leader: 0, Advanced: 1, Developing: 2, Nascent: 3, Absent: 4 };
+      cmp = (order[a.tier as string] ?? 5) - (order[b.tier as string] ?? 5);
     } else if (field === "has_dp_law") {
       cmp = (a.has_dp_law ? 1 : 0) - (b.has_dp_law ? 1 : 0);
     }
@@ -96,109 +80,196 @@ function sortMaturity(data: MaturityRow[], field: SortField, dir: SortDir): Matu
   });
 }
 
-// ─── Country detail panel ───────────────────────────────────────────────────
+/* ── SubScoreRow ───────────────────────────────────────────────── */
+
+function SubScoreRow({ label, score, color }: { label: string; score: number | string | null; color: string }) {
+  if (score == null) return null;
+  const n = Number(score);
+  if (isNaN(n)) return null;
+  const pct = Math.round(n * 10);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ fontWeight: 500, fontSize: 12, color: "#B9B2A2", width: 160, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 6, background: "#2A2C2E", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3, transition: "width .3s" }} />
+      </div>
+      <span style={{ fontWeight: 600, fontSize: 12, color: "#F4F1EA", width: 32, textAlign: "right" }}>{n.toFixed(1)}</span>
+    </div>
+  );
+}
+
+/* ── Country detail drawer ─────────────────────────────────────── */
 
 function CountryDetail({
   row,
+  country,
   enforcement,
   onClose,
 }: {
   row: MaturityRow;
+  country: Country | null;
   enforcement: EnforcementAction[];
   onClose: () => void;
 }) {
-  const countryEnforcement = enforcement.filter(
-    (e) => e.country_name === row.country_name
-  );
+  const countryEnforcement = enforcement.filter((e) => e.country_name === row.country_name);
+  const flag = flagUrl(row.iso_code, 80);
+  const tm = tierMeta(row.tier);
+  const score = row.overall_score != null ? Number(row.overall_score).toFixed(1) : "—";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-end">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white h-full w-full max-w-xl overflow-y-auto shadow-xl">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[#1A1C1E]">{row.country_name}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
-        </div>
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
+      {/* Backdrop */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)" }} onClick={onClose} />
 
-        <div className="px-6 py-6 space-y-6">
-          {/* Overview */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center p-3 rounded-lg border border-gray-200">
-              <div className="text-2xl font-bold text-[#1A1C1E]">
-                {row.overall_score != null ? Number(row.overall_score).toFixed(1) : "—"}
+      {/* Drawer */}
+      <div
+        style={{
+          position: "relative",
+          width: 460,
+          maxWidth: "100vw",
+          height: "100%",
+          overflowY: "auto",
+          background: "#F5F0E8",
+          boxShadow: "-4px 0 24px rgba(0,0,0,.15)",
+          animation: "slideIn .25s ease-out",
+        }}
+      >
+        <style>{`@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
+
+        {/* Dark header */}
+        <div style={{ background: "#0F1113", padding: "28px 28px 24px" }}>
+          <button
+            onClick={onClose}
+            style={{
+              position: "absolute", top: 16, right: 20, background: "none", border: "none",
+              color: "#8E9196", fontSize: 20, cursor: "pointer", lineHeight: 1,
+            }}
+          >
+            &times;
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+            {flag && (
+              <div style={{
+                width: 34, height: 34, borderRadius: "50%", overflow: "hidden", flexShrink: 0,
+                border: "2px solid rgba(255,255,255,.15)",
+              }}>
+                <img src={flag} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               </div>
-              <div className="text-xs text-gray-500 mt-1">Overall score</div>
-            </div>
-            <div className="text-center p-3 rounded-lg border border-gray-200">
-              <TierBadge tier={row.tier} />
-              <div className="text-xs text-gray-500 mt-2">Tier</div>
-            </div>
-            <div className="text-center p-3 rounded-lg border border-gray-200">
-              <div className="text-2xl">
-                {row.has_dp_law ? <span className="text-emerald-600">Yes</span> : <span className="text-red-500">No</span>}
+            )}
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 18, color: "#F4F1EA", lineHeight: 1.2 }}>
+                {row.country_name}
               </div>
-              <div className="text-xs text-gray-500 mt-1">DP law</div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: tm.color, marginTop: 2 }}>
+                DPMI {score}/10 &middot; <TierPill tier={row.tier} />
+              </div>
             </div>
           </div>
 
-          {/* Authority */}
-          {row.authority_name && (
+          {/* 2x2 grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
+            {[
+              { label: "Law", value: country?.law_name ?? (row.has_dp_law ? "Yes" : "No") },
+              { label: "Year", value: country?.law_year ?? "—" },
+              { label: "Authority", value: row.authority_name ?? "—" },
+              { label: "Max penalty", value: country?.max_fine_description ?? "—" },
+            ].map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  background: "rgba(255,255,255,.06)",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "#8E9196", marginBottom: 4 }}>
+                  {item.label}
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 12.5, color: "#F4F1EA", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "20px 28px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Sub-scores */}
+          <div style={{ background: "#1A1C1E", borderRadius: 10, padding: "18px 20px" }}>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 14 }}>
+              DPMI breakdown
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <SubScoreRow label="Regulatory maturity" score={row.regulatory_maturity} color={tm.color} />
+              <SubScoreRow label="Enforcement activity" score={row.enforcement_activity} color={tm.color} />
+              <SubScoreRow label="Business friendliness" score={row.business_friendliness} color={tm.color} />
+              <SubScoreRow label="Cross-border complexity" score={row.cross_border_complexity} color={tm.color} />
+              {row.children_protections != null && (
+                <SubScoreRow label="Children protections" score={row.children_protections} color={tm.color} />
+              )}
+            </div>
+          </div>
+
+          {/* Breach notification */}
+          {country?.breach_notification_detail && (
             <div>
-              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">Supervisory authority</h4>
-              <p className="text-sm text-gray-600">{row.authority_name}</p>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 6 }}>
+                Breach notification
+              </div>
+              <div style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.5, color: "#1A1C1E" }}>
+                {country.breach_notification_detail}
+              </div>
             </div>
           )}
 
           {/* Law status */}
           {row.law_status && (
             <div>
-              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">Law status</h4>
-              <p className="text-sm text-gray-600">{row.law_status}</p>
-            </div>
-          )}
-
-          {/* Sub-scores */}
-          <div>
-            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">Maturity breakdown (DPMI v2.0)</h4>
-            <div className="space-y-3">
-              <SubScoreRow label="Regulatory maturity (30%)" score={row.regulatory_maturity} />
-              <SubScoreRow label="Enforcement activity (25%)" score={row.enforcement_activity} />
-              <SubScoreRow label="Business friendliness (25%)" score={row.business_friendliness} />
-              <SubScoreRow label="Cross-border complexity (20%)" score={row.cross_border_complexity} />
-            </div>
-          </div>
-
-          {/* Children's protections */}
-          {row.children_protections != null && (
-            <div>
-              <h4 className="text-sm font-semibold text-[#1A1C1E] mb-1">Children's data protections</h4>
-              <ScoreBar score={row.children_protections} />
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 6 }}>
+                Law status
+              </div>
+              <div style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.5, color: "#1A1C1E" }}>
+                {row.law_status}
+              </div>
             </div>
           )}
 
           {/* Enforcement actions */}
           <div>
-            <h4 className="text-sm font-semibold text-[#1A1C1E] mb-3">
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>
               Enforcement actions ({countryEnforcement.length})
-            </h4>
+            </div>
             {countryEnforcement.length === 0 ? (
-              <p className="text-sm text-gray-400">No enforcement actions recorded</p>
+              <div style={{ fontWeight: 500, fontSize: 12.5, color: "#B9B2A2" }}>
+                No enforcement actions recorded
+              </div>
             ) : (
-              <div className="space-y-3">
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {countryEnforcement.map((e) => (
-                  <div key={e.id} className="border border-gray-200 rounded-lg p-3">
-                    <div className="flex justify-between">
-                      <div className="text-sm text-gray-700">{e.description}</div>
-                      <div className="text-xs text-gray-400 whitespace-nowrap ml-3">
-                        {e.action_date ? new Date(e.action_date).toLocaleDateString("en-GB") : "—"}
+                  <div
+                    key={e.id}
+                    style={{
+                      background: "#FFFFFF",
+                      border: "1px solid #E4D9C4",
+                      borderRadius: 8,
+                      padding: "12px 14px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+                      <div style={{ fontWeight: 600, fontSize: 12.5, color: "#1A1C1E", lineHeight: 1.4 }}>
+                        {e.target_entity ?? "Unknown entity"}
+                      </div>
+                      <div style={{ fontWeight: 500, fontSize: 11, color: "#B9B2A2", whiteSpace: "nowrap", flexShrink: 0 }}>
+                        {e.action_date ? new Date(e.action_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                       </div>
                     </div>
-                    {e.target_entity && (
-                      <div className="text-xs text-gray-500 mt-1">Entity: {e.target_entity}</div>
-                    )}
+                    <div style={{ fontWeight: 400, fontSize: 12, lineHeight: 1.45, color: "#55524C" }}>
+                      {e.description}
+                    </div>
                     {e.fine_amount != null && (
-                      <div className="text-xs font-medium text-[#C5A059] mt-1">
-                        Penalty: {e.fine_currency} {Number(e.fine_amount).toLocaleString()}
+                      <div style={{ fontWeight: 600, fontSize: 11, color: "#C5A059", marginTop: 6 }}>
+                        Penalty: {e.fine_currency} {Number(e.fine_amount).toLocaleString("en-GB")}
                       </div>
                     )}
                   </div>
@@ -212,7 +283,7 @@ function CountryDetail({
   );
 }
 
-// ─── Main component ─────────────────────────────────────────────────────────
+/* ── Main component ────────────────────────────────────────────── */
 
 export default function DataProtectionClient({
   countries,
@@ -225,7 +296,6 @@ export default function DataProtectionClient({
 }) {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState("");
-  const [lawFilter, setLawFilter] = useState<"" | "yes" | "no">("");
   const [sortField, setSortField] = useState<SortField>("overall_score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedCountry, setSelectedCountry] = useState<MaturityRow | null>(null);
@@ -241,15 +311,12 @@ export default function DataProtectionClient({
     return acc;
   }, {} as Record<string, number>);
 
-  // Filter and sort
+  // Filter + sort
   const filtered = maturity.filter((m) => {
     if (search && !m.country_name?.toLowerCase().includes(search.toLowerCase())) return false;
-    if (tierFilter && m.tier !== tierFilter) return false;
-    if (lawFilter === "yes" && !m.has_dp_law) return false;
-    if (lawFilter === "no" && m.has_dp_law) return false;
+    if (tierFilter && m.tier?.toLowerCase() !== tierFilter) return false;
     return true;
   });
-
   const sorted = sortMaturity(filtered, sortField, sortDir);
 
   const toggleSort = (field: SortField) => {
@@ -261,176 +328,325 @@ export default function DataProtectionClient({
     }
   };
 
-  const sortIcon = (field: SortField) => {
+  const sortArrow = (field: SortField) => {
     if (sortField !== field) return " ↕";
     return sortDir === "asc" ? " ↑" : " ↓";
   };
 
+  // Find the full Country record for the drawer
+  const selectedCountryDetail = selectedCountry
+    ? countries.find((c) => c.country_name === selectedCountry.country_name) ?? null
+    : null;
+
   return (
-    <div className="space-y-8" style={{ fontFamily: "Calibri, sans-serif" }}>
-      {/* Header */}
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Breadcrumb + title */}
       <div>
-        <h1 className="text-2xl font-bold text-[#1A1C1E]">Data protection intelligence</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: 10,
+            lineHeight: 1,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: "#B08D3F",
+            marginBottom: 9,
+          }}
+        >
+          AfricanSTN &middot; Regulatory
+        </div>
+        <h1
+          style={{
+            fontWeight: 800,
+            fontSize: 27,
+            lineHeight: 1.1,
+            letterSpacing: "-0.02em",
+            color: "var(--tx)",
+            margin: "0 0 5px",
+          }}
+        >
+          Data protection intelligence
+        </h1>
+        <p
+          style={{
+            fontWeight: 500,
+            fontSize: 13,
+            lineHeight: 1.4,
+            color: "#8E9196",
+            margin: 0,
+          }}
+        >
           {countries.length} African countries tracked &middot; DPMI v2.0 methodology
         </p>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Countries tracked" value={countries.length} />
-        <StatCard label="With DP law" value={withLaw} />
-        <StatCard label="With authority" value={withAuthority} />
-        <StatCard label="Enforcement actions" value={enforcement.length} />
+      {/* Counter cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        {[
+          { label: "Countries tracked", value: countries.length },
+          { label: "With a DP law", value: withLaw },
+          { label: "With an authority", value: withAuthority },
+          { label: "Enforcement actions", value: enforcement.length },
+        ].map((card) => (
+          <div
+            key={card.label}
+            style={{
+              background: "var(--pnl)",
+              border: "1px solid var(--bd)",
+              borderRadius: 10,
+              padding: "16px 18px",
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.1, color: "var(--tx)" }}>
+              {card.value.toLocaleString("en-GB")}
+            </div>
+            <div style={{ fontWeight: 500, fontSize: 11.5, color: "#8E9196", marginTop: 4 }}>
+              {card.label}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Tier distribution — clickable filters */}
-      <section>
-        <h2 className="text-lg font-semibold text-[#1A1C1E] mb-3">Maturity tier distribution</h2>
-        <div className="flex flex-wrap gap-3">
-          {TIERS.map((tier) => (
+      {/* Tier pills */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {TIER_ORDER.map((tier) => {
+          const active = tierFilter === tier;
+          const m = TIER_META[tier];
+          return (
             <button
               key={tier}
-              onClick={() => setTierFilter(tierFilter === tier ? "" : tier)}
-              className={`px-4 py-2 rounded-lg border text-center min-w-[100px] transition-colors ${
-                tierFilter === tier ? "border-[#C5A059] bg-[#C5A059]/10" : "border-gray-200 hover:border-gray-300"
-              }`}
+              onClick={() => setTierFilter(active ? "" : tier)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "6px 14px",
+                borderRadius: 20,
+                border: active ? `2px solid ${m.color}` : "1px solid var(--bd)",
+                background: active ? m.bg : "transparent",
+                cursor: "pointer",
+                transition: "all .15s",
+              }}
             >
-              <div className="text-xl font-bold text-[#1A1C1E]">{tierCounts[tier] ?? 0}</div>
-              <TierBadge tier={tier} />
+              <span style={{ fontWeight: 700, fontSize: 14, color: m.color }}>
+                {tierCounts[tier] ?? 0}
+              </span>
+              <TierPill tier={tier} />
             </button>
-          ))}
-        </div>
-      </section>
+          );
+        })}
+      </div>
 
-      {/* Search and filters */}
-      <div className="flex flex-wrap gap-3">
+      {/* Filter bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <input
           type="text"
-          placeholder="Search by country..."
+          placeholder="Search by country…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-[#C5A059]"
+          style={{
+            width: 240,
+            padding: "7px 12px",
+            border: "1px solid var(--bd)",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--tx)",
+            background: "var(--pnl)",
+            outline: "none",
+          }}
         />
         <select
           value={tierFilter}
           onChange={(e) => setTierFilter(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+          style={{
+            padding: "7px 12px",
+            border: "1px solid var(--bd)",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--tx)",
+            background: "var(--pnl)",
+            outline: "none",
+            cursor: "pointer",
+          }}
         >
           <option value="">All tiers</option>
-          {TIERS.map(t => <option key={t} value={t}>{cap(t)}</option>)}
+          {TIER_ORDER.map((t) => (
+            <option key={t} value={t}>{cap(t)}</option>
+          ))}
         </select>
-        <select
-          value={lawFilter}
-          onChange={(e) => setLawFilter(e.target.value as "" | "yes" | "no")}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-        >
-          <option value="">DP law: all</option>
-          <option value="yes">Has DP law</option>
-          <option value="no">No DP law</option>
-        </select>
-        {(search || tierFilter || lawFilter) && (
-          <button
-            onClick={() => { setSearch(""); setTierFilter(""); setLawFilter(""); }}
-            className="text-sm text-gray-500 hover:text-gray-700 underline"
-          >
-            Clear filters
-          </button>
-        )}
-        <span className="text-sm text-gray-400 ml-auto">
-          Showing {sorted.length} of {maturity.length}
-        </span>
+        <div style={{ marginLeft: "auto", fontWeight: 600, fontSize: 12.5, color: "#55524C" }}>
+          Showing <span style={{ color: "#B08D3F" }}>{sorted.length}</span> of {maturity.length}
+        </div>
       </div>
 
-      {/* Maturity table — sortable, clickable rows */}
-      <section>
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="w-full text-sm">
+      {/* Table */}
+      <div
+        style={{
+          background: "var(--pnl)",
+          border: "1px solid var(--bd)",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 1px 3px rgba(26,28,30,.05)",
+        }}
+      >
+        {sorted.length === 0 ? (
+          <div style={{ padding: "40px 18px", textAlign: "center", fontWeight: 500, fontSize: 13, color: "#8E9196" }}>
+            No countries match the current filters.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr className="bg-[#1A1C1E] text-white">
-                <th className="px-3 py-2 text-left font-medium cursor-pointer hover:text-[#C5A059]" onClick={() => toggleSort("country_name")}>
-                  Country{sortIcon("country_name")}
+              <tr style={{ background: "#F6F1E7", borderBottom: "1.5px solid #E4D9C4" }}>
+                {/* Flag (no header) */}
+                <th style={{ width: 44, padding: "13px 0 13px 18px" }} />
+                <th
+                  onClick={() => toggleSort("country_name")}
+                  style={{
+                    textAlign: "left", fontWeight: 700, fontSize: 10.5, lineHeight: 1,
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62",
+                    padding: "13px 14px", whiteSpace: "nowrap", cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  Country{sortArrow("country_name")}
                 </th>
-                <th className="px-3 py-2 text-left font-medium cursor-pointer hover:text-[#C5A059]" onClick={() => toggleSort("has_dp_law")}>
-                  DP law{sortIcon("has_dp_law")}
+                <th
+                  onClick={() => toggleSort("has_dp_law")}
+                  style={{
+                    textAlign: "left", fontWeight: 700, fontSize: 10.5, lineHeight: 1,
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62",
+                    padding: "13px 14px", whiteSpace: "nowrap", cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  DP law{sortArrow("has_dp_law")}
                 </th>
-                <th className="px-3 py-2 text-left font-medium">Authority</th>
-                <th className="px-3 py-2 text-left font-medium cursor-pointer hover:text-[#C5A059]" onClick={() => toggleSort("overall_score")}>
-                  Score{sortIcon("overall_score")}
+                <th
+                  style={{
+                    textAlign: "left", fontWeight: 700, fontSize: 10.5, lineHeight: 1,
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62",
+                    padding: "13px 14px", whiteSpace: "nowrap",
+                  }}
+                >
+                  Authority
                 </th>
-                <th className="px-3 py-2 text-left font-medium cursor-pointer hover:text-[#C5A059]" onClick={() => toggleSort("tier")}>
-                  Tier{sortIcon("tier")}
+                <th
+                  onClick={() => toggleSort("overall_score")}
+                  style={{
+                    textAlign: "left", fontWeight: 700, fontSize: 10.5, lineHeight: 1,
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62",
+                    padding: "13px 14px", whiteSpace: "nowrap", cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  DPMI score{sortArrow("overall_score")}
+                </th>
+                <th
+                  onClick={() => toggleSort("tier")}
+                  style={{
+                    textAlign: "left", fontWeight: 700, fontSize: 10.5, lineHeight: 1,
+                    letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62",
+                    padding: "13px 18px", whiteSpace: "nowrap", cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  Tier{sortArrow("tier")}
                 </th>
               </tr>
             </thead>
             <tbody>
-              {sorted.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-400">No countries match your filters</td></tr>
-              ) : (
-                sorted.map((m, i) => (
+              {sorted.map((m, idx) => {
+                const flag = flagUrl(m.iso_code, 40);
+                const tm = tierMeta(m.tier);
+                const score = m.overall_score != null ? Number(m.overall_score) : null;
+                const pct = score != null ? Math.round(score * 10) : 0;
+
+                return (
                   <tr
-                    key={m.country_name}
+                    key={m.country_name ?? idx}
                     onClick={() => setSelectedCountry(m)}
-                    className={`cursor-pointer transition-colors ${
-                      i % 2 === 0 ? "bg-white hover:bg-[#C5A059]/5" : "bg-gray-50 hover:bg-[#C5A059]/5"
-                    }`}
+                    style={{
+                      background: idx % 2 ? "#FBF8F1" : "#FFFFFF",
+                      borderBottom: "1px solid #F0E8D8",
+                      cursor: "pointer",
+                      transition: "background .1s",
+                    }}
+                    className="hover:!bg-[#FBF6EC]"
                   >
-                    <td className="px-3 py-2 font-medium text-[#1A1C1E]">{m.country_name}</td>
-                    <td className="px-3 py-2">
-                      {m.has_dp_law ? <span className="text-emerald-600">Yes</span> : <span className="text-red-500">No</span>}
+                    {/* Flag */}
+                    <td style={{ padding: "10px 0 10px 18px", width: 44 }}>
+                      {flag ? (
+                        <div
+                          style={{
+                            width: 20, height: 20, borderRadius: "50%",
+                            overflow: "hidden", border: "1px solid #E4D9C4",
+                          }}
+                        >
+                          <img src={flag} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        </div>
+                      ) : (
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#EEECE7" }} />
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-gray-600 max-w-[200px] truncate">{m.authority_name ?? "—"}</td>
-                    <td className="px-3 py-2"><ScoreBar score={m.overall_score} /></td>
-                    <td className="px-3 py-2"><TierBadge tier={m.tier} /></td>
+
+                    {/* Country */}
+                    <td style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3, color: "var(--tx)", padding: "10px 14px" }}>
+                      {m.country_name ?? "—"}
+                    </td>
+
+                    {/* DP law */}
+                    <td style={{ fontWeight: 600, fontSize: 12.5, padding: "10px 14px" }}>
+                      {m.has_dp_law ? (
+                        <span style={{ color: "#2E7D32" }}>Yes</span>
+                      ) : (
+                        <span style={{ color: "#B9B2A2" }}>No</span>
+                      )}
+                    </td>
+
+                    {/* Authority */}
+                    <td
+                      style={{
+                        fontWeight: 500, fontSize: 12.5, lineHeight: 1.3, color: "#55524C",
+                        padding: "10px 14px", maxWidth: 200, overflow: "hidden",
+                        textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                    >
+                      {m.authority_name ?? "—"}
+                    </td>
+
+                    {/* Score bar */}
+                    <td style={{ padding: "10px 14px" }}>
+                      {score != null ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 80, height: 6, background: "#EEECE7", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${pct}%`, background: tm.color, borderRadius: 3 }} />
+                          </div>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#55524C" }}>{score.toFixed(1)}</span>
+                        </div>
+                      ) : (
+                        <span style={{ fontWeight: 500, fontSize: 12, color: "#B9B2A2" }}>{"—"}</span>
+                      )}
+                    </td>
+
+                    {/* Tier */}
+                    <td style={{ padding: "10px 18px" }}>
+                      <TierPill tier={m.tier} />
+                    </td>
                   </tr>
-                ))
-              )}
+                );
+              })}
             </tbody>
           </table>
-        </div>
-      </section>
-
-      {/* Recent enforcement */}
-      <section>
-        <h2 className="text-lg font-semibold text-[#1A1C1E] mb-3">Recent enforcement actions</h2>
-        {enforcement.length === 0 ? (
-          <p className="text-sm text-gray-500">No enforcement actions recorded.</p>
-        ) : (
-          <div className="space-y-3">
-            {enforcement.slice(0, 10).map((e) => (
-              <div
-                key={e.id}
-                className="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-[#C5A059]/50 transition-colors"
-                onClick={() => {
-                  const row = maturity.find(m => m.country_name === e.country_name);
-                  if (row) setSelectedCountry(row);
-                }}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="font-medium text-[#1A1C1E]">{e.country_name}</div>
-                    <div className="text-sm text-gray-600 mt-1">{e.description}</div>
-                  </div>
-                  <div className="text-right text-xs text-gray-400 whitespace-nowrap ml-4">
-                    {e.action_date ? new Date(e.action_date).toLocaleDateString("en-GB") : "—"}
-                  </div>
-                </div>
-                {e.target_entity && <div className="text-xs text-gray-500 mt-2">Entity: {e.target_entity}</div>}
-                {e.fine_amount != null && (
-                  <div className="text-xs font-medium text-[#C5A059] mt-1">
-                    Penalty: {e.fine_currency} {Number(e.fine_amount).toLocaleString()}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
         )}
-      </section>
+      </div>
 
-      {/* Country detail slide-out */}
+      {/* Country detail drawer */}
       {selectedCountry && (
         <CountryDetail
           row={selectedCountry}
+          country={selectedCountryDetail}
           enforcement={enforcement}
           onClose={() => setSelectedCountry(null)}
         />

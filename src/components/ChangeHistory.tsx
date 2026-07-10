@@ -26,9 +26,15 @@ function formatTimestamp(iso: string): string {
 export default function ChangeHistory({ changes }: Props) {
   if (changes.length === 0) {
     return (
-      <div className="card p-5">
-        <h2>Change history</h2>
-        <p className="text-caption text-warm-grey mt-2">
+      <div style={{
+        background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10,
+        padding: "20px 24px",
+        boxShadow: "0 1px 3px rgba(26,28,30,.04), 0 1px 2px rgba(26,28,30,.03)",
+      }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--tx)", margin: 0 }}>
+          Change history
+        </h2>
+        <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 8 }}>
           No edits recorded for this organisation yet. The audit trail starts when you make your first change.
         </p>
       </div>
@@ -36,46 +42,63 @@ export default function ChangeHistory({ changes }: Props) {
   }
 
   return (
-    <details className="card p-5 group" open>
-      <summary className="cursor-pointer flex items-center justify-between list-none">
-        <h2 className="m-0">Change history</h2>
-        <span className="text-caption text-warm-grey">
-          {changes.length} {changes.length === 1 ? "entry" : "entries"}
-          <span className="ml-2 group-open:rotate-180 inline-block transition-transform">▾</span>
+    <details
+      open
+      style={{
+        background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10,
+        padding: "20px 24px",
+        boxShadow: "0 1px 3px rgba(26,28,30,.04), 0 1px 2px rgba(26,28,30,.03)",
+      }}
+    >
+      <summary style={{
+        cursor: "pointer", display: "flex", alignItems: "center",
+        justifyContent: "space-between", listStyle: "none",
+      }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--tx)", margin: 0 }}>
+          Change history
+        </h2>
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)" }}>
+          {changes.length} {changes.length === 1 ? "entry" : "entries"} ▾
         </span>
       </summary>
 
-      <ul className="mt-4 space-y-4">
+      <ul style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16, listStyle: "none", padding: 0 }}>
         {changes.map((change) => (
-          <li key={change.id} className="border-l-2 border-brand-gold pl-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-body-app text-near-black font-bold">
+          <li key={change.id} style={{ borderLeft: "2px solid #C5A059", paddingLeft: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)" }}>
                 {change.changedBy}
               </span>
-              <span className="text-caption text-warm-grey">
+              <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)" }}>
                 {formatTimestamp(change.changedAt)}
               </span>
             </div>
             {change.fields.length === 0 ? (
-              <p className="text-caption text-warm-grey mt-1">
+              <p style={{ fontSize: 12.5, fontWeight: 500, color: "var(--sub)", marginTop: 4 }}>
                 Saved with no field changes recorded.
               </p>
             ) : (
-              <dl className="mt-2 space-y-1.5">
+              <dl style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6, padding: 0 }}>
                 {change.fields.map(({ field, oldValue, newValue }) => (
                   <div
                     key={field}
-                    className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-x-3 gap-y-0.5 text-caption"
+                    style={{
+                      display: "grid", gridTemplateColumns: "10rem 1fr",
+                      gap: "2px 12px", fontSize: 12.5,
+                    }}
                   >
-                    <dt className="text-warm-grey uppercase tracking-wider font-bold">
+                    <dt style={{
+                      fontWeight: 700, textTransform: "uppercase",
+                      letterSpacing: ".04em", color: "var(--sub)",
+                    }}>
                       {fieldLabel(field)}
                     </dt>
-                    <dd className="text-near-black break-words">
-                      <span className="text-alert-red line-through opacity-80">
+                    <dd style={{ color: "var(--tx)", wordBreak: "break-word", margin: 0 }}>
+                      <span style={{ color: "#CC0000", textDecoration: "line-through", opacity: 0.8 }}>
                         {oldValue}
                       </span>
-                      <span className="mx-2 text-warm-grey">→</span>
-                      <span className="text-success-green font-bold">{newValue}</span>
+                      <span style={{ margin: "0 8px", color: "var(--sub)" }}>→</span>
+                      <span style={{ color: "#2E7D32", fontWeight: 700 }}>{newValue}</span>
                     </dd>
                   </div>
                 ))}
