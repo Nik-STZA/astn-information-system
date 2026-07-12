@@ -7,6 +7,14 @@ import {
   createClient,
   updateClient,
   createActivity,
+  fetchProspectDocuments,
+  fetchProspectAnalysis,
+  fetchProspectAssessments,
+} from "@/lib/data/compliance";
+import type {
+  ProspectDocument,
+  AnalysisFinding,
+  ProspectAssessment,
 } from "@/lib/data/compliance";
 import { cloudRunMutate } from "@/lib/cloud-run";
 import { revalidatePath } from "next/cache";
@@ -199,4 +207,34 @@ export async function runProspectPipeline(
   );
   revalidatePath("/compliance");
   return res;
+}
+
+// ─── Pipeline result fetchers (server actions for client components) ────────
+
+export async function getProspectDocuments(prospectId: string) {
+  return fetchProspectDocuments(prospectId);
+}
+
+export async function getProspectAnalysis(prospectId: string) {
+  return fetchProspectAnalysis(prospectId);
+}
+
+export async function getProspectAssessments(prospectId: string) {
+  return fetchProspectAssessments(prospectId);
+}
+
+/** Fetch all pipeline results for a prospect in one call. */
+export async function getProspectPipelineResults(prospectId: string) {
+  const [docs, findings, assessments] = await Promise.all([
+    fetchProspectDocuments(prospectId),
+    fetchProspectAnalysis(prospectId),
+    fetchProspectAssessments(prospectId),
+  ]);
+  return {
+    documents: docs.data?.data ?? [] as ProspectDocument[],
+    findings: findings.data?.data ?? [] as AnalysisFinding[],
+    assessment: (assessments.data?.data ?? [] as ProspectAssessment[])
+      .filter((a) => !a.superseded_at)[0] ?? null,
+    errors: [docs.error, findings.error, assessments.error].filter(Boolean),
+  };
 }

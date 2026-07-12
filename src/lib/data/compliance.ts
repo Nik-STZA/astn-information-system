@@ -70,6 +70,64 @@ export type Activity = {
   created_at: string;
 };
 
+// ─── Pipeline result types ──────────────────────────────────────────────────
+
+export type ProspectDocument = {
+  id: number;
+  prospect_id: string;
+  document_type: string;
+  document_title: string | null;
+  source_url: string | null;
+  snapshot_date: string | null;
+  markdown_content: string | null;
+  conversion_status: string | null;
+  file_hash: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AnalysisFinding = {
+  id: number;
+  prospect_id: string;
+  document_id: number | null;
+  analysis_date: string;
+  jurisdiction: string;
+  check_category: string;
+  finding: string;
+  severity: string;
+  evidence_quote: string | null;
+  evidence_location: string | null;
+  recommendation: string | null;
+  agent_model: string | null;
+  agent_version: string | null;
+  human_reviewed: boolean;
+  reviewer_notes: string | null;
+  created_at: string;
+};
+
+export type ProspectAssessment = {
+  id: number;
+  prospect_id: string;
+  score_ir_registration: number;
+  score_biometric_handling: number;
+  score_cross_border: number;
+  score_consent_mechanism: number;
+  score_breach_notification: number;
+  score_data_subject_rights: number;
+  score_overall: number;
+  overall_severity: string;
+  executive_summary: string | null;
+  risk_factors: unknown;
+  key_findings: unknown;
+  recommendations: unknown;
+  generated_by: string;
+  agent_model: string | null;
+  agent_version: string | null;
+  superseded_at: string | null;
+  created_at: string;
+};
+
 // ─── Fetchers ────────────────────────────────────────────────────────────────
 
 export async function fetchProspects() {
@@ -89,6 +147,26 @@ export async function fetchActivities(clientId?: number) {
     ? `/api/compliance/activities?client_id=${clientId}`
     : "/api/compliance/activities";
   return cloudRunFetch<{ count: number; data: Activity[] }>(path);
+}
+
+// ─── Pipeline result fetchers ───────────────────────────────────────────────
+
+export async function fetchProspectDocuments(prospectId: string) {
+  return cloudRunFetch<{ count: number; data: ProspectDocument[] }>(
+    `/api/compliance/prospects/${prospectId}/documents`
+  );
+}
+
+export async function fetchProspectAnalysis(prospectId: string) {
+  return cloudRunFetch<{ count: number; data: AnalysisFinding[] }>(
+    `/api/compliance/prospects/${prospectId}/analysis`
+  );
+}
+
+export async function fetchProspectAssessments(prospectId: string) {
+  return cloudRunFetch<{ count: number; data: ProspectAssessment[] }>(
+    `/api/compliance/prospects/${prospectId}/assessments`
+  );
 }
 
 // ─── Mutations (called from route handlers / server actions) ─────────────────

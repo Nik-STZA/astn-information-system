@@ -5,26 +5,25 @@
  *
  * Provides three agent endpoints:
  *  - POST /api/compliance/prospects/:id/ingest   — fetch & store prospect documents
- *  - POST /api/compliance/prospects/:id/analyse   — run POPIA compliance analysis via Claude
- *  - POST /api/compliance/prospects/:id/assess    — generate scored assessment via Claude
+ *  - POST /api/compliance/prospects/:id/analyse   — run POPIA compliance analysis (rule-based)
+ *  - POST /api/compliance/prospects/:id/assess    — generate scored assessment (rule-based)
  *
  * PREREQUISITES:
- *  1. npm install @anthropic-ai/sdk node-html-markdown
- *  2. Set env var ANTHROPIC_API_KEY on Cloud Run
- *  3. The pipeline routes (server-pipeline-routes.js) must already be applied
+ *  1. npm install node-html-markdown
+ *  2. The pipeline routes (server-pipeline-routes.js) must already be applied
  *
  * DEPENDENCIES (add at the top of server.js alongside existing requires):
  *
- *   const Anthropic = require("@anthropic-ai/sdk");
  *   const { NodeHtmlMarkdown } = require("node-html-markdown");
  *   const crypto = require("crypto");
  *
- *   const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
  *   const nhm = new NodeHtmlMarkdown();
  *
- *   const AGENT_MODEL = process.env.AGENT_MODEL || "claude-sonnet-4-20250514";
- *   const AGENT_VERSION = "1.0.0";
+ * NOTE: This version uses a deterministic rule-based POPIA analysis engine.
+ * No external LLM API is required.
  */
+
+const ANALYSIS_ENGINE_VERSION = "2.0.0";
 
 // ─── Helper: fetch a URL and convert to markdown ────────────────────────────
 
@@ -53,7 +52,6 @@ async function fetchAndConvert(url, nhm) {
       !contentType.includes("text/html") &&
       !contentType.includes("application/xhtml")
     ) {
-      // For PDFs, plain text, etc. — store raw text if possible
       const text = await res.text();
       return { error: null, html: null, markdown: text.slice(0, 100000) };
     }
@@ -63,8 +61,8 @@ async function fetchAndConvert(url, nhm) {
 
     return {
       error: null,
-      html: html.slice(0, 500000), // cap storage at 500KB
-      markdown: markdown.slice(0, 100000), // cap markdown at 100KB
+      html: html.slice(0, 500000),
+      markdown: markdown.slice(0, 100000),
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -82,8 +80,565 @@ const URL_FIELD_MAP = {
   terms_url: "terms_of_service",
   app_store_url: "other",
   linkedin_url: "other",
-  // other_urls can contain multiple pipe-separated URLs
 };
+
+// ─── Rule-based POPIA Compliance Analysis Engine ──────────────────────────
+//
+// Deterministic keyword/pattern matching against 10 POPIA check categories.
+// No external LLM API required.
+
+const POPIA_RULES = [
+  {
+    category: "information_officer",
+    label: "Information Officer Registration",
+    keywords: [
+      /information officer/i, /responsible party/i, /privacy officer/i,
+      /data protection officer/i, /\bDPO\b/, /privacy lead/i,
+    ],
+    sa_keywords: [
+      /information regulator/i, /\bPOPIA\b/i, /south africa/i,
+      /section 5[5-8]/i, /\bs5[5-8]\b/i,
+    ],
+    absent: {
+      severity: "critical",
+      finding:
+        "No evidence of an appointed Information Officer or registration with the South African Information Regulator. For a foreign entity processing South African personal information, this is a direct violation of POPIA s55-56 and s58.",
+      recommendation:
+        "Appoint and register an Information Officer with the SA Information Regulator per POPIA s55-56. As a foreign entity, s58 requires appointment of a representative domiciled in South Africa.",
+    },
+    partial: {
+      severity: "high",
+      finding:
+        "A data protection role (DPO or privacy officer) is referenced in the documentation, but there is no evidence of a POPIA-specific Information Officer appointment or registration with the South African Information Regulator.",
+      recommendation:
+        "Extend the existing data protection role to include POPIA Information Officer responsibilities and register with the SA Information Regulator per s55-56.",
+    },
+    present: {
+      severity: "low",
+      finding:
+        "Documentation references a data protection officer or privacy officer role. However, specific POPIA Information Officer registration should be verified with the Information Regulator.",
+      recommendation:
+        "Verify that the Information Officer registration with the SA Information Regulator is current and covers processing of South African personal information.",
+    },
+  },
+  {
+    category: "lawful_processing",
+    label: "Lawful Basis for Processing",
+    keywords: [
+      /lawful basis/i, /legal basis/i, /grounds for processing/i,
+      /legitimate interest/i, /contractual necessity/i, /legal obligation/i,
+      /vital interest/i, /public interest/i, /performance of a contract/i,
+    ],
+    sa_keywords: [
+      /\bPOPIA\b/i, /section [89]\b/i, /section 1[0-2]\b/i,
+      /condition[s]? for lawful processing/i,
+    ],
+    absent: {
+      severity: "high",
+      finding:
+        "The privacy documentation does not establish a clear lawful basis for processing South African personal information as required under POPIA s8-12.",
+      recommendation:
+        "Identify and document the lawful basis for each category of processing activity involving South African personal data, per POPIA s8-12.",
+    },
+    partial: {
+      severity: "medium",
+      finding:
+        "A lawful basis for processing is referenced (likely under GDPR or general terms), but no POPIA-specific justification under s8-12 is provided.",
+      recommendation:
+        "Map existing GDPR lawful bases to POPIA equivalents and explicitly reference POPIA s8-12 in documentation applicable to South African data subjects.",
+    },
+    present: {
+      severity: "low",
+      finding:
+        "Lawful processing bases are documented. Verify that these are mapped to POPIA s8-12 requirements specifically.",
+      recommendation:
+        "Ensure POPIA-specific conditions for lawful processing under s8-12 are explicitly addressed in privacy documentation.",
+    },
+  },
+  {
+    category: "consent_mechanism",
+    label: "Consent Mechanisms",
+    keywords: [
+      /\bconsent\b/i, /opt[- ]?in/i, /withdraw.*consent/i,
+      /consent.*withdraw/i, /revoke.*consent/i, /voluntary/i,
+      /informed consent/i, /explicit consent/i,
+    ],
+    sa_keywords: [
+      /\bPOPIA\b/i, /section 11/i, /\bs11\b/i,
+      /specific.*informed.*voluntary/i,
+    ],
+    absent: {
+      severity: "high",
+      finding:
+        "No consent mechanism is described in the documentation. If processing relies on consent as a lawful basis under POPIA s11, it must be specific, informed, voluntary, and capable of withdrawal.",
+      recommendation:
+        "Implement clear consent mechanisms that meet POPIA s11 requirements: consent must be specific, informed, given voluntarily, and the data subject must be able to withdraw consent.",
+    },
+    partial: {
+      severity: "medium",
+      finding:
+        "Consent mechanisms are referenced but may not fully meet POPIA s11 requirements for being specific, informed, voluntary, and withdrawable.",
+      recommendation:
+        "Review consent mechanisms against POPIA s11 requirements and ensure withdrawal of consent is clearly communicated and easily exercisable.",
+    },
+    present: {
+      severity: "low",
+      finding:
+        "Consent mechanisms are documented including collection and withdrawal processes.",
+      recommendation:
+        "Verify that consent mechanisms specifically comply with POPIA s11 requirements for South African data subjects.",
+    },
+  },
+  {
+    category: "cross_border_transfer",
+    label: "Cross-border Data Transfers",
+    keywords: [
+      /cross[- ]?border/i, /international transfer/i,
+      /transfer.*(?:data|personal|information)/i,
+      /third countr/i, /outside.*(?:south africa|SA|EEA|EU)/i,
+      /adequate.*protection/i, /binding corporate rules/i,
+      /standard contractual clauses/i, /\bSCC\b/, /\bBCR\b/,
+    ],
+    sa_keywords: [
+      /\bPOPIA\b/i, /section 72/i, /\bs72\b/i, /information regulator/i,
+    ],
+    absent: {
+      severity: "high",
+      finding:
+        "No cross-border data transfer mechanisms or disclosures are described despite the company being domiciled outside South Africa. Under POPIA s72, transfers of personal information outside South Africa require specific safeguards.",
+      recommendation:
+        "Disclose cross-border data transfer practices and implement safeguards per POPIA s72 — either through adequate protection in the recipient country, binding corporate rules, consent, or contractual obligations.",
+    },
+    partial: {
+      severity: "medium",
+      finding:
+        "Cross-border data transfers are acknowledged (likely under GDPR mechanisms) but POPIA s72 specific safeguards for South African personal information transfers are not addressed.",
+      recommendation:
+        "Extend existing cross-border transfer mechanisms to specifically address POPIA s72 requirements for South African personal data.",
+    },
+    present: {
+      severity: "low",
+      finding:
+        "Cross-border data transfer mechanisms are documented.",
+      recommendation:
+        "Verify that cross-border transfer safeguards are specifically mapped to POPIA s72 for South African personal data.",
+    },
+  },
+  {
+    category: "data_subject_rights",
+    label: "Data Subject Rights",
+    keywords: [
+      /right.*access/i, /access.*(?:data|information|personal)/i,
+      /right.*correct/i, /rectif/i, /right.*delet/i, /erasure/i,
+      /right to be forgotten/i, /right.*object/i, /data portability/i,
+      /subject access request/i, /\bSAR\b/, /\bDSAR\b/,
+    ],
+    sa_keywords: [/\bPOPIA\b/i, /section 2[3-5]/i, /\bs2[3-5]\b/i],
+    absent: {
+      severity: "high",
+      finding:
+        "Data subject rights are not clearly communicated in the documentation. POPIA s23-25 requires that data subjects be informed of their rights to access, correct, and delete personal information and to object to processing.",
+      recommendation:
+        "Clearly communicate data subject rights per POPIA s23-25 including the right to request access (s23), correction or deletion (s24), and to object to processing (s11(3)).",
+    },
+    partial: {
+      severity: "medium",
+      finding:
+        "Some data subject rights are mentioned but the documentation does not comprehensively cover all POPIA s23-25 rights (access, correction, deletion, objection).",
+      recommendation:
+        "Expand documentation to cover all POPIA s23-25 data subject rights and provide clear mechanisms for South African data subjects to exercise these rights.",
+    },
+    present: {
+      severity: "compliant",
+      finding:
+        "Data subject rights including access, correction, and deletion are documented.",
+      recommendation:
+        "Ensure these rights explicitly reference POPIA s23-25 and provide a clear exercise mechanism for South African data subjects.",
+    },
+  },
+  {
+    category: "breach_notification",
+    label: "Breach Notification",
+    keywords: [
+      /(?:data )?breach/i, /security incident/i, /notif.*breach/i,
+      /breach.*notif/i, /72 hours/i, /without (?:undue )?delay/i,
+      /incident response/i, /security compromise/i,
+    ],
+    sa_keywords: [
+      /\bPOPIA\b/i, /section 22/i, /\bs22\b/i, /information regulator/i,
+    ],
+    absent: {
+      severity: "medium",
+      finding:
+        "No data breach notification commitment is described. POPIA s22 requires notification to the Information Regulator and affected data subjects as soon as reasonably possible after a compromise.",
+      recommendation:
+        "Implement a breach notification procedure that meets POPIA s22 requirements — notify the Information Regulator and affected data subjects as soon as reasonably possible after discovery of a security compromise.",
+    },
+    partial: {
+      severity: "medium",
+      finding:
+        "A breach notification commitment exists (likely aligned to GDPR requirements) but does not specifically reference POPIA s22 or notification to the South African Information Regulator.",
+      recommendation:
+        "Extend breach notification procedures to specifically include notification to the SA Information Regulator per POPIA s22, in addition to any existing GDPR notification obligations.",
+    },
+    present: {
+      severity: "low",
+      finding:
+        "Breach notification procedures are documented.",
+      recommendation:
+        "Verify that breach notification procedures include the SA Information Regulator as a notifiable authority per POPIA s22.",
+    },
+  },
+  {
+    category: "special_categories",
+    label: "Special Personal Information",
+    keywords: [
+      /biometric/i, /health data/i, /medical/i,
+      /special.*(?:personal|categor)/i, /sensitive.*(?:data|information)/i,
+      /children/i, /child(?:ren)?(?:'s)? data/i, /minor/i, /genetic/i,
+      /racial/i, /ethnic/i, /religio/i, /political/i,
+      /sex(?:ual)? (?:life|orientation)/i, /trade union/i,
+      /physiological/i, /performance data/i, /athlete/i, /player data/i,
+    ],
+    sa_keywords: [
+      /\bPOPIA\b/i, /section 2[6-9]/i, /section 3[0-3]/i,
+      /prior authoris/i, /information regulator/i, /\bs57\b/i,
+    ],
+    absent: {
+      severity: "critical",
+      finding:
+        "No mention of special personal information handling despite the company likely processing biometric, health, or performance data. POPIA s26-33 imposes additional requirements on processing special personal information including prior authorisation from the Information Regulator.",
+      recommendation:
+        "Identify all special personal information processed (including biometric and health data) and implement POPIA s26-33 safeguards. Obtain prior authorisation from the Information Regulator per s57 if processing biometric data.",
+    },
+    partial: {
+      severity: "high",
+      finding:
+        "Special categories of data (biometric, health, or sensitive data) are acknowledged but safeguards specific to POPIA s26-33 are not addressed. Prior authorisation from the Information Regulator may be required per s57.",
+      recommendation:
+        "Map special personal information processing to POPIA s26-33 requirements and apply for prior authorisation from the Information Regulator per s57 where required (particularly for biometric data processing).",
+    },
+    present: {
+      severity: "medium",
+      finding:
+        "Special personal information handling is addressed in the documentation.",
+      recommendation:
+        "Verify that special personal information safeguards specifically comply with POPIA s26-33 and that prior authorisation has been obtained from the Information Regulator where required.",
+    },
+  },
+  {
+    category: "retention_and_purpose",
+    label: "Retention and Purpose Limitation",
+    keywords: [
+      /retention/i, /data retention/i, /retention period/i,
+      /purpose.*(?:limit|specific)/i, /specific purpose/i,
+      /no longer necessary/i, /delet.*(?:after|when|once)/i,
+      /destroy/i, /store.*(?:period|duration|time)/i,
+    ],
+    sa_keywords: [/\bPOPIA\b/i, /section 1[3-4]/i, /\bs1[3-4]\b/i],
+    absent: {
+      severity: "medium",
+      finding:
+        "No data retention policy or purpose limitation is described. POPIA s13-14 requires that personal information be retained only for as long as necessary for the purpose it was collected.",
+      recommendation:
+        "Implement and document a data retention policy that limits retention to the purpose of collection per POPIA s13-14, with specified retention periods and deletion procedures.",
+    },
+    partial: {
+      severity: "low",
+      finding:
+        "Some retention or purpose limitation language exists but specific retention periods are not defined or POPIA s13-14 is not specifically referenced.",
+      recommendation:
+        "Define specific retention periods for each category of South African personal data and ensure alignment with POPIA s13-14 purpose limitation requirements.",
+    },
+    present: {
+      severity: "compliant",
+      finding:
+        "Data retention and purpose limitation policies are documented with specified retention periods.",
+      recommendation:
+        "Verify retention periods align with POPIA s13-14 requirements for South African personal data.",
+    },
+  },
+  {
+    category: "security_safeguards",
+    label: "Security Safeguards",
+    keywords: [
+      /security/i, /encrypt/i, /access control/i,
+      /technical.*measure/i, /organisational.*measure/i,
+      /organizational.*measure/i, /confidential/i, /integrity/i,
+      /ISO 27001/i, /SOC 2/i, /security certif/i, /firewall/i,
+      /pseudonymis/i, /anonymis/i,
+    ],
+    sa_keywords: [/\bPOPIA\b/i, /section 19/i, /\bs19\b/i],
+    absent: {
+      severity: "medium",
+      finding:
+        "No security safeguards are described. POPIA s19 requires appropriate technical and organisational measures to secure personal information against loss, damage, and unauthorised access.",
+      recommendation:
+        "Document and implement appropriate technical and organisational security measures per POPIA s19, including access controls, encryption, and security incident procedures.",
+    },
+    partial: {
+      severity: "low",
+      finding:
+        "Some security measures are referenced but a comprehensive description of technical and organisational safeguards per POPIA s19 is not provided.",
+      recommendation:
+        "Expand security documentation to comprehensively address POPIA s19 requirements including technical measures (encryption, access controls) and organisational measures (staff training, security policies).",
+    },
+    present: {
+      severity: "compliant",
+      finding:
+        "Security safeguards including technical and organisational measures are documented.",
+      recommendation:
+        "Verify that security measures specifically meet POPIA s19 requirements for South African personal data processing.",
+    },
+  },
+  {
+    category: "direct_marketing",
+    label: "Direct Marketing",
+    keywords: [
+      /direct marketing/i, /marketing.*(?:consent|opt)/i,
+      /opt[- ]?out/i, /unsubscribe/i, /promotional/i,
+      /newsletter/i, /marketing.*(?:email|communication)/i,
+      /electronic.*marketing/i,
+    ],
+    sa_keywords: [/\bPOPIA\b/i, /section 69/i, /\bs69\b/i],
+    absent: {
+      severity: "low",
+      finding:
+        "No direct marketing practices are described. If the company engages in direct marketing to South African data subjects, POPIA s69 requires prior consent and an opt-out mechanism.",
+      recommendation:
+        "If engaging in direct marketing to South African data subjects, implement POPIA s69 requirements including prior consent and a clear opt-out mechanism.",
+    },
+    partial: {
+      severity: "low",
+      finding:
+        "Marketing preferences or opt-out mechanisms are mentioned but POPIA s69 specific requirements for direct marketing to South African data subjects are not addressed.",
+      recommendation:
+        "Ensure direct marketing practices to South African data subjects specifically comply with POPIA s69 — prior consent and opt-out mechanism.",
+    },
+    present: {
+      severity: "compliant",
+      finding:
+        "Direct marketing consent and opt-out mechanisms are documented.",
+      recommendation:
+        "Verify that direct marketing practices comply with POPIA s69 for South African data subjects.",
+    },
+  },
+];
+
+/**
+ * Analyse documents against POPIA rules using keyword/pattern matching.
+ * Returns an array of findings in the same shape as the original API response.
+ */
+function analyseDocumentsRuleBased(documents, prospect) {
+  const findings = [];
+  const isForeignEntity =
+    (prospect.company_country || "").toLowerCase() !== "south africa";
+  const isNotRegistered = prospect.ir_registered === false;
+
+  for (const rule of POPIA_RULES) {
+    const keywordMatches = [];
+    const saMatches = [];
+
+    // Search each document for keyword matches
+    for (const doc of documents) {
+      const content = doc.markdown_content || "";
+      for (const kw of rule.keywords) {
+        const match = content.match(kw);
+        if (match) {
+          const idx = match.index;
+          const start = Math.max(0, idx - 80);
+          const end = Math.min(content.length, idx + match[0].length + 80);
+          const context = content
+            .slice(start, end)
+            .replace(/\n+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          keywordMatches.push({
+            keyword: match[0],
+            context,
+            docTitle: doc.document_title || doc.document_type,
+          });
+        }
+      }
+
+      for (const kw of rule.sa_keywords) {
+        if (kw.test(content)) {
+          saMatches.push(kw.source);
+        }
+      }
+    }
+
+    // Determine finding level: absent / partial / present
+    let level;
+    if (keywordMatches.length === 0) {
+      level = "absent";
+    } else if (saMatches.length === 0) {
+      level = "partial";
+    } else {
+      level = "present";
+    }
+
+    // Context-aware overrides
+    if (rule.category === "information_officer") {
+      if (isNotRegistered) level = "absent";
+      else if (isForeignEntity && level === "present") level = "partial";
+    }
+
+    const template = rule[level];
+    const firstMatch = keywordMatches[0] || null;
+
+    findings.push({
+      check_category: rule.category,
+      finding: template.finding,
+      severity: template.severity,
+      evidence_quote: firstMatch ? firstMatch.context : null,
+      evidence_location: firstMatch
+        ? `${firstMatch.docTitle} (keyword: "${firstMatch.keyword}")`
+        : `Not found in ${documents.length} document(s) analysed`,
+      recommendation: template.recommendation,
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Generate a scored assessment from analysis findings.
+ * Deterministic — no external API required.
+ */
+function generateAssessmentFromFindings(findings, prospect) {
+  const SEVERITY_SCORES = {
+    compliant: 9, info: 8, low: 7, medium: 4, high: 2, critical: 0,
+  };
+
+  const SCORE_FIELD_MAP = {
+    information_officer: "score_ir_registration",
+    special_categories: "score_biometric_handling",
+    cross_border_transfer: "score_cross_border",
+    consent_mechanism: "score_consent_mechanism",
+    breach_notification: "score_breach_notification",
+    data_subject_rights: "score_data_subject_rights",
+  };
+
+  const domainScores = {};
+  for (const [category, field] of Object.entries(SCORE_FIELD_MAP)) {
+    const match = findings.find((f) => f.check_category === category);
+    domainScores[field] = match ? (SEVERITY_SCORES[match.severity] ?? 5) : 5;
+  }
+
+  // Overall: weakest-link biased (40% worst, 60% average)
+  const allScores = Object.values(domainScores);
+  const minScore = Math.min(...allScores);
+  const avgScore = allScores.reduce((a, b) => a + b, 0) / allScores.length;
+  domainScores.score_overall = Math.round(minScore * 0.4 + avgScore * 0.6);
+
+  let overallSeverity;
+  if (domainScores.score_overall <= 2) overallSeverity = "critical";
+  else if (domainScores.score_overall <= 4) overallSeverity = "high";
+  else if (domainScores.score_overall <= 6) overallSeverity = "medium";
+  else overallSeverity = "low";
+
+  // Severity counts
+  const criticalCount = findings.filter((f) => f.severity === "critical").length;
+  const highCount = findings.filter((f) => f.severity === "high").length;
+  const mediumCount = findings.filter((f) => f.severity === "medium").length;
+  const lowCount = findings.filter((f) => f.severity === "low").length;
+  const compliantCount = findings.filter((f) => f.severity === "compliant").length;
+
+  const companyName = prospect.company_name;
+  const country = prospect.company_country || "an undisclosed jurisdiction";
+  const isForeignEntity = (prospect.company_country || "").toLowerCase() !== "south africa";
+
+  // Executive summary
+  let summary = "";
+  summary += `${companyName}, domiciled in ${country}, has been assessed against the Protection of Personal Information Act (POPIA), Act 4 of 2013. `;
+  summary += `The assessment identified ${findings.length} findings across 10 POPIA compliance domains: `;
+  summary += `${criticalCount} critical, ${highCount} high, ${mediumCount} medium, ${lowCount} low severity, and ${compliantCount} compliant. `;
+  summary += `The overall compliance score is ${domainScores.score_overall}/10, rated as ${overallSeverity} risk.\n\n`;
+
+  if (criticalCount > 0) {
+    const criticalCategories = findings
+      .filter((f) => f.severity === "critical")
+      .map((f) => f.check_category.replace(/_/g, " "));
+    summary += `Critical areas of concern include: ${criticalCategories.join(", ")}. `;
+    summary += `These represent direct non-compliance with POPIA requirements that could result in enforcement action by the Information Regulator. `;
+  }
+
+  if (prospect.ir_registered === false) {
+    summary += `The company is not currently registered with the South African Information Regulator. `;
+    if (isForeignEntity) {
+      summary += `As a foreign entity processing South African personal information, registration of an Information Officer per POPIA s55-56 and appointment of a representative per s58 is a legal requirement.\n\n`;
+    }
+  }
+
+  summary += `Immediate remediation is recommended, prioritising Information Officer registration (s55-56), `;
+  summary += `special personal information handling (s26-33), and cross-border transfer safeguards (s72).`;
+
+  // Risk factors
+  const riskFactors = [];
+  if (prospect.ir_registered === false) {
+    riskFactors.push({
+      level: "critical",
+      factor: "No IO registration",
+      note: "The company is not registered with the SA Information Regulator despite processing South African personal data",
+    });
+  }
+  if (criticalCount > 0) {
+    riskFactors.push({
+      level: "critical",
+      factor: "Critical compliance gaps",
+      note: `${criticalCount} critical finding(s) identified representing direct POPIA violations`,
+    });
+  }
+  if (isForeignEntity) {
+    riskFactors.push({
+      level: "high",
+      factor: "Foreign entity extraterritoriality",
+      note: "As a foreign entity, POPIA s3(1)(b)(ii) extraterritorial jurisdiction applies if using means in South Africa to process personal data",
+    });
+  }
+  if (highCount > 0) {
+    riskFactors.push({
+      level: "high",
+      factor: "Significant compliance gaps",
+      note: `${highCount} high-severity finding(s) materially increase regulatory risk`,
+    });
+  }
+
+  // Key findings — top 8 sorted by severity
+  const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4, compliant: 5 };
+  const sortedFindings = [...findings].sort(
+    (a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5)
+  );
+  const keyFindings = sortedFindings
+    .slice(0, Math.min(8, sortedFindings.length))
+    .map((f) => ({
+      finding_id: f.id || null,
+      category: f.check_category,
+      severity: f.severity,
+      finding: f.finding,
+      evidence: f.evidence_quote || null,
+    }));
+
+  // Recommendations — top 6 non-compliant
+  const recommendations = sortedFindings
+    .filter((f) => f.recommendation && f.severity !== "compliant")
+    .slice(0, 6)
+    .map((f, i) => ({
+      priority: i + 1,
+      action: f.recommendation,
+      rationale: `Addresses ${f.severity}-severity finding in ${f.check_category.replace(/_/g, " ")}`,
+    }));
+
+  return {
+    ...domainScores,
+    overall_severity: overallSeverity,
+    executive_summary: summary,
+    risk_factors: riskFactors,
+    key_findings: keyFindings,
+    recommendations,
+  };
+}
 
 // ─── Document Ingestion ─────────────────────────────────────────────────────
 
@@ -92,7 +647,6 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
   const startTime = Date.now();
 
   try {
-    // 1. Fetch prospect record
     const { rows: prospectRows } = await pool.query(
       "SELECT * FROM compliance_prospects WHERE id = $1",
       [prospectId]
@@ -102,7 +656,6 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
     }
     const prospect = prospectRows[0];
 
-    // 2. Update research_status to 'collecting'
     await pool.query(
       `UPDATE compliance_prospects
        SET research_status = 'collecting', updated_at = NOW()
@@ -110,7 +663,6 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
       [prospectId]
     );
 
-    // 3. Build list of URLs to fetch
     const urlsToFetch = [];
     for (const [field, docType] of Object.entries(URL_FIELD_MAP)) {
       const url = prospect[field];
@@ -119,7 +671,6 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
       }
     }
 
-    // Handle other_urls (pipe-separated)
     if (prospect.other_urls) {
       const others = prospect.other_urls
         .split("|")
@@ -130,7 +681,6 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
       }
     }
 
-    // Also check company_website for cookie policy if no dedicated URL
     if (prospect.company_website && !prospect.privacy_policy_url) {
       urlsToFetch.push({
         url: prospect.company_website,
@@ -152,32 +702,20 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
       });
     }
 
-    // 4. Fetch and store each document
     const results = [];
     for (const { url, document_type, field } of urlsToFetch) {
-      const { error, html, markdown } = await fetchAndConvert(
-        url,
-        // nhm is expected to be in scope from the top-level require
-        nhm
-      );
+      const { error, html, markdown } = await fetchAndConvert(url, nhm);
 
       if (error) {
-        results.push({
-          url,
-          document_type,
-          status: "failed",
-          error,
-        });
+        results.push({ url, document_type, status: "failed", error });
         continue;
       }
 
-      // Compute content hash to detect duplicates
       const contentHash = crypto
         .createHash("sha256")
         .update(markdown || html || "")
         .digest("hex");
 
-      // Check for existing document with same hash (skip if duplicate)
       const { rows: existing } = await pool.query(
         `SELECT id FROM prospect_documents
          WHERE prospect_id = $1 AND file_hash = $2`,
@@ -186,15 +724,12 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
 
       if (existing.length > 0) {
         results.push({
-          url,
-          document_type,
-          status: "skipped_duplicate",
+          url, document_type, status: "skipped_duplicate",
           existing_id: existing[0].id,
         });
         continue;
       }
 
-      // Derive a title from the URL
       const urlObj = new URL(url);
       const docTitle = `${urlObj.hostname} — ${document_type.replace(/_/g, " ")}`;
 
@@ -207,31 +742,22 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
                  $8::jsonb)
          RETURNING id, document_type, document_title`,
         [
-          prospectId,
-          document_type,
-          docTitle,
-          url,
-          html,
-          markdown,
-          contentHash,
+          prospectId, document_type, docTitle, url,
+          html, markdown, contentHash,
           JSON.stringify({ source_field: field, ingested_by: "agent" }),
         ]
       );
 
       results.push({
-        url,
-        document_type,
-        status: "stored",
+        url, document_type, status: "stored",
         document_id: inserted[0].id,
         title: inserted[0].document_title,
         markdown_length: (markdown || "").length,
       });
     }
 
-    // 5. Update document_count and research_status
     const storedCount = results.filter((r) => r.status === "stored").length;
     const dupCount = results.filter((r) => r.status === "skipped_duplicate").length;
-    // Keep "collected" if we stored new docs OR already have docs from a prior run
     const newStatus = (storedCount > 0 || dupCount > 0) ? "collected" : "not_started";
 
     await pool.query(
@@ -251,8 +777,7 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
       prospect_id: prospectId,
       documents_processed: results.length,
       documents_stored: storedCount,
-      documents_skipped: results.filter((r) => r.status === "skipped_duplicate")
-        .length,
+      documents_skipped: results.filter((r) => r.status === "skipped_duplicate").length,
       documents_failed: results.filter((r) => r.status === "failed").length,
       research_status: newStatus,
       elapsed_seconds: parseFloat(elapsed),
@@ -260,7 +785,6 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
     });
   } catch (err) {
     console.error("POST /prospects/:id/ingest error:", err);
-    // Reset status on failure
     await pool
       .query(
         `UPDATE compliance_prospects
@@ -273,61 +797,13 @@ app.post("/api/compliance/prospects/:id/ingest", async (req, res) => {
   }
 });
 
-// ─── POPIA Compliance Analysis ──────────────────────────────────────────────
-
-const POPIA_ANALYSIS_PROMPT = `You are a POPIA compliance analyst for AfricanSTN, a South African Information Officer representative service. You are analysing documents from an international company to assess their compliance with South Africa's Protection of Personal Information Act (POPIA), Act 4 of 2013.
-
-## Your task
-
-Analyse the provided documents and produce structured compliance findings. For each finding, assess against these POPIA check categories:
-
-1. **information_officer** — Has the company appointed and registered an Information Officer with the Information Regulator per s55-56? Is there evidence of a South African-domiciled IO for a foreign entity per s58?
-2. **lawful_processing** — Does the privacy policy establish a lawful basis for processing SA personal data per s8-12? Are the conditions for lawful processing met?
-3. **consent_mechanism** — If relying on consent, is it specific, informed, voluntary, and capable of withdrawal per s11? Are consent mechanisms clearly presented?
-4. **cross_border_transfer** — Are cross-border transfer mechanisms disclosed per s72? Does the company transfer SA personal data outside SA, and if so, under what safeguards?
-5. **data_subject_rights** — Are data subject rights clearly communicated per s23-25 (access, correction, deletion, objection)?
-6. **breach_notification** — Is there a breach notification commitment consistent with s22 (notification to IR and data subjects)?
-7. **special_categories** — Does the company process special personal information (s26-33) including biometric data, children's data, health data? Are additional safeguards in place?
-8. **retention_and_purpose** — Is data retention limited to the purpose of collection per s13-14? Are retention periods specified?
-9. **security_safeguards** — Are appropriate technical and organisational security measures described per s19?
-10. **direct_marketing** — If the company engages in direct marketing, does it comply with s69 (prior consent, opt-out mechanism)?
-
-## Output format
-
-Return a JSON array of findings. Each finding must have exactly these fields:
-
-{
-  "check_category": "one of the 10 categories above",
-  "finding": "clear description of the specific finding",
-  "severity": "critical | high | medium | low | info | compliant",
-  "evidence_quote": "exact quote from the document supporting this finding, or null if no relevant text found",
-  "evidence_location": "which document and approximate section the evidence was found in",
-  "recommendation": "specific actionable recommendation to address this finding"
-}
-
-## Severity guide
-
-- **critical**: Clear violation of POPIA that could result in enforcement action (e.g. no IO registration for a foreign entity processing SA data, no lawful basis stated)
-- **high**: Significant gap that materially increases regulatory risk (e.g. no cross-border transfer disclosure despite obvious international transfers)
-- **medium**: Notable omission or weakness (e.g. consent withdrawal mechanism unclear, retention periods not specified)
-- **low**: Minor improvement needed (e.g. privacy policy could be clearer on a specific right)
-- **info**: Observation that is neutral or contextual (e.g. company uses a particular framework)
-- **compliant**: The company meets this requirement satisfactorily
-
-## Important rules
-
-- Base every finding on evidence from the actual documents. Do not fabricate quotes.
-- If a document does not address a category at all, that is itself a finding (likely medium or high severity).
-- Produce at least one finding per check category (10 minimum findings).
-- Be specific — "the privacy policy does not mention X" is better than "there may be gaps."
-- Consider that this is an international company — the key POPIA question is whether they have obligations under s3(1)(b)(ii) (extraterritorial jurisdiction) and s58 (foreign IO appointment).`;
+// ─── POPIA Compliance Analysis (rule-based) ────────────────────────────────
 
 app.post("/api/compliance/prospects/:id/analyse", async (req, res) => {
   const prospectId = req.params.id;
   const startTime = Date.now();
 
   try {
-    // 1. Fetch prospect
     const { rows: prospectRows } = await pool.query(
       "SELECT * FROM compliance_prospects WHERE id = $1",
       [prospectId]
@@ -337,7 +813,6 @@ app.post("/api/compliance/prospects/:id/analyse", async (req, res) => {
     }
     const prospect = prospectRows[0];
 
-    // 2. Fetch their documents
     const { rows: documents } = await pool.query(
       `SELECT id, document_type, document_title, source_url,
               markdown_content, conversion_status
@@ -354,7 +829,6 @@ app.post("/api/compliance/prospects/:id/analyse", async (req, res) => {
       });
     }
 
-    // 3. Update status
     await pool.query(
       `UPDATE compliance_prospects
        SET research_status = 'analysing', updated_at = NOW()
@@ -362,70 +836,9 @@ app.post("/api/compliance/prospects/:id/analyse", async (req, res) => {
       [prospectId]
     );
 
-    // 4. Build the document context for Claude
-    const documentContext = documents
-      .map(
-        (d) =>
-          `### Document: ${d.document_title || d.document_type}\n` +
-          `Type: ${d.document_type}\n` +
-          `Source: ${d.source_url || "unknown"}\n\n` +
-          `${(d.markdown_content || "").slice(0, 30000)}\n\n---`
-      )
-      .join("\n\n");
+    // Rule-based analysis — no external API call
+    const findings = analyseDocumentsRuleBased(documents, prospect);
 
-    const userMessage = `## Company being assessed
-
-Company: ${prospect.company_name}
-Country of domicile: ${prospect.company_country || "Unknown"}
-Sector: ${prospect.sector || "Unknown"}
-SA presence evidence: ${prospect.sa_presence_evidence || "Not yet documented"}
-IR registered: ${prospect.ir_registered === true ? "Yes" : prospect.ir_registered === false ? "No" : "Unknown"}
-
-## Documents to analyse
-
-${documentContext}
-
-Produce your compliance findings as a JSON array. Return ONLY the JSON array, no markdown fencing or commentary.`;
-
-    // 5. Call Claude API
-    const response = await anthropic.messages.create({
-      model: AGENT_MODEL,
-      max_tokens: 8192,
-      messages: [
-        { role: "user", content: POPIA_ANALYSIS_PROMPT + "\n\n" + userMessage },
-      ],
-    });
-
-    const responseText =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
-
-    // 6. Parse findings from response
-    let findings;
-    try {
-      // Handle potential markdown code fencing
-      const cleaned = responseText
-        .replace(/^```(?:json)?\s*/m, "")
-        .replace(/\s*```\s*$/m, "")
-        .trim();
-      findings = JSON.parse(cleaned);
-      if (!Array.isArray(findings)) {
-        throw new Error("Response is not an array");
-      }
-    } catch (parseErr) {
-      await pool.query(
-        `UPDATE compliance_prospects
-         SET research_status = 'collected', updated_at = NOW()
-         WHERE id = $1`,
-        [prospectId]
-      );
-      return res.status(500).json({
-        error: "Failed to parse Claude response as JSON",
-        parse_error: parseErr.message,
-        raw_response: responseText.slice(0, 2000),
-      });
-    }
-
-    // 7. Store each finding
     const storedFindings = [];
     for (const f of findings) {
       const { rows: inserted } = await pool.query(
@@ -439,22 +852,20 @@ Produce your compliance findings as a JSON array. Return ONLY the JSON array, no
          RETURNING id, check_category, severity`,
         [
           prospectId,
-          // Try to match document_id from evidence_location
-          null, // We don't try to match — the finding spans multiple docs
+          null,
           f.check_category || "uncategorised",
           f.finding || "No description",
           f.severity || "info",
           f.evidence_quote || null,
           f.evidence_location || null,
           f.recommendation || null,
-          AGENT_MODEL,
-          AGENT_VERSION,
+          "rule-engine",
+          ANALYSIS_ENGINE_VERSION,
         ]
       );
       storedFindings.push(inserted[0]);
     }
 
-    // 8. Update prospect counts and status
     await pool.query(
       `UPDATE compliance_prospects
        SET finding_count = (
@@ -484,9 +895,8 @@ Produce your compliance findings as a JSON array. Return ONLY the JSON array, no
       findings_count: storedFindings.length,
       severity_breakdown: severityCounts,
       research_status: "analysed",
-      model_used: AGENT_MODEL,
-      input_tokens: response.usage?.input_tokens || null,
-      output_tokens: response.usage?.output_tokens || null,
+      analysis_engine: "rule-based",
+      engine_version: ANALYSIS_ENGINE_VERSION,
       elapsed_seconds: parseFloat(elapsed),
     });
   } catch (err) {
@@ -503,59 +913,13 @@ Produce your compliance findings as a JSON array. Return ONLY the JSON array, no
   }
 });
 
-// ─── Assessment Generation ──────────────────────────────────────────────────
-
-const ASSESSMENT_PROMPT = `You are a senior POPIA compliance assessor for AfricanSTN. Based on the analysis findings provided, generate a comprehensive compliance assessment for this company.
-
-## Output format
-
-Return a single JSON object with exactly these fields:
-
-{
-  "score_ir_registration": <0-10>,
-  "score_biometric_handling": <0-10>,
-  "score_cross_border": <0-10>,
-  "score_consent_mechanism": <0-10>,
-  "score_breach_notification": <0-10>,
-  "score_data_subject_rights": <0-10>,
-  "score_overall": <0-10>,
-  "overall_severity": "critical | high | medium | low",
-  "executive_summary": "2-3 paragraph executive summary suitable for a C-suite audience. Reference specific POPIA sections. Written in third person about the company.",
-  "risk_factors": [
-    { "level": "critical|high|medium|low", "factor": "short factor name", "note": "explanation" }
-  ],
-  "key_findings": [
-    { "finding_id": <id from input>, "category": "check_category", "severity": "severity", "finding": "summary", "evidence": "key evidence or null" }
-  ],
-  "recommendations": [
-    { "priority": 1, "action": "specific recommended action", "rationale": "why this matters" }
-  ]
-}
-
-## Scoring guide (0 = fully non-compliant, 10 = fully compliant)
-
-- 0-2: No evidence of compliance; likely violation
-- 3-4: Minimal compliance; significant gaps
-- 5-6: Partial compliance; notable weaknesses
-- 7-8: Substantially compliant; minor improvements needed
-- 9-10: Fully compliant; best practice
-
-## Rules
-
-- The executive_summary must be professional, specific, and cite POPIA section numbers.
-- Include the top 5-8 key findings ordered by severity.
-- Include 4-6 prioritised recommendations.
-- Include 3-5 risk factors.
-- Scores must reflect the actual findings — do not inflate or deflate.
-- The overall score should be a weighted average biased toward the lowest domain scores (weakest-link principle).
-- Return ONLY the JSON object, no markdown fencing.`;
+// ─── Assessment Generation (rule-based) ────────────────────────────────────
 
 app.post("/api/compliance/prospects/:id/assess", async (req, res) => {
   const prospectId = req.params.id;
   const startTime = Date.now();
 
   try {
-    // 1. Fetch prospect
     const { rows: prospectRows } = await pool.query(
       "SELECT * FROM compliance_prospects WHERE id = $1",
       [prospectId]
@@ -565,7 +929,6 @@ app.post("/api/compliance/prospects/:id/assess", async (req, res) => {
     }
     const prospect = prospectRows[0];
 
-    // 2. Fetch analysis findings
     const { rows: findings } = await pool.query(
       `SELECT id, check_category, finding, severity,
               evidence_quote, evidence_location, recommendation
@@ -590,67 +953,10 @@ app.post("/api/compliance/prospects/:id/assess", async (req, res) => {
       });
     }
 
-    // 3. Build context for Claude
-    const findingsContext = findings
-      .map(
-        (f) =>
-          `[ID:${f.id}] Category: ${f.check_category} | Severity: ${f.severity}\n` +
-          `Finding: ${f.finding}\n` +
-          (f.evidence_quote
-            ? `Evidence: "${f.evidence_quote}"\n`
-            : "Evidence: none\n") +
-          (f.recommendation
-            ? `Recommendation: ${f.recommendation}\n`
-            : "")
-      )
-      .join("\n---\n");
+    // Rule-based assessment — no external API call
+    const assessment = generateAssessmentFromFindings(findings, prospect);
 
-    const userMessage = `## Company
-
-Company: ${prospect.company_name}
-Country: ${prospect.company_country || "Unknown"}
-Sector: ${prospect.sector || "Unknown"}
-SA presence: ${prospect.sa_presence_evidence || "Not documented"}
-IR registered: ${prospect.ir_registered === true ? "Yes" : prospect.ir_registered === false ? "No" : "Unknown"}
-
-## Analysis findings (${findings.length} total)
-
-${findingsContext}
-
-Generate the assessment JSON object. Return ONLY the JSON object.`;
-
-    // 4. Call Claude API
-    const response = await anthropic.messages.create({
-      model: AGENT_MODEL,
-      max_tokens: 4096,
-      messages: [
-        { role: "user", content: ASSESSMENT_PROMPT + "\n\n" + userMessage },
-      ],
-    });
-
-    const responseText =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
-
-    // 5. Parse assessment
-    let assessment;
-    try {
-      const cleaned = responseText
-        .replace(/^```(?:json)?\s*/m, "")
-        .replace(/\s*```\s*$/m, "")
-        .trim();
-      assessment = JSON.parse(cleaned);
-    } catch (parseErr) {
-      return res.status(500).json({
-        error: "Failed to parse assessment response",
-        parse_error: parseErr.message,
-        raw_response: responseText.slice(0, 2000),
-      });
-    }
-
-    // 6. Store assessment (auto-versioning and superseding handled by existing route logic)
-    // But since we're in the same server, we replicate the logic inline:
-
-    // Supersede any existing non-superseded assessments
+    // Supersede existing assessments
     await pool.query(
       `UPDATE prospect_assessments
        SET status = 'superseded', updated_at = NOW()
@@ -658,7 +964,6 @@ Generate the assessment JSON object. Return ONLY the JSON object.`;
       [prospectId]
     );
 
-    // Get next version number
     const { rows: versionRows } = await pool.query(
       `SELECT COALESCE(MAX(assessment_version), 0) + 1 AS next_version
        FROM prospect_assessments WHERE prospect_id = $1`,
@@ -678,7 +983,7 @@ Generate the assessment JSON object. Return ONLY the JSON object.`;
        VALUES ($1, CURRENT_DATE, $2, 'draft',
                $3, $4, $5, $6, $7, $8, $9, $10, $11,
                $12::jsonb, $13::jsonb, $14::jsonb,
-               'agent', $15, $16, false)
+               'rule-engine', $15, $16, false)
        RETURNING *`,
       [
         prospectId,
@@ -695,12 +1000,11 @@ Generate the assessment JSON object. Return ONLY the JSON object.`;
         JSON.stringify(assessment.risk_factors || []),
         JSON.stringify(assessment.key_findings || []),
         JSON.stringify(assessment.recommendations || []),
-        AGENT_MODEL,
-        AGENT_VERSION,
+        "rule-engine",
+        ANALYSIS_ENGINE_VERSION,
       ]
     );
 
-    // 7. Update prospect status
     await pool.query(
       `UPDATE compliance_prospects
        SET research_status = 'assessed',
@@ -730,9 +1034,8 @@ Generate the assessment JSON object. Return ONLY the JSON object.`;
       risk_factors_count: (assessment.risk_factors || []).length,
       recommendations_count: (assessment.recommendations || []).length,
       research_status: "assessed",
-      model_used: AGENT_MODEL,
-      input_tokens: response.usage?.input_tokens || null,
-      output_tokens: response.usage?.output_tokens || null,
+      analysis_engine: "rule-based",
+      engine_version: ANALYSIS_ENGINE_VERSION,
       elapsed_seconds: parseFloat(elapsed),
     });
   } catch (err) {
@@ -747,8 +1050,7 @@ Generate the assessment JSON object. Return ONLY the JSON object.`;
  * POST /api/compliance/prospects/:id/run-pipeline
  *
  * Runs ingest → analyse → assess in sequence. Returns combined results.
- * Use { "skip_ingest": true } in body to skip document collection
- * (e.g. if documents were already ingested).
+ * Use { "skip_ingest": true } in body to skip document collection.
  */
 app.post("/api/compliance/prospects/:id/run-pipeline", async (req, res) => {
   const prospectId = req.params.id;
@@ -758,31 +1060,6 @@ app.post("/api/compliance/prospects/:id/run-pipeline", async (req, res) => {
   try {
     const results = { prospect_id: prospectId, stages: {} };
 
-    // Stage 1: Ingest (unless skipped)
-    if (!skip_ingest) {
-      const ingestRes = await new Promise((resolve, reject) => {
-        const mockReq = {
-          params: { id: prospectId },
-          body: {},
-          query: {},
-        };
-        const mockRes = {
-          status(code) {
-            this._status = code;
-            return this;
-          },
-          json(data) {
-            resolve({ status: this._status || 200, data });
-          },
-          _status: 200,
-        };
-        // Inline call — we reuse the route handler logic
-        // This is a simplified approach; production would extract shared functions
-      });
-      // The inline approach is fragile. Instead, use fetch to localhost.
-    }
-
-    // For robustness, use internal HTTP calls
     const baseUrl = `http://localhost:${process.env.PORT || 8080}`;
     const apiKey = process.env.API_KEY;
     const headers = {
@@ -797,10 +1074,7 @@ app.post("/api/compliance/prospects/:id/run-pipeline", async (req, res) => {
         { method: "POST", headers }
       );
       const ingestData = await ingestRes.json();
-      results.stages.ingest = {
-        status: ingestRes.status,
-        ...ingestData,
-      };
+      results.stages.ingest = { status: ingestRes.status, ...ingestData };
       if (ingestRes.status >= 400) {
         results.pipeline_status = "failed_at_ingest";
         return res.status(ingestRes.status).json(results);
@@ -815,10 +1089,7 @@ app.post("/api/compliance/prospects/:id/run-pipeline", async (req, res) => {
       { method: "POST", headers }
     );
     const analyseData = await analyseRes.json();
-    results.stages.analyse = {
-      status: analyseRes.status,
-      ...analyseData,
-    };
+    results.stages.analyse = { status: analyseRes.status, ...analyseData };
     if (analyseRes.status >= 400) {
       results.pipeline_status = "failed_at_analyse";
       return res.status(analyseRes.status).json(results);
@@ -830,10 +1101,7 @@ app.post("/api/compliance/prospects/:id/run-pipeline", async (req, res) => {
       { method: "POST", headers }
     );
     const assessData = await assessRes.json();
-    results.stages.assess = {
-      status: assessRes.status,
-      ...assessData,
-    };
+    results.stages.assess = { status: assessRes.status, ...assessData };
     if (assessRes.status >= 400) {
       results.pipeline_status = "failed_at_assess";
       return res.status(assessRes.status).json(results);

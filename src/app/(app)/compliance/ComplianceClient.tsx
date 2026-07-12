@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useCallback } from "react";
-import type { Prospect, Client } from "@/lib/data/compliance";
+import type { Prospect, Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
 import { flagUrl as sharedFlagUrl } from "@/lib/country-iso";
 import type { Country, EnforcementAction } from "@/lib/data/data-protection";
 import {
@@ -12,6 +12,7 @@ import {
   editClient,
   addActivity,
   runProspectPipeline,
+  getProspectPipelineResults,
 } from "./actions";
 
 /* ── Constants ─────────────────────────────────────────────────── */
@@ -318,12 +319,49 @@ function ProspectForm({ prospect, onClose }: { prospect?: Prospect; onClose: () 
 
 /* ── Prospect detail slide-out ─────────────────────────────────── */
 
+function SeverityPill({ severity }: { severity: string }) {
+  const meta: Record<string, { color: string; bg: string; border: string }> = {
+    critical: { color: "#CC0000", bg: "#FBE3E3", border: "#E6C4C4" },
+    high: { color: "#B4432C", bg: "#FBE7E1", border: "#EDCBBF" },
+    medium: { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+    low: { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" },
+    info: { color: "#3E6B8E", bg: "#E7EEF4", border: "#C6D8E5" },
+  };
+  const m = meta[severity] ?? meta.info;
+  return (
+    <span style={{
+      display: "inline-block", fontWeight: 700, fontSize: 9, lineHeight: 1,
+      textTransform: "uppercase", letterSpacing: "0.04em",
+      color: m.color, background: m.bg, border: `1px solid ${m.border}`,
+      borderRadius: 20, padding: "3px 8px", whiteSpace: "nowrap",
+    }}>
+      {severity}
+    </span>
+  );
+}
+
+function ScoreBadge({ score, label }: { score: number; label: string }) {
+  const color = score >= 7 ? "#2E7D32" : score >= 4 ? "#A67514" : "#B4432C";
+  return (
+    <div style={{ textAlign: "center", padding: "8px 4px" }}>
+      <div style={{ fontWeight: 800, fontSize: 18, color }}>{score}</div>
+      <div style={{ fontWeight: 500, fontSize: 9, color: "#8E9196", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
+    </div>
+  );
+}
+
 function ProspectDetail({
   prospect, onClose, onEdit, onReport, onRunPipeline, pipelineRunning, pipelineResult,
+  pipelineData,
 }: {
   prospect: Prospect; onClose: () => void; onEdit: () => void; onReport: () => void;
   onRunPipeline: () => void; pipelineRunning: boolean;
   pipelineResult: { error?: string | null; data?: Record<string, unknown> | null } | null;
+  pipelineData: {
+    documents: ProspectDocument[];
+    findings: AnalysisFinding[];
+    assessment: ProspectAssessment | null;
+  } | null;
 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
@@ -406,7 +444,7 @@ function ProspectDetail({
 
           {/* Research pipeline */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Research pipeline</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Compliance pipeline</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
                 <span style={{ color: "#8E9196" }}>Status</span>
@@ -464,6 +502,93 @@ function ProspectDetail({
               )}
             </div>
           </div>
+
+          {/* Assessment scores (from rule engine) */}
+          {pipelineData?.assessment && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Assessment scores</div>
+              <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      fontWeight: 800, fontSize: 24,
+                      color: pipelineData.assessment.score_overall >= 7 ? "#2E7D32" : pipelineData.assessment.score_overall >= 4 ? "#A67514" : "#B4432C",
+                    }}>
+                      {pipelineData.assessment.score_overall}/10
+                    </span>
+                    <SeverityPill severity={pipelineData.assessment.overall_severity} />
+                  </div>
+                  <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>
+                    {pipelineData.assessment.generated_by} v{pipelineData.assessment.agent_version}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+                  <ScoreBadge score={pipelineData.assessment.score_ir_registration} label="IR reg." />
+                  <ScoreBadge score={pipelineData.assessment.score_biometric_handling} label="Biometric" />
+                  <ScoreBadge score={pipelineData.assessment.score_cross_border} label="Cross-border" />
+                  <ScoreBadge score={pipelineData.assessment.score_consent_mechanism} label="Consent" />
+                  <ScoreBadge score={pipelineData.assessment.score_breach_notification} label="Breach" />
+                  <ScoreBadge score={pipelineData.assessment.score_data_subject_rights} label="DSR" />
+                </div>
+                {pipelineData.assessment.executive_summary && (
+                  <p style={{ fontWeight: 500, fontSize: 11.5, color: "#55524C", margin: "12px 0 0", lineHeight: 1.5, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+                    {pipelineData.assessment.executive_summary}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Documents fetched */}
+          {pipelineData && pipelineData.documents.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>Fetched documents ({pipelineData.documents.length})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {pipelineData.documents.map((doc) => (
+                  <div key={doc.id} style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: 12, color: "var(--tx)" }}>{doc.document_type}</span>
+                      {doc.source_url && (
+                        <a href={doc.source_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "#B08D3F", textDecoration: "none" }}>
+                          source
+                        </a>
+                      )}
+                    </div>
+                    <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>
+                      {doc.markdown_content ? `${(doc.markdown_content.length / 1000).toFixed(1)}k chars` : "empty"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Findings */}
+          {pipelineData && pipelineData.findings.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>
+                Findings ({pipelineData.findings.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {pipelineData.findings.map((f) => (
+                  <div key={f.id} style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, fontSize: 11, color: "var(--tx)", textTransform: "capitalize" }}>
+                        {f.check_category.replace(/_/g, " ")}
+                      </span>
+                      <SeverityPill severity={f.severity} />
+                    </div>
+                    <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.45, color: "#55524C" }}>{f.finding}</p>
+                    {f.recommendation && (
+                      <p style={{ margin: "6px 0 0", fontSize: 10.5, lineHeight: 1.4, color: "#8E9196", fontStyle: "italic" }}>
+                        {f.recommendation}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Outreach timeline */}
           <div>
@@ -684,8 +809,28 @@ export default function ComplianceClient({
   const [showActivityForm, setShowActivityForm] = useState<Client | null>(null);
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [pipelineResult, setPipelineResult] = useState<{ error?: string | null; data?: Record<string, unknown> | null } | null>(null);
+  const [pipelineData, setPipelineData] = useState<{
+    documents: ProspectDocument[];
+    findings: AnalysisFinding[];
+    assessment: ProspectAssessment | null;
+  } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Prospect | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  /* Load pipeline results when a prospect with assessment data is selected */
+  const loadPipelineData = useCallback(
+    (prospect: Prospect) => {
+      if (prospect.research_status && prospect.research_status !== "not_started") {
+        startTransition(async () => {
+          const results = await getProspectPipelineResults(prospect.id);
+          setPipelineData(results);
+        });
+      } else {
+        setPipelineData(null);
+      }
+    },
+    [startTransition],
+  );
 
   /* derived data */
   const prospects = initialProspects;
@@ -723,6 +868,11 @@ export default function ComplianceClient({
         try {
           const result = await runProspectPipeline(prospect.id);
           setPipelineResult(result);
+          // Reload pipeline data to show results
+          if (!result.error) {
+            const results = await getProspectPipelineResults(prospect.id);
+            setPipelineData(results);
+          }
         } catch {
           setPipelineResult({ error: "Pipeline failed" });
         } finally {
@@ -882,7 +1032,7 @@ export default function ComplianceClient({
                       key={p.id}
                       style={{ background: idx % 2 ? "#FBF8F1" : "#FFFFFF", borderBottom: "1px solid #F0E8D8", cursor: "pointer" }}
                       className="hover:!bg-[#FBF6EC]"
-                      onClick={() => setSelectedProspect(p)}
+                      onClick={() => { setSelectedProspect(p); loadPipelineData(p); }}
                     >
                       <td style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3, color: "var(--tx)", padding: "12px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -901,7 +1051,7 @@ export default function ComplianceClient({
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "right" }}>
                         <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedProspect(p); }}
+                          onClick={(e) => { e.stopPropagation(); setSelectedProspect(p); loadPipelineData(p); }}
                           style={{ fontWeight: 600, fontSize: 11, color: "#B08D3F", background: "none", border: "none", cursor: "pointer" }}
                         >
                           View →
@@ -1002,12 +1152,13 @@ export default function ComplianceClient({
       {selectedProspect && !showReport && (
         <ProspectDetail
           prospect={selectedProspect}
-          onClose={() => { setSelectedProspect(null); setPipelineResult(null); }}
+          onClose={() => { setSelectedProspect(null); setPipelineResult(null); setPipelineData(null); }}
           onEdit={() => { setEditingProspect(selectedProspect); setShowProspectForm(true); }}
           onReport={() => setShowReport(selectedProspect)}
           onRunPipeline={() => handleRunPipeline(selectedProspect)}
           pipelineRunning={pipelineRunning}
           pipelineResult={pipelineResult}
+          pipelineData={pipelineData}
         />
       )}
 
@@ -1029,7 +1180,7 @@ export default function ComplianceClient({
               <button onClick={() => setShowReport(null)} style={btnSecondaryStyle}>Close</button>
             </div>
           </div>
-          <ComplianceReport prospect={showReport} countries={countries} enforcement={enforcement} />
+          <ComplianceReport prospect={showReport} countries={countries} enforcement={enforcement} pipelineData={pipelineData} />
         </div>
       )}
     </div>
@@ -1061,22 +1212,29 @@ function ComplianceReport({
   prospect,
   countries,
   enforcement,
+  pipelineData,
 }: {
   prospect: Prospect;
   countries: Country[];
   enforcement: EnforcementAction[];
+  pipelineData: {
+    documents: ProspectDocument[];
+    findings: AnalysisFinding[];
+    assessment: ProspectAssessment | null;
+  } | null;
 }) {
   const sa = countries.find((c) => c.iso_code === "ZA");
   const saEnforcement = enforcement.filter((e) => e.country_name === "South Africa").slice(0, 5);
+  const assessment = pipelineData?.assessment ?? null;
 
-  /* assessment scoring */
-  const hasPrivacyPolicy = prospect.privacy_policy_url ? 20 : 0;
-  const hasTerms = prospect.terms_url ? 10 : 0;
-  const irRegistered = prospect.ir_registered === true ? 30 : 0;
-  const saPresence = prospect.sa_presence_evidence ? 10 : 0;
-  const baseScore = hasPrivacyPolicy + hasTerms + irRegistered + saPresence;
-  const overallScore = Math.min(100, baseScore + (prospect.finding_count ? Math.max(0, 30 - (prospect.critical_finding_count ?? 0) * 10) : 0));
-  const riskLevel = overallScore >= 70 ? "Low" : overallScore >= 40 ? "Medium" : "High";
+  /* assessment scoring — use real data when available, fall back to heuristic */
+  const hasRealAssessment = assessment !== null;
+  const overallScore = hasRealAssessment
+    ? assessment.score_overall * 10
+    : Math.min(100, (prospect.privacy_policy_url ? 20 : 0) + (prospect.terms_url ? 10 : 0) + (prospect.ir_registered === true ? 30 : 0) + (prospect.sa_presence_evidence ? 10 : 0) + (prospect.finding_count ? Math.max(0, 30 - (prospect.critical_finding_count ?? 0) * 10) : 0));
+  const riskLevel = hasRealAssessment
+    ? assessment.overall_severity
+    : overallScore >= 70 ? "Low" : overallScore >= 40 ? "Medium" : "High";
   const riskColor = overallScore >= 70 ? "#2E7D32" : overallScore >= 40 ? "#A67514" : "#B4432C";
 
   return (
@@ -1108,31 +1266,98 @@ function ComplianceReport({
         <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginBottom: 16 }}>
           <ScoreGauge score={overallScore} label="Overall" />
           <div style={{ flex: 1 }}>
-            <p style={{ margin: "0 0 8px", fontSize: 12, lineHeight: 1.6 }}>
-              <strong>{prospect.company_name}</strong> has been assessed for compliance with South Africa&apos;s Protection of Personal Information Act (POPIA).
-              The overall compliance posture is rated <strong style={{ color: riskColor }}>{riskLevel} risk</strong> with a score of {overallScore}/100.
-            </p>
-            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6, color: "#55524C" }}>
-              {prospect.ir_registered === false
-                ? "The company does not appear on the Information Regulator's register, which is a significant compliance gap for any organisation processing South African personal data."
-                : prospect.ir_registered === true
-                ? "The company is registered with the Information Regulator."
-                : "Registration with the Information Regulator could not be confirmed."}
-            </p>
+            {hasRealAssessment && assessment.executive_summary ? (
+              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>{assessment.executive_summary}</p>
+            ) : (
+              <>
+                <p style={{ margin: "0 0 8px", fontSize: 12, lineHeight: 1.6 }}>
+                  <strong>{prospect.company_name}</strong> has been assessed for compliance with South Africa&apos;s Protection of Personal Information Act (POPIA).
+                  The overall compliance posture is rated <strong style={{ color: riskColor }}>{riskLevel} risk</strong> with a score of {overallScore}/100.
+                </p>
+                <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6, color: "#55524C" }}>
+                  {prospect.ir_registered === false
+                    ? "The company does not appear on the Information Regulator's register, which is a significant compliance gap for any organisation processing South African personal data."
+                    : prospect.ir_registered === true
+                    ? "The company is registered with the Information Regulator."
+                    : "Registration with the Information Regulator could not be confirmed."}
+                </p>
+              </>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Risk assessment */}
+      {/* Risk assessment — domain scores */}
       <section style={{ marginBottom: 28 }}>
         <h2 style={{ fontWeight: 700, fontSize: 15, color: "#1A1C1E", borderBottom: "1px solid #E4D9C4", paddingBottom: 6, marginBottom: 14 }}>Risk assessment</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
-          <ScoreGauge score={hasPrivacyPolicy + hasTerms} label="Documentation" />
-          <ScoreGauge score={irRegistered} label="Registration" />
-          <ScoreGauge score={saPresence ? 80 : 20} label="SA presence" />
-          <ScoreGauge score={prospect.finding_count ? Math.max(10, 100 - (prospect.critical_finding_count ?? 0) * 20) : 50} label="Policy review" />
-        </div>
+        {hasRealAssessment ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
+            <ScoreGauge score={assessment.score_ir_registration * 10} label="IR registration" />
+            <ScoreGauge score={assessment.score_biometric_handling * 10} label="Biometric handling" />
+            <ScoreGauge score={assessment.score_cross_border * 10} label="Cross-border" />
+            <ScoreGauge score={assessment.score_consent_mechanism * 10} label="Consent" />
+            <ScoreGauge score={assessment.score_breach_notification * 10} label="Breach notification" />
+            <ScoreGauge score={assessment.score_data_subject_rights * 10} label="Data subject rights" />
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+            <ScoreGauge score={prospect.privacy_policy_url ? 30 : 0} label="Documentation" />
+            <ScoreGauge score={prospect.ir_registered === true ? 30 : 0} label="Registration" />
+            <ScoreGauge score={prospect.sa_presence_evidence ? 80 : 20} label="SA presence" />
+            <ScoreGauge score={prospect.finding_count ? Math.max(10, 100 - (prospect.critical_finding_count ?? 0) * 20) : 50} label="Policy review" />
+          </div>
+        )}
       </section>
+
+      {/* Key findings from rule engine */}
+      {hasRealAssessment && pipelineData && pipelineData.findings.length > 0 && (
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ fontWeight: 700, fontSize: 15, color: "#1A1C1E", borderBottom: "1px solid #E4D9C4", paddingBottom: 6, marginBottom: 14 }}>
+            Analysis findings ({pipelineData.findings.length})
+          </h2>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr style={{ background: "#F6F1E7" }}>
+                <th style={{ textAlign: "left", fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62", padding: "8px 12px" }}>Category</th>
+                <th style={{ textAlign: "left", fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62", padding: "8px 12px" }}>Severity</th>
+                <th style={{ textAlign: "left", fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6E6A62", padding: "8px 12px" }}>Finding</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pipelineData.findings
+                .sort((a, b) => {
+                  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+                  return (order[a.severity] ?? 5) - (order[b.severity] ?? 5);
+                })
+                .map((f) => (
+                  <tr key={f.id} style={{ borderBottom: "1px solid #F0E8D8" }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 600, textTransform: "capitalize", whiteSpace: "nowrap" }}>{f.check_category.replace(/_/g, " ")}</td>
+                    <td style={{ padding: "8px 12px" }}><SeverityPill severity={f.severity} /></td>
+                    <td style={{ padding: "8px 12px", lineHeight: 1.5 }}>
+                      {f.finding}
+                      {f.recommendation && <span style={{ display: "block", marginTop: 4, fontSize: 10.5, color: "#8E9196", fontStyle: "italic" }}>{f.recommendation}</span>}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {/* Risk factors from assessment */}
+      {hasRealAssessment && Array.isArray(assessment.risk_factors) && (assessment.risk_factors as string[]).length > 0 && (
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ fontWeight: 700, fontSize: 15, color: "#1A1C1E", borderBottom: "1px solid #E4D9C4", paddingBottom: 6, marginBottom: 14 }}>Risk factors</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(assessment.risk_factors as string[]).map((rf, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: "#B4432C", flexShrink: 0 }}>!</span>
+                <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>{rf}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* SA regulatory landscape */}
       <section style={{ marginBottom: 28 }}>
@@ -1223,17 +1448,20 @@ function ComplianceReport({
       <section style={{ marginBottom: 28 }}>
         <h2 style={{ fontWeight: 700, fontSize: 15, color: "#1A1C1E", borderBottom: "1px solid #E4D9C4", paddingBottom: 6, marginBottom: 14 }}>Recommended next steps</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[
-            prospect.ir_registered !== true && "Register an Information Officer with the Information Regulator (mandatory under s55 of POPIA).",
-            !prospect.privacy_policy_url && "Publish a POPIA-compliant privacy notice that covers all required disclosures under s18.",
-            "Conduct a data mapping exercise to identify all personal information processing activities in South Africa.",
-            "Implement appropriate security safeguards (s19) and a breach response plan (s22).",
-            "Review cross-border transfer mechanisms (s72) for personal information leaving South Africa.",
-            "Appoint a POPIA representative service provider to maintain ongoing compliance and respond to regulatory correspondence.",
-          ].filter(Boolean).map((step, i) => (
+          {(hasRealAssessment && Array.isArray(assessment.recommendations) && (assessment.recommendations as string[]).length > 0
+            ? (assessment.recommendations as string[])
+            : [
+                prospect.ir_registered !== true && "Register an Information Officer with the Information Regulator (mandatory under s55 of POPIA).",
+                !prospect.privacy_policy_url && "Publish a POPIA-compliant privacy notice that covers all required disclosures under s18.",
+                "Conduct a data mapping exercise to identify all personal information processing activities in South Africa.",
+                "Implement appropriate security safeguards (s19) and a breach response plan (s22).",
+                "Review cross-border transfer mechanisms (s72) for personal information leaving South Africa.",
+                "Appoint a POPIA representative service provider to maintain ongoing compliance and respond to regulatory correspondence.",
+              ].filter(Boolean)
+          ).map((step, i) => (
             <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
               <span style={{ fontWeight: 700, fontSize: 12, color: "#C5A059", flexShrink: 0, width: 20, textAlign: "right" }}>{i + 1}.</span>
-              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>{step}</p>
+              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>{step as string}</p>
             </div>
           ))}
         </div>
@@ -1252,7 +1480,7 @@ function ComplianceReport({
   );
 }
 
-/* ── Activity form ─────────────────────────────────────────────── */
+/* ── Activity form ───────────────────────────────────────────────────────── */
 
 function ActivityForm({ clientId, onClose }: { clientId: number; onClose: () => void }) {
   const [isPending, startTransition] = useTransition();
