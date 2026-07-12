@@ -406,7 +406,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               {/* Overall score banner */}
               <div style={{ display: "flex", gap: 14, alignItems: "center", background: "#141414", borderRadius: 8, padding: "18px 22px", margin: "0 0 14px", breakInside: "avoid" as const }}>
                 <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 42, lineHeight: "1", color: "#C6A24E", fontVariantNumeric: "tabular-nums" }}>
-                  {assessment.score_overall.toFixed(1)}
+                  {Number(assessment.score_overall ?? 0).toFixed(1)}
                 </div>
                 <div>
                   <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, lineHeight: "1.2", letterSpacing: ".1em", textTransform: "uppercase", color: exp.color, margin: "0 0 4px" }}>
@@ -420,11 +420,12 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               {/* Domain score cards — 3×2 grid */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, margin: "0 0 26px" }}>
                 {domainScores.map((d) => {
-                  const sl = scoreLabel(d.score);
+                  const numScore = Number(d.score ?? 0);
+                  const sl = scoreLabel(numScore);
                   return (
                     <div key={d.label} style={{ border: "1px solid #E7DFCE", borderRadius: 6, padding: "14px 16px", textAlign: "center", breakInside: "avoid" as const }}>
                       <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 28, lineHeight: "1", color: "#1A1A1A", fontVariantNumeric: "tabular-nums", margin: "0 0 6px" }}>
-                        {d.score}
+                        {numScore}
                       </div>
                       <span style={{ display: "inline-block", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: sl.color, background: sl.bg, borderRadius: 3, padding: "4px 8px", margin: "0 0 8px" }}>
                         {sl.text}

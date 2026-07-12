@@ -342,10 +342,11 @@ function SeverityPill({ severity }: { severity: string }) {
 }
 
 function ScoreBadge({ score, label }: { score: number; label: string }) {
-  const color = score >= 7 ? "#2E7D32" : score >= 4 ? "#A67514" : "#B4432C";
+  const s = Number(score ?? 0);
+  const color = s >= 7 ? "#2E7D32" : s >= 4 ? "#A67514" : "#B4432C";
   return (
     <div style={{ textAlign: "center", padding: "8px 4px" }}>
-      <div style={{ fontWeight: 800, fontSize: 18, color }}>{score}</div>
+      <div style={{ fontWeight: 800, fontSize: 18, color }}>{s}</div>
       <div style={{ fontWeight: 500, fontSize: 9, color: "#8E9196", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
     </div>
   );
@@ -645,9 +646,9 @@ function ProspectDetail({
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{
                       fontWeight: 800, fontSize: 24,
-                      color: pipelineData.assessment.score_overall >= 7 ? "#2E7D32" : pipelineData.assessment.score_overall >= 4 ? "#A67514" : "#B4432C",
+                      color: Number(pipelineData.assessment.score_overall ?? 0) >= 7 ? "#2E7D32" : Number(pipelineData.assessment.score_overall ?? 0) >= 4 ? "#A67514" : "#B4432C",
                     }}>
-                      {pipelineData.assessment.score_overall}/10
+                      {Number(pipelineData.assessment.score_overall ?? 0)}/10
                     </span>
                     <SeverityPill severity={pipelineData.assessment.overall_severity} />
                   </div>
