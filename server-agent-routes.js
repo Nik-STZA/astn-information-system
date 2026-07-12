@@ -23,7 +23,7 @@
  * No external LLM API is required.
  */
 
-const ANALYSIS_ENGINE_VERSION = "2.0.0";
+const ANALYSIS_ENGINE_VERSION = "2.1.0";
 
 // ─── Helper: fetch a URL and convert to markdown ────────────────────────────
 
@@ -434,6 +434,7 @@ function analyseDocumentsRuleBased(documents, prospect) {
   const isForeignEntity =
     (prospect.company_country || "").toLowerCase() !== "south africa";
   const isNotRegistered = prospect.ir_registered === false;
+  const irVerified = prospect.ir_verification_method && prospect.ir_verification_method !== "assumed";
 
   for (const rule of POPIA_RULES) {
     const keywordMatches = [];
@@ -566,8 +567,26 @@ function generateAssessmentFromFindings(findings, prospect) {
 
   if (prospect.ir_registered === false) {
     summary += `The company is not currently registered with the South African Information Regulator. `;
+    const verifiedVia = prospect.ir_verification_method === "manual_portal"
+      ? `This was verified against the Information Regulator's eServices portal on ${prospect.ir_verified_date || "an unrecorded date"}. `
+      : prospect.ir_verification_method === "automated"
+      ? `This was verified automatically against the IR register on ${prospect.ir_verified_date || "an unrecorded date"}. `
+      : `Note: this status has not been independently verified against the Information Regulator's register. `;
+    summary += verifiedVia;
     if (isForeignEntity) {
       summary += `As a foreign entity processing South African personal information, registration of an Information Officer per POPIA s55-56 and appointment of a representative per s58 is a legal requirement.\n\n`;
+    }
+  } else if (prospect.ir_registered === true && prospect.ir_entity_name) {
+    summary += `The company is registered with the Information Regulator as "${prospect.ir_entity_name}"`;
+    if (prospect.ir_registration_no) summary += ` (registration no. ${prospect.ir_registration_no})`;
+    summary += `. `;
+    if (prospect.ir_io_name) {
+      summary += `The appointed Information Officer is ${prospect.ir_io_name}`;
+      if (prospect.ir_io_designation) summary += ` (${prospect.ir_io_designation})`;
+      summary += `. `;
+    }
+    if (prospect.ir_verified_date) {
+      summary += `Verified via IR eServices portal on ${prospect.ir_verified_date}. `;
     }
   }
 
@@ -577,10 +596,21 @@ function generateAssessmentFromFindings(findings, prospect) {
   // Risk factors
   const riskFactors = [];
   if (prospect.ir_registered === false) {
+    const verNote = (!prospect.ir_verification_method || prospect.ir_verification_method === "assumed")
+      ? " (not independently verified — status assumed from prior research)"
+      : ` (verified via IR eServices portal on ${prospect.ir_verified_date || "unrecorded date"})`;
     riskFactors.push({
       level: "critical",
       factor: "No IO registration",
-      note: "The company is not registered with the SA Information Regulator despite processing South African personal data",
+      note: `The company is not registered with the SA Information Regulator despite processing South African personal data${verNote}`,
+    });
+  }
+  // Flag if IR status has not been verified regardless of the boolean value
+  if (!prospect.ir_verification_method || prospect.ir_verification_method === "assumed") {
+    riskFactors.push({
+      level: "high",
+      factor: "IR registration not verified",
+      note: "The IR registration status has not been independently verified against the Information Regulator's eServices portal. Verification is required before this assessment can be finalised.",
     });
   }
   if (criticalCount > 0) {
@@ -630,6 +660,18 @@ function generateAssessmentFromFindings(findings, prospect) {
       rationale: `Addresses ${f.severity}-severity finding in ${f.check_category.replace(/_/g, " ")}`,
     }));
 
+  // IR verification metadata (attached to assessment for document generation)
+  const irVerification = {
+    ir_registered: prospect.ir_registered,
+    ir_verified: !!(prospect.ir_verification_method && prospect.ir_verification_method !== "assumed"),
+    ir_verified_date: prospect.ir_verified_date || null,
+    ir_verification_method: prospect.ir_verification_method || null,
+    ir_entity_name: prospect.ir_entity_name || null,
+    ir_registration_no: prospect.ir_registration_no || null,
+    ir_io_name: prospect.ir_io_name || null,
+    ir_io_designation: prospect.ir_io_designation || null,
+  };
+
   return {
     ...domainScores,
     overall_severity: overallSeverity,
@@ -637,6 +679,7 @@ function generateAssessmentFromFindings(findings, prospect) {
     risk_factors: riskFactors,
     key_findings: keyFindings,
     recommendations,
+    ir_verification: irVerification,
   };
 }
 

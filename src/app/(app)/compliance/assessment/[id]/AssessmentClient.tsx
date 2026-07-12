@@ -86,17 +86,31 @@ function typePill(t: string) {
 }
 
 /* ── Risk rows for a prospect ──────────────────────────────────────────── */
+function verificationLabel(method: string | null): string {
+  if (method === "manual_portal") return "verified via IR eServices portal";
+  if (method === "automated") return "verified via automated check";
+  return "not independently verified";
+}
+
 function buildRisks(p: Prospect): Array<{ severity: string; title: string; description: string }> {
   const risks: Array<{ severity: string; title: string; description: string }> = [];
+  const isVerified = p.ir_verification_method && p.ir_verification_method !== "assumed";
   if (p.ir_registered === false) {
-    risks.push({ severity: "High", title: "IR registration", description: "Not registered with the Information Regulator \u2014 non-compliance with s55 and the IR Guidance Note on registration of Information Officers." });
+    let desc = "Not registered with the Information Regulator — non-compliance with s55 and the IR Guidance Note on registration of Information Officers.";
+    if (isVerified && p.ir_verified_date) {
+      desc += ` Status ${verificationLabel(p.ir_verification_method)} on ${p.ir_verified_date}.`;
+    }
+    risks.push({ severity: "High", title: "IR registration", description: desc });
+  }
+  if (!isVerified) {
+    risks.push({ severity: "Medium", title: "Verification pending", description: "IR registration status has not been independently verified against the Information Regulator’s eServices portal. Manual verification is recommended before issuing a final assessment." });
   }
   if (p.sa_presence_evidence) {
     risks.push({ severity: "High", title: "SA presence", description: `Evidence of South African data processing: ${p.sa_presence_evidence}` });
   }
   const isSportsTech = (p.sector ?? "").toLowerCase().includes("sport") || (p.sector ?? "").toLowerCase().includes("tech");
   if (isSportsTech) {
-    risks.push({ severity: "High", title: "Sector sensitivity", description: `Sports technology \u2014 likely processes biometric, performance and potentially minors\u2019 data, all of which are special personal information under POPIA requiring elevated safeguards.` });
+    risks.push({ severity: "High", title: "Sector sensitivity", description: `Sports technology — likely processes biometric, performance and potentially minors’ data, all of which are special personal information under POPIA requiring elevated safeguards.` });
   }
   if (risks.length === 0) {
     risks.push({ severity: "Medium", title: "General compliance", description: "Standard POPIA obligations apply to all international entities processing South African personal information." });
@@ -104,7 +118,7 @@ function buildRisks(p: Prospect): Array<{ severity: string; title: string; descr
   return risks;
 }
 
-/* ── Inline style objects (TS doesn\u2019t support CSS shorthand `font`) ────── */
+/* ── Inline style objects (TS doesn’t support CSS shorthand `font`) ────── */
 const S = {
   /* Section heading */
   sectionHead: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
@@ -183,14 +197,14 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
   const lowFindings = findings.filter((f) => f.severity?.toLowerCase() === "low");
   const sortedFindings = [...criticalFindings, ...highFindings, ...mediumFindings, ...lowFindings];
 
-  /* SA country data \u2014 fallback to static if API didn\u2019t return */
+  /* SA country data — fallback to static if API didn’t return */
   const sa = saCountry ?? {
     tier: "Leader",
     overall_score: 8.8,
     law_name: "Protection of Personal Information Act",
     law_year: 2013,
     authority_name: "Information Regulator (South Africa)",
-    breach_notification_detail: "Required \u2014 as soon as reasonably possible after discovery, to the IR and affected data subjects.",
+    breach_notification_detail: "Required — as soon as reasonably possible after discovery, to the IR and affected data subjects.",
     transfer_mechanisms: "Adequate protection, binding corporate rules, consent, or a Section 72 exception.",
     max_fine_description: "ZAR 10 million and/or imprisonment up to 10 years.",
   };
@@ -198,9 +212,19 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
   /* Use up to 5 most recent enforcement actions */
   const enfSlice = enforcement.slice(0, 5);
 
+  /* Verification context for executive summary */
+  const irVerifiedText = prospect.ir_verification_method === "manual_portal" && prospect.ir_verified_date
+    ? ` (verified via the IR eServices portal on ${prospect.ir_verified_date})`
+    : prospect.ir_verification_method === "assumed"
+    ? " (not yet independently verified)"
+    : "";
+  const irRegisteredText = prospect.ir_registered === true && prospect.ir_entity_name
+    ? ` The company is registered with the Information Regulator as "${prospect.ir_entity_name}"${prospect.ir_registration_no ? ` (registration ${prospect.ir_registration_no})` : ""}${prospect.ir_io_name ? `, with ${prospect.ir_io_name} designated as Information Officer` : ""}.`
+    : "";
+
   return (
     <>
-      {/* doc-page web component \u2014 Newsreader now loaded globally in layout.tsx */}
+      {/* doc-page web component — Newsreader now loaded globally in layout.tsx */}
       <Script src="/doc-page.js" strategy="beforeInteractive" />
 
       <style>{`
@@ -210,7 +234,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
         @media print { .popia-nav-bar { display:none !important; } }
       `}</style>
 
-      {/* Back nav bar \u2014 hidden when printing */}
+      {/* Back nav bar — hidden when printing */}
       <div className="popia-nav-bar" style={{ fontFamily: "'Manrope', sans-serif", padding: "16px 0 8px", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <a href="/compliance" style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", textDecoration: "none" }}>
           &larr; Back to compliance
@@ -224,7 +248,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
         </button>
       </div>
 
-      {/* \u2500\u2500 Document \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
+      {/* ── Document ───────────────────────────────────────────────────────── */}
       <div ref={containerRef} className="popia-doc">
         {/* @ts-expect-error doc-page is a web component */}
         <doc-page size="a4" margin="0.72in">
@@ -285,7 +309,8 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               {!prospect.sa_presence_evidence && (
                 <> As an international company {prospect.company_country ? `based in ${prospect.company_country}` : ""} with potential South African data processing, the company may fall within POPIA&rsquo;s extra-territorial provisions under Section 3(1)(b)(ii).</>
               )}
-              {prospect.ir_registered === false && <> The company is confirmed <em>not</em> registered with the Information Regulator.</>}
+              {prospect.ir_registered === false && ` The company is confirmed not registered with the Information Regulator${irVerifiedText}.`}
+              {irRegisteredText}
               {" "}The Information Regulator requires non-South African responsible parties to appoint a local Information Officer.
             </p>
           )}
@@ -300,6 +325,76 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               </p>
             </div>
           </div>
+
+          {/* ===== IR VERIFICATION STATUS ===== */}
+          {(prospect.ir_verification_method || prospect.ir_registered !== null) && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "0 0 12px" }}>
+                <h2 style={S.sectionHead}>IR registration verification</h2>
+                <div style={S.sectionRule} />
+              </div>
+              <div style={{ border: "1px solid #E7DFCE", borderRadius: 8, overflow: "hidden", margin: "0 0 26px", breakInside: "avoid" as const }}>
+                {/* Status banner */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", background: prospect.ir_registered === true ? "rgba(46,125,50,.08)" : prospect.ir_registered === false ? "rgba(180,67,44,.08)" : "#FAF7F0" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: prospect.ir_registered === true ? "#2E7D32" : prospect.ir_registered === false ? "#E06A4E" : "#9A968B", display: "block", flexShrink: 0 }} />
+                  <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A" }}>
+                    {prospect.ir_registered === true ? "Registered with the Information Regulator" : prospect.ir_registered === false ? "Not registered with the Information Regulator" : "Registration status unknown"}
+                  </span>
+                  {prospect.ir_verification_method && prospect.ir_verification_method !== "assumed" && (
+                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#2E7D53", background: "#E7F1EA", border: "1px solid #C7E1D1", borderRadius: 3, padding: "4px 7px" }}>Verified</span>
+                  )}
+                  {(!prospect.ir_verification_method || prospect.ir_verification_method === "assumed") && (
+                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#A67514", background: "#FBF1DE", border: "1px solid #E6D5A3", borderRadius: 3, padding: "4px 7px" }}>Unverified</span>
+                  )}
+                </div>
+                {/* Detail grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+                  {prospect.ir_entity_name && (
+                    <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE", borderRight: "1px solid #E7DFCE" }}>
+                      <div style={{ ...S.labelSm, margin: "0 0 4px" }}>Registered entity name</div>
+                      <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>{prospect.ir_entity_name}</div>
+                    </div>
+                  )}
+                  {prospect.ir_registration_no && (
+                    <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE" }}>
+                      <div style={{ ...S.labelSm, margin: "0 0 4px" }}>Registration number</div>
+                      <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E", fontVariantNumeric: "tabular-nums" }}>{prospect.ir_registration_no}</div>
+                    </div>
+                  )}
+                  {prospect.ir_io_name && (
+                    <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE", borderRight: prospect.ir_io_designation ? "1px solid #E7DFCE" : "none" }}>
+                      <div style={{ ...S.labelSm, margin: "0 0 4px" }}>Information Officer</div>
+                      <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>{prospect.ir_io_name}</div>
+                    </div>
+                  )}
+                  {prospect.ir_io_designation && (
+                    <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE" }}>
+                      <div style={{ ...S.labelSm, margin: "0 0 4px" }}>IO designation</div>
+                      <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>{prospect.ir_io_designation}</div>
+                    </div>
+                  )}
+                  <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE", borderRight: "1px solid #E7DFCE" }}>
+                    <div style={{ ...S.labelSm, margin: "0 0 4px" }}>Verification method</div>
+                    <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>
+                      {prospect.ir_verification_method === "manual_portal" ? "IR eServices portal (manual)" : prospect.ir_verification_method === "automated" ? "Automated check" : prospect.ir_verification_method === "assumed" ? "Assumed (not verified)" : "Not yet checked"}
+                    </div>
+                  </div>
+                  <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE" }}>
+                    <div style={{ ...S.labelSm, margin: "0 0 4px" }}>Verification date</div>
+                    <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E", fontVariantNumeric: "tabular-nums" }}>
+                      {prospect.ir_verified_date ?? "—"}
+                    </div>
+                  </div>
+                </div>
+                {prospect.ir_verification_notes && (
+                  <div style={{ padding: "11px 16px", borderTop: "1px solid #E7DFCE" }}>
+                    <div style={{ ...S.labelSm, margin: "0 0 4px" }}>Verification notes</div>
+                    <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#4A4842" }}>{prospect.ir_verification_notes}</div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* ===== COMPLIANCE SCORING (pipeline only) ===== */}
           {hasPipeline && (
@@ -322,7 +417,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                   </div>
                 </div>
               </div>
-              {/* Domain score cards \u2014 3\u00d72 grid */}
+              {/* Domain score cards — 3×2 grid */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, margin: "0 0 26px" }}>
                 {domainScores.map((d) => {
                   const sl = scoreLabel(d.score);
@@ -441,7 +536,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               <div style={S.labelSm}>POPIA &middot; {sa.law_year ?? 2013}</div>
             </div>
           </div>
-          {/* 2\u00d72 detail grid */}
+          {/* 2×2 detail grid */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, border: "1px solid #E7DFCE", borderRadius: 8, overflow: "hidden", margin: "0 0 26px", breakInside: "avoid" as const }}>
             <div style={{ padding: "13px 16px", borderRight: "1px solid #E7DFCE", borderBottom: "1px solid #E7DFCE" }}>
               <div style={{ ...S.labelSm, margin: "0 0 5px" }}>Regulator</div>
@@ -449,7 +544,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
             </div>
             <div style={{ padding: "13px 16px", borderBottom: "1px solid #E7DFCE" }}>
               <div style={{ ...S.labelSm, margin: "0 0 5px" }}>Breach notification</div>
-              <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>{sa.breach_notification_detail ?? "Required \u2014 as soon as reasonably possible after discovery."}</div>
+              <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>{sa.breach_notification_detail ?? "Required — as soon as reasonably possible after discovery."}</div>
             </div>
             <div style={{ padding: "13px 16px", borderRight: "1px solid #E7DFCE" }}>
               <div style={{ ...S.labelSm, margin: "0 0 5px" }}>Transfer mechanism</div>
@@ -482,8 +577,8 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                     const tp = typePill(e.action_type);
                     return (
                       <tr key={e.id} style={{ breakInside: "avoid" as const }}>
-                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 11, lineHeight: "1.4", color: "#4A4842", padding: "11px 10px 11px 0", borderBottom: "1px solid #EDE7D8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", verticalAlign: "top" }}>{e.action_date?.slice(0, 10) ?? "\u2014"}</td>
-                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11.5, lineHeight: "1.4", color: "#1A1A1A", padding: "11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>{e.target_entity ?? "\u2014"}</td>
+                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 11, lineHeight: "1.4", color: "#4A4842", padding: "11px 10px 11px 0", borderBottom: "1px solid #EDE7D8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", verticalAlign: "top" }}>{e.action_date?.slice(0, 10) ?? "—"}</td>
+                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11.5, lineHeight: "1.4", color: "#1A1A1A", padding: "11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>{e.target_entity ?? "—"}</td>
                         <td style={{ padding: "11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>
                           <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", textTransform: "uppercase", letterSpacing: ".06em", color: tp.color, background: tp.bg, borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap" }}>{e.action_type}</span>
                         </td>
@@ -503,19 +598,19 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "0 0 26px" }}>
             {[
-              { title: "Information Officer", body: "Appoint and register with the IR (s55\u201356). International entities must designate a local representative." },
+              { title: "Information Officer", body: "Appoint and register with the IR (s55–56). International entities must designate a local representative." },
               { title: "Lawful processing", body: "Personal information must be processed lawfully for a defined purpose, with data-subject consent or another s11 ground." },
               { title: "Cross-border transfers", body: "Section 72 requires adequate protection in the recipient country, binding corporate rules, or data-subject consent." },
               { title: "Data-subject rights", body: "Right to access, correction and deletion of personal information. Respond within 30 days of a request." },
               { title: "Breach notification", body: "Notify the IR and affected data subjects as soon as reasonably possible after becoming aware of a breach." },
-              { title: "Special categories", body: "Biometric, children\u2019s and health data require explicit consent and additional safeguards." },
+              { title: "Special categories", body: "Biometric, children’s and health data require explicit consent and additional safeguards." },
             ].map((o) => (
               <div key={o.title} style={{ background: "#F9F5EC", border: "1px solid #EFE7D6", borderRadius: 6, padding: "14px 16px", breakInside: "avoid" as const }}>
                 <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 5px" }}>{o.title}</div>
                 <div style={S.bodySerifXs}>{o.body}</div>
               </div>
             ))}
-            {/* Juristic persons \u2014 full width with gold border */}
+            {/* Juristic persons — full width with gold border */}
             <div style={{ gridColumn: "1 / -1", background: "#F9F5EC", border: "1px solid #EFE7D6", borderLeft: "4px solid #C6A24E", borderRadius: 6, padding: "14px 16px", breakInside: "avoid" as const }}>
               <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 5px" }}>Juristic persons</div>
               <div style={S.bodySerifXs}>Unusually, POPIA protects the personal information of <strong style={{ fontWeight: 600 }}>juristic persons</strong> (companies and other legal entities) as well as natural persons &mdash; so business-to-business data, not only individuals&rsquo; data, falls within scope.</div>

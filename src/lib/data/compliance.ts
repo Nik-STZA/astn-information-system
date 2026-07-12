@@ -15,6 +15,14 @@ export type Prospect = {
   sector: string | null;
   sa_presence_evidence: string | null;
   ir_registered: boolean | null;
+  // IR verification fields (migration 007)
+  ir_verified_date: string | null;
+  ir_verification_method: string | null; // 'manual_portal' | 'automated' | 'assumed'
+  ir_verification_notes: string | null;
+  ir_entity_name: string | null;
+  ir_registration_no: string | null;
+  ir_io_name: string | null;
+  ir_io_designation: string | null;
   outreach_status: string;
   priority: string;
   estimated_tier: string | null;

@@ -13,6 +13,7 @@ import {
   addActivity,
   runProspectPipeline,
   getProspectPipelineResults,
+  verifyIRStatus,
 } from "./actions";
 
 /* ── Constants ─────────────────────────────────────────────────── */
@@ -350,6 +351,135 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
   );
 }
 
+
+function IRVerificationPanel({ prospect }: { prospect: Prospect }) {
+  const [open, setOpen] = useState(false);
+  const [saving, startSaving] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
+  const isVerified = prospect.ir_verification_method && prospect.ir_verification_method !== "assumed";
+  const headerStyle: React.CSSProperties = { fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#8E9196", marginBottom: 10 };
+  const labelStyle: React.CSSProperties = { fontWeight: 500, fontSize: 10.5, color: "#B9B2A2", marginBottom: 3 };
+  const inputStyle: React.CSSProperties = { width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--bd)", fontSize: 12.5, fontFamily: "inherit", background: "var(--pnl)", color: "var(--tx)" };
+
+  const handleSubmit = () => {
+    if (!formRef.current) return;
+    const fd = new FormData(formRef.current);
+    startSaving(async () => {
+      await verifyIRStatus(prospect.id, fd);
+      setOpen(false);
+    });
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={headerStyle}>IR verification</div>
+        {isVerified ? (
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#2E7D32", background: "#E7F1EA", border: "1px solid #C7E1D1", borderRadius: 10, padding: "2px 8px" }}>Verified</span>
+        ) : (
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#A67514", background: "#FBF1DE", border: "1px solid #EAD6A6", borderRadius: 10, padding: "2px 8px" }}>Not verified</span>
+        )}
+      </div>
+      {isVerified && !open ? (
+        <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14, marginTop: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "#8E9196" }}>Status</span>
+              <span style={{ fontWeight: 600, color: prospect.ir_registered ? "#2E7D32" : "#B4432C" }}>
+                {prospect.ir_registered ? "Registered" : "Not registered"}
+              </span>
+            </div>
+            {prospect.ir_entity_name && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#8E9196" }}>Entity name</span>
+                <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_entity_name}</span>
+              </div>
+            )}
+            {prospect.ir_registration_no && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#8E9196" }}>Registration no.</span>
+                <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_registration_no}</span>
+              </div>
+            )}
+            {prospect.ir_io_name && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#8E9196" }}>Information Officer</span>
+                <span style={{ fontWeight: 500, color: "var(--tx)" }}>
+                  {prospect.ir_io_name}{prospect.ir_io_designation ? ` (${prospect.ir_io_designation})` : ""}
+                </span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "#8E9196" }}>Verified</span>
+              <span style={{ fontWeight: 500, color: "var(--tx)" }}>
+                {prospect.ir_verified_date ? new Date(prospect.ir_verified_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"} via portal
+              </span>
+            </div>
+            {prospect.ir_verification_notes && (
+              <p style={{ fontSize: 11.5, color: "#55524C", margin: "4px 0 0", lineHeight: 1.4, fontStyle: "italic" }}>{prospect.ir_verification_notes}</p>
+            )}
+          </div>
+          <button onClick={() => setOpen(true)} style={{ marginTop: 10, width: "100%", padding: "7px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", cursor: "pointer", fontSize: 11.5, fontWeight: 500, color: "#8E9196", fontFamily: "inherit" }}>
+            Re-verify
+          </button>
+        </div>
+      ) : (
+        <form ref={formRef} onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14, marginTop: 6, display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ fontSize: 11, color: "#8E9196", margin: 0, lineHeight: 1.4 }}>
+            Search the IR eServices portal (<a href="https://eservices.inforegulator.org.za/search/default.aspx" target="_blank" rel="noopener noreferrer" style={{ color: "#B08D3F" }}>Organisation Search</a>) and record the result below.
+          </p>
+          <div>
+            <div style={labelStyle}>Found on register?</div>
+            <select name="ir_registered" defaultValue={prospect.ir_registered === true ? "true" : prospect.ir_registered === false ? "false" : ""} style={inputStyle} required>
+              <option value="">— Select —</option>
+              <option value="true">Yes — registered</option>
+              <option value="false">No — not found</option>
+            </select>
+          </div>
+          <div>
+            <div style={labelStyle}>Entity name on register</div>
+            <input name="ir_entity_name" defaultValue={prospect.ir_entity_name || ""} placeholder="e.g. GARMIN SOUTH AFRICA TECHNOLOGIES" style={inputStyle} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={labelStyle}>Registration no.</div>
+              <input name="ir_registration_no" defaultValue={prospect.ir_registration_no || ""} placeholder="YYYY-NNNNNN" style={inputStyle} />
+            </div>
+            <div>
+              <div style={labelStyle}>Verification date</div>
+              <input type="date" name="ir_verified_date" defaultValue={prospect.ir_verified_date || new Date().toISOString().slice(0, 10)} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={labelStyle}>IO name</div>
+              <input name="ir_io_name" defaultValue={prospect.ir_io_name || ""} placeholder="Surname, First name(s)" style={inputStyle} />
+            </div>
+            <div>
+              <div style={labelStyle}>IO designation</div>
+              <input name="ir_io_designation" defaultValue={prospect.ir_io_designation || ""} placeholder="e.g. Managing Director" style={inputStyle} />
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Notes</div>
+            <textarea name="ir_verification_notes" defaultValue={prospect.ir_verification_notes || ""} placeholder="Search terms used, false positives, etc." rows={2} style={{ ...inputStyle, resize: "vertical" as const }} />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" disabled={saving} style={{ flex: 1, padding: "9px 12px", borderRadius: 6, border: "none", background: "#1A1C1E", color: "#fff", fontWeight: 600, fontSize: 12, cursor: saving ? "wait" : "pointer", fontFamily: "inherit" }}>
+              {saving ? "Saving..." : "Save verification"}
+            </button>
+            {isVerified && (
+              <button type="button" onClick={() => setOpen(false)} style={{ padding: "9px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "#8E9196", fontWeight: 500, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function ProspectDetail({
   prospect, onClose, onEdit, onRunPipeline, pipelineRunning, pipelineResult,
   pipelineData,
@@ -399,6 +529,9 @@ function ProspectDetail({
               <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 4 }}>IR registered</div>
             </div>
           </div>
+
+          {/* IR verification panel */}
+          <IRVerificationPanel prospect={prospect} />
 
           {/* Company details */}
           <div>

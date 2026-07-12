@@ -74,6 +74,25 @@ export async function removeProspect(id: string) {
   return res;
 }
 
+
+/** Save IR verification results for a prospect. */
+export async function verifyIRStatus(id: string, formData: FormData) {
+  const irRegistered = formData.get("ir_registered") as string;
+  const data: Record<string, unknown> = {
+    ir_registered: irRegistered === "true" ? true : irRegistered === "false" ? false : null,
+    ir_verified_date: (formData.get("ir_verified_date") as string) || new Date().toISOString().slice(0, 10),
+    ir_verification_method: "manual_portal",
+    ir_verification_notes: (formData.get("ir_verification_notes") as string) || null,
+    ir_entity_name: (formData.get("ir_entity_name") as string) || null,
+    ir_registration_no: (formData.get("ir_registration_no") as string) || null,
+    ir_io_name: (formData.get("ir_io_name") as string) || null,
+    ir_io_designation: (formData.get("ir_io_designation") as string) || null,
+  };
+
+  const res = await updateProspect(id, data);
+  revalidatePath("/compliance");
+  return res;
+}
 // ─── Client actions ─────────────────────────────────────────────────────────
 
 export async function addClient(formData: FormData) {
