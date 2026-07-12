@@ -525,7 +525,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
             {/* Score */}
             <div style={{ flex: 1, border: "1px solid #E7DFCE", borderRadius: 8, padding: 16, textAlign: "center" }}>
               <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 30, lineHeight: "1", color: "#1A1A1A", fontVariantNumeric: "tabular-nums", margin: "0 0 6px" }}>
-                {sa.overall_score?.toFixed(1) ?? "8.8"}
+                {sa.overall_score != null ? Number(sa.overall_score).toFixed(1) : "8.8"}
               </div>
               <div style={S.labelSm}>DPMI score / 10</div>
             </div>
