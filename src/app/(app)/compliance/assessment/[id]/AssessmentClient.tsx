@@ -172,13 +172,19 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
   const refCode = makeRef(prospect.company_name);
   const today = formatDate(new Date());
 
-  /* Parse risk_factors / recommendations from pipeline assessment (stored as JSON) */
-  const riskFactors: string[] = hasPipeline
-    ? (Array.isArray(assessment.risk_factors) ? assessment.risk_factors as string[] : [])
-    : [];
-  const recommendations: string[] = hasPipeline
-    ? (Array.isArray(assessment.recommendations) ? assessment.recommendations as string[] : [])
-    : [];
+  /* Parse risk_factors / recommendations from pipeline assessment (stored as JSON).
+     Engine v2.1.0 returns objects: risk_factors = {level, factor, note},
+     recommendations = {priority, action, rationale}. Earlier versions returned strings. */
+  type RiskFactor = { level: string; factor: string; note: string };
+  type Recommendation = { priority: number; action: string; rationale: string };
+  const rawRF = hasPipeline && Array.isArray(assessment.risk_factors) ? assessment.risk_factors : [];
+  const riskFactors: RiskFactor[] = rawRF.map((rf: unknown) =>
+    typeof rf === "string" ? { level: "high", factor: rf, note: rf } : rf as RiskFactor
+  );
+  const rawRec = hasPipeline && Array.isArray(assessment.recommendations) ? assessment.recommendations : [];
+  const recommendations: Recommendation[] = rawRec.map((r: unknown) =>
+    typeof r === "string" ? { priority: 0, action: r, rationale: "" } : r as Recommendation
+  );
 
   /* Domain scores for display */
   const domainScores = hasPipeline ? [
@@ -489,8 +495,11 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
             {hasPipeline && riskFactors.length > 0 ? (
               riskFactors.map((rf, i) => (
                 <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", background: "#FAF7F0", border: "1px solid #EFE7D6", borderRadius: 6, padding: "13px 15px", breakInside: "avoid" as const }}>
-                  <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: "50%", background: "#E06A4E", color: "#FFFFFF", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, lineHeight: "22px", textAlign: "center" }}>{i + 1}</span>
-                  <div style={S.bodySerifSm}>{rf}</div>
+                  <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: "50%", background: rf.level === "critical" ? "#CC0000" : "#E06A4E", color: "#FFFFFF", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, lineHeight: "22px", textAlign: "center" }}>{i + 1}</span>
+                  <div>
+                    <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 3px" }}>{rf.factor}</div>
+                    <div style={S.bodySerifSm}>{rf.note}</div>
+                  </div>
                 </div>
               ))
             ) : (
@@ -629,7 +638,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", breakInside: "avoid" as const }}>
                   <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: "#C6A24E", color: "#141414", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "24px", textAlign: "center" }}>{i + 1}</span>
                   <div style={{ paddingTop: 2 }}>
-                    <span style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1.5", color: "#4A4842" }}>{rec}</span>
+                    <span style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1.5", color: "#4A4842" }}>{rec.action}</span>
                   </div>
                 </div>
               ))
