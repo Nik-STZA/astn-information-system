@@ -30,6 +30,8 @@ const GROUPS: NavGroup[] = [
     label: "Regulatory",
     items: [
       { href: "/data-protection", label: "Data protection" },
+      { href: "/data-protection/jurisdictions", label: "Jurisdictions" },
+      { href: "/data-protection/editions", label: "Editions" },
       { href: "/compliance", label: "Compliance" },
     ],
   },
@@ -59,7 +61,15 @@ function checkActive(pathname: string, href: string): boolean {
         !pathname.startsWith("/registry/verify"))
     );
   if (href === "/overview" || href === "/dashboard") return pathname === href;
-  return pathname.startsWith(href + "/");
+  /* /data-protection exact — don't match /data-protection/jurisdictions or /editions */
+  if (href === "/data-protection")
+    return (
+      pathname === "/data-protection" ||
+      (pathname.startsWith("/data-protection/") &&
+        !pathname.startsWith("/data-protection/jurisdictions") &&
+        !pathname.startsWith("/data-protection/editions"))
+    );
+  return pathname.startsWith(href + "/") || pathname === href;
 }
 
 const labelStyle: React.CSSProperties = {
