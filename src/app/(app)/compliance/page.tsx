@@ -4,38 +4,37 @@
  */
 
 import { fetchProspects, fetchClients } from "@/lib/data/compliance";
-import { fetchCountries, fetchEnforcement } from "@/lib/data/data-protection";
 import ComplianceClient from "./ComplianceClient";
 
 export default async function CompliancePage() {
-  const [prospectsRes, clientsRes, countriesRes, enforcementRes] = await Promise.all([
+  const [prospectsRes, clientsRes] = await Promise.all([
     fetchProspects(),
     fetchClients(),
-    fetchCountries(),
-    fetchEnforcement(),
   ]);
 
   const prospects = prospectsRes.data?.data ?? [];
   const clients = clientsRes.data?.data ?? [];
-  const countries = countriesRes.data?.data ?? [];
-  const enforcement = enforcementRes.data?.data ?? [];
 
-  if (prospectsRes.error || clientsRes.error) {
-    return (
-      <div className="p-8">
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-4">
-          <strong>API error:</strong> {prospectsRes.error || clientsRes.error}
-        </div>
-      </div>
-    );
-  }
+  const apiError = prospectsRes.error || clientsRes.error;
 
   return (
-    <ComplianceClient
-      initialProspects={prospects}
-      initialClients={clients}
-      countries={countries}
-      enforcement={enforcement}
-    />
+    <>
+      {apiError && (
+        <div className="px-8 pt-4">
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg p-4">
+            <strong>Note:</strong> Some data could not be loaded from the API.
+            The page may show incomplete information.
+            <details className="mt-1 text-xs">
+              <summary>Details</summary>
+              {apiError}
+            </details>
+          </div>
+        </div>
+      )}
+      <ComplianceClient
+        initialProspects={prospects}
+        initialClients={clients}
+      />
+    </>
   );
 }

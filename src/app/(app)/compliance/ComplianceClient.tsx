@@ -3,7 +3,6 @@
 import { useState, useTransition, useRef, useCallback } from "react";
 import type { Prospect, Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
 import { flagUrl as sharedFlagUrl } from "@/lib/country-iso";
-import type { Country, EnforcementAction } from "@/lib/data/data-protection";
 import {
   addProspect,
   editProspect,
@@ -962,13 +961,9 @@ function ClientForm({ client, onClose }: { client?: Client; onClose: () => void 
 export default function ComplianceClient({
   initialProspects,
   initialClients,
-  countries,
-  enforcement,
 }: {
   initialProspects: Prospect[];
   initialClients: Client[];
-  countries: Country[];
-  enforcement: EnforcementAction[];
 }) {
   const [tab, setTab] = useState<"prospects" | "clients">("prospects");
   const [search, setSearch] = useState("");

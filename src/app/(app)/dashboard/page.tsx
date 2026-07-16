@@ -242,22 +242,25 @@ export default async function DashboardPage() {
     fetchOverviewMetrics(),
   ]);
 
-  const stats = statsRes.data;
-  const maturity = maturityRes.data?.data ?? [];
-  const summary = summaryRes.data;
+  const apiError = statsRes.error || maturityRes.error || summaryRes.error;
 
-  if (!stats || !summary) {
-    return (
-      <div style={{ padding: 32 }}>
-        <div
-          className="card"
-          style={{ padding: 16, color: "var(--alert-red)", fontSize: 13 }}
-        >
-          <strong>API error:</strong> {statsRes.error || summaryRes.error}
-        </div>
-      </div>
-    );
-  }
+  const defaultStats = {
+    prospects: { total: 0, high_priority: 0, identified: 0, contacted: 0, responded: 0, converted: 0 },
+    clients: { total: 0, active: 0, arr: 0 },
+    pipeline: { total: 0, total_value: 0, active_value: 0, won: 0 },
+    content: { total: 0, published: 0, in_progress: 0 },
+    prospectsByStatus: [] as { outreach_status: string; count: number }[],
+    prospectsBySector: [] as { sector: string; count: number }[],
+  };
+
+  const defaultSummary: SummaryData = {
+    version: "0",
+    stats: { countries: 0, organizations: 0, partners: 0, classified_items: 0, enforcement_actions: 0, weekly_reports: 0, prospects: 0, clients: 0, pipeline_opportunities: 0, content_editions: 0 },
+  };
+
+  const stats = statsRes.data ?? defaultStats;
+  const maturity = maturityRes.data?.data ?? [];
+  const summary = summaryRes.data ?? defaultSummary;
 
   /* Maturity tier counts */
   const tierCounts = maturity.reduce(
@@ -297,6 +300,20 @@ export default async function DashboardPage() {
 
   return (
     <div>
+      {apiError && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="card" style={{ padding: "12px 16px", background: "#FFFBEB", border: "1px solid #F5E6B8" }}>
+            <span style={{ fontWeight: 600, fontSize: 12, color: "#92400E" }}>Note:</span>{" "}
+            <span style={{ fontSize: 12, color: "#92400E" }}>
+              Some data could not be loaded from the API. Figures below may be incomplete.
+            </span>
+            <details style={{ marginTop: 4, fontSize: 11, color: "#A16207" }}>
+              <summary>Details</summary>
+              {apiError}
+            </details>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div
         style={{
