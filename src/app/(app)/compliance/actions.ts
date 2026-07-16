@@ -87,6 +87,8 @@ export async function verifyIRStatus(id: string, formData: FormData) {
     ir_registration_no: (formData.get("ir_registration_no") as string) || null,
     ir_io_name: (formData.get("ir_io_name") as string) || null,
     ir_io_designation: (formData.get("ir_io_designation") as string) || null,
+    ir_registration_date: (formData.get("ir_registration_date") as string) || null,
+    ir_organisation_type: (formData.get("ir_organisation_type") as string) || null,
   };
 
   const res = await updateProspect(id, data);

@@ -23,6 +23,9 @@ export type Prospect = {
   ir_registration_no: string | null;
   ir_io_name: string | null;
   ir_io_designation: string | null;
+  // IR registration details (migration 008)
+  ir_registration_date: string | null;
+  ir_organisation_type: string | null; // 'Private Body' | 'Public Body'
   outreach_status: string;
   priority: string;
   estimated_tier: string | null;
@@ -209,6 +212,7 @@ export async function updateClient(id: number, data: Partial<Client>) {
     data
   );
 }
+
 
 export async function createActivity(data: Partial<Activity>) {
   return cloudRunMutate<Activity>(

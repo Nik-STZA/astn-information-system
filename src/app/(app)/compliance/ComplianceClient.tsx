@@ -353,7 +353,7 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
 }
 
 
-function IRVerificationPanel({ prospect }: { prospect: Prospect }) {
+function IRVerificationPanel({ prospect, onProspectUpdate }: { prospect: Prospect; onProspectUpdate?: (updated: Prospect) => void }) {
   const [open, setOpen] = useState(false);
   const [saving, startSaving] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
@@ -367,6 +367,23 @@ function IRVerificationPanel({ prospect }: { prospect: Prospect }) {
     const fd = new FormData(formRef.current);
     startSaving(async () => {
       await verifyIRStatus(prospect.id, fd);
+      // Optimistically update local state so status badge refreshes
+      if (onProspectUpdate) {
+        const irRegisteredVal = fd.get("ir_registered") as string;
+        onProspectUpdate({
+          ...prospect,
+          ir_registered: irRegisteredVal === "true" ? true : irRegisteredVal === "false" ? false : null,
+          ir_verification_method: "manual_portal",
+          ir_verified_date: (fd.get("ir_verified_date") as string) || new Date().toISOString().slice(0, 10),
+          ir_verification_notes: (fd.get("ir_verification_notes") as string) || null,
+          ir_entity_name: (fd.get("ir_entity_name") as string) || null,
+          ir_registration_no: (fd.get("ir_registration_no") as string) || null,
+          ir_io_name: (fd.get("ir_io_name") as string) || null,
+          ir_io_designation: (fd.get("ir_io_designation") as string) || null,
+          ir_registration_date: (fd.get("ir_registration_date") as string) || null,
+          ir_organisation_type: (fd.get("ir_organisation_type") as string) || null,
+        });
+      }
       setOpen(false);
     });
   };
@@ -400,6 +417,18 @@ function IRVerificationPanel({ prospect }: { prospect: Prospect }) {
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: "#8E9196" }}>Registration no.</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_registration_no}</span>
+              </div>
+            )}
+            {prospect.ir_registration_date && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#8E9196" }}>Registration date</span>
+                <span style={{ fontWeight: 500, color: "var(--tx)" }}>{new Date(prospect.ir_registration_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+              </div>
+            )}
+            {prospect.ir_organisation_type && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#8E9196" }}>Organisation type</span>
+                <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_organisation_type}</span>
               </div>
             )}
             {prospect.ir_io_name && (
@@ -447,6 +476,20 @@ function IRVerificationPanel({ prospect }: { prospect: Prospect }) {
               <input name="ir_registration_no" defaultValue={prospect.ir_registration_no || ""} placeholder="YYYY-NNNNNN" style={inputStyle} />
             </div>
             <div>
+              <div style={labelStyle}>Registration date</div>
+              <input type="date" name="ir_registration_date" defaultValue={prospect.ir_registration_date || ""} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={labelStyle}>Organisation type</div>
+              <select name="ir_organisation_type" defaultValue={prospect.ir_organisation_type || ""} style={inputStyle}>
+                <option value="">Select...</option>
+                <option value="Private Body">Private Body</option>
+                <option value="Public Body">Public Body</option>
+              </select>
+            </div>
+            <div>
               <div style={labelStyle}>Verification date</div>
               <input type="date" name="ir_verified_date" defaultValue={prospect.ir_verified_date || new Date().toISOString().slice(0, 10)} style={inputStyle} />
             </div>
@@ -483,7 +526,7 @@ function IRVerificationPanel({ prospect }: { prospect: Prospect }) {
 
 function ProspectDetail({
   prospect, onClose, onEdit, onRunPipeline, pipelineRunning, pipelineResult,
-  pipelineData,
+  pipelineData, onProspectUpdate,
 }: {
   prospect: Prospect; onClose: () => void; onEdit: () => void;
   onRunPipeline: () => void; pipelineRunning: boolean;
@@ -493,6 +536,7 @@ function ProspectDetail({
     findings: AnalysisFinding[];
     assessment: ProspectAssessment | null;
   } | null;
+  onProspectUpdate?: (updated: Prospect) => void;
 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
@@ -532,7 +576,7 @@ function ProspectDetail({
           </div>
 
           {/* IR verification panel */}
-          <IRVerificationPanel prospect={prospect} />
+          <IRVerificationPanel prospect={prospect} onProspectUpdate={onProspectUpdate} />
 
           {/* Company details */}
           <div>
@@ -1291,6 +1335,7 @@ export default function ComplianceClient({
           pipelineRunning={pipelineRunning}
           pipelineResult={pipelineResult}
           pipelineData={pipelineData}
+          onProspectUpdate={(updated) => setSelectedProspect(updated)}
         />
       )}
 

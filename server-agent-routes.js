@@ -481,6 +481,22 @@ function analyseDocumentsRuleBased(documents, prospect) {
 
     // Context-aware overrides
     if (rule.category === "information_officer") {
+      // If verified as registered with the IR, override to compliant regardless of doc content
+      if (prospect.ir_registered === true && irVerified) {
+        const entityNote = prospect.ir_entity_name ? ` as "${prospect.ir_entity_name}"` : "";
+        const regNote = prospect.ir_registration_no ? ` (registration ${prospect.ir_registration_no})` : "";
+        const ioNote = prospect.ir_io_name ? ` The appointed Information Officer is ${prospect.ir_io_name}${prospect.ir_io_designation ? ` (${prospect.ir_io_designation})` : ""}.` : "";
+        const verifiedNote = prospect.ir_verified_date ? ` Verified via IR eServices portal on ${prospect.ir_verified_date}.` : "";
+        findings.push({
+          check_category: rule.category,
+          finding: `The company is registered with the South African Information Regulator${entityNote}${regNote}.${ioNote}${verifiedNote} Registration requirement under POPIA s55-56 is satisfied.`,
+          severity: "compliant",
+          evidence_quote: null,
+          evidence_location: "Information Regulator eServices portal (manual verification)",
+          recommendation: "Ensure Information Officer registration remains current and covers all processing of South African personal information.",
+        });
+        continue; // skip the normal template-based finding
+      }
       if (isNotRegistered) level = "absent";
       else if (isForeignEntity && level === "present") level = "partial";
     }
