@@ -23,6 +23,8 @@
  * No external LLM API is required.
  */
 
+const crypto = require("crypto");
+
 const ANALYSIS_ENGINE_VERSION = "2.1.0";
 
 // ─── Helper: fetch a URL and convert to markdown ────────────────────────────
@@ -606,8 +608,31 @@ function generateAssessmentFromFindings(findings, prospect) {
     }
   }
 
-  summary += `Immediate remediation is recommended, prioritising Information Officer registration (s55-56), `;
-  summary += `special personal information handling (s26-33), and cross-border transfer safeguards (s72).`;
+  // Build dynamic remediation priorities from non-compliant findings
+  const nonCompliant = findings.filter((f) => f.severity !== "compliant" && f.severity !== "info" && f.severity !== "low");
+  if (nonCompliant.length > 0) {
+    const priorityLabels = {
+      information_officer: "Information Officer registration (s55-56)",
+      special_categories: "special personal information handling (s26-33)",
+      cross_border_transfer: "cross-border transfer safeguards (s72)",
+      consent_mechanism: "consent mechanisms (s11)",
+      breach_notification: "breach notification procedures (s22)",
+      data_subject_rights: "data subject rights (s23-25)",
+      lawful_processing: "lawful basis for processing (s8-12)",
+      retention_and_purpose: "retention and purpose limitation (s13-14)",
+      security_safeguards: "security safeguards (s19)",
+      direct_marketing: "direct marketing compliance (s69)",
+    };
+    const topPriorities = nonCompliant
+      .slice(0, 3)
+      .map((f) => priorityLabels[f.check_category] || f.check_category.replace(/_/g, " "))
+      .filter(Boolean);
+    if (topPriorities.length > 0) {
+      summary += `Immediate remediation is recommended, prioritising ${topPriorities.join(", ")}.`;
+    }
+  } else {
+    summary += `The company demonstrates a strong compliance posture. Ongoing monitoring and periodic review are recommended to maintain compliance.`;
+  }
 
   // Risk factors
   const riskFactors = [];
@@ -892,6 +917,12 @@ app.post("/api/compliance/prospects/:id/analyse", async (req, res) => {
       `UPDATE compliance_prospects
        SET research_status = 'analysing', updated_at = NOW()
        WHERE id = $1`,
+      [prospectId]
+    );
+
+    // Clear previous findings before re-analysis — prevents accumulation across re-runs
+    await pool.query(
+      `DELETE FROM prospect_analysis WHERE prospect_id = $1`,
       [prospectId]
     );
 

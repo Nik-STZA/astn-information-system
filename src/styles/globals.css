@@ -409,6 +409,43 @@
   }
 }
 
+/* ── Print styles — clean standalone PDF from assessment pages ── */
+@media print {
+  /* Hide site navigation, theme toggle, and page chrome */
+  nav,
+  header,
+  .popia-nav-bar,
+  [class*="TopNav"],
+  [data-topnav] {
+    display: none !important;
+  }
+
+  /* Reset page background and container constraints */
+  html, body {
+    background: #FFFFFF !important;
+    color: #1A1A1A !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .min-h-screen {
+    min-height: auto !important;
+    background: #FFFFFF !important;
+  }
+
+  .page-container {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Ensure dark backgrounds print correctly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
 @layer utilities {
   /* Subtle protea watermark for empty states */
   .protea-watermark {

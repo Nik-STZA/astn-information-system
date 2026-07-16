@@ -113,6 +113,7 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
 
   return (
     <nav
+      data-topnav
       style={{
         background: "#0F1113",
         borderBottom: "1px solid rgba(197,160,89,.28)",
