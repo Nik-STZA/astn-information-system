@@ -25,7 +25,41 @@
 
 const crypto = require("crypto");
 
-const ANALYSIS_ENGINE_VERSION = "2.1.0";
+const ANALYSIS_ENGINE_VERSION = "2.2.0";
+
+// ─── Helper: format a date value (Date object or ISO string) ───────────────
+
+function formatDate(val) {
+  if (!val) return null;
+  try {
+    const d = val instanceof Date ? val : new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const day = d.getUTCDate();
+    const months = ["January","February","March","April","May","June",
+      "July","August","September","October","November","December"];
+    const month = months[d.getUTCMonth()];
+    const year = d.getUTCFullYear();
+    return `${day} ${month} ${year}`;
+  } catch {
+    return String(val);
+  }
+}
+
+// ─── Helper: clean scraped markdown for analysis ───────────────────────────
+
+function cleanMarkdown(raw) {
+  if (!raw) return "";
+  let text = raw;
+  // Strip repeated navigation/menu patterns (lines of just "* Link" items)
+  text = text.replace(/^(\s*\*\s+\[.*?\]\(.*?\)\s*\n){5,}/gm, "");
+  // Strip HTML artifacts
+  text = text.replace(/<[^>]+>/g, " ");
+  // Collapse excessive whitespace and bullet noise
+  text = text.replace(/(\s*\*\s*){3,}/g, " ");
+  text = text.replace(/\n{3,}/g, "\n\n");
+  text = text.replace(/\s{3,}/g, " ");
+  return text.trim();
+}
 
 // ─── Helper: fetch a URL and convert to markdown ────────────────────────────
 
@@ -161,8 +195,8 @@ const POPIA_RULES = [
     category: "consent_mechanism",
     label: "Consent Mechanisms",
     keywords: [
-      /\bconsent\b/i, /opt[- ]?in/i, /withdraw.*consent/i,
-      /consent.*withdraw/i, /revoke.*consent/i, /voluntary/i,
+      /\bconsent\b/i, /\bopt[- ]?in\b/i, /withdraw.*consent/i,
+      /consent.*withdraw/i, /revoke.*consent/i, /\bvoluntary\b/i,
       /informed consent/i, /explicit consent/i,
     ],
     sa_keywords: [
@@ -444,7 +478,7 @@ function analyseDocumentsRuleBased(documents, prospect) {
 
     // Search each document for keyword matches
     for (const doc of documents) {
-      const content = doc.markdown_content || "";
+      const content = cleanMarkdown(doc.markdown_content || "");
       for (const kw of rule.keywords) {
         const match = content.match(kw);
         if (match) {
@@ -485,10 +519,10 @@ function analyseDocumentsRuleBased(documents, prospect) {
     if (rule.category === "information_officer") {
       // If verified as registered with the IR, override to compliant regardless of doc content
       if (prospect.ir_registered === true && irVerified) {
-        const entityNote = prospect.ir_entity_name ? ` as "${prospect.ir_entity_name}"` : "";
+        const entityNote = prospect.ir_entity_name ? ` as "${prospect.ir_entity_name.trim()}"` : "";
         const regNote = prospect.ir_registration_no ? ` (registration ${prospect.ir_registration_no})` : "";
         const ioNote = prospect.ir_io_name ? ` The appointed Information Officer is ${prospect.ir_io_name}${prospect.ir_io_designation ? ` (${prospect.ir_io_designation})` : ""}.` : "";
-        const verifiedNote = prospect.ir_verified_date ? ` Verified via IR eServices portal on ${prospect.ir_verified_date}.` : "";
+        const verifiedNote = prospect.ir_verified_date ? ` Verified via IR eServices portal on ${formatDate(prospect.ir_verified_date)}.` : "";
         findings.push({
           check_category: rule.category,
           finding: `The company is registered with the South African Information Regulator${entityNote}${regNote}.${ioNote}${verifiedNote} Registration requirement under POPIA s55-56 is satisfied.`,
@@ -586,16 +620,16 @@ function generateAssessmentFromFindings(findings, prospect) {
   if (prospect.ir_registered === false) {
     summary += `The company is not currently registered with the South African Information Regulator. `;
     const verifiedVia = prospect.ir_verification_method === "manual_portal"
-      ? `This was verified against the Information Regulator's eServices portal on ${prospect.ir_verified_date || "an unrecorded date"}. `
+      ? `This was verified against the Information Regulator's eServices portal on ${formatDate(prospect.ir_verified_date) || "an unrecorded date"}. `
       : prospect.ir_verification_method === "automated"
-      ? `This was verified automatically against the IR register on ${prospect.ir_verified_date || "an unrecorded date"}. `
+      ? `This was verified automatically against the IR register on ${formatDate(prospect.ir_verified_date) || "an unrecorded date"}. `
       : `Note: this status has not been independently verified against the Information Regulator's register. `;
     summary += verifiedVia;
     if (isForeignEntity) {
       summary += `As a foreign entity processing South African personal information, registration of an Information Officer per POPIA s55-56 and appointment of a representative per s58 is a legal requirement.\n\n`;
     }
   } else if (prospect.ir_registered === true && prospect.ir_entity_name) {
-    summary += `The company is registered with the Information Regulator as "${prospect.ir_entity_name}"`;
+    summary += `The company is registered with the Information Regulator as "${prospect.ir_entity_name.trim()}"`;
     if (prospect.ir_registration_no) summary += ` (registration no. ${prospect.ir_registration_no})`;
     summary += `. `;
     if (prospect.ir_io_name) {
@@ -604,7 +638,7 @@ function generateAssessmentFromFindings(findings, prospect) {
       summary += `. `;
     }
     if (prospect.ir_verified_date) {
-      summary += `Verified via IR eServices portal on ${prospect.ir_verified_date}. `;
+      summary += `Verified via IR eServices portal on ${formatDate(prospect.ir_verified_date)}. `;
     }
   }
 
@@ -639,7 +673,7 @@ function generateAssessmentFromFindings(findings, prospect) {
   if (prospect.ir_registered === false) {
     const verNote = (!prospect.ir_verification_method || prospect.ir_verification_method === "assumed")
       ? " (not independently verified — status assumed from prior research)"
-      : ` (verified via IR eServices portal on ${prospect.ir_verified_date || "unrecorded date"})`;
+      : ` (verified via IR eServices portal on ${formatDate(prospect.ir_verified_date) || "unrecorded date"})`;
     riskFactors.push({
       level: "critical",
       factor: "No IO registration",
@@ -917,6 +951,12 @@ app.post("/api/compliance/prospects/:id/analyse", async (req, res) => {
       `UPDATE compliance_prospects
        SET research_status = 'analysing', updated_at = NOW()
        WHERE id = $1`,
+      [prospectId]
+    );
+
+    // Clear remediation items that reference findings (FK constraint) before clearing findings
+    await pool.query(
+      `DELETE FROM remediation_items WHERE prospect_id = $1`,
       [prospectId]
     );
 
