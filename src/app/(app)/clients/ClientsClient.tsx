@@ -535,6 +535,17 @@ function ProcessingActivityCard({ a, onEdit, onDelete }: { a: ProcessingActivity
 
 // ─── Special Category card ──────────────────────────────────────────────────
 
+function scProcessedIcon(v: boolean | null): string {
+  if (v === true) return "\u2611";   // \u2611 Does process
+  if (v === false) return "\u2610";  // \u2610 Does not process
+  return "\u2014";                    // \u2014 Not applicable
+}
+function scProcessedLabel(v: boolean | null): string {
+  if (v === true) return "Processes";
+  if (v === false) return "Does not process";
+  return "Not applicable";
+}
+
 function SpecialCategoryCard({ sc, onEdit }: { sc: SpecialCategory; onEdit: () => void }) {
   const label = CATEGORY_LABELS[sc.category] || sc.category.replace(/_/g, " ");
   return (
@@ -542,26 +553,27 @@ function SpecialCategoryCard({ sc, onEdit }: { sc: SpecialCategory; onEdit: () =
       style={{
         background: "#fff", border: "1px solid #DDD9D0", borderRadius: 10,
         padding: "12px 16px", marginBottom: 8, cursor: "pointer",
-        opacity: sc.is_processed ? 1 : 0.7,
+        opacity: sc.is_processed === true ? 1 : 0.7,
       }}
       onClick={onEdit}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>{sc.is_processed ? "\u2611" : "\u2610"}</span>
+          <span style={{ fontSize: 16 }}>{scProcessedIcon(sc.is_processed)}</span>
           <span style={{ fontWeight: 600, color: "#1A1C1E", fontSize: 14 }}>{label}</span>
+          <span style={{ fontSize: 11, color: "#8E9196" }}>{scProcessedLabel(sc.is_processed)}</span>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {sc.is_processed && sc.prior_auth_required && (
+          {sc.is_processed === true && sc.prior_auth_required && (
             <Pill status={sc.prior_auth_status || "pending"} meta={PRIOR_AUTH_STATUS_META} />
           )}
           <Pill status={sc.compliance_status} meta={COMPLIANCE_STATUS_META} />
         </div>
       </div>
-      {sc.is_processed && sc.processing_description && (
+      {sc.is_processed === true && sc.processing_description && (
         <div style={{ fontSize: 12, color: "#6B6760", marginTop: 6, paddingLeft: 24 }}>{sc.processing_description}</div>
       )}
-      {sc.is_processed && sc.safeguards && (
+      {sc.is_processed === true && sc.safeguards && (
         <div style={{ fontSize: 12, color: "#8E9196", marginTop: 4, paddingLeft: 24 }}>Safeguards: {sc.safeguards}</div>
       )}
     </div>
@@ -1219,7 +1231,7 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
   const [saving, setSaving] = useState(false);
   const label = CATEGORY_LABELS[item.category] || item.category.replace(/_/g, " ");
   const [form, setForm] = useState({
-    is_processed: item.is_processed,
+    is_processed: item.is_processed as boolean | null,
     processing_description: item.processing_description || "",
     volume_estimate: item.volume_estimate || "",
     legal_basis: item.legal_basis || "",
@@ -1232,7 +1244,7 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
     assessor_notes: item.assessor_notes || "",
   });
 
-  const set = (k: string, v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
+  const set = (k: string, v: string | boolean | null) => setForm((p) => ({ ...p, [k]: v }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1261,11 +1273,30 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
       <form onSubmit={handleSubmit} style={{ background: "#fff", borderRadius: 14, padding: 28, width: 520, maxHeight: "85vh", overflowY: "auto" }}>
         <h3 style={{ margin: "0 0 18px", fontSize: 18, color: "#1A1C1E" }}>{label}</h3>
 
-        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
-          <input type="checkbox" checked={form.is_processed} onChange={(e) => set("is_processed", e.target.checked)} /> Client processes this category of personal information
-        </label>
+        <label style={labelStyle}>Does the client process this category?</label>
+        <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: "1px solid #DDD9D0", marginBottom: 12 }}>
+          {([
+            { value: true, label: "Yes — processes" },
+            { value: false, label: "No — does not" },
+            { value: null, label: "Not applicable" },
+          ] as { value: boolean | null; label: string }[]).map((opt) => (
+            <button
+              key={String(opt.value)}
+              type="button"
+              onClick={() => set("is_processed", opt.value)}
+              style={{
+                flex: 1, padding: "8px 4px", fontSize: 13, fontWeight: form.is_processed === opt.value ? 700 : 400, cursor: "pointer", border: "none",
+                background: form.is_processed === opt.value ? "#C5A059" : "#F5F0E8",
+                color: form.is_processed === opt.value ? "#fff" : "#1A1C1E",
+                transition: "all 0.15s",
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
-        {form.is_processed && (
+        {form.is_processed === true && (
           <>
             <label style={labelStyle}>Processing description</label>
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.processing_description} onChange={(e) => set("processing_description", e.target.value)} placeholder="What processing of this category occurs?" />

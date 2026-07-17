@@ -225,7 +225,7 @@ export type SpecialCategory = {
   id: number; // SERIAL PK
   client_id: string; // UUID FK
   category: "religious_beliefs" | "race_ethnicity" | "trade_union" | "political" | "health" | "sex_life" | "biometric" | "criminal" | "children";
-  is_processed: boolean;
+  is_processed: boolean | null;
   processing_description: string | null;
   volume_estimate: string | null;
   legal_basis: string | null;
