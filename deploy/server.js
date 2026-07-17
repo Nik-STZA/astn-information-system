@@ -96,12 +96,19 @@ app.get("/health", async (_req, res) => {
 });
 
 // ─── Mount Route Files ─────────────────────────────────────────────────────
-// Route files reference the global `app`, `pool`, `nhm`, and `crypto`.
+// Route files reference the global `app`, `pool`, and `nhm`.
+// Make them available on the global object so require()'d files can see them.
+// NOTE: Do NOT set global.crypto — Node.js 20 has globalThis.crypto (Web Crypto API)
+// which conflicts with require('crypto'). Route files require('crypto') directly.
+global.app = app;
+global.pool = pool;
+global.nhm = nhm;
 
 require("./server-listing-routes");
 require("./server-pipeline-routes");
 require("./server-client-management-routes");
 require("./server-agent-routes");
+require("./server-remediation-routes");
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 

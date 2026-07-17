@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useCallback } from "react";
+import Link from "next/link";
 import type { Prospect, Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
 import { flagUrl as sharedFlagUrl } from "@/lib/country-iso";
 import {
@@ -1276,7 +1277,14 @@ export default function ComplianceClient({
                       {c.annual_fee_gbp != null ? `£${Number(c.annual_fee_gbp).toLocaleString("en-GB")}` : "—"}
                     </td>
                     <td style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", padding: "12px 16px" }}>{c.activity_count}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                    <td style={{ padding: "12px 16px", textAlign: "right", display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                      <Link
+                        href={`/compliance/client/${c.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ fontWeight: 600, fontSize: 11, color: "#2E7D32", background: "none", border: "none", cursor: "pointer", textDecoration: "none" }}
+                      >
+                        Remediation
+                      </Link>
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedClient(c); }}
                         style={{ fontWeight: 600, fontSize: 11, color: "#B08D3F", background: "none", border: "none", cursor: "pointer" }}

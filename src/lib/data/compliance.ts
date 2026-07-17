@@ -50,7 +50,7 @@ export type Prospect = {
 };
 
 export type Client = {
-  id: number;
+  id: string;
   company_name: string;
   company_website: string | null;
   company_country: string | null;
@@ -71,7 +71,7 @@ export type Client = {
 
 export type Activity = {
   id: number;
-  client_id: number;
+  client_id: string;
   activity_date: string;
   activity_type: string;
   description: string | null;

@@ -12,6 +12,7 @@ COPY server-listing-routes.js ./
 COPY server-pipeline-routes.js ./
 COPY server-client-management-routes.js ./
 COPY server-agent-routes.js ./
+COPY server-remediation-routes.js ./
 
 EXPOSE 8080
 
