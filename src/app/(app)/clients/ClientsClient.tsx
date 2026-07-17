@@ -534,7 +534,7 @@ export default function ClientsClient({
   summary: ClientManagementSummary | null;
 }) {
   const [clients] = useState(initialClients);
-  const [selectedId, setSelectedId] = useState<number | null>(clients.length > 0 ? clients[0].id : null);
+  const [selectedId, setSelectedId] = useState<string | null>(clients.length > 0 ? clients[0].id : null);
   const [showAddForm, setShowAddForm] = useState(false);
 
   const selectedClient = clients.find((c) => c.id === selectedId) ?? null;

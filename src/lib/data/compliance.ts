@@ -205,7 +205,7 @@ export async function createClient(data: Partial<Client>) {
   return cloudRunMutate<Client>("/api/compliance/clients", "POST", data);
 }
 
-export async function updateClient(id: number, data: Partial<Client>) {
+export async function updateClient(id: string, data: Partial<Client>) {
   return cloudRunMutate<Client>(
     `/api/compliance/clients/${id}`,
     "PUT",

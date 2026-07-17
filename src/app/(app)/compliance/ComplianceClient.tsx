@@ -1361,7 +1361,7 @@ export default function ComplianceClient({
 
 /* ── Activity form ───────────────────────────────────────────────────────── */
 
-function ActivityForm({ clientId, onClose }: { clientId: number; onClose: () => void }) {
+function ActivityForm({ clientId, onClose }: { clientId: string; onClose: () => void }) {
   const [isPending, startTransition] = useTransition();
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {

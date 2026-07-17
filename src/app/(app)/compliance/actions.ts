@@ -121,7 +121,7 @@ export async function addClient(formData: FormData) {
   return res;
 }
 
-export async function editClient(id: number, formData: FormData) {
+export async function editClient(id: string, formData: FormData) {
   const data: Record<string, unknown> = {};
   const fields = [
     "company_name", "company_website", "company_country",
@@ -152,7 +152,7 @@ export async function editClient(id: number, formData: FormData) {
 
 export async function addActivity(formData: FormData) {
   const data = {
-    client_id: Number(formData.get("client_id")),
+    client_id: formData.get("client_id") as string,
     activity_date: (formData.get("activity_date") as string) || undefined,
     activity_type: formData.get("activity_type") as string,
     description: (formData.get("description") as string) || null,
