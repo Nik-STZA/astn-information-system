@@ -194,3 +194,88 @@ export async function deleteCorrespondence(id: number | string) {
 export async function fetchClientManagementSummary() {
   return cloudRunFetch<ClientManagementSummary>("/api/client-management/summary");
 }
+
+// ─── Processing Activities (ROPA) Types ──────────────────────────────────────
+
+export type ProcessingActivity = {
+  id: number; // SERIAL PK
+  client_id: string; // UUID FK
+  activity_name: string;
+  description: string | null;
+  personal_data_types: string[] | null;
+  data_subject_categories: string[] | null;
+  estimated_volume: string | null;
+  legal_basis: string;
+  legal_basis_detail: string | null;
+  purpose: string;
+  retention_period: string | null;
+  retention_basis: string | null;
+  recipients: string[] | null;
+  cross_border: boolean;
+  transfer_countries: string[] | null;
+  transfer_mechanism: string | null;
+  security_measures: string | null;
+  status: "active" | "inactive" | "under_review";
+  last_reviewed: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SpecialCategory = {
+  id: number; // SERIAL PK
+  client_id: string; // UUID FK
+  category: "religious_beliefs" | "race_ethnicity" | "trade_union" | "political" | "health" | "sex_life" | "biometric" | "criminal" | "children";
+  is_processed: boolean;
+  processing_description: string | null;
+  volume_estimate: string | null;
+  legal_basis: string | null;
+  safeguards: string | null;
+  prior_auth_required: boolean | null;
+  prior_auth_status: "not_required" | "pending" | "submitted" | "approved" | "refused" | null;
+  prior_auth_reference: string | null;
+  prior_auth_date: string | null;
+  compliance_status: "not_assessed" | "compliant" | "partial" | "non_compliant";
+  last_assessed: string | null;
+  assessor_notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// ─── Processing Activities Fetchers ──────────────────────────────────────────
+
+export async function fetchProcessingActivities(clientId: string) {
+  return cloudRunFetch<{ count: number; data: ProcessingActivity[] }>(
+    `/api/clients/${clientId}/processing-activities`
+  );
+}
+export async function createProcessingActivity(clientId: string, data: Partial<ProcessingActivity>) {
+  return cloudRunMutate<ProcessingActivity>(`/api/clients/${clientId}/processing-activities`, "POST", data);
+}
+export async function updateProcessingActivity(id: number | string, data: Partial<ProcessingActivity>) {
+  return cloudRunMutate<ProcessingActivity>(`/api/processing-activities/${id}`, "PUT", data);
+}
+export async function deleteProcessingActivity(id: number | string) {
+  return cloudRunMutate<{ deleted: boolean }>(`/api/processing-activities/${id}`, "DELETE");
+}
+
+// ─── Special Categories Fetchers ─────────────────────────────────────────────
+
+export async function fetchSpecialCategories(clientId: string) {
+  return cloudRunFetch<{ count: number; data: SpecialCategory[] }>(
+    `/api/clients/${clientId}/special-categories`
+  );
+}
+export async function initSpecialCategories(clientId: string) {
+  return cloudRunMutate<{ inserted: number; data: SpecialCategory[] }>(
+    `/api/clients/${clientId}/special-categories/init`, "POST", {}
+  );
+}
+export async function createSpecialCategory(clientId: string, data: Partial<SpecialCategory>) {
+  return cloudRunMutate<SpecialCategory>(`/api/clients/${clientId}/special-categories`, "POST", data);
+}
+export async function updateSpecialCategory(id: number | string, data: Partial<SpecialCategory>) {
+  return cloudRunMutate<SpecialCategory>(`/api/special-categories/${id}`, "PUT", data);
+}
+export async function deleteSpecialCategory(id: number | string) {
+  return cloudRunMutate<{ deleted: boolean }>(`/api/special-categories/${id}`, "DELETE");
+}

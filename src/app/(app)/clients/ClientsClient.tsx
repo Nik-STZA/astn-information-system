@@ -10,6 +10,8 @@ import type {
   ComplianceTask,
   Correspondence,
   ClientManagementSummary,
+  ProcessingActivity,
+  SpecialCategory,
 } from "@/lib/data/client-management";
 import {
   fetchEngagements,
@@ -32,6 +34,13 @@ import {
   createCorrespondence,
   updateCorrespondence,
   deleteCorrespondence,
+  fetchProcessingActivities,
+  createProcessingActivity,
+  updateProcessingActivity,
+  deleteProcessingActivity,
+  fetchSpecialCategories,
+  initSpecialCategories,
+  updateSpecialCategory,
 } from "@/lib/data/client-management";
 import { createClient } from "@/lib/data/compliance";
 
@@ -70,6 +79,38 @@ const TASK_STATUS_META: Record<string, { color: string; bg: string; border: stri
   cancelled:   { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
 };
 
+const PROCESSING_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
+  active:       { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
+  inactive:     { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
+  under_review: { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+};
+
+const COMPLIANCE_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
+  not_assessed:  { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
+  compliant:     { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
+  partial:       { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+  non_compliant: { color: "#CC0000", bg: "#FDF2F2", border: "#FCA5A5" },
+};
+
+const PRIOR_AUTH_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
+  not_required: { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
+  pending:      { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+  submitted:    { color: "#3E6B8E", bg: "#E5EDF3", border: "#C5D6E4" },
+  approved:     { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
+  refused:      { color: "#CC0000", bg: "#FDF2F2", border: "#FCA5A5" },
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  religious_beliefs: "Religious or philosophical beliefs",
+  race_ethnicity: "Race or ethnic origin",
+  trade_union: "Trade union membership",
+  political: "Political persuasion",
+  health: "Health or sex life",
+  sex_life: "Sexual orientation",
+  biometric: "Biometric information",
+  criminal: "Criminal behaviour / offences",
+  children: "Children's personal information",
+};
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function Pill({ status, meta }: { status: string; meta: Record<string, { color: string; bg: string; border: string }> }) {
@@ -197,7 +238,7 @@ const sectionLabel: React.CSSProperties = {
 
 // ─── Tab types ───────────────────────────────────────────────────────────────
 
-type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence";
+type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "engagements", label: "Engagements" },
@@ -205,6 +246,8 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "breaches", label: "Breaches" },
   { key: "tasks", label: "Tasks" },
   { key: "correspondence", label: "Correspondence" },
+  { key: "data_mapping", label: "Data mapping" },
+  { key: "special_categories", label: "Special categories" },
 ];
 
 // ─── Reusable modal backdrop ────────────────────────────────────────────────
@@ -453,6 +496,74 @@ function CorrespondenceCard({ c, onEdit, onDelete }: { c: Correspondence; onEdit
         {c.correspondent} · {fmtDate(c.received_date)}
         {c.response_due_date && ` · response due ${fmtDate(c.response_due_date)}`}
       </div>
+    </div>
+  );
+}
+
+
+// ─── Processing Activity card ───────────────────────────────────────────────
+
+function ProcessingActivityCard({ a, onEdit, onDelete }: { a: ProcessingActivity; onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div style={{ background: "#fff", border: "1px solid #DDD9D0", borderRadius: 10, padding: "14px 16px", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, color: "#1A1C1E", fontSize: 14 }}>{a.activity_name}</div>
+          <div style={{ fontSize: 12, color: "#8E9196", marginTop: 2 }}>{a.purpose}</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <Pill status={a.status} meta={PROCESSING_STATUS_META} />
+          <CardActions onEdit={onEdit} onDelete={onDelete} />
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 10, fontSize: 12, color: "#6B6760" }}>
+        <DetailRow label="Legal basis" value={a.legal_basis?.replace(/_/g, " ")} />
+        {a.estimated_volume && <DetailRow label="Volume" value={a.estimated_volume} />}
+        {a.cross_border && <DetailRow label="Cross-border" value={a.transfer_countries?.join(", ") || "Yes"} />}
+        {a.retention_period && <DetailRow label="Retention" value={a.retention_period} />}
+      </div>
+      {a.personal_data_types && a.personal_data_types.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+          {a.personal_data_types.map((t) => (
+            <span key={t} style={{ fontSize: 11, background: "#F5F0E8", color: "#6B6760", borderRadius: 4, padding: "2px 6px" }}>{t}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Special Category card ──────────────────────────────────────────────────
+
+function SpecialCategoryCard({ sc, onEdit }: { sc: SpecialCategory; onEdit: () => void }) {
+  const label = CATEGORY_LABELS[sc.category] || sc.category.replace(/_/g, " ");
+  return (
+    <div
+      style={{
+        background: "#fff", border: "1px solid #DDD9D0", borderRadius: 10,
+        padding: "12px 16px", marginBottom: 8, cursor: "pointer",
+        opacity: sc.is_processed ? 1 : 0.7,
+      }}
+      onClick={onEdit}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 16 }}>{sc.is_processed ? "\u2611" : "\u2610"}</span>
+          <span style={{ fontWeight: 600, color: "#1A1C1E", fontSize: 14 }}>{label}</span>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {sc.is_processed && sc.prior_auth_required && (
+            <Pill status={sc.prior_auth_status || "pending"} meta={PRIOR_AUTH_STATUS_META} />
+          )}
+          <Pill status={sc.compliance_status} meta={COMPLIANCE_STATUS_META} />
+        </div>
+      </div>
+      {sc.is_processed && sc.processing_description && (
+        <div style={{ fontSize: 12, color: "#6B6760", marginTop: 6, paddingLeft: 24 }}>{sc.processing_description}</div>
+      )}
+      {sc.is_processed && sc.safeguards && (
+        <div style={{ fontSize: 12, color: "#8E9196", marginTop: 4, paddingLeft: 24 }}>Safeguards: {sc.safeguards}</div>
+      )}
     </div>
   );
 }
@@ -943,9 +1054,290 @@ function CorrespondenceFormModal({ clientId, initial, onClose, onSaved }: {
   );
 }
 
+
+// ─── Processing Activity form modal ─────────────────────────────────────────
+
+const LEGAL_BASES = ["consent", "contract", "legal_obligation", "legitimate_interest", "public_interest", "vital_interest"];
+const VOLUME_OPTIONS = ["<1,000", "1,000-10,000", "10,000-100,000", "100,000+"];
+const TRANSFER_MECHANISMS = ["adequate_protection", "consent", "binding_rules", "contractual"];
+
+function ProcessingActivityFormModal({ clientId, initial, onClose, onSaved }: { clientId: string; initial?: ProcessingActivity; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!initial;
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    activity_name: initial?.activity_name || "",
+    description: initial?.description || "",
+    personal_data_types_str: initial?.personal_data_types?.join(", ") || "",
+    data_subject_categories_str: initial?.data_subject_categories?.join(", ") || "",
+    estimated_volume: initial?.estimated_volume || "",
+    legal_basis: initial?.legal_basis || "consent",
+    legal_basis_detail: initial?.legal_basis_detail || "",
+    purpose: initial?.purpose || "",
+    retention_period: initial?.retention_period || "",
+    retention_basis: initial?.retention_basis || "",
+    recipients_str: initial?.recipients?.join(", ") || "",
+    cross_border: initial?.cross_border || false,
+    transfer_countries_str: initial?.transfer_countries?.join(", ") || "",
+    transfer_mechanism: initial?.transfer_mechanism || "",
+    security_measures: initial?.security_measures || "",
+    status: initial?.status || "active",
+  });
+
+  const set = (k: string, v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        activity_name: form.activity_name,
+        description: form.description || null,
+        personal_data_types: form.personal_data_types_str ? form.personal_data_types_str.split(",").map((s: string) => s.trim()).filter(Boolean) : null,
+        data_subject_categories: form.data_subject_categories_str ? form.data_subject_categories_str.split(",").map((s: string) => s.trim()).filter(Boolean) : null,
+        estimated_volume: form.estimated_volume || null,
+        legal_basis: form.legal_basis,
+        legal_basis_detail: form.legal_basis_detail || null,
+        purpose: form.purpose,
+        retention_period: form.retention_period || null,
+        retention_basis: form.retention_basis || null,
+        recipients: form.recipients_str ? form.recipients_str.split(",").map((s: string) => s.trim()).filter(Boolean) : null,
+        cross_border: form.cross_border,
+        transfer_countries: form.transfer_countries_str ? form.transfer_countries_str.split(",").map((s: string) => s.trim()).filter(Boolean) : null,
+        transfer_mechanism: form.transfer_mechanism || null,
+        security_measures: form.security_measures || null,
+        status: form.status,
+      };
+      if (isEdit && initial) {
+        await updateProcessingActivity(initial.id, payload as Partial<ProcessingActivity>);
+      } else {
+        await createProcessingActivity(clientId, payload as Partial<ProcessingActivity>);
+      }
+      onSaved();
+    } catch (err) { console.error(err); alert("Save failed"); }
+    setSaving(false);
+  };
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <form onSubmit={handleSubmit} style={{ background: "#fff", borderRadius: 14, padding: 28, width: 560, maxHeight: "85vh", overflowY: "auto" }}>
+        <h3 style={{ margin: "0 0 18px", fontSize: 18, color: "#1A1C1E" }}>{isEdit ? "Edit processing activity" : "Add processing activity"}</h3>
+
+        <label style={labelStyle}>Activity name *</label>
+        <input style={inputStyle} value={form.activity_name} onChange={(e) => set("activity_name", e.target.value)} required />
+
+        <label style={labelStyle}>Purpose *</label>
+        <input style={inputStyle} value={form.purpose} onChange={(e) => set("purpose", e.target.value)} required placeholder="Why this data is processed" />
+
+        <label style={labelStyle}>Description</label>
+        <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.description} onChange={(e) => set("description", e.target.value)} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Legal basis *</label>
+            <select style={inputStyle} value={form.legal_basis} onChange={(e) => set("legal_basis", e.target.value)}>
+              {LEGAL_BASES.map((b) => <option key={b} value={b}>{b.replace(/_/g, " ")}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Estimated volume</label>
+            <select style={inputStyle} value={form.estimated_volume} onChange={(e) => set("estimated_volume", e.target.value)}>
+              <option value="">Select…</option>
+              {VOLUME_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <label style={labelStyle}>Legal basis detail</label>
+        <input style={inputStyle} value={form.legal_basis_detail} onChange={(e) => set("legal_basis_detail", e.target.value)} placeholder="Specific justification" />
+
+        <label style={labelStyle}>Personal data types (comma-separated)</label>
+        <input style={inputStyle} value={form.personal_data_types_str} onChange={(e) => set("personal_data_types_str", e.target.value)} placeholder="name, email, phone, ID number" />
+
+        <label style={labelStyle}>Data subject categories (comma-separated)</label>
+        <input style={inputStyle} value={form.data_subject_categories_str} onChange={(e) => set("data_subject_categories_str", e.target.value)} placeholder="customers, employees, website visitors" />
+
+        <label style={labelStyle}>Recipients (comma-separated)</label>
+        <input style={inputStyle} value={form.recipients_str} onChange={(e) => set("recipients_str", e.target.value)} placeholder="Payroll provider, cloud host" />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Retention period</label>
+            <input style={inputStyle} value={form.retention_period} onChange={(e) => set("retention_period", e.target.value)} placeholder="7 years after contract end" />
+          </div>
+          <div>
+            <label style={labelStyle}>Retention basis</label>
+            <input style={inputStyle} value={form.retention_basis} onChange={(e) => set("retention_basis", e.target.value)} placeholder="Legal or business justification" />
+          </div>
+        </div>
+
+        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={form.cross_border} onChange={(e) => set("cross_border", e.target.checked)} /> Cross-border transfer
+        </label>
+
+        {form.cross_border && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Transfer countries (ISO codes)</label>
+              <input style={inputStyle} value={form.transfer_countries_str} onChange={(e) => set("transfer_countries_str", e.target.value)} placeholder="GB, US, DE" />
+            </div>
+            <div>
+              <label style={labelStyle}>Transfer mechanism</label>
+              <select style={inputStyle} value={form.transfer_mechanism} onChange={(e) => set("transfer_mechanism", e.target.value)}>
+                <option value="">Select…</option>
+                {TRANSFER_MECHANISMS.map((m) => <option key={m} value={m}>{m.replace(/_/g, " ")}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        <label style={labelStyle}>Security measures</label>
+        <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.security_measures} onChange={(e) => set("security_measures", e.target.value)} placeholder="Encryption, access controls, etc." />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Status</label>
+            <select style={inputStyle} value={form.status} onChange={(e) => set("status", e.target.value)}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="under_review">Under review</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : isEdit ? "Save changes" : "Add activity"}</button>
+        </div>
+      </form>
+    </ModalBackdrop>
+  );
+}
+
+// ─── Special Category form modal ────────────────────────────────────────────
+
+function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCategory; onClose: () => void; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const label = CATEGORY_LABELS[item.category] || item.category.replace(/_/g, " ");
+  const [form, setForm] = useState({
+    is_processed: item.is_processed,
+    processing_description: item.processing_description || "",
+    volume_estimate: item.volume_estimate || "",
+    legal_basis: item.legal_basis || "",
+    safeguards: item.safeguards || "",
+    prior_auth_required: item.prior_auth_required || false,
+    prior_auth_status: item.prior_auth_status || "not_required",
+    prior_auth_reference: item.prior_auth_reference || "",
+    prior_auth_date: item.prior_auth_date || "",
+    compliance_status: item.compliance_status || "not_assessed",
+    assessor_notes: item.assessor_notes || "",
+  });
+
+  const set = (k: string, v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updateSpecialCategory(item.id, {
+        is_processed: form.is_processed,
+        processing_description: form.processing_description || null,
+        volume_estimate: form.volume_estimate || null,
+        legal_basis: form.legal_basis || null,
+        safeguards: form.safeguards || null,
+        prior_auth_required: form.prior_auth_required,
+        prior_auth_status: form.prior_auth_status as SpecialCategory["prior_auth_status"],
+        prior_auth_reference: form.prior_auth_reference || null,
+        prior_auth_date: form.prior_auth_date || null,
+        compliance_status: form.compliance_status as SpecialCategory["compliance_status"],
+        assessor_notes: form.assessor_notes || null,
+      });
+      onSaved();
+    } catch (err) { console.error(err); alert("Save failed"); }
+    setSaving(false);
+  };
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <form onSubmit={handleSubmit} style={{ background: "#fff", borderRadius: 14, padding: 28, width: 520, maxHeight: "85vh", overflowY: "auto" }}>
+        <h3 style={{ margin: "0 0 18px", fontSize: 18, color: "#1A1C1E" }}>{label}</h3>
+
+        <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+          <input type="checkbox" checked={form.is_processed} onChange={(e) => set("is_processed", e.target.checked)} /> Client processes this category of personal information
+        </label>
+
+        {form.is_processed && (
+          <>
+            <label style={labelStyle}>Processing description</label>
+            <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.processing_description} onChange={(e) => set("processing_description", e.target.value)} placeholder="What processing of this category occurs?" />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Volume estimate</label>
+                <input style={inputStyle} value={form.volume_estimate} onChange={(e) => set("volume_estimate", e.target.value)} placeholder="Approximate data subjects" />
+              </div>
+              <div>
+                <label style={labelStyle}>Legal basis</label>
+                <input style={inputStyle} value={form.legal_basis} onChange={(e) => set("legal_basis", e.target.value)} placeholder="consent, employment_law, etc." />
+              </div>
+            </div>
+
+            <label style={labelStyle}>Safeguards in place</label>
+            <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.safeguards} onChange={(e) => set("safeguards", e.target.value)} placeholder="What protections are in place?" />
+
+            <div style={{ background: "#F5F0E8", borderRadius: 8, padding: 14, marginTop: 10 }}>
+              <span style={sectionLabel}>s57 prior authorisation</span>
+              <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                <input type="checkbox" checked={form.prior_auth_required} onChange={(e) => set("prior_auth_required", e.target.checked)} /> Prior authorisation required
+              </label>
+              {form.prior_auth_required && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 6 }}>
+                  <div>
+                    <label style={labelStyle}>Status</label>
+                    <select style={inputStyle} value={form.prior_auth_status} onChange={(e) => set("prior_auth_status", e.target.value)}>
+                      <option value="not_required">Not required</option>
+                      <option value="pending">Pending</option>
+                      <option value="submitted">Submitted</option>
+                      <option value="approved">Approved</option>
+                      <option value="refused">Refused</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>IR reference</label>
+                    <input style={inputStyle} value={form.prior_auth_reference} onChange={(e) => set("prior_auth_reference", e.target.value)} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          <div>
+            <label style={labelStyle}>Compliance status</label>
+            <select style={inputStyle} value={form.compliance_status} onChange={(e) => set("compliance_status", e.target.value)}>
+              <option value="not_assessed">Not assessed</option>
+              <option value="compliant">Compliant</option>
+              <option value="partial">Partial</option>
+              <option value="non_compliant">Non-compliant</option>
+            </select>
+          </div>
+        </div>
+
+        <label style={labelStyle}>Assessor notes</label>
+        <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.assessor_notes} onChange={(e) => set("assessor_notes", e.target.value)} />
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : "Save changes"}</button>
+        </div>
+      </form>
+    </ModalBackdrop>
+  );
+}
+
 // ─── Client detail panel ─────────────────────────────────────────────────────
 
-type ModalState = { type: "add"; entity: TabKey } | { type: "edit"; entity: "engagements"; item: Engagement } | { type: "edit"; entity: "io"; item: IORegistration } | { type: "edit"; entity: "breaches"; item: BreachIncident } | { type: "edit"; entity: "tasks"; item: ComplianceTask } | { type: "edit"; entity: "correspondence"; item: Correspondence } | null;
+type ModalState = { type: "add"; entity: TabKey } | { type: "edit"; entity: "engagements"; item: Engagement } | { type: "edit"; entity: "io"; item: IORegistration } | { type: "edit"; entity: "breaches"; item: BreachIncident } | { type: "edit"; entity: "tasks"; item: ComplianceTask } | { type: "edit"; entity: "correspondence"; item: Correspondence } | { type: "edit"; entity: "data_mapping"; item: ProcessingActivity } | { type: "edit"; entity: "special_categories"; item: SpecialCategory } | null;
 type DeleteState = { entity: TabKey; id: number; label: string } | null;
 
 function ClientDetail({ client }: { client: Client }) {
@@ -955,6 +1347,8 @@ function ClientDetail({ client }: { client: Client }) {
   const [breaches, setBreaches] = useState<BreachIncident[]>([]);
   const [tasks, setTasks] = useState<ComplianceTask[]>([]);
   const [correspondence, setCorrespondence] = useState<Correspondence[]>([]);
+  const [processingActivities, setProcessingActivities] = useState<ProcessingActivity[]>([]);
+  const [specialCategories, setSpecialCategories] = useState<SpecialCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [modal, setModal] = useState<ModalState>(null);
@@ -965,11 +1359,14 @@ function ClientDetail({ client }: { client: Client }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid)])
-      .then(([eR, rR, bR, tR, cR]) => {
+    Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid), fetchProcessingActivities(cid), fetchSpecialCategories(cid)])
+      .then(([eR, rR, bR, tR, cR, paR, scR]) => {
         setEngagements(eR.data?.data ?? []); setRegistrations(rR.data?.data ?? []);
         setBreaches(bR.data?.data ?? []); setTasks(tR.data?.data ?? []);
-        setCorrespondence(cR.data?.data ?? []); setLoading(false);
+        setCorrespondence(cR.data?.data ?? []);
+        setProcessingActivities(paR.data?.data ?? []);
+        setSpecialCategories(scR.data?.data ?? []);
+        setLoading(false);
       });
   }, [cid, refreshKey]);
 
@@ -983,6 +1380,7 @@ function ClientDetail({ client }: { client: Client }) {
       case "breaches": res = await deleteBreach(confirmDelete.id); break;
       case "tasks": res = await deleteTask(confirmDelete.id); break;
       case "correspondence": res = await deleteCorrespondence(confirmDelete.id); break;
+      case "data_mapping": res = await deleteProcessingActivity(confirmDelete.id); break;
     }
     setDeleting(false);
     if (!res?.error) { setConfirmDelete(null); refresh(); }
@@ -991,7 +1389,7 @@ function ClientDetail({ client }: { client: Client }) {
   const flag = flagUrl(client.company_country);
   const tabBase: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12.5, fontWeight: 700, background: "none", border: "none", padding: "14px 14px", cursor: "pointer", marginBottom: -1, whiteSpace: "nowrap" };
   const addBtnSmall: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" };
-  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence" };
+  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "" };
 
   return (
     <div style={{ flex: 1, minWidth: 420, background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, boxShadow: "0 1px 3px rgba(26,28,30,.05)", overflow: "hidden" }}>
@@ -1022,7 +1420,7 @@ function ClientDetail({ client }: { client: Client }) {
       </div>
       {/* Tab content */}
       <div style={{ padding: "20px 24px" }}>
-        {!loading && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}><button onClick={() => setModal({ type: "add", entity: tab })} style={addBtnSmall}>{TAB_ADD[tab]}</button></div>}
+        {!loading && TAB_ADD[tab] && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}><button onClick={() => setModal({ type: "add", entity: tab })} style={addBtnSmall}>{TAB_ADD[tab]}</button></div>}
         {loading ? (
           <div style={{ padding: "36px 20px", textAlign: "center", fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 500, color: "#8E9196" }}>Loading…</div>
         ) : (
@@ -1042,6 +1440,21 @@ function ClientDetail({ client }: { client: Client }) {
             {tab === "correspondence" && (correspondence.length === 0
               ? <EmptyTab title="No correspondence yet" subtitle="Log Information Regulator correspondence here." />
               : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{correspondence.map((c) => <CorrespondenceCard key={c.id} c={c} onEdit={() => setModal({ type: "edit", entity: "correspondence", item: c })} onDelete={() => setConfirmDelete({ entity: "correspondence", id: c.id, label: c.subject })} />)}</div>)}
+            {tab === "data_mapping" && (processingActivities.length === 0
+              ? <EmptyTab title="No processing activities" subtitle="Document what personal data the client processes (ROPA)." />
+              : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{processingActivities.map((a) => <ProcessingActivityCard key={a.id} a={a} onEdit={() => setModal({ type: "edit", entity: "data_mapping", item: a })} onDelete={() => setConfirmDelete({ entity: "data_mapping", id: a.id, label: a.activity_name })} />)}</div>)}
+            {tab === "special_categories" && (
+              <div>
+                {specialCategories.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 32 }}>
+                    <p style={{ color: "#8E9196", fontSize: 13, marginBottom: 12 }}>No special categories initialised yet.</p>
+                    <button style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "8px 16px", cursor: "pointer" }} onClick={async () => { await initSpecialCategories(cid); refresh(); }}>Initialise all 9 POPIA categories</button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{specialCategories.map((sc) => <SpecialCategoryCard key={sc.id} sc={sc} onEdit={() => setModal({ type: "edit", entity: "special_categories", item: sc })} />)}</div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -1051,6 +1464,8 @@ function ClientDetail({ client }: { client: Client }) {
       {modal?.entity === "breaches" && <BreachFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal?.entity === "tasks" && <TaskFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal?.entity === "correspondence" && <CorrespondenceFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={refresh} />}
+      {modal?.entity === "data_mapping" && <ProcessingActivityFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
+      {modal?.entity === "special_categories" && modal.type === "edit" && <SpecialCategoryFormModal item={modal.item} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
       {/* Delete confirmation */}
       {confirmDelete && <ConfirmDialog title="Delete record" message={"Are you sure you want to delete \"" + confirmDelete.label + "\"? This cannot be undone."} onConfirm={handleDelete} onCancel={() => setConfirmDelete(null)} loading={deleting} />}
     </div>

@@ -21,6 +21,7 @@ cp server-pipeline-routes.js deploy/
 cp server-client-management-routes.js deploy/
 cp server-agent-routes.js deploy/
 cp server-remediation-routes.js deploy/
+cp server-processing-routes.js deploy/
 
 echo "=== Building and deploying to Cloud Run ==="
 cd deploy
