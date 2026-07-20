@@ -14,6 +14,7 @@ COPY server-client-management-routes.js ./
 COPY server-agent-routes.js ./
 COPY server-remediation-routes.js ./
 COPY server-processing-routes.js ./
+COPY server-dsar-routes.js ./
 
 EXPOSE 8080
 
