@@ -98,6 +98,35 @@ export type Correspondence = {
   updated_at: string;
 };
 
+// ─── Remediation Items Type ─────────────────────────────────────────────────
+
+export type RemediationItem = {
+  id: number; // SERIAL PK
+  client_id: string; // UUID FK
+  prospect_id: string | null;
+  assessment_id: number | null;
+  finding_id: number | null;
+  category: string;
+  title: string;
+  description: string | null;
+  severity: "critical" | "high" | "medium" | "low" | "info" | "compliant";
+  popia_reference: string | null;
+  recommendation: string | null;
+  status: "open" | "in_progress" | "resolved" | "verified" | "not_applicable" | "accepted_risk";
+  assigned_to: string | null;
+  due_date: string | null;
+  started_date: string | null;
+  resolved_date: string | null;
+  verified_date: string | null;
+  verified_by: string | null;
+  resolution_summary: string | null;
+  evidence_description: string | null;
+  evidence_urls: string[] | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ClientManagementSummary = {
   engagements_by_status: { engagement_status: string; count: string }[];
   overdue_tasks: number;
@@ -282,4 +311,20 @@ export async function updateSpecialCategory(id: number | string, data: Partial<S
 }
 export async function deleteSpecialCategory(id: number | string) {
   return cloudRunMutate<{ deleted: boolean }>(`/api/special-categories/${id}`, "DELETE");
+}
+
+// ─── Remediation Items Fetchers ─────────────────────────────────────────────
+
+export async function fetchRemediationItems(clientId: string) {
+  return cloudRunFetch<{ count: number; data: RemediationItem[] }>(
+    `/api/clients/${clientId}/remediation`
+  );
+}
+export async function updateRemediationItem(id: number | string, data: Partial<RemediationItem>) {
+  return cloudRunMutate<RemediationItem>(`/api/remediation/${id}`, "PUT", data);
+}
+export async function generateRemediationItems(clientId: string) {
+  return cloudRunMutate<{ count: number; data: RemediationItem[]; skipped_compliant: number }>(
+    `/api/clients/${clientId}/remediation/generate`, "POST", {}
+  );
 }

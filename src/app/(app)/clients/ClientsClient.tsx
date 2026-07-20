@@ -12,6 +12,7 @@ import type {
   ClientManagementSummary,
   ProcessingActivity,
   SpecialCategory,
+  RemediationItem,
 } from "@/lib/data/client-management";
 import {
   fetchEngagements,
@@ -41,6 +42,9 @@ import {
   fetchSpecialCategories,
   initSpecialCategories,
   updateSpecialCategory,
+  fetchRemediationItems,
+  updateRemediationItem,
+  generateRemediationItems,
 } from "@/lib/data/client-management";
 import { createClient } from "@/lib/data/compliance";
 import ComplianceRadar from "@/components/ComplianceRadar";
@@ -239,7 +243,7 @@ const sectionLabel: React.CSSProperties = {
 
 // ─── Tab types ───────────────────────────────────────────────────────────────
 
-type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories";
+type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories" | "remediation";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "engagements", label: "Engagements" },
@@ -247,6 +251,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "data_mapping", label: "Data mapping" },
   { key: "special_categories", label: "Special categories" },
   { key: "tasks", label: "Tasks" },
+  { key: "remediation", label: "Remediation" },
   { key: "correspondence", label: "Correspondence" },
   { key: "breaches", label: "Breaches" },
 ];
@@ -1417,6 +1422,140 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
   );
 }
 
+// ─── Remediation tab ──────────────────────────────────────────────────────────
+
+const REMEDIATION_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
+  open:           { color: "#CC0000", bg: "#FDF2F2", border: "#FCA5A5" },
+  in_progress:    { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+  resolved:       { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
+  verified:       { color: "#1B5E20", bg: "#C8E6C9", border: "#81C784" },
+  not_applicable: { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
+  accepted_risk:  { color: "#6B6760", bg: "#F4F3F0", border: "#DDD9D0" },
+};
+
+const SEVERITY_COLOR: Record<string, string> = {
+  critical: "#CC0000", high: "#CC7700", medium: "#A67514", low: "#8E9196",
+};
+
+function RemediationCard({ item, onStatusChange }: { item: RemediationItem; onStatusChange: (status: string) => void }) {
+  const sevColor = SEVERITY_COLOR[item.severity] ?? "#8E9196";
+  const statusMeta = REMEDIATION_STATUS_META[item.status] ?? REMEDIATION_STATUS_META.open;
+  const overdue = item.due_date && new Date(item.due_date) < new Date() && !["resolved", "verified", "not_applicable", "accepted_risk"].includes(item.status);
+  return (
+    <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "14px 16px", background: "#FAF7F0" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, color: "#1A1C1E", lineHeight: 1.3 }}>
+            {item.title}
+            {item.popia_reference && <span style={{ fontWeight: 500, color: "#8E9196", marginLeft: 6, fontSize: 11 }}>POPIA {item.popia_reference}</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          <span style={{
+            fontFamily: "Manrope, sans-serif", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
+            color: sevColor, background: sevColor + "18", border: `1px solid ${sevColor}40`,
+            borderRadius: 20, padding: "4px 9px", whiteSpace: "nowrap",
+          }}>{item.severity}</span>
+          <select
+            value={item.status}
+            onChange={(e) => onStatusChange(e.target.value)}
+            style={{
+              fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+              color: statusMeta.color, background: statusMeta.bg, border: `1px solid ${statusMeta.border}`,
+              borderRadius: 20, padding: "4px 10px", cursor: "pointer", appearance: "auto",
+            }}
+          >
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="resolved">Resolved</option>
+            <option value="verified">Verified</option>
+            <option value="not_applicable">N/A</option>
+            <option value="accepted_risk">Accepted risk</option>
+          </select>
+        </div>
+      </div>
+      {item.description && (
+        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11.5, fontWeight: 500, lineHeight: 1.5, color: "#55524C", marginBottom: 6 }}>
+          {item.description.length > 200 ? item.description.slice(0, 200) + "…" : item.description}
+        </div>
+      )}
+      {item.recommendation && (
+        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#F0F7F1", borderRadius: 6, padding: "6px 10px", marginBottom: 6 }}>
+          <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Recommendation: </span>
+          {item.recommendation.length > 200 ? item.recommendation.slice(0, 200) + "…" : item.recommendation}
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#8E9196" }}>
+        {item.assigned_to && <span>Assigned to: {item.assigned_to}</span>}
+        {item.due_date && <span style={{ color: overdue ? "#CC0000" : undefined, fontWeight: overdue ? 700 : undefined }}>Due: {fmtDate(item.due_date)}{overdue ? " — OVERDUE" : ""}</span>}
+        {item.resolved_date && <span>Resolved: {fmtDate(item.resolved_date)}</span>}
+        {item.verified_date && <span>Verified: {fmtDate(item.verified_date)} by {item.verified_by}</span>}
+      </div>
+    </div>
+  );
+}
+
+function RemediationTab({ items, clientId, onRefresh }: { items: RemediationItem[]; clientId: string; onRefresh: () => void }) {
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenError(null);
+    const res = await generateRemediationItems(clientId);
+    setGenerating(false);
+    if (res.error) { setGenError(res.error); return; }
+    onRefresh();
+  }
+
+  async function handleStatusChange(id: number, status: string) {
+    await updateRemediationItem(id, { status: status as RemediationItem["status"] });
+    onRefresh();
+  }
+
+  const openCount = items.filter((i) => ["open", "in_progress"].includes(i.status)).length;
+  const resolvedCount = items.filter((i) => ["resolved", "verified"].includes(i.status)).length;
+
+  if (items.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: 32 }}>
+        <p style={{ fontFamily: "Manrope, sans-serif", color: "#8E9196", fontSize: 13, marginBottom: 12 }}>No remediation items yet.</p>
+        <button
+          onClick={handleGenerate}
+          disabled={generating}
+          style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "8px 16px", cursor: "pointer", opacity: generating ? 0.6 : 1 }}
+        >
+          {generating ? "Generating…" : "Generate from assessment"}
+        </button>
+        {genError && <p style={{ color: "#CC0000", fontSize: 12, marginTop: 8 }}>{genError}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#6B6760" }}>
+          {openCount} open · {resolvedCount} resolved · {items.length} total
+        </div>
+        <button
+          onClick={handleGenerate}
+          disabled={generating}
+          style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", opacity: generating ? 0.6 : 1 }}
+        >
+          {generating ? "Regenerating…" : "Regenerate"}
+        </button>
+      </div>
+      {genError && <p style={{ color: "#CC0000", fontSize: 12, marginBottom: 8 }}>{genError}</p>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((item) => (
+          <RemediationCard key={item.id} item={item} onStatusChange={(s) => handleStatusChange(item.id, s)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Client detail panel ─────────────────────────────────────────────────────
 
 type ModalState = { type: "add"; entity: TabKey } | { type: "edit"; entity: "engagements"; item: Engagement } | { type: "edit"; entity: "io"; item: IORegistration } | { type: "edit"; entity: "breaches"; item: BreachIncident } | { type: "edit"; entity: "tasks"; item: ComplianceTask } | { type: "edit"; entity: "correspondence"; item: Correspondence } | { type: "edit"; entity: "data_mapping"; item: ProcessingActivity } | { type: "edit"; entity: "special_categories"; item: SpecialCategory } | null;
@@ -1431,6 +1570,7 @@ function ClientDetail({ client }: { client: Client }) {
   const [correspondence, setCorrespondence] = useState<Correspondence[]>([]);
   const [processingActivities, setProcessingActivities] = useState<ProcessingActivity[]>([]);
   const [specialCategories, setSpecialCategories] = useState<SpecialCategory[]>([]);
+  const [remediationItems, setRemediationItems] = useState<RemediationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [modal, setModal] = useState<ModalState>(null);
@@ -1441,13 +1581,14 @@ function ClientDetail({ client }: { client: Client }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid), fetchProcessingActivities(cid), fetchSpecialCategories(cid)])
-      .then(([eR, rR, bR, tR, cR, paR, scR]) => {
+    Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid), fetchProcessingActivities(cid), fetchSpecialCategories(cid), fetchRemediationItems(cid)])
+      .then(([eR, rR, bR, tR, cR, paR, scR, riR]) => {
         setEngagements(eR.data?.data ?? []); setRegistrations(rR.data?.data ?? []);
         setBreaches(bR.data?.data ?? []); setTasks(tR.data?.data ?? []);
         setCorrespondence(cR.data?.data ?? []);
         setProcessingActivities(paR.data?.data ?? []);
         setSpecialCategories(scR.data?.data ?? []);
+        setRemediationItems(riR.data?.data ?? []);
         setLoading(false);
       });
   }, [cid, refreshKey]);
@@ -1471,7 +1612,7 @@ function ClientDetail({ client }: { client: Client }) {
   const flag = flagUrl(client.company_country);
   const tabBase: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12.5, fontWeight: 700, background: "none", border: "none", padding: "14px 14px", cursor: "pointer", marginBottom: -1, whiteSpace: "nowrap" };
   const addBtnSmall: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" };
-  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "" };
+  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "" };
 
   return (
     <div style={{ flex: 1, minWidth: 420, background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, boxShadow: "0 1px 3px rgba(26,28,30,.05)", overflow: "hidden" }}>
@@ -1548,6 +1689,9 @@ function ClientDetail({ client }: { client: Client }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{specialCategories.map((sc) => <SpecialCategoryCard key={sc.id} sc={sc} onEdit={() => setModal({ type: "edit", entity: "special_categories", item: sc })} />)}</div>
                 )}
               </div>
+            )}
+            {tab === "remediation" && (
+              <RemediationTab items={remediationItems} clientId={cid} onRefresh={refresh} />
             )}
           </>
         )}
