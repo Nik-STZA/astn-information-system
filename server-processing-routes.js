@@ -83,13 +83,24 @@ app.post("/api/clients/:id/processing-activities", async (req, res) => {
 // Update a processing activity
 app.put("/api/processing-activities/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'activity_name', 'description', 'personal_data_types',
+      'data_subject_categories', 'estimated_volume', 'legal_basis',
+      'legal_basis_detail', 'purpose', 'retention_period', 'retention_basis',
+      'recipients', 'cross_border', 'transfer_countries', 'transfer_mechanism',
+      'security_measures', 'status', 'last_reviewed'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;
@@ -213,13 +224,23 @@ app.post("/api/clients/:id/special-categories", async (req, res) => {
 // Update a special category
 app.put("/api/special-categories/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'is_processed', 'processing_description', 'volume_estimate',
+      'legal_basis', 'safeguards', 'prior_auth_required', 'prior_auth_status',
+      'prior_auth_reference', 'prior_auth_date', 'compliance_status',
+      'last_assessed', 'assessor_notes'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at" || key === "client_id" || key === "category") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;

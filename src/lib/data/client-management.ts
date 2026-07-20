@@ -11,7 +11,7 @@ import { cloudRunFetch, cloudRunMutate } from "../cloud-run";
 
 export type Engagement = {
   id: number; // SERIAL PK
-  client_id: number; // INTEGER FK → compliance_clients
+  client_id: string; // UUID FK → compliance_clients
   service_tier: "representative" | "authorised_io";
   engagement_status: "draft" | "sent" | "signed" | "active" | "suspended" | "terminated";
   start_date: string | null;
@@ -27,7 +27,7 @@ export type Engagement = {
 
 export type IORegistration = {
   id: number; // SERIAL PK
-  client_id: number; // INTEGER FK
+  client_id: string; // UUID FK
   registration_type: "information_officer" | "deputy_information_officer";
   registrant_name: string;
   registrant_email: string | null;
@@ -46,7 +46,7 @@ export type IORegistration = {
 
 export type BreachIncident = {
   id: number; // SERIAL PK
-  client_id: number; // INTEGER FK
+  client_id: string; // UUID FK
   incident_date: string;
   reported_to_ir: boolean;
   ir_report_date: string | null;
@@ -57,13 +57,17 @@ export type BreachIncident = {
   severity: "low" | "medium" | "high" | "critical" | null;
   status: "reported" | "investigating" | "contained" | "resolved" | "closed";
   remediation_notes: string | null;
+  notification_deadline: string | null;
+  data_subjects_notified: boolean;
+  data_subjects_notification_date: string | null;
+  data_subjects_count: number | null;
   created_at: string;
   updated_at: string;
 };
 
 export type ComplianceTask = {
   id: number; // SERIAL PK
-  client_id: number; // INTEGER FK
+  client_id: string; // UUID FK
   client_name?: string; // joined from compliance_clients on /api/tasks
   task_type: string;
   title: string;
@@ -78,7 +82,7 @@ export type ComplianceTask = {
 
 export type Correspondence = {
   id: number; // SERIAL PK
-  client_id: number | null; // INTEGER FK (nullable — some may be general)
+  client_id: string | null; // UUID FK (nullable — some may be general)
   client_name?: string; // joined
   direction: "inbound" | "outbound";
   correspondent: string;

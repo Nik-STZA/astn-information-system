@@ -43,6 +43,7 @@ import {
   updateSpecialCategory,
 } from "@/lib/data/client-management";
 import { createClient } from "@/lib/data/compliance";
+import ComplianceRadar from "@/components/ComplianceRadar";
 
 // ─── Status pill metadata ────────────────────────────────────────────────────
 
@@ -243,11 +244,11 @@ type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "
 const TABS: { key: TabKey; label: string }[] = [
   { key: "engagements", label: "Engagements" },
   { key: "io", label: "IO registrations" },
-  { key: "breaches", label: "Breaches" },
-  { key: "tasks", label: "Tasks" },
-  { key: "correspondence", label: "Correspondence" },
   { key: "data_mapping", label: "Data mapping" },
   { key: "special_categories", label: "Special categories" },
+  { key: "tasks", label: "Tasks" },
+  { key: "correspondence", label: "Correspondence" },
+  { key: "breaches", label: "Breaches" },
 ];
 
 // ─── Reusable modal backdrop ────────────────────────────────────────────────
@@ -535,15 +536,10 @@ function ProcessingActivityCard({ a, onEdit, onDelete }: { a: ProcessingActivity
 
 // ─── Special Category card ──────────────────────────────────────────────────
 
-function scProcessedIcon(v: boolean | null): string {
-  if (v === true) return "\u2611";   // \u2611 Does process
-  if (v === false) return "\u2610";  // \u2610 Does not process
-  return "\u2014";                    // \u2014 Not applicable
-}
-function scProcessedLabel(v: boolean | null): string {
-  if (v === true) return "Processes";
-  if (v === false) return "Does not process";
-  return "Not applicable";
+function scProcessedDot(v: boolean | null): { color: string; bg: string; label: string } {
+  if (v === true) return { color: "#CC7700", bg: "#FFF3E0", label: "Processes" };
+  if (v === false) return { color: "#2E7D32", bg: "#E8F5E9", label: "Does not process" };
+  return { color: "#8E9196", bg: "#F4F3F0", label: "Not applicable" };
 }
 
 function SpecialCategoryCard({ sc, onEdit }: { sc: SpecialCategory; onEdit: () => void }) {
@@ -559,15 +555,24 @@ function SpecialCategoryCard({ sc, onEdit }: { sc: SpecialCategory; onEdit: () =
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>{scProcessedIcon(sc.is_processed)}</span>
+          <span style={{
+            width: 10, height: 10, borderRadius: "50%", display: "inline-block",
+            background: scProcessedDot(sc.is_processed).color,
+          }} />
           <span style={{ fontWeight: 600, color: "#1A1C1E", fontSize: 14 }}>{label}</span>
-          <span style={{ fontSize: 11, color: "#8E9196" }}>{scProcessedLabel(sc.is_processed)}</span>
+          <span style={{
+            fontSize: 11, padding: "1px 8px", borderRadius: 10,
+            color: scProcessedDot(sc.is_processed).color,
+            background: scProcessedDot(sc.is_processed).bg,
+          }}>{scProcessedDot(sc.is_processed).label}</span>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {sc.is_processed === true && sc.prior_auth_required && (
             <Pill status={sc.prior_auth_status || "pending"} meta={PRIOR_AUTH_STATUS_META} />
           )}
-          <Pill status={sc.compliance_status} meta={COMPLIANCE_STATUS_META} />
+          {sc.is_processed === true && (
+            <Pill status={sc.compliance_status} meta={COMPLIANCE_STATUS_META} />
+          )}
         </div>
       </div>
       {sc.is_processed === true && sc.processing_description && (
@@ -1342,20 +1347,24 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
           </>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-          <div>
-            <label style={labelStyle}>Compliance status</label>
-            <select style={inputStyle} value={form.compliance_status} onChange={(e) => set("compliance_status", e.target.value)}>
-              <option value="not_assessed">Not assessed</option>
-              <option value="compliant">Compliant</option>
-              <option value="partial">Partial</option>
-              <option value="non_compliant">Non-compliant</option>
-            </select>
-          </div>
-        </div>
+        {form.is_processed === true && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+              <div>
+                <label style={labelStyle}>Compliance status</label>
+                <select style={inputStyle} value={form.compliance_status} onChange={(e) => set("compliance_status", e.target.value)}>
+                  <option value="not_assessed">Not assessed</option>
+                  <option value="compliant">Compliant</option>
+                  <option value="partial">Partial</option>
+                  <option value="non_compliant">Non-compliant</option>
+                </select>
+              </div>
+            </div>
 
-        <label style={labelStyle}>Assessor notes</label>
-        <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.assessor_notes} onChange={(e) => set("assessor_notes", e.target.value)} />
+            <label style={labelStyle}>Assessor notes</label>
+            <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.assessor_notes} onChange={(e) => set("assessor_notes", e.target.value)} />
+          </>
+        )}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
           <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
@@ -1445,6 +1454,18 @@ function ClientDetail({ client }: { client: Client }) {
           </div>
         </div>
       </div>
+      {/* Compliance radar */}
+      {!loading && (
+        <div style={{ padding: "0 24px 8px" }}>
+          <ComplianceRadar
+            registrations={registrations}
+            processingActivities={processingActivities}
+            specialCategories={specialCategories}
+            breaches={breaches}
+            tasks={tasks}
+          />
+        </div>
+      )}
       {/* Tabs */}
       <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "0 16px", borderBottom: "1px solid #E4D9C4", flexWrap: "wrap" }}>
         {TABS.map((t) => <button key={t.key} onClick={() => setTab(t.key)} style={{ ...tabBase, color: tab === t.key ? "#1A1C1E" : "#A29C8E", borderBottom: tab === t.key ? "2.5px solid #C5A059" : "2.5px solid transparent" }}>{t.label}</button>)}

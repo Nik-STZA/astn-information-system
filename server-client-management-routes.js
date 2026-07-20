@@ -77,13 +77,21 @@ app.post("/api/clients/:id/engagements", async (req, res) => {
 
 app.put("/api/engagements/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'engagement_type', 'status', 'start_date', 'end_date',
+      'scope', 'notes', 'fee_basis', 'fee_amount'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;
@@ -173,13 +181,22 @@ app.post("/api/clients/:id/registrations", async (req, res) => {
 
 app.put("/api/registrations/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'officer_name', 'officer_email', 'officer_phone',
+      'registration_number', 'registration_date', 'registration_status',
+      'expiry_date', 'notes'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;
@@ -265,13 +282,25 @@ app.post("/api/clients/:id/breaches", async (req, res) => {
 
 app.put("/api/breaches/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'incident_date', 'discovery_date', 'description', 'severity',
+      'data_types_affected', 'subjects_affected_count', 'root_cause',
+      'containment_actions', 'ir_notified', 'ir_notification_date',
+      'ir_reference', 'status', 'resolution_notes', 'notification_deadline',
+      'data_subjects_notified', 'data_subjects_notification_date',
+      'data_subjects_count'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;
@@ -377,13 +406,21 @@ app.post("/api/clients/:id/tasks", async (req, res) => {
 
 app.put("/api/tasks/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'title', 'description', 'due_date', 'priority',
+      'status', 'assigned_to', 'completed_date', 'notes'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;
@@ -487,13 +524,22 @@ app.post("/api/clients/:id/correspondence", async (req, res) => {
 
 app.put("/api/correspondence/:id", async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist mutable fields — reject anything else from the request body
+    const ALLOWED_FIELDS = [
+      'correspondence_date', 'direction', 'type', 'subject',
+      'summary', 'participants', 'follow_up_required', 'follow_up_date',
+      'notes'
+    ];
+    const filtered = {};
+    for (const k of ALLOWED_FIELDS) {
+      if (req.body[k] !== undefined) filtered[k] = req.body[k];
+    }
+
     const setClauses = [];
     const values = [];
     let idx = 1;
 
-    for (const [key, value] of Object.entries(fields)) {
-      if (key === "id" || key === "created_at") continue;
+    for (const [key, value] of Object.entries(filtered)) {
       setClauses.push(`${key} = $${idx}`);
       values.push(value);
       idx++;
