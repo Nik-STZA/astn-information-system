@@ -79,8 +79,9 @@ app.put("/api/engagements/:id", async (req, res) => {
   try {
     // Whitelist mutable fields — reject anything else from the request body
     const ALLOWED_FIELDS = [
-      'engagement_type', 'status', 'start_date', 'end_date',
-      'scope', 'notes', 'fee_basis', 'fee_amount'
+      'service_tier', 'engagement_status', 'start_date', 'end_date',
+      'annual_fee_gbp', 'annual_fee_zar', 'payment_frequency',
+      'agreement_document_url', 'notes'
     ];
     const filtered = {};
     for (const k of ALLOWED_FIELDS) {
@@ -183,9 +184,10 @@ app.put("/api/registrations/:id", async (req, res) => {
   try {
     // Whitelist mutable fields — reject anything else from the request body
     const ALLOWED_FIELDS = [
-      'officer_name', 'officer_email', 'officer_phone',
-      'registration_number', 'registration_date', 'registration_status',
-      'expiry_date', 'notes'
+      'registration_type', 'registrant_name', 'registrant_email',
+      'registrant_phone', 'registrant_role', 'ir_reference_number',
+      'registration_status', 'submitted_date', 'confirmed_date',
+      'portal_used', 'portal_organisation_type', 'notes'
     ];
     const filtered = {};
     for (const k of ALLOWED_FIELDS) {
@@ -258,22 +260,91 @@ app.post("/api/clients/:id/breaches", async (req, res) => {
     const {
       incident_date, reported_to_ir, ir_report_date, ir_reference_number,
       incident_type, description, data_subjects_affected,
-      severity, status, remediation_notes
+      severity, status, remediation_notes,
+      data_subjects_count
     } = req.body;
+
+    // Compute POPIA s22 notification deadline: 72 hours from incident date
+    const notificationDeadline = incident_date
+      ? new Date(new Date(incident_date).getTime() + 72 * 60 * 60 * 1000).toISOString()
+      : null;
 
     const { rows } = await pool.query(
       `INSERT INTO breach_incidents
          (client_id, incident_date, reported_to_ir, ir_report_date,
           ir_reference_number, incident_type, description,
-          data_subjects_affected, severity, status, remediation_notes)
+          data_subjects_affected, severity, status, remediation_notes,
+          notification_deadline, data_subjects_count)
        VALUES ($1, $2, COALESCE($3, false), $4, $5, $6, $7, $8, $9,
-               COALESCE($10, 'reported'), $11)
+               COALESCE($10, 'reported'), $11, $12, $13)
        RETURNING *`,
       [clientId, incident_date, reported_to_ir, ir_report_date,
        ir_reference_number, incident_type, description,
-       data_subjects_affected, severity, status, remediation_notes]
+       data_subjects_affected, severity, status, remediation_notes,
+       notificationDeadline, data_subjects_count]
     );
-    res.status(201).json(rows[0]);
+
+    const breach = rows[0];
+
+    // ─── Auto-create POPIA compliance tasks ─────────────────────────────
+    // POPIA s22(1): notify the Information Regulator as soon as reasonably
+    // possible (IR guidance: within 72 hours of discovery).
+    // POPIA s22(4): notify affected data subjects as soon as reasonably
+    // possible after notifying the IR.
+    const autoTasks = [];
+    const incidentLabel = incident_type || "Breach incident";
+
+    if (incident_date) {
+      // Task 1: Notify IR within 72 hours
+      autoTasks.push(
+        pool.query(
+          `INSERT INTO compliance_tasks
+             (client_id, task_type, title, description, due_date, status, assigned_to)
+           VALUES ($1, 'breach_notification',
+                   $2, $3, $4, 'pending', NULL)
+           RETURNING *`,
+          [
+            clientId,
+            `Notify Information Regulator — ${incidentLabel}`,
+            `POPIA s22(1): notify the Information Regulator of the breach "${incidentLabel}" (${new Date(incident_date).toLocaleDateString("en-GB")}) within 72 hours. Include: nature of breach, estimated data subjects, personal data categories, recommended measures. Breach ID: ${breach.id}.`,
+            notificationDeadline,
+          ]
+        )
+      );
+
+      // Task 2: Notify data subjects (7 days from incident as a practical deadline)
+      const dsDeadline = new Date(
+        new Date(incident_date).getTime() + 7 * 24 * 60 * 60 * 1000
+      ).toISOString();
+      autoTasks.push(
+        pool.query(
+          `INSERT INTO compliance_tasks
+             (client_id, task_type, title, description, due_date, status, assigned_to)
+           VALUES ($1, 'breach_notification',
+                   $2, $3, $4, 'pending', NULL)
+           RETURNING *`,
+          [
+            clientId,
+            `Notify affected data subjects — ${incidentLabel}`,
+            `POPIA s22(4): notify affected data subjects of the breach "${incidentLabel}" as soon as reasonably possible after IR notification. Include: description of the compromise, measures taken, recommendations for mitigation. Breach ID: ${breach.id}.`,
+            dsDeadline,
+          ]
+        )
+      );
+    }
+
+    let createdTasks = [];
+    if (autoTasks.length > 0) {
+      try {
+        const results = await Promise.all(autoTasks);
+        createdTasks = results.map((r) => r.rows[0]);
+      } catch (taskErr) {
+        // Log but don't fail the breach creation — tasks are supplementary
+        console.error("Auto-task creation warning:", taskErr.message);
+      }
+    }
+
+    res.status(201).json({ ...breach, _auto_tasks: createdTasks });
   } catch (err) {
     console.error("POST /clients/:id/breaches error:", err);
     res.status(500).json({ error: err.message });
@@ -284,12 +355,11 @@ app.put("/api/breaches/:id", async (req, res) => {
   try {
     // Whitelist mutable fields — reject anything else from the request body
     const ALLOWED_FIELDS = [
-      'incident_date', 'discovery_date', 'description', 'severity',
-      'data_types_affected', 'subjects_affected_count', 'root_cause',
-      'containment_actions', 'ir_notified', 'ir_notification_date',
-      'ir_reference', 'status', 'resolution_notes', 'notification_deadline',
-      'data_subjects_notified', 'data_subjects_notification_date',
-      'data_subjects_count'
+      'incident_date', 'incident_type', 'description', 'severity',
+      'data_subjects_affected', 'reported_to_ir', 'ir_report_date',
+      'ir_reference_number', 'status', 'remediation_notes',
+      'notification_deadline', 'data_subjects_notified',
+      'data_subjects_notification_date', 'data_subjects_count'
     ];
     const filtered = {};
     for (const k of ALLOWED_FIELDS) {
@@ -526,9 +596,9 @@ app.put("/api/correspondence/:id", async (req, res) => {
   try {
     // Whitelist mutable fields — reject anything else from the request body
     const ALLOWED_FIELDS = [
-      'correspondence_date', 'direction', 'type', 'subject',
-      'summary', 'participants', 'follow_up_required', 'follow_up_date',
-      'notes'
+      'direction', 'correspondent', 'subject', 'received_date',
+      'response_due_date', 'responded_date', 'urgency',
+      'document_url', 'status', 'notes'
     ];
     const filtered = {};
     for (const k of ALLOWED_FIELDS) {

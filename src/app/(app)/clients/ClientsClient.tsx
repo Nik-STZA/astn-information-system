@@ -447,6 +447,9 @@ function TaskCard({ t, onEdit, onDelete }: { t: ComplianceTask; onEdit: () => vo
 
 function BreachCard({ b, onEdit, onDelete }: { b: BreachIncident; onEdit: () => void; onDelete: () => void }) {
   const severityColor: Record<string, string> = { low: "#8E9196", medium: "#A67514", high: "#CC7700", critical: "#CC0000" };
+  const deadlinePassed = b.notification_deadline && new Date(b.notification_deadline) < new Date();
+  const irStatus = b.reported_to_ir ? "Reported" : deadlinePassed ? "Overdue" : "Pending";
+  const irColor = b.reported_to_ir ? "#2E7D32" : deadlinePassed ? "#CC0000" : "#A67514";
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "15px 17px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
@@ -466,8 +469,14 @@ function BreachCard({ b, onEdit, onDelete }: { b: BreachIncident; onEdit: () => 
           <CardActions onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#55524C" }}>
+      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#55524C", marginBottom: 8 }}>
         {b.description ?? "No description provided."}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#6B6760" }}>
+        <span>IR notification: <span style={{ fontWeight: 700, color: irColor }}>{irStatus}</span></span>
+        {b.notification_deadline && <span>Deadline: {fmtDate(b.notification_deadline)}</span>}
+        <span>Data subjects notified: <span style={{ fontWeight: 700, color: b.data_subjects_notified ? "#2E7D32" : "#8E9196" }}>{b.data_subjects_notified ? "Yes" : "No"}</span></span>
+        {b.data_subjects_count != null && <span>Est. affected: {b.data_subjects_count.toLocaleString("en-GB")}</span>}
       </div>
     </div>
   );
@@ -853,6 +862,9 @@ function BreachFormModal({ clientId, initial, onClose, onSaved }: {
       ir_reference_number: fd.get("ir_reference_number") || null,
       status: fd.get("status") || "reported",
       remediation_notes: fd.get("remediation_notes") || null,
+      data_subjects_notified: fd.get("data_subjects_notified") === "true",
+      data_subjects_notification_date: fd.get("data_subjects_notification_date") || null,
+      data_subjects_count: fd.get("data_subjects_count") ? Number(fd.get("data_subjects_count")) : null,
     };
     const res = isEdit
       ? await updateBreach(initial!.id, payload)
@@ -922,6 +934,36 @@ function BreachFormModal({ clientId, initial, onClose, onSaved }: {
               <option value="closed">Closed</option>
             </select>
           </div>
+          {/* ─── POPIA s22 data subject notification fields ─── */}
+          <div style={{ gridColumn: "1 / -1", borderTop: "1px solid #EFE7D6", paddingTop: 12, marginTop: 4 }}>
+            <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, color: "#8E9196", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>
+              Data subject notification (POPIA s22)
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Est. data subjects (initial)</label>
+            <input name="data_subjects_count" type="number" defaultValue={initial?.data_subjects_count ?? ""} style={inputStyle} placeholder="Estimate for IR form" />
+          </div>
+          <div>
+            <label style={labelStyle}>Data subjects notified</label>
+            <select name="data_subjects_notified" defaultValue={initial?.data_subjects_notified ? "true" : "false"} style={inputStyle}>
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Notification date</label>
+            <input name="data_subjects_notification_date" type="date" defaultValue={toDateInput(initial?.data_subjects_notification_date)} style={inputStyle} />
+          </div>
+          {initial?.notification_deadline && (
+            <div>
+              <label style={labelStyle}>IR notification deadline</label>
+              <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: new Date(initial.notification_deadline) < new Date() && !initial.reported_to_ir ? "#CC0000" : "#2E7D32", padding: "8px 0" }}>
+                {fmtDate(initial.notification_deadline)}
+                {new Date(initial.notification_deadline) < new Date() && !initial.reported_to_ir && " — OVERDUE"}
+              </div>
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
             <label style={labelStyle}>Remediation notes</label>
             <textarea name="remediation_notes" rows={2} defaultValue={initial?.remediation_notes ?? ""} style={{ ...inputStyle, resize: "vertical" }} />
