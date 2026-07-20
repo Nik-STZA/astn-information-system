@@ -13,6 +13,7 @@ import type {
   ProcessingActivity,
   SpecialCategory,
   RemediationItem,
+  DataSubjectRequest,
 } from "@/lib/data/client-management";
 import {
   fetchEngagements,
@@ -45,9 +46,14 @@ import {
   fetchRemediationItems,
   updateRemediationItem,
   generateRemediationItems,
+  fetchDSARs,
+  createDSAR,
+  updateDSAR,
+  deleteDSAR,
 } from "@/lib/data/client-management";
 import { createClient } from "@/lib/data/compliance";
 import ComplianceRadar from "@/components/ComplianceRadar";
+import { exportROPA } from "@/lib/export-ropa";
 
 // ─── Status pill metadata ────────────────────────────────────────────────────
 
@@ -243,7 +249,7 @@ const sectionLabel: React.CSSProperties = {
 
 // ─── Tab types ───────────────────────────────────────────────────────────────
 
-type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories" | "remediation";
+type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories" | "remediation" | "dsars";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "engagements", label: "Engagements" },
@@ -252,6 +258,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "special_categories", label: "Special categories" },
   { key: "tasks", label: "Tasks" },
   { key: "remediation", label: "Remediation" },
+  { key: "dsars", label: "DSARs" },
   { key: "correspondence", label: "Correspondence" },
   { key: "breaches", label: "Breaches" },
 ];
@@ -1556,9 +1563,199 @@ function RemediationTab({ items, clientId, onRefresh }: { items: RemediationItem
   );
 }
 
+// ─── DSAR helpers ───────────────────────────────────────────────────────────
+
+const DSAR_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
+  received:               { color: "#3E6B8E", bg: "#E5EDF3", border: "#C5D6E4" },
+  identity_verification:  { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+  in_progress:            { color: "#3E6B8E", bg: "#E5EDF3", border: "#C5D6E4" },
+  awaiting_info:          { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
+  completed:              { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
+  refused:                { color: "#CC0000", bg: "#FDF2F2", border: "#FCA5A5" },
+  escalated:              { color: "#CC0000", bg: "#FDF2F2", border: "#FCA5A5" },
+  closed:                 { color: "#8E9196", bg: "#F4F3F0", border: "#DDD9D0" },
+};
+
+const DSAR_PRIORITY_META: Record<string, { color: string; bg: string }> = {
+  low:    { color: "#8E9196", bg: "#F4F3F0" },
+  normal: { color: "#3E6B8E", bg: "#E5EDF3" },
+  high:   { color: "#A67514", bg: "#FBF1DE" },
+  urgent: { color: "#CC0000", bg: "#FDF2F2" },
+};
+
+const DSAR_TYPE_LABELS: Record<string, string> = {
+  access: "Access (s23)", correction: "Correction (s24)", deletion: "Deletion (s24)",
+  objection: "Objection (s11)", portability: "Portability", other: "Other",
+};
+
+function DSARCard({ d, onEdit, onDelete }: { d: DataSubjectRequest; onEdit: () => void; onDelete: () => void }) {
+  const sm = DSAR_STATUS_META[d.status] ?? DSAR_STATUS_META.received;
+  const pm = DSAR_PRIORITY_META[d.priority] ?? DSAR_PRIORITY_META.normal;
+  const isOverdue = d.deadline && !d.completed_date && new Date(d.deadline) < new Date();
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E7E3DB", borderRadius: 8, padding: "14px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div>
+          <div style={{ fontFamily: "Manrope, sans-serif", fontWeight: 700, fontSize: 13, color: "#1A1C1E", marginBottom: 2 }}>
+            {DSAR_TYPE_LABELS[d.request_type] ?? d.request_type} — {d.data_subject_name}
+          </div>
+          <div style={{ fontSize: 11, color: "#8E9196" }}>
+            Received {fmtDate(d.received_date)}{d.assigned_to ? ` · Assigned: ${d.assigned_to}` : ""}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {d.priority !== "normal" && <span style={{ fontSize: 10, fontWeight: 600, fontFamily: "Manrope, sans-serif", padding: "2px 7px", borderRadius: 4, background: pm.bg, color: pm.color }}>{d.priority}</span>}
+          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: "Manrope, sans-serif", padding: "2px 7px", borderRadius: 4, background: sm.bg, color: sm.color, border: `1px solid ${sm.border}` }}>{d.status.replace(/_/g, " ")}</span>
+          <button onClick={onEdit} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#8E9196" }}>Edit</button>
+          <button onClick={onDelete} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#CC0000" }}>Del</button>
+        </div>
+      </div>
+      {d.description && <div style={{ fontSize: 12, color: "#4A4A4A", marginBottom: 6, lineHeight: 1.4 }}>{d.description.length > 200 ? d.description.slice(0, 200) + "…" : d.description}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "#8E9196" }}>
+        {d.deadline && (
+          <span style={{ color: isOverdue ? "#CC0000" : "#8E9196", fontWeight: isOverdue ? 700 : 400 }}>
+            {isOverdue ? "OVERDUE" : "Deadline"}: {fmtDate(d.deadline)}
+          </span>
+        )}
+        <span>ID verified: {d.identity_verified ? "Yes" : "No"}</span>
+        {d.data_subject_category && <span>Category: {d.data_subject_category}</span>}
+        {d.third_parties_notified && <span style={{ color: "#2E7D32" }}>Third parties notified</span>}
+        {d.completed_date && <span style={{ color: "#2E7D32" }}>Completed: {fmtDate(d.completed_date)}</span>}
+      </div>
+      {d.response_summary && <div style={{ marginTop: 6, fontSize: 11, color: "#2E7D32", background: "#E7F1EA", padding: "6px 10px", borderRadius: 6, lineHeight: 1.4 }}>{d.response_summary}</div>}
+      {d.refusal_reason && <div style={{ marginTop: 6, fontSize: 11, color: "#CC0000", background: "#FDF2F2", padding: "6px 10px", borderRadius: 6, lineHeight: 1.4 }}>Refused: {d.refusal_reason}</div>}
+    </div>
+  );
+}
+
+function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: string; initial?: DataSubjectRequest; onClose: () => void; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [requestType, setRequestType] = useState(initial?.request_type ?? "access");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [dsName, setDsName] = useState(initial?.data_subject_name ?? "");
+  const [dsEmail, setDsEmail] = useState(initial?.data_subject_email ?? "");
+  const [dsPhone, setDsPhone] = useState(initial?.data_subject_phone ?? "");
+  const [dsIdType, setDsIdType] = useState(initial?.data_subject_id_type ?? "");
+  const [dsIdRef, setDsIdRef] = useState(initial?.data_subject_id_ref ?? "");
+  const [dsCategory, setDsCategory] = useState(initial?.data_subject_category ?? "");
+  const [identityVerified, setIdentityVerified] = useState(initial?.identity_verified ?? false);
+  const [status, setStatus] = useState(initial?.status ?? "received");
+  const [priority, setPriority] = useState(initial?.priority ?? "normal");
+  const [assignedTo, setAssignedTo] = useState(initial?.assigned_to ?? "");
+  const [receivedDate, setReceivedDate] = useState(initial?.received_date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10));
+  const [acknowledgedDate, setAcknowledgedDate] = useState(initial?.acknowledged_date?.slice(0, 10) ?? "");
+  const [deadline, setDeadline] = useState(initial?.deadline?.slice(0, 10) ?? "");
+  const [completedDate, setCompletedDate] = useState(initial?.completed_date?.slice(0, 10) ?? "");
+  const [responseSummary, setResponseSummary] = useState(initial?.response_summary ?? "");
+  const [refusalReason, setRefusalReason] = useState(initial?.refusal_reason ?? "");
+  const [thirdPartiesNotified, setThirdPartiesNotified] = useState(initial?.third_parties_notified ?? false);
+  const [thirdPartyDetails, setThirdPartyDetails] = useState(initial?.third_party_details ?? "");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
+
+  const isEdit = !!initial;
+
+  async function handleSave() {
+    if (!dsName.trim()) return;
+    setSaving(true);
+    const payload: Record<string, unknown> = {
+      request_type: requestType,
+      description: description || null,
+      data_subject_name: dsName.trim(),
+      data_subject_email: dsEmail || null,
+      data_subject_phone: dsPhone || null,
+      data_subject_id_type: dsIdType || null,
+      data_subject_id_ref: dsIdRef || null,
+      data_subject_category: dsCategory || null,
+      identity_verified: identityVerified,
+      status,
+      priority,
+      assigned_to: assignedTo || null,
+      received_date: receivedDate || null,
+      acknowledged_date: acknowledgedDate || null,
+      deadline: deadline || null,
+      notes: notes || null,
+    };
+    if (isEdit) {
+      payload.completed_date = completedDate || null;
+      payload.response_summary = responseSummary || null;
+      payload.refusal_reason = refusalReason || null;
+      payload.third_parties_notified = thirdPartiesNotified;
+      payload.third_party_details = thirdPartyDetails || null;
+    }
+    const res = isEdit ? await updateDSAR(initial.id, payload) : await createDSAR(clientId, payload);
+    setSaving(false);
+    if (!res.error) onSaved();
+  }
+
+  const inputStyle: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12, padding: "7px 10px", border: "1px solid #D4C5A9", borderRadius: 6, width: "100%", boxSizing: "border-box" };
+  const labelStyle: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#1A1C1E", marginBottom: 4, display: "block" };
+  const sectionTitle: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 700, color: "#C5A059", marginBottom: 8, marginTop: 14, borderBottom: "1px solid #E7E3DB", paddingBottom: 4 };
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div style={{ maxWidth: 520, width: "100%", maxHeight: "85vh", overflowY: "auto", background: "#fff", borderRadius: 10, padding: "20px 24px" }}>
+        <div style={{ fontFamily: "Manrope, sans-serif", fontWeight: 800, fontSize: 15, color: "#1A1C1E", marginBottom: 14 }}>{isEdit ? "Edit DSAR" : "Log data subject request"}</div>
+
+        <div style={sectionTitle}>Request details</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={labelStyle}>Type *</label><select value={requestType} onChange={(e) => setRequestType(e.target.value as DataSubjectRequest["request_type"])} style={inputStyle}><option value="access">Access (s23)</option><option value="correction">Correction (s24)</option><option value="deletion">Deletion (s24)</option><option value="objection">Objection (s11)</option><option value="portability">Portability</option><option value="other">Other</option></select></div>
+          <div><label style={labelStyle}>Priority</label><select value={priority} onChange={(e) => setPriority(e.target.value as DataSubjectRequest["priority"])} style={inputStyle}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
+        </div>
+        <div style={{ marginBottom: 10 }}><label style={labelStyle}>Description</label><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>
+
+        <div style={sectionTitle}>Data subject</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={labelStyle}>Name *</label><input value={dsName} onChange={(e) => setDsName(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Email</label><input value={dsEmail} onChange={(e) => setDsEmail(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Phone</label><input value={dsPhone} onChange={(e) => setDsPhone(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Category</label><select value={dsCategory} onChange={(e) => setDsCategory(e.target.value)} style={inputStyle}><option value="">—</option><option value="customer">Customer</option><option value="employee">Employee</option><option value="supplier">Supplier</option><option value="website_visitor">Website visitor</option><option value="other">Other</option></select></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={labelStyle}>ID type</label><select value={dsIdType} onChange={(e) => setDsIdType(e.target.value)} style={inputStyle}><option value="">—</option><option value="id_number">SA ID number</option><option value="passport">Passport</option><option value="other">Other</option></select></div>
+          <div><label style={labelStyle}>ID ref (masked)</label><input value={dsIdRef} onChange={(e) => setDsIdRef(e.target.value)} style={inputStyle} placeholder="e.g. ***1234" /></div>
+          <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}><label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={identityVerified} onChange={(e) => setIdentityVerified(e.target.checked)} /> Identity verified</label></div>
+        </div>
+
+        <div style={sectionTitle}>Workflow</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={labelStyle}>Status</label><select value={status} onChange={(e) => setStatus(e.target.value as DataSubjectRequest["status"])} style={inputStyle}><option value="received">Received</option><option value="identity_verification">Identity verification</option><option value="in_progress">In progress</option><option value="awaiting_info">Awaiting info</option><option value="completed">Completed</option><option value="refused">Refused</option><option value="escalated">Escalated</option><option value="closed">Closed</option></select></div>
+          <div><label style={labelStyle}>Assigned to</label><input value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} style={inputStyle} /></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={labelStyle}>Received</label><input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Acknowledged</label><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Deadline</label><input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} style={inputStyle} placeholder="Auto: +30 days" /></div>
+        </div>
+
+        {isEdit && (
+          <>
+            <div style={sectionTitle}>Response</div>
+            <div style={{ marginBottom: 10 }}><label style={labelStyle}>Completed date</label><input type="date" value={completedDate} onChange={(e) => setCompletedDate(e.target.value)} style={inputStyle} /></div>
+            <div style={{ marginBottom: 10 }}><label style={labelStyle}>Response summary</label><textarea value={responseSummary} onChange={(e) => setResponseSummary(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>
+            {status === "refused" && <div style={{ marginBottom: 10 }}><label style={labelStyle}>Refusal reason (POPIA s18 exemption)</label><textarea value={refusalReason} onChange={(e) => setRefusalReason(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>}
+            {(requestType === "correction" || requestType === "deletion") && (
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><input type="checkbox" checked={thirdPartiesNotified} onChange={(e) => setThirdPartiesNotified(e.target.checked)} /> Third parties notified (s25)</label>
+                {thirdPartiesNotified && <textarea value={thirdPartyDetails} onChange={(e) => setThirdPartyDetails(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} placeholder="Which third parties were notified?" />}
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ marginBottom: 10 }}><label style={labelStyle}>Notes</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <button onClick={onClose} style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, padding: "7px 16px", border: "1px solid #D4C5A9", borderRadius: 6, background: "#fff", cursor: "pointer" }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving || !dsName.trim()} style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 700, padding: "7px 16px", border: "none", borderRadius: 6, background: "#1A1C1E", color: "#fff", cursor: saving ? "wait" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : isEdit ? "Update" : "Log request"}</button>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
 // ─── Client detail panel ─────────────────────────────────────────────────────
 
-type ModalState = { type: "add"; entity: TabKey } | { type: "edit"; entity: "engagements"; item: Engagement } | { type: "edit"; entity: "io"; item: IORegistration } | { type: "edit"; entity: "breaches"; item: BreachIncident } | { type: "edit"; entity: "tasks"; item: ComplianceTask } | { type: "edit"; entity: "correspondence"; item: Correspondence } | { type: "edit"; entity: "data_mapping"; item: ProcessingActivity } | { type: "edit"; entity: "special_categories"; item: SpecialCategory } | null;
+type ModalState = { type: "add"; entity: TabKey } | { type: "edit"; entity: "engagements"; item: Engagement } | { type: "edit"; entity: "io"; item: IORegistration } | { type: "edit"; entity: "breaches"; item: BreachIncident } | { type: "edit"; entity: "tasks"; item: ComplianceTask } | { type: "edit"; entity: "correspondence"; item: Correspondence } | { type: "edit"; entity: "data_mapping"; item: ProcessingActivity } | { type: "edit"; entity: "special_categories"; item: SpecialCategory } | { type: "edit"; entity: "dsars"; item: DataSubjectRequest } | null;
 type DeleteState = { entity: TabKey; id: number; label: string } | null;
 
 function ClientDetail({ client }: { client: Client }) {
@@ -1571,6 +1768,7 @@ function ClientDetail({ client }: { client: Client }) {
   const [processingActivities, setProcessingActivities] = useState<ProcessingActivity[]>([]);
   const [specialCategories, setSpecialCategories] = useState<SpecialCategory[]>([]);
   const [remediationItems, setRemediationItems] = useState<RemediationItem[]>([]);
+  const [dsars, setDsars] = useState<DataSubjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [modal, setModal] = useState<ModalState>(null);
@@ -1581,14 +1779,15 @@ function ClientDetail({ client }: { client: Client }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid), fetchProcessingActivities(cid), fetchSpecialCategories(cid), fetchRemediationItems(cid)])
-      .then(([eR, rR, bR, tR, cR, paR, scR, riR]) => {
+    Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid), fetchProcessingActivities(cid), fetchSpecialCategories(cid), fetchRemediationItems(cid), fetchDSARs(cid)])
+      .then(([eR, rR, bR, tR, cR, paR, scR, riR, dsarR]) => {
         setEngagements(eR.data?.data ?? []); setRegistrations(rR.data?.data ?? []);
         setBreaches(bR.data?.data ?? []); setTasks(tR.data?.data ?? []);
         setCorrespondence(cR.data?.data ?? []);
         setProcessingActivities(paR.data?.data ?? []);
         setSpecialCategories(scR.data?.data ?? []);
         setRemediationItems(riR.data?.data ?? []);
+        setDsars(dsarR.data?.data ?? []);
         setLoading(false);
       });
   }, [cid, refreshKey]);
@@ -1604,6 +1803,7 @@ function ClientDetail({ client }: { client: Client }) {
       case "tasks": res = await deleteTask(confirmDelete.id); break;
       case "correspondence": res = await deleteCorrespondence(confirmDelete.id); break;
       case "data_mapping": res = await deleteProcessingActivity(confirmDelete.id); break;
+      case "dsars": res = await deleteDSAR(confirmDelete.id); break;
     }
     setDeleting(false);
     if (!res?.error) { setConfirmDelete(null); refresh(); }
@@ -1612,7 +1812,7 @@ function ClientDetail({ client }: { client: Client }) {
   const flag = flagUrl(client.company_country);
   const tabBase: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12.5, fontWeight: 700, background: "none", border: "none", padding: "14px 14px", cursor: "pointer", marginBottom: -1, whiteSpace: "nowrap" };
   const addBtnSmall: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" };
-  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "" };
+  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "", dsars: "+ DSAR" };
 
   return (
     <div style={{ flex: 1, minWidth: 420, background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, boxShadow: "0 1px 3px rgba(26,28,30,.05)", overflow: "hidden" }}>
@@ -1677,7 +1877,17 @@ function ClientDetail({ client }: { client: Client }) {
               : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{correspondence.map((c) => <CorrespondenceCard key={c.id} c={c} onEdit={() => setModal({ type: "edit", entity: "correspondence", item: c })} onDelete={() => setConfirmDelete({ entity: "correspondence", id: c.id, label: c.subject })} />)}</div>)}
             {tab === "data_mapping" && (processingActivities.length === 0
               ? <EmptyTab title="No processing activities" subtitle="Document what personal data the client processes (ROPA)." />
-              : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{processingActivities.map((a) => <ProcessingActivityCard key={a.id} a={a} onEdit={() => setModal({ type: "edit", entity: "data_mapping", item: a })} onDelete={() => setConfirmDelete({ entity: "data_mapping", id: a.id, label: a.activity_name })} />)}</div>)}
+              : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button
+                      style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#1A1C1E", background: "#F5F0E8", border: "1px solid #D4C5A9", borderRadius: 6, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                      onClick={() => exportROPA({ clientName: client.company_name, activities: processingActivities, specialCategories })}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg> Export ROPA
+                    </button>
+                  </div>
+                  {processingActivities.map((a) => <ProcessingActivityCard key={a.id} a={a} onEdit={() => setModal({ type: "edit", entity: "data_mapping", item: a })} onDelete={() => setConfirmDelete({ entity: "data_mapping", id: a.id, label: a.activity_name })} />)}
+                </div>)}
             {tab === "special_categories" && (
               <div>
                 {specialCategories.length === 0 ? (
@@ -1693,6 +1903,9 @@ function ClientDetail({ client }: { client: Client }) {
             {tab === "remediation" && (
               <RemediationTab items={remediationItems} clientId={cid} onRefresh={refresh} />
             )}
+            {tab === "dsars" && (dsars.length === 0
+              ? <EmptyTab title="No data subject requests" subtitle="Log access, correction, or deletion requests here (POPIA s23-25)." />
+              : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{dsars.map((d) => <DSARCard key={d.id} d={d} onEdit={() => setModal({ type: "edit", entity: "dsars", item: d })} onDelete={() => setConfirmDelete({ entity: "dsars", id: d.id, label: `${d.request_type} — ${d.data_subject_name}` })} />)}</div>)}
           </>
         )}
       </div>
@@ -1704,6 +1917,7 @@ function ClientDetail({ client }: { client: Client }) {
       {modal?.entity === "correspondence" && <CorrespondenceFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal?.entity === "data_mapping" && <ProcessingActivityFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
       {modal?.entity === "special_categories" && modal.type === "edit" && <SpecialCategoryFormModal item={modal.item} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
+      {modal?.entity === "dsars" && <DSARFormModal clientId={cid} initial={modal.type === "edit" ? modal.item : undefined} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
       {/* Delete confirmation */}
       {confirmDelete && <ConfirmDialog title="Delete record" message={"Are you sure you want to delete \"" + confirmDelete.label + "\"? This cannot be undone."} onConfirm={handleDelete} onCancel={() => setConfirmDelete(null)} loading={deleting} />}
     </div>

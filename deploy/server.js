@@ -110,6 +110,7 @@ require("./server-client-management-routes");
 require("./server-agent-routes");
 require("./server-remediation-routes");
 require("./server-processing-routes");
+require("./server-dsar-routes");
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 

@@ -98,6 +98,54 @@ export type Correspondence = {
   updated_at: string;
 };
 
+// ─── Data Subject Requests (DSAR) Type ──────────────────────────────────────
+
+export type DataSubjectRequest = {
+  id: number; // SERIAL PK
+  client_id: string; // UUID FK
+  client_name?: string; // joined
+
+  // Request details
+  request_type: "access" | "correction" | "deletion" | "objection" | "portability" | "other";
+  description: string | null;
+
+  // Data subject
+  data_subject_name: string;
+  data_subject_email: string | null;
+  data_subject_phone: string | null;
+  data_subject_id_type: string | null;
+  data_subject_id_ref: string | null;
+  data_subject_category: string | null;
+  identity_verified: boolean;
+
+  // Workflow
+  status: "received" | "identity_verification" | "in_progress" | "awaiting_info" | "completed" | "refused" | "escalated" | "closed";
+  priority: "low" | "normal" | "high" | "urgent";
+  assigned_to: string | null;
+
+  // Dates
+  received_date: string;
+  acknowledged_date: string | null;
+  deadline: string | null;
+  completed_date: string | null;
+  closed_date: string | null;
+
+  // Response
+  response_summary: string | null;
+  refusal_reason: string | null;
+  third_parties_notified: boolean;
+  third_party_details: string | null;
+
+  // Evidence
+  evidence_description: string | null;
+  evidence_urls: string[] | null;
+
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 // ─── Remediation Items Type ─────────────────────────────────────────────────
 
 export type RemediationItem = {
@@ -327,4 +375,25 @@ export async function generateRemediationItems(clientId: string) {
   return cloudRunMutate<{ count: number; data: RemediationItem[]; skipped_compliant: number }>(
     `/api/clients/${clientId}/remediation/generate`, "POST", {}
   );
+}
+
+// ─── Data Subject Requests (DSAR) Fetchers ────────────────────────────────────
+
+export async function fetchDSARs(clientId: string) {
+  return cloudRunFetch<{ count: number; data: DataSubjectRequest[] }>(
+    `/api/clients/${clientId}/dsars`
+  );
+}
+export async function fetchAllDSARs(status?: string) {
+  const path = status ? `/api/dsars?status=${status}` : "/api/dsars";
+  return cloudRunFetch<{ count: number; data: DataSubjectRequest[] }>(path);
+}
+export async function createDSAR(clientId: string, data: Partial<DataSubjectRequest>) {
+  return cloudRunMutate<DataSubjectRequest>(`/api/clients/${clientId}/dsars`, "POST", data);
+}
+export async function updateDSAR(id: number | string, data: Partial<DataSubjectRequest>) {
+  return cloudRunMutate<DataSubjectRequest>(`/api/dsars/${id}`, "PUT", data);
+}
+export async function deleteDSAR(id: number | string) {
+  return cloudRunMutate<{ deleted: boolean }>(`/api/dsars/${id}`, "DELETE");
 }
