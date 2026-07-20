@@ -1444,15 +1444,21 @@ const SEVERITY_COLOR: Record<string, string> = {
   critical: "#CC0000", high: "#CC7700", medium: "#A67514", low: "#8E9196",
 };
 
-function RemediationCard({ item, onStatusChange }: { item: RemediationItem; onStatusChange: (status: string) => void }) {
+function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: (data: Partial<RemediationItem>) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [resolutionSummary, setResolutionSummary] = useState(item.resolution_summary ?? "");
+  const [evidenceDesc, setEvidenceDesc] = useState(item.evidence_description ?? "");
   const sevColor = SEVERITY_COLOR[item.severity] ?? "#8E9196";
   const statusMeta = REMEDIATION_STATUS_META[item.status] ?? REMEDIATION_STATUS_META.open;
   const overdue = item.due_date && new Date(item.due_date) < new Date() && !["resolved", "verified", "not_applicable", "accepted_risk"].includes(item.status);
+  const isResolved = ["resolved", "verified", "not_applicable", "accepted_risk"].includes(item.status);
+  const inputStyle = { fontFamily: "Manrope, sans-serif", fontSize: 12, width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #D4C5A9", background: "#FFFDF8" };
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "14px 16px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpanded(!expanded)}>
           <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, color: "#1A1C1E", lineHeight: 1.3 }}>
+            <span style={{ marginRight: 6, fontSize: 10, color: "#8E9196" }}>{expanded ? "▼" : "▶"}</span>
             {item.title}
             {item.popia_reference && <span style={{ fontWeight: 500, color: "#8E9196", marginLeft: 6, fontSize: 11 }}>POPIA {item.popia_reference}</span>}
           </div>
@@ -1465,7 +1471,13 @@ function RemediationCard({ item, onStatusChange }: { item: RemediationItem; onSt
           }}>{item.severity}</span>
           <select
             value={item.status}
-            onChange={(e) => onStatusChange(e.target.value)}
+            onChange={(e) => {
+              const newStatus = e.target.value;
+              const updates: Partial<RemediationItem> = { status: newStatus as RemediationItem["status"] };
+              if (newStatus === "resolved" && !item.resolved_date) updates.resolved_date = new Date().toISOString().slice(0, 10);
+              onUpdate(updates);
+              if (newStatus === "resolved" || newStatus === "in_progress") setExpanded(true);
+            }}
             style={{
               fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
               color: statusMeta.color, background: statusMeta.bg, border: `1px solid ${statusMeta.border}`,
@@ -1483,13 +1495,13 @@ function RemediationCard({ item, onStatusChange }: { item: RemediationItem; onSt
       </div>
       {item.description && (
         <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11.5, fontWeight: 500, lineHeight: 1.5, color: "#55524C", marginBottom: 6 }}>
-          {item.description.length > 200 ? item.description.slice(0, 200) + "…" : item.description}
+          {expanded ? item.description : (item.description.length > 200 ? item.description.slice(0, 200) + "…" : item.description)}
         </div>
       )}
       {item.recommendation && (
         <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#F0F7F1", borderRadius: 6, padding: "6px 10px", marginBottom: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Recommendation: </span>
-          {item.recommendation.length > 200 ? item.recommendation.slice(0, 200) + "…" : item.recommendation}
+          {expanded ? item.recommendation : (item.recommendation.length > 200 ? item.recommendation.slice(0, 200) + "…" : item.recommendation)}
         </div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#8E9196" }}>
@@ -1498,6 +1510,60 @@ function RemediationCard({ item, onStatusChange }: { item: RemediationItem; onSt
         {item.resolved_date && <span>Resolved: {fmtDate(item.resolved_date)}</span>}
         {item.verified_date && <span>Verified: {fmtDate(item.verified_date)} by {item.verified_by}</span>}
       </div>
+      {/* Expanded: resolution and evidence fields */}
+      {expanded && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E7D9BE" }}>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#6B6760", display: "block", marginBottom: 4 }}>Resolution summary</label>
+            <textarea
+              value={resolutionSummary}
+              onChange={(e) => setResolutionSummary(e.target.value)}
+              placeholder={isResolved ? "Describe what was done to resolve this item" : "Will be completed when status is set to Resolved"}
+              rows={2}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#6B6760", display: "block", marginBottom: 4 }}>Evidence / supporting documents</label>
+            <textarea
+              value={evidenceDesc}
+              onChange={(e) => setEvidenceDesc(e.target.value)}
+              placeholder="Reference policies, documents, or URLs that evidence compliance (e.g. privacy policy URL, IR registration reference)"
+              rows={2}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={() => {
+                onUpdate({ resolution_summary: resolutionSummary || null, evidence_description: evidenceDesc || null } as Partial<RemediationItem>);
+                setExpanded(false);
+              }}
+              style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#FFF", background: "#C5A059", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer" }}
+            >
+              Save
+            </button>
+          </div>
+          {item.resolution_summary && !expanded && (
+            <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#2E7D32", marginTop: 4 }}>
+              Resolution: {item.resolution_summary}
+            </div>
+          )}
+        </div>
+      )}
+      {/* Show resolution summary inline when collapsed and resolved */}
+      {!expanded && item.resolution_summary && (
+        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#E8F5E9", borderRadius: 6, padding: "6px 10px", marginTop: 6 }}>
+          <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Resolution: </span>
+          {item.resolution_summary.length > 150 ? item.resolution_summary.slice(0, 150) + "…" : item.resolution_summary}
+        </div>
+      )}
+      {!expanded && item.evidence_description && (
+        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#1565C0", background: "#E3F2FD", borderRadius: 6, padding: "6px 10px", marginTop: 4 }}>
+          <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Evidence: </span>
+          {item.evidence_description.length > 150 ? item.evidence_description.slice(0, 150) + "…" : item.evidence_description}
+        </div>
+      )}
     </div>
   );
 }
@@ -1515,8 +1581,8 @@ function RemediationTab({ items, clientId, onRefresh }: { items: RemediationItem
     onRefresh();
   }
 
-  async function handleStatusChange(id: number, status: string) {
-    await updateRemediationItem(id, { status: status as RemediationItem["status"] });
+  async function handleUpdate(id: number, data: Partial<RemediationItem>) {
+    await updateRemediationItem(id, data);
     onRefresh();
   }
 
@@ -1554,9 +1620,13 @@ function RemediationTab({ items, clientId, onRefresh }: { items: RemediationItem
         </button>
       </div>
       {genError && <p style={{ color: "#CC0000", fontSize: 12, marginBottom: 8 }}>{genError}</p>}
+      <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "Manrope, sans-serif", color: "#4A4637", lineHeight: 1.6, marginBottom: 10 }}>
+        <strong style={{ color: "#1A1C1E" }}>Remediation workflow</strong><br />
+        Each item below is a compliance gap identified from the POPIA assessment. Click the arrow to expand an item, then record what action you took in &quot;Resolution summary&quot; and reference supporting evidence (e.g. privacy policy URL, IR registration number). Change the status to &quot;Resolved&quot; once addressed, or &quot;Accepted risk&quot; with justification. Resolving items improves your Governance score.
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {items.map((item) => (
-          <RemediationCard key={item.id} item={item} onStatusChange={(s) => handleStatusChange(item.id, s)} />
+          <RemediationCard key={item.id} item={item} onUpdate={(data) => handleUpdate(item.id, data)} />
         ))}
       </div>
     </div>
@@ -1846,6 +1916,7 @@ function ClientDetail({ client }: { client: Client }) {
             specialCategories={specialCategories}
             breaches={breaches}
             tasks={tasks}
+            dsars={dsars}
           />
         </div>
       )}
@@ -1878,6 +1949,10 @@ function ClientDetail({ client }: { client: Client }) {
             {tab === "data_mapping" && (processingActivities.length === 0
               ? <EmptyTab title="No processing activities" subtitle="Document what personal data the client processes (ROPA)." />
               : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "Manrope, sans-serif", color: "#4A4637", lineHeight: 1.6 }}>
+                    <strong style={{ color: "#1A1C1E" }}>POPIA s14 — Record of Processing Activities (ROPA)</strong><br />
+                    Document each way this client processes personal data. For each activity, specify the legal basis, purpose, data types collected, retention period, and any cross-border transfers. Adding 5+ active activities brings the ROPA score to 100%. Use &quot;Export ROPA&quot; to generate the statutory document for the Information Regulator.
+                  </div>
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
                     <button
                       style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#1A1C1E", background: "#F5F0E8", border: "1px solid #D4C5A9", borderRadius: 6, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
@@ -1890,6 +1965,10 @@ function ClientDetail({ client }: { client: Client }) {
                 </div>)}
             {tab === "special_categories" && (
               <div>
+                <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "Manrope, sans-serif", color: "#4A4637", lineHeight: 1.6, marginBottom: 12 }}>
+                  <strong style={{ color: "#1A1C1E" }}>POPIA s26-33 — Special personal information</strong><br />
+                  POPIA defines 9 categories of special personal information (religious beliefs, race/ethnicity, trade union membership, political persuasion, health, sex life, biometric data, criminal behaviour, and children&apos;s data). Initialise all 9 categories below, then for each one record whether the client processes it, the legal basis, and safeguards in place. Some categories require prior authorisation from the Information Regulator.
+                </div>
                 {specialCategories.length === 0 ? (
                   <div style={{ textAlign: "center", padding: 32 }}>
                     <p style={{ color: "#8E9196", fontSize: 13, marginBottom: 12 }}>No special categories initialised yet.</p>

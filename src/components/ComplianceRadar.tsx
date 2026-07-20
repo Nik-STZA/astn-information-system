@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   RadarChart,
   PolarGrid,
@@ -27,6 +28,11 @@ type ComplianceRadarProps = {
   }[];
   breaches: { status: string; reported_to_ir: boolean }[];
   tasks: { status: string }[];
+  dsars?: {
+    status: string;
+    deadline: string | null;
+    completed_date: string | null;
+  }[];
 };
 
 /* ------------------------------------------------------------------ */
@@ -36,8 +42,16 @@ type ComplianceRadarProps = {
 function scoreIORegistration(
   registrations: ComplianceRadarProps["registrations"],
 ): number {
-  if (registrations.some((r) => r.registration_status === "active")) return 100;
-  if (registrations.some((r) => r.registration_status === "pending")) return 50;
+  if (registrations.some((r) => r.registration_status === "confirmed"))
+    return 100;
+  if (
+    registrations.some(
+      (r) =>
+        r.registration_status === "submitted" ||
+        r.registration_status === "pending",
+    )
+  )
+    return 50;
   return 0;
 }
 
@@ -80,6 +94,23 @@ function scoreGovernance(tasks: ComplianceRadarProps["tasks"]): number {
   return (completed / tasks.length) * 100;
 }
 
+function scoreDSR(dsars: ComplianceRadarProps["dsars"]): number {
+  if (!dsars || dsars.length === 0) return 0; // no process in place
+  const closed = dsars.filter(
+    (d) => d.status === "completed" || d.status === "closed",
+  );
+  if (closed.length === 0) return 30; // process exists but nothing completed yet
+  // Score on-time completion rate
+  const onTime = closed.filter((d) => {
+    if (!d.deadline || !d.completed_date) return true; // no deadline = on time
+    return d.completed_date <= d.deadline;
+  }).length;
+  const completionRate = closed.length / dsars.length;
+  const timelinessRate = onTime / closed.length;
+  // 60% weight on completion, 40% on timeliness
+  return Math.round((completionRate * 0.6 + timelinessRate * 0.4) * 100);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Brand colours                                                      */
 /* ------------------------------------------------------------------ */
@@ -104,11 +135,10 @@ interface CustomTickProps {
   x?: number;
   y?: number;
   payload?: TickPayload;
-  dsrIndex: number;
+  dsrIndex?: number;
 }
 
-function CustomTick({ x = 0, y = 0, payload, dsrIndex }: CustomTickProps) {
-  const isDSR = payload?.index === dsrIndex;
+function CustomTick({ x = 0, y = 0, payload }: CustomTickProps) {
   return (
     <g transform={`translate(${x},${y})`}>
       <text
@@ -116,30 +146,13 @@ function CustomTick({ x = 0, y = 0, payload, dsrIndex }: CustomTickProps) {
         y={0}
         textAnchor="middle"
         dominantBaseline="central"
-        fill={isDSR ? WARM_GREY : LABEL_LIGHT}
+        fill={LABEL_LIGHT}
         fontSize={11}
         fontFamily="Manrope, sans-serif"
         fontWeight={500}
-        opacity={isDSR ? 0.5 : 1}
       >
         {payload?.value ?? ""}
       </text>
-      {isDSR && (
-        <text
-          x={0}
-          y={14}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={WARM_GREY}
-          fontSize={9}
-          fontFamily="Manrope, sans-serif"
-          fontWeight={400}
-          fontStyle="italic"
-          opacity={0.6}
-        >
-          Coming soon
-        </text>
-      )}
     </g>
   );
 }
@@ -240,13 +253,16 @@ export default function ComplianceRadar({
   specialCategories,
   breaches,
   tasks,
+  dsars,
 }: ComplianceRadarProps) {
+  const [showKey, setShowKey] = useState(false);
+
   const scores = {
     io: scoreIORegistration(registrations),
     ropa: scoreROPA(processingActivities),
     special: scoreSpecialCategories(specialCategories),
     breach: scoreBreachReadiness(breaches),
-    dsr: 0,
+    dsr: scoreDSR(dsars),
     crossBorder: scoreCrossBorder(processingActivities),
     governance: scoreGovernance(tasks),
   };
@@ -261,12 +277,9 @@ export default function ComplianceRadar({
     { dimension: "Governance", score: scores.governance, target: 100 },
   ];
 
-  const DSR_INDEX = 4;
-
-  // Average excluding Data subject rights
-  const scoreable = dimensions.filter((_, i) => i !== DSR_INDEX);
+  // All dimensions now scored
   const overall =
-    scoreable.reduce((sum, d) => sum + d.score, 0) / scoreable.length;
+    dimensions.reduce((sum, d) => sum + d.score, 0) / dimensions.length;
 
   return (
     <div
@@ -328,7 +341,7 @@ export default function ComplianceRadar({
           fontWeight: 400,
         }}
       >
-        Average across scored dimensions (excl. data subject rights)
+        Average across all 7 compliance dimensions
       </p>
 
       {/* Chart */}
@@ -343,7 +356,7 @@ export default function ComplianceRadar({
                 x={props.x as number}
                 y={props.y as number}
                 payload={props.payload as TickPayload}
-                dsrIndex={DSR_INDEX}
+                dsrIndex={-1}
               />
             )}
           />
@@ -380,6 +393,129 @@ export default function ComplianceRadar({
       </ResponsiveContainer>
 
       <Legend />
+
+      {/* Scoring key toggle */}
+      <div style={{ textAlign: "center", marginTop: 12 }}>
+        <button
+          onClick={() => setShowKey(!showKey)}
+          style={{
+            background: "none",
+            border: `1px solid ${WARM_GREY}`,
+            borderRadius: 6,
+            color: LABEL_LIGHT,
+            fontSize: 11,
+            fontFamily: "Manrope, sans-serif",
+            fontWeight: 500,
+            padding: "6px 14px",
+            cursor: "pointer",
+            opacity: 0.8,
+          }}
+        >
+          {showKey ? "Hide scoring key" : "How is this scored?"}
+        </button>
+      </div>
+
+      {showKey && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: "16px 14px",
+            background: "#0F1113",
+            borderRadius: 10,
+            border: `1px solid ${WARM_GREY}33`,
+            fontFamily: "Manrope, sans-serif",
+            fontSize: 11,
+            lineHeight: 1.6,
+            color: LABEL_LIGHT,
+          }}
+        >
+          <p style={{ color: BRAND_GOLD, fontWeight: 700, fontSize: 12, margin: "0 0 10px" }}>
+            Scoring key
+          </p>
+
+          {[
+            {
+              label: "IO Registration",
+              score: scores.io,
+              desc: "Whether an Information Officer is registered with the Information Regulator (POPIA s55).",
+              action: scores.io < 100
+                ? "Go to the IO Registrations tab and add a registration with status \"confirmed\"."
+                : null,
+            },
+            {
+              label: "ROPA",
+              score: scores.ropa,
+              desc: "Record of Processing Activities completeness (POPIA s14). Scores by number of active processing activities documented.",
+              action: scores.ropa < 100
+                ? "Go to Data Mapping tab and add your processing activities (target: 5+ active activities for 100%)."
+                : null,
+            },
+            {
+              label: "Special categories",
+              score: scores.special,
+              desc: "Assessment of POPIA s26-33 special personal information categories. Scores by how many of the 9 categories have been assessed.",
+              action: scores.special < 100
+                ? "Go to Special Categories tab, initialise all 9 categories, and mark whether each is processed."
+                : null,
+            },
+            {
+              label: "Breach readiness",
+              score: scores.breach,
+              desc: "Breach notification compliance (POPIA s22). If no breaches recorded, scores 80% (untested). Otherwise scores by IR notification rate.",
+              action: scores.breach < 100 && breaches.length > 0
+                ? "Ensure all breach incidents have \"Reported to IR\" marked where applicable."
+                : null,
+            },
+            {
+              label: "Data subject rights",
+              score: scores.dsr,
+              desc: "DSAR handling capability (POPIA s23-25). Scores on: having a process (30%), completion rate (60% weight), and on-time response (40% weight).",
+              action: scores.dsr < 30
+                ? "Log DSARs in the DSARs tab to establish a data subject request process."
+                : scores.dsr < 100
+                  ? "Complete and close open DSARs within their 30-day deadline."
+                  : null,
+            },
+            {
+              label: "Cross-border",
+              score: scores.crossBorder,
+              desc: "Cross-border transfer compliance (POPIA s72). Scores by whether cross-border processing activities have a documented transfer mechanism.",
+              action: scores.crossBorder < 100
+                ? "In Data Mapping, ensure cross-border activities have a transfer mechanism (e.g. binding corporate rules, consent, adequate jurisdiction)."
+                : null,
+            },
+            {
+              label: "Governance",
+              score: scores.governance,
+              desc: "Task completion rate across all compliance tasks. If no tasks exist, scores 50% (no visibility).",
+              action: scores.governance < 100
+                ? "Complete outstanding compliance tasks, or generate remediation items to create a task backlog."
+                : null,
+            },
+          ].map((item) => (
+            <div key={item.label} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontWeight: 600 }}>{item.label}</span>
+                <span style={{
+                  color: item.score >= 80 ? "#2E7D32" : item.score >= 50 ? "#CC7700" : "#CC0000",
+                  fontWeight: 700,
+                  fontSize: 12,
+                }}>
+                  {Math.round(item.score)}%
+                </span>
+              </div>
+              <p style={{ margin: "2px 0 0", color: WARM_GREY, fontSize: 10.5 }}>
+                {item.desc}
+              </p>
+              {item.action && (
+                <p style={{ margin: "3px 0 0", color: BRAND_GOLD, fontSize: 10.5, fontWeight: 500 }}>
+                  Action: {item.action}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
