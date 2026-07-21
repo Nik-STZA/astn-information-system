@@ -844,7 +844,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
         if (client.company_website) {
           const raw = client.company_website.startsWith("http") ? client.company_website : `https://${client.company_website}`;
           const origin = new URL(raw).origin;
-          urls.push({ url: raw, document_type: "website", title: `${client.company_name} — website` });
+          urls.push({ url: raw, document_type: "other", title: `${client.company_name} — website` });
           urls.push({ url: `${origin}/privacy`, document_type: "privacy_policy", title: `${client.company_name} — privacy policy` });
           urls.push({ url: `${origin}/privacy-policy`, document_type: "privacy_policy", title: `${client.company_name} — privacy policy (alt)` });
           urls.push({ url: `${origin}/terms`, document_type: "terms_of_service", title: `${client.company_name} — terms` });
