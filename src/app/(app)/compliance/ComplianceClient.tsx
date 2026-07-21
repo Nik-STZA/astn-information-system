@@ -15,7 +15,9 @@ import {
   getProspectPipelineResults,
   verifyIRStatus,
   getJurisdictions,
-  runClientPipelineV2,
+  ingestClientDocuments,
+  analyseClientV2,
+  assessClientV2,
   getClientPipelineResultsV2,
 } from "./actions";
 
@@ -840,6 +842,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
     setV2Success(null);
     startV2(async () => {
       try {
+        // Step 1: Ingest documents (separate call to avoid Netlify timeout)
         const urls: Array<{ url: string; document_type: string; title?: string }> = [];
         if (client.company_website) {
           const raw = client.company_website.startsWith("http") ? client.company_website : `https://${client.company_website}`;
@@ -849,15 +852,32 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
           urls.push({ url: `${origin}/privacy-policy`, document_type: "privacy_policy", title: `${client.company_name} — privacy policy (alt)` });
           urls.push({ url: `${origin}/terms`, document_type: "terms_of_service", title: `${client.company_name} — terms` });
         }
-        const result = await runClientPipelineV2(client.id, selectedJurisdiction, urls);
-        if (result.error) {
-          setV2Error(result.error);
-        } else {
-          setV2Success("Pipeline complete");
-          loadV2Data();
+        if (urls.length > 0) {
+          const ingestResult = await ingestClientDocuments(client.id, urls);
+          if (ingestResult.error) {
+            setV2Error(`Ingest: ${ingestResult.error}`);
+            return;
+          }
         }
-      } catch {
-        setV2Error("Pipeline failed unexpectedly");
+
+        // Step 2: Extract evidence against jurisdiction
+        const analyseResult = await analyseClientV2(client.id, selectedJurisdiction);
+        if (analyseResult.error) {
+          setV2Error(`Analyse: ${analyseResult.error}`);
+          return;
+        }
+
+        // Step 3: Build scored assessment
+        const assessResult = await assessClientV2(client.id, selectedJurisdiction);
+        if (assessResult.error) {
+          setV2Error(`Assess: ${assessResult.error}`);
+          return;
+        }
+
+        setV2Success("Pipeline complete");
+        loadV2Data();
+      } catch (err) {
+        setV2Error(`Pipeline failed: ${err instanceof Error ? err.message : "unexpectedly"}`);
       } finally {
         setV2Running(false);
       }
