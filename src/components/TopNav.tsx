@@ -33,6 +33,7 @@ const GROUPS: NavGroup[] = [
       { href: "/data-protection/jurisdictions", label: "Jurisdictions" },
       { href: "/data-protection/editions", label: "Editions" },
       { href: "/compliance", label: "Compliance" },
+      { href: "/compliance/jurisdictions", label: "Knowledge base" },
     ],
   },
   {

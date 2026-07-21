@@ -139,6 +139,141 @@ export type ProspectAssessment = {
   created_at: string;
 };
 
+// ─── V2 Types (multi-jurisdiction, DB-driven engine) ────────────────────────
+
+export type Jurisdiction = {
+  id: number;
+  code: string;
+  name: string;
+  short_name: string;
+  country_iso: string;
+  enacted_date: string | null;
+  effective_date: string | null;
+  regulator_name: string | null;
+  regulator_url: string | null;
+  version: string;
+  is_active: boolean;
+  scoring_config: {
+    min_weight: number;
+    avg_weight: number;
+    mandatory_domains: string[];
+    mandatory_threshold?: number;
+  } | null;
+  domain_count: number;
+  requirement_count: number;
+};
+
+export type DomainScore = {
+  score: number;
+  weight: number;
+  name: string;
+  requirement_count: number;
+};
+
+export type ComplianceAssessmentV2 = {
+  id: number;
+  client_id: string;
+  jurisdiction_id: number;
+  jurisdiction?: string; // short_name from join
+  jurisdiction_name?: string;
+  jurisdiction_code?: string;
+  company_name?: string;
+  engagement_id: number | null;
+  assessment_type: string;
+  engine_version: string;
+  overall_score: number; // 0-100
+  domain_scores: Record<string, DomainScore>;
+  confidence_level: string;
+  status: string;
+  completed_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  working_papers: {
+    engine_version: string;
+    jurisdiction_code: string;
+    scoring_config: Record<string, unknown>;
+    evidence_summary: {
+      total_evidence: number;
+      keyword_evidence: number;
+      manual_evidence: number;
+      external_evidence: number;
+    };
+    severity_counts: Record<string, number>;
+    executive_summary: string;
+    risk_factors: Array<{ level: string; factor: string; note: string }>;
+    key_findings: Array<{
+      finding_id: number;
+      domain: string;
+      requirement: string;
+      severity: string;
+      finding: string;
+      evidence_count: number;
+      confidence: string;
+    }>;
+    recommendations: Array<{
+      priority: number;
+      action: string;
+      rationale: string;
+    }>;
+  } | null;
+  finding_count?: number;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type AssessmentFindingV2 = {
+  id: number;
+  assessment_id: number;
+  requirement_id: number;
+  domain_id: number;
+  requirement_code: string;
+  requirement_name: string;
+  domain_code: string;
+  domain_name: string;
+  status: string; // absent | partial | present
+  severity: string;
+  finding_text: string;
+  recommendation: string | null;
+  evidence_ids: number[];
+  evidence_count: number;
+  confidence: string;
+  confidence_factors: Record<string, unknown>;
+  score: number;
+};
+
+export type ComplianceDocumentV2 = {
+  id: number;
+  document_type: string;
+  title: string;
+  source_url: string | null;
+  word_count: number;
+  status: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComplianceEvidenceV2 = {
+  id: number;
+  requirement_code: string;
+  requirement_name: string;
+  document_title: string | null;
+  document_type: string | null;
+  matched_text: string;
+  context_text: string | null;
+  keyword_pattern: string | null;
+  keyword_class: string | null;
+  confidence: string;
+  extraction_method: string;
+  created_at: string;
+};
+
+export type AssessmentDetailV2 = {
+  assessment: ComplianceAssessmentV2;
+  findings: AssessmentFindingV2[];
+  documents_in_scope: ComplianceDocumentV2[];
+};
+
 // ─── Fetchers ────────────────────────────────────────────────────────────────
 
 export async function fetchProspects() {
@@ -220,4 +355,68 @@ export async function createActivity(data: Partial<Activity>) {
     "POST",
     data
   );
+}
+
+// ─── V2 Fetchers (multi-jurisdiction engine) ────────────────────────────────
+
+export async function fetchJurisdictions() {
+  return cloudRunFetch<{ count: number; data: Jurisdiction[] }>(
+    "/api/compliance/jurisdictions"
+  );
+}
+
+export async function fetchJurisdictionDetail(id: number) {
+  return cloudRunFetch<{
+    jurisdiction: Jurisdiction;
+    domains: Array<{ id: number; code: string; name: string; weight: number }>;
+    requirement_count: number;
+    keyword_count: number;
+  }>(`/api/compliance/jurisdictions/${id}`);
+}
+
+export type JurisdictionRequirement = {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  domain_id: number;
+  domain_code: string;
+  domain_name: string;
+  is_mandatory: boolean;
+  weight: number;
+  keyword_count: number;
+  keywords: Array<{ id: number; pattern: string; keyword_class: string; weight: number }>;
+};
+
+export async function fetchJurisdictionRequirements(id: number) {
+  return cloudRunFetch<{
+    jurisdiction: string;
+    count: number;
+    data: JurisdictionRequirement[];
+  }>(`/api/compliance/jurisdictions/${id}/requirements`);
+}
+
+export async function fetchClientDocumentsV2(clientId: string) {
+  return cloudRunFetch<{ count: number; data: ComplianceDocumentV2[] }>(
+    `/api/compliance/clients/${clientId}/documents`
+  );
+}
+
+export async function fetchClientAssessmentsV2(clientId: string) {
+  return cloudRunFetch<{ count: number; data: ComplianceAssessmentV2[] }>(
+    `/api/compliance/clients/${clientId}/assessments`
+  );
+}
+
+export async function fetchAssessmentDetailV2(assessmentId: number) {
+  return cloudRunFetch<AssessmentDetailV2>(
+    `/api/compliance/assessments/${assessmentId}`
+  );
+}
+
+export async function fetchClientEvidenceV2(clientId: string, jurisdictionId?: number) {
+  const path = jurisdictionId
+    ? `/api/compliance/clients/${clientId}/evidence?jurisdiction_id=${jurisdictionId}`
+    : `/api/compliance/clients/${clientId}/evidence`;
+  return cloudRunFetch<{ count: number; data: ComplianceEvidenceV2[] }>(path);
 }

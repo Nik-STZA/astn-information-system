@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition, useRef, useCallback } from "react";
+import { useState, useEffect, useTransition, useRef, useCallback } from "react";
 import Link from "next/link";
-import type { Prospect, Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
+import type { Prospect, Client, ProspectDocument, AnalysisFinding, ProspectAssessment, Jurisdiction, ComplianceAssessmentV2, ComplianceDocumentV2 } from "@/lib/data/compliance";
 import { flagUrl as sharedFlagUrl } from "@/lib/country-iso";
 import {
   addProspect,
@@ -14,6 +14,9 @@ import {
   runProspectPipeline,
   getProspectPipelineResults,
   verifyIRStatus,
+  getJurisdictions,
+  runClientPipelineV2,
+  getClientPipelineResultsV2,
 } from "./actions";
 
 /* ── Constants ─────────────────────────────────────────────────── */
@@ -352,6 +355,18 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
   );
 }
 
+
+/** Score badge for 0–100 scale (V2 engine). */
+function ScoreBadge100({ score, label }: { score: number; label: string }) {
+  const s = Math.round(score ?? 0);
+  const color = s >= 70 ? "#2E7D32" : s >= 40 ? "#A67514" : "#B4432C";
+  return (
+    <div style={{ textAlign: "center", padding: "8px 4px" }}>
+      <div style={{ fontWeight: 800, fontSize: 16, color }}>{s}</div>
+      <div style={{ fontWeight: 500, fontSize: 9, color: "#8E9196", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
+    </div>
+  );
+}
 
 function IRVerificationPanel({ prospect, onProspectUpdate }: { prospect: Prospect; onProspectUpdate?: (updated: Prospect) => void }) {
   const [open, setOpen] = useState(false);
@@ -793,7 +808,67 @@ function ProspectDetail({
 
 /* ── Client detail slide-out ───────────────────────────────────── */
 
-function ClientDetail({ client, onClose, onEdit, onAddActivity }: { client: Client; onClose: () => void; onEdit: () => void; onAddActivity: () => void }) {
+function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }: { client: Client; onClose: () => void; onEdit: () => void; onAddActivity: () => void; jurisdictions: Jurisdiction[] }) {
+  const [selectedJurisdiction, setSelectedJurisdiction] = useState<number | "">(jurisdictions.length === 1 ? jurisdictions[0].id : "");
+  const [v2Running, setV2Running] = useState(false);
+  const [v2Error, setV2Error] = useState<string | null>(null);
+  const [v2Success, setV2Success] = useState<string | null>(null);
+  const [v2Data, setV2Data] = useState<{
+    documents: ComplianceDocumentV2[];
+    assessments: ComplianceAssessmentV2[];
+    latestAssessment: ComplianceAssessmentV2 | null;
+  } | null>(null);
+  const [v2Loading, startV2] = useTransition();
+
+  const loadV2Data = useCallback(() => {
+    startV2(async () => {
+      const results = await getClientPipelineResultsV2(client.id);
+      setV2Data({
+        documents: results.documents,
+        assessments: results.assessments,
+        latestAssessment: results.latestAssessment,
+      });
+    });
+  }, [client.id]);
+
+  useEffect(() => { loadV2Data(); }, [loadV2Data]);
+
+  const handleRunV2Pipeline = useCallback(() => {
+    if (!selectedJurisdiction) return;
+    setV2Running(true);
+    setV2Error(null);
+    setV2Success(null);
+    startV2(async () => {
+      try {
+        const urls: Array<{ url: string; document_type: string; title?: string }> = [];
+        if (client.company_website) {
+          const raw = client.company_website.startsWith("http") ? client.company_website : `https://${client.company_website}`;
+          const origin = new URL(raw).origin;
+          urls.push({ url: raw, document_type: "website", title: `${client.company_name} — website` });
+          urls.push({ url: `${origin}/privacy`, document_type: "privacy_policy", title: `${client.company_name} — privacy policy` });
+          urls.push({ url: `${origin}/privacy-policy`, document_type: "privacy_policy", title: `${client.company_name} — privacy policy (alt)` });
+          urls.push({ url: `${origin}/terms`, document_type: "terms_of_service", title: `${client.company_name} — terms` });
+        }
+        const result = await runClientPipelineV2(client.id, selectedJurisdiction, urls);
+        if (result.error) {
+          setV2Error(result.error);
+        } else {
+          setV2Success("Pipeline complete");
+          loadV2Data();
+        }
+      } catch {
+        setV2Error("Pipeline failed unexpectedly");
+      } finally {
+        setV2Running(false);
+      }
+    });
+  }, [client, selectedJurisdiction, loadV2Data]);
+
+  const latestAssessment = v2Data?.latestAssessment;
+  const domainEntries = latestAssessment?.domain_scores
+    ? Object.entries(latestAssessment.domain_scores)
+    : [];
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)" }} onClick={onClose} />
@@ -861,6 +936,165 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity }: { client: Clie
               </div>
             </div>
           </div>
+
+          {/* ─── V2 Compliance Analysis Pipeline ─────────────────────── */}
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>
+              Compliance analysis
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <select
+                value={selectedJurisdiction}
+                onChange={(e) => setSelectedJurisdiction(e.target.value ? Number(e.target.value) : "")}
+                style={{ ...inputStyle, width: "100%" }}
+              >
+                <option value="">Select jurisdiction...</option>
+                {jurisdictions.map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {j.short_name} — {j.name} ({j.domain_count} domains, {j.requirement_count} requirements)
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={handleRunV2Pipeline}
+                disabled={v2Running || !selectedJurisdiction}
+                style={{
+                  width: "100%", padding: "10px 16px", borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+                  border: "none", cursor: v2Running || !selectedJurisdiction ? "not-allowed" : "pointer",
+                  background: v2Running || !selectedJurisdiction ? "#EEECE7" : "#1A1C1E",
+                  color: v2Running || !selectedJurisdiction ? "#8E9196" : "#FFFFFF",
+                  transition: "background .15s",
+                }}
+              >
+                {v2Running ? "Running pipeline..." : latestAssessment ? "Re-run analysis" : "Run compliance analysis"}
+              </button>
+
+              {v2Error && (
+                <p style={{ fontSize: 11, color: "#B4432C", background: "#FBE7E1", borderRadius: 6, padding: 10, margin: 0 }}>{v2Error}</p>
+              )}
+              {v2Success && !v2Error && (
+                <p style={{ fontSize: 11, color: "#2E7D32", background: "#E7F1EA", borderRadius: 6, padding: 10, margin: 0 }}>{v2Success}</p>
+              )}
+            </div>
+          </div>
+
+          {/* V2 loading indicator */}
+          {v2Loading && !v2Data && (
+            <p style={{ fontSize: 11.5, color: "#8E9196", fontStyle: "italic", margin: 0 }}>Loading assessment data...</p>
+          )}
+
+          {/* V2 empty state — data loaded but no assessments */}
+          {v2Data && !latestAssessment && v2Data.documents.length === 0 && !v2Loading && (
+            <div style={{
+              background: "rgba(197,160,89,.06)", border: "1px dashed #D4C5A9", borderRadius: 10,
+              padding: "16px 20px", textAlign: "center",
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--tx)", marginBottom: 4 }}>No assessments yet</div>
+              <p style={{ fontSize: 11.5, color: "#8E9196", margin: 0, lineHeight: 1.5 }}>
+                Select a jurisdiction above and run a compliance analysis to assess this client&apos;s data protection posture.
+              </p>
+            </div>
+          )}
+
+          {/* V2 Assessment results */}
+          {latestAssessment && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>
+                Assessment — {latestAssessment.jurisdiction ?? latestAssessment.jurisdiction_code ?? "unknown"}
+              </div>
+              <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      fontWeight: 800, fontSize: 24,
+                      color: latestAssessment.overall_score >= 70 ? "#2E7D32" : latestAssessment.overall_score >= 40 ? "#A67514" : "#B4432C",
+                    }}>
+                      {Math.round(latestAssessment.overall_score)}/100
+                    </span>
+                    <SeverityPill severity={latestAssessment.confidence_level ?? "medium"} />
+                  </div>
+                  <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>v{latestAssessment.engine_version}</span>
+                </div>
+
+                {domainEntries.length > 0 && (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${Math.min(domainEntries.length, 5)}, 1fr)`,
+                    gap: 4, borderTop: "1px solid var(--bd)", paddingTop: 10,
+                  }}>
+                    {domainEntries.map(([code, ds]) => (
+                      <ScoreBadge100 key={code} score={ds.score} label={ds.name} />
+                    ))}
+                  </div>
+                )}
+
+                {latestAssessment.working_papers?.executive_summary && (
+                  <p style={{ fontWeight: 500, fontSize: 11.5, color: "#55524C", margin: "12px 0 0", lineHeight: 1.5, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+                    {latestAssessment.working_papers.executive_summary.slice(0, 400)}
+                    {latestAssessment.working_papers.executive_summary.length > 400 ? "..." : ""}
+                  </p>
+                )}
+
+                <div style={{ marginTop: 12, borderTop: "1px solid var(--bd)", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196" }}>
+                    {latestAssessment.completed_at
+                      ? new Date(latestAssessment.completed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                      : "In progress"}
+                  </span>
+                  <Link
+                    href={`/compliance/assessment-v2/${latestAssessment.id}`}
+                    style={{ fontWeight: 600, fontSize: 11, color: "#B08D3F", textDecoration: "none" }}
+                  >
+                    View full report &rarr;
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* V2 Documents */}
+          {v2Data && v2Data.documents.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>
+                Documents ({v2Data.documents.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {v2Data.documents.slice(0, 8).map((doc) => (
+                  <div key={doc.id} style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: 12, color: "var(--tx)" }}>{doc.title || doc.document_type}</span>
+                      {doc.source_url && (
+                        <a href={doc.source_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "#B08D3F", textDecoration: "none" }}>source</a>
+                      )}
+                    </div>
+                    <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>
+                      {doc.word_count ? `${doc.word_count.toLocaleString("en-GB")} words` : doc.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Assessment history */}
+          {v2Data && v2Data.assessments.length > 1 && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>
+                Assessment history ({v2Data.assessments.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {v2Data.assessments.map((a) => (
+                  <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0" }}>
+                    <span style={{ color: "#55524C" }}>{a.jurisdiction ?? a.jurisdiction_code ?? "—"} — {Math.round(a.overall_score)}/100</span>
+                    <span style={{ color: "#8E9196", fontSize: 10 }}>
+                      {a.status} · {a.completed_at ? new Date(a.completed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "pending"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Activity summary */}
           <div>
@@ -988,7 +1222,16 @@ export default function ComplianceClient({
     assessment: ProspectAssessment | null;
   } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Prospect | null>(null);
+  const [jurisdictionsList, setJurisdictionsList] = useState<Jurisdiction[]>([]);
   const [isPending, startTransition] = useTransition();
+
+  // Load jurisdictions once on mount
+  useEffect(() => {
+    startTransition(async () => {
+      const res = await getJurisdictions();
+      if (res.data?.data) setJurisdictionsList(res.data.data);
+    });
+  }, []);
 
   /* Load pipeline results when a prospect with assessment data is selected */
   const loadPipelineData = useCallback(
@@ -1348,6 +1591,7 @@ export default function ComplianceClient({
           onClose={() => setSelectedClient(null)}
           onEdit={() => { setEditingClient(selectedClient); setShowClientForm(true); }}
           onAddActivity={() => setShowActivityForm(selectedClient)}
+          jurisdictions={jurisdictionsList}
         />
       )}
 

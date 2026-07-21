@@ -23,6 +23,7 @@ cp server-agent-routes.js deploy/
 cp server-remediation-routes.js deploy/
 cp server-processing-routes.js deploy/
 cp server-dsar-routes.js deploy/
+cp server-compliance-v2-routes.js deploy/
 
 echo "=== Building and deploying to Cloud Run ==="
 cd deploy

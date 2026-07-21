@@ -259,3 +259,154 @@ export async function getProspectPipelineResults(prospectId: string) {
     errors: [docs.error, findings.error, assessments.error].filter(Boolean),
   };
 }
+
+// ─── V2 Multi-jurisdiction pipeline actions ─────────────────────────────────
+
+import {
+  fetchJurisdictions,
+  fetchJurisdictionDetail,
+  fetchJurisdictionRequirements,
+  fetchClientDocumentsV2,
+  fetchClientAssessmentsV2,
+  fetchClientEvidenceV2,
+} from "@/lib/data/compliance";
+import type {
+  ComplianceDocumentV2,
+  ComplianceAssessmentV2,
+  ComplianceEvidenceV2,
+} from "@/lib/data/compliance";
+
+/** List active jurisdictions with domain/requirement counts. */
+export async function getJurisdictions() {
+  return fetchJurisdictions();
+}
+
+/** Get jurisdiction detail — domains, requirement/keyword counts. */
+export async function getJurisdictionDetail(id: number) {
+  return fetchJurisdictionDetail(id);
+}
+
+/** Get all requirements for a jurisdiction with keywords. */
+export async function getJurisdictionRequirements(id: number) {
+  return fetchJurisdictionRequirements(id);
+}
+
+/** Ingest documents for a compliance client (V2 engine). */
+export async function ingestClientDocuments(
+  clientId: string,
+  urls: Array<{ url: string; document_type: string; title?: string }>
+) {
+  const res = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/clients/${clientId}/documents/ingest`,
+    "POST",
+    { urls }
+  );
+  revalidatePath("/compliance");
+  return res;
+}
+
+/** Extract evidence from documents against a jurisdiction (V2 engine). */
+export async function analyseClientV2(
+  clientId: string,
+  jurisdictionId: number,
+  documentIds?: number[]
+) {
+  const body: Record<string, unknown> = { jurisdiction_id: jurisdictionId };
+  if (documentIds && documentIds.length > 0) {
+    body.document_ids = documentIds;
+  }
+  const res = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/clients/${clientId}/analyse`,
+    "POST",
+    body
+  );
+  revalidatePath("/compliance");
+  return res;
+}
+
+/** Generate scored assessment from evidence (V2 engine). */
+export async function assessClientV2(
+  clientId: string,
+  jurisdictionId: number,
+  options?: { engagement_id?: number; assessment_type?: string }
+) {
+  const res = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/clients/${clientId}/assess`,
+    "POST",
+    { jurisdiction_id: jurisdictionId, ...options }
+  );
+  revalidatePath("/compliance");
+  return res;
+}
+
+/** Run the full V2 pipeline: ingest → analyse → assess. */
+export async function runClientPipelineV2(
+  clientId: string,
+  jurisdictionId: number,
+  urls: Array<{ url: string; document_type: string; title?: string }>
+) {
+  const results: {
+    ingest?: PipelineStageResult;
+    analyse?: PipelineStageResult;
+    assess?: PipelineStageResult;
+    error?: string;
+  } = {};
+
+  // Step 1: Ingest documents
+  if (urls.length > 0) {
+    const ingestRes = await cloudRunMutate<PipelineStageResult>(
+      `/api/compliance/clients/${clientId}/documents/ingest`,
+      "POST",
+      { urls }
+    );
+    if (ingestRes.error) {
+      revalidatePath("/compliance");
+      return { ...results, ingest: ingestRes.data, error: ingestRes.error };
+    }
+    results.ingest = ingestRes.data ?? undefined;
+  }
+
+  // Step 2: Extract evidence
+  const analyseRes = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/clients/${clientId}/analyse`,
+    "POST",
+    { jurisdiction_id: jurisdictionId }
+  );
+  if (analyseRes.error) {
+    revalidatePath("/compliance");
+    return { ...results, analyse: analyseRes.data, error: analyseRes.error };
+  }
+  results.analyse = analyseRes.data ?? undefined;
+
+  // Step 3: Build assessment
+  const assessRes = await cloudRunMutate<PipelineStageResult>(
+    `/api/compliance/clients/${clientId}/assess`,
+    "POST",
+    { jurisdiction_id: jurisdictionId }
+  );
+  results.assess = assessRes.data ?? undefined;
+  if (assessRes.error) {
+    revalidatePath("/compliance");
+    return { ...results, error: assessRes.error };
+  }
+
+  revalidatePath("/compliance");
+  return results;
+}
+
+/** Fetch V2 pipeline results for a client. */
+export async function getClientPipelineResultsV2(clientId: string) {
+  const [docs, assessments, evidence] = await Promise.all([
+    fetchClientDocumentsV2(clientId),
+    fetchClientAssessmentsV2(clientId),
+    fetchClientEvidenceV2(clientId),
+  ]);
+  return {
+    documents: (docs.data?.data ?? []) as ComplianceDocumentV2[],
+    assessments: (assessments.data?.data ?? []) as ComplianceAssessmentV2[],
+    latestAssessment: ((assessments.data?.data ?? []) as ComplianceAssessmentV2[])
+      .filter((a) => a.status === "completed")[0] ?? null,
+    evidence: (evidence.data?.data ?? []) as ComplianceEvidenceV2[],
+    errors: [docs.error, assessments.error, evidence.error].filter(Boolean),
+  };
+}
