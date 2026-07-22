@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { PipelineOpportunity, DashboardStats } from "@/lib/data/pipeline";
-import { createOpportunity, updateOpportunity } from "@/lib/data/pipeline";
+import { createOpportunityAction, updateOpportunityAction } from "./actions";
 
 // ─── Stage metadata ──────────────────────────────────────────────────────────
 
@@ -289,8 +289,8 @@ function OpportunityForm({
     };
 
     const res = initial
-      ? await updateOpportunity(initial.id, payload)
-      : await createOpportunity(payload);
+      ? await updateOpportunityAction(initial.id, payload)
+      : await createOpportunityAction(payload);
     setSaving(false);
     if (res.error) {
       setError(res.error);

@@ -51,7 +51,7 @@ import {
   updateDSAR,
   deleteDSAR,
 } from "@/lib/data/client-management";
-import { createClient, updateClient } from "@/lib/data/compliance";
+import { createClientAction, updateClientAction } from "./actions";
 import ComplianceRadar from "@/components/ComplianceRadar";
 import { exportROPA } from "@/lib/export-ropa";
 
@@ -2071,7 +2071,7 @@ function AddClientModal({ onClose }: { onClose: () => void }) {
       annual_fee_gbp: fd.get("annual_fee_gbp") ? Number(fd.get("annual_fee_gbp")) : null,
       notes: (fd.get("notes") as string) || null,
     };
-    const res = await createClient(payload);
+    const res = await createClientAction(payload);
     setSaving(false);
     if (res.error) { setError(res.error); return; }
     window.location.reload();
@@ -2135,7 +2135,7 @@ function EditClientModal({ client, onClose, onSaved }: { client: Client; onClose
       annual_fee_gbp: fd.get("annual_fee_gbp") ? Number(fd.get("annual_fee_gbp")) : null,
       notes: (fd.get("notes") as string) || null,
     };
-    const res = await updateClient(client.id, payload);
+    const res = await updateClientAction(client.id, payload);
     setSaving(false);
     if (res.error) { setError(res.error); return; }
     onSaved();

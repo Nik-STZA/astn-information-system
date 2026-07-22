@@ -21,6 +21,7 @@ import {
   updateCorrespondence,
   deleteCorrespondence,
 } from "@/lib/data/client-management";
+import { createClient, updateClient, type Client } from "@/lib/data/compliance";
 import { revalidatePath } from "next/cache";
 
 // ─── Engagement actions ─────────────────────────────────────────────────────
@@ -241,6 +242,24 @@ export async function editCorrespondence(id: string, formData: FormData) {
 
 export async function removeCorrespondence(id: string) {
   const res = await deleteCorrespondence(id);
+  revalidatePath("/clients");
+  return res;
+}
+
+// ─── Client actions ─────────────────────────────────────────────────────────
+// These must stay server actions: cloudRunMutate reads CLOUD_RUN_API_KEY,
+// which only exists server-side. Calling the data-lib functions directly from
+// a client component sends the request from the browser without the API key
+// and gets a 401.
+
+export async function createClientAction(payload: Partial<Client>) {
+  const res = await createClient(payload);
+  revalidatePath("/clients");
+  return res;
+}
+
+export async function updateClientAction(id: string, payload: Partial<Client>) {
+  const res = await updateClient(id, payload);
   revalidatePath("/clients");
   return res;
 }

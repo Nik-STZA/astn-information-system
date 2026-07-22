@@ -4,8 +4,33 @@ import {
   createOpportunity,
   updateOpportunity,
   createInteraction,
+  type PipelineOpportunity,
 } from "@/lib/data/pipeline";
 import { revalidatePath } from "next/cache";
+
+// Object-payload actions used by PipelineClient's form modal. These must stay
+// server actions: cloudRunMutate reads CLOUD_RUN_API_KEY, which only exists
+// server-side — calling the data-lib functions directly from a client
+// component sends the request from the browser without the API key (401).
+
+export async function createOpportunityAction(
+  payload: Partial<PipelineOpportunity>
+) {
+  const res = await createOpportunity(payload);
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
+  return res;
+}
+
+export async function updateOpportunityAction(
+  id: number,
+  payload: Partial<PipelineOpportunity>
+) {
+  const res = await updateOpportunity(id, payload);
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
+  return res;
+}
 
 export async function addOpportunity(formData: FormData) {
   const data = {

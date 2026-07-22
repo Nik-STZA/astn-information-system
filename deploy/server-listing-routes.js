@@ -572,6 +572,97 @@ app.get("/api/bd/interactions", async (req, res) => {
   }
 });
 
+const BD_PIPELINE_FIELDS = [
+  "prospect_id", "client_id", "opportunity_name", "service_type", "stage",
+  "value_gbp", "value_recurring", "expected_close_date", "actual_close_date",
+  "loss_reason", "owner", "notes",
+];
+
+app.post("/api/bd/pipeline", async (req, res) => {
+  try {
+    const cols = [];
+    const values = [];
+    for (const key of BD_PIPELINE_FIELDS) {
+      if (req.body[key] !== undefined) {
+        cols.push(key);
+        values.push(req.body[key]);
+      }
+    }
+    if (cols.length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+    const placeholders = cols.map((_, i) => `$${i + 1}`);
+    const { rows } = await pool.query(
+      `INSERT INTO bd_pipeline (${cols.join(", ")})
+       VALUES (${placeholders.join(", ")}) RETURNING *`,
+      values
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("POST /api/bd/pipeline error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/bd/pipeline/:id", async (req, res) => {
+  try {
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+    for (const key of BD_PIPELINE_FIELDS) {
+      if (req.body[key] !== undefined) {
+        setClauses.push(`${key} = $${idx}`);
+        values.push(req.body[key]);
+        idx += 1;
+      }
+    }
+    if (setClauses.length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+    values.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE bd_pipeline SET ${setClauses.join(", ")}, updated_at = NOW()
+       WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("PUT /api/bd/pipeline/:id error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/bd/interactions", async (req, res) => {
+  try {
+    const allowed = [
+      "pipeline_id", "prospect_id", "interaction_date", "channel",
+      "direction", "summary", "next_action", "next_action_date",
+    ];
+    const cols = [];
+    const values = [];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        cols.push(key);
+        values.push(req.body[key]);
+      }
+    }
+    if (cols.length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+    const placeholders = cols.map((_, i) => `$${i + 1}`);
+    const { rows } = await pool.query(
+      `INSERT INTO bd_interactions (${cols.join(", ")})
+       VALUES (${placeholders.join(", ")}) RETURNING *`,
+      values
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("POST /api/bd/interactions error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Dashboard: Stats ──────────────────────────────────────────────────────
 
 app.get("/api/dashboard/stats", async (_req, res) => {
