@@ -14,6 +14,18 @@ import { isAllowed } from "@/lib/allowlist";
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
 
+  // IAP mode (Cloud Run behind the load balancer): authentication happened at
+  // the edge. Require the IAP assertion header as defence in depth — direct
+  // hits on the .run.app URL are already blocked by ingress settings, but a
+  // missing header should never fall through to an open page.
+  if (process.env.AUTH_MODE === "iap") {
+    const assertion = req.headers.get("x-goog-authenticated-user-email");
+    if (!assertion) {
+      return new NextResponse("Forbidden — this app is served via IAP.", { status: 403 });
+    }
+    return res;
+  }
+
   // Pass through public routes
   const publicPaths = ["/login", "/auth", "/blocked", "/_next", "/logos", "/favicon"];
   if (publicPaths.some((p) => req.nextUrl.pathname.startsWith(p))) {

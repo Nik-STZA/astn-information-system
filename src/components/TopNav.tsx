@@ -102,12 +102,23 @@ const activeLinkStyle: React.CSSProperties = {
   background: "#C5A059",
 };
 
-export default function TopNav({ userEmail }: { userEmail: string }) {
+export default function TopNav({
+  userEmail,
+  authMode = "supabase",
+}: {
+  userEmail: string;
+  authMode?: "iap" | "supabase";
+}) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
 
   const handleSignOut = async () => {
+    if (authMode === "iap") {
+      // IAP session cookie is cleared at the proxy, not in the app.
+      window.location.href = "/_gcp_iap/clear_login_cookie";
+      return;
+    }
+    const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     router.push("/login");
   };

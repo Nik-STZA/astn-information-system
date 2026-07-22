@@ -12,8 +12,10 @@ import { createBrowserClient } from "@supabase/ssr";
  * client-component imports.
  */
 export function createSupabaseBrowserClient() {
+  // Placeholder fallbacks keep the build (and the unused /login prerender)
+  // from crashing in IAP-mode deployments where these env vars are absent.
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder"
   );
 }

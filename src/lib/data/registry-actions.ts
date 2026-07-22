@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getAuthEmail } from "@/lib/auth";
 import { cloudRunMutate } from "@/lib/cloud-run";
 import {
   CONFIDENCE_BANDS,
@@ -50,16 +50,9 @@ export async function updateOrganization(
   const descriptor = typeof descriptorRaw === "string" ? descriptorRaw : "";
   patch.source_confidence = composeSourceConfidence(band, descriptor);
 
-  // Auth session still lives in Supabase until the IAP cutover — used here
-  // only to attribute the change in the audit log.
-  let changedBy = "system";
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data } = await supabase.auth.getUser();
-    if (data.user?.email) changedBy = data.user.email;
-  } catch {
-    // fall through with "system"
-  }
+  // Attribute the change in the audit log to the signed-in user (IAP header
+  // or Supabase session depending on deployment mode).
+  const changedBy = (await getAuthEmail()) ?? "system";
 
   const res = await cloudRunMutate<{ id: string; updated: boolean }>(
     `/api/organizations/${id}`,

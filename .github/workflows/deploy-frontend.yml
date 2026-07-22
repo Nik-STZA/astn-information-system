@@ -1,0 +1,53 @@
+name: Deploy Frontend (Cloud Run)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "next.config.js"
+      - "tailwind.config.ts"
+      - "tsconfig.json"
+      - "Dockerfile"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: astn-os
+          region: europe-west1
+          source: ./
+          env_vars: |
+            AUTH_MODE=iap
+            CLOUD_RUN_API_URL=https://africastn-api-782190795609.europe-west1.run.app
+          secrets: |
+            CLOUD_RUN_API_KEY=api-key:latest
+          flags: >-
+            --memory=1Gi
+            --cpu=1
+            --min-instances=0
+            --max-instances=3
+            --timeout=60
+            --allow-unauthenticated
+            --ingress=internal-and-cloud-load-balancing

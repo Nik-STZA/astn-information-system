@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+deploy
+migrations
+scripts
+docs
+*.md
+.env*
+Dockerfile
+.dockerignore
