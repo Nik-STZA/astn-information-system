@@ -360,8 +360,11 @@ app.post("/api/compliance/prospects/:id/assessments", async (req, res) => {
   }
 });
 
-// Get a single assessment
-app.get("/api/compliance/assessments/:id", async (req, res) => {
+// Get a single prospect assessment
+// NOTE: path is prospect-assessments (not assessments) — the bare
+// /api/compliance/assessments/:id belongs to the V2 engine in
+// server-compliance-v2-routes.js and was previously shadowed by this route.
+app.get("/api/compliance/prospect-assessments/:id", async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT * FROM prospect_assessments WHERE id = $1",
@@ -375,8 +378,8 @@ app.get("/api/compliance/assessments/:id", async (req, res) => {
   }
 });
 
-// Update an assessment (human review, status change)
-app.put("/api/compliance/assessments/:id", async (req, res) => {
+// Update a prospect assessment (human review, status change)
+app.put("/api/compliance/prospect-assessments/:id", async (req, res) => {
   try {
     const fields = req.body;
     const setClauses = [];

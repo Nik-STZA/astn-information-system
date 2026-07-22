@@ -50,11 +50,14 @@ app.use("/api", (req, res, next) => {
   // Allow health check without auth
   if (req.path === "/health") return next();
 
-  const apiKey = process.env.API_KEY;
+  // trim() guards against a secret stored with a trailing newline (this
+  // happened in production: `echo key | gcloud secrets create` bakes in CRLF,
+  // making every comparison fail with a 401).
+  const apiKey = process.env.API_KEY && process.env.API_KEY.trim();
   if (!apiKey) return next(); // No key configured = open (dev only)
 
   const provided = req.headers["x-api-key"];
-  if (!provided || provided !== apiKey) {
+  if (!provided || provided.trim() !== apiKey) {
     return res.status(401).json({ error: "Unauthorized — invalid API key" });
   }
   next();

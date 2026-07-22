@@ -298,8 +298,19 @@ app.post("/api/compliance/activities", async (req, res) => {
 
 app.get("/api/countries", async (_req, res) => {
   try {
+    // Latest maturity score per country joined in — the frontend Country type
+    // expects overall_score, tier, and methodology_version on each row.
     const { rows } = await pool.query(
-      `SELECT * FROM dp_countries ORDER BY country_name`
+      `SELECT c.*, m.overall_score, m.tier, m.methodology_version
+       FROM dp_countries c
+       LEFT JOIN LATERAL (
+         SELECT overall_score, tier, methodology_version
+         FROM dp_maturity_scores
+         WHERE country_id = c.id
+         ORDER BY score_date DESC
+         LIMIT 1
+       ) m ON true
+       ORDER BY c.country_name`
     );
     res.json({ count: rows.length, data: rows });
   } catch (err) {
@@ -328,10 +339,24 @@ app.get("/api/countries/:id", async (req, res) => {
     let enforcementActions = [];
     try {
       const { rows } = await pool.query(
-        `SELECT * FROM enforcement_actions WHERE country_id = $1 ORDER BY action_date DESC`,
+        `SELECT e.*, c.country_name
+         FROM dp_enforcement_actions e
+         JOIN dp_countries c ON c.id = e.country_id
+         WHERE e.country_id = $1
+         ORDER BY e.action_date DESC`,
         [req.params.id]
       );
       enforcementActions = rows;
+    } catch (_) { /* table may not exist */ }
+
+    // Maturity score history for this country
+    let maturityScores = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM dp_maturity_scores WHERE country_id = $1 ORDER BY score_date DESC`,
+        [req.params.id]
+      );
+      maturityScores = rows;
     } catch (_) { /* table may not exist */ }
 
     // Organisation count from Supabase would need a separate call;
@@ -340,7 +365,7 @@ app.get("/api/countries/:id", async (req, res) => {
       ...country,
       enforcement_actions: enforcementActions,
       organization_count: 0,
-      maturity_scores: [],
+      maturity_scores: maturityScores,
     });
   } catch (err) {
     console.error("GET /api/countries/:id error:", err.message);
@@ -352,33 +377,28 @@ app.get("/api/countries/:id", async (req, res) => {
 
 app.get("/api/maturity", async (_req, res) => {
   try {
+    // Maturity dimensions live on dp_maturity_scores (latest score per country),
+    // country descriptors on dp_countries.
     const { rows } = await pool.query(
-      `SELECT country_name, iso_code, has_dp_law, law_status,
-              authority_name, overall_score, tier,
-              regulatory_maturity, enforcement_activity,
-              business_friendliness, cross_border_complexity,
-              children_protections
-       FROM dp_countries
-       ORDER BY overall_score DESC NULLS LAST, country_name`
+      `SELECT c.country_name, c.iso_code, c.has_dp_law, c.law_status,
+              c.authority_name,
+              m.overall_score, m.tier,
+              m.regulatory_maturity, m.enforcement_activity,
+              m.business_friendliness, m.cross_border_complexity,
+              m.children_protections
+       FROM dp_countries c
+       LEFT JOIN LATERAL (
+         SELECT * FROM dp_maturity_scores
+         WHERE country_id = c.id
+         ORDER BY score_date DESC
+         LIMIT 1
+       ) m ON true
+       ORDER BY m.overall_score DESC NULLS LAST, c.country_name`
     );
     res.json({ count: rows.length, data: rows });
   } catch (err) {
-    // If columns don't exist, try simpler query
-    if (err.message && (err.message.includes("does not exist"))) {
-      try {
-        const { rows } = await pool.query(
-          `SELECT country_name, iso_code, has_dp_law, law_status,
-                  authority_name, overall_score, tier
-           FROM dp_countries
-           ORDER BY overall_score DESC NULLS LAST, country_name`
-        );
-        return res.json({ count: rows.length, data: rows });
-      } catch (innerErr) {
-        if (innerErr.message && innerErr.message.includes("does not exist")) {
-          return res.json({ count: 0, data: [] });
-        }
-        return res.status(500).json({ error: innerErr.message });
-      }
+    if (err.message && err.message.includes("does not exist")) {
+      return res.json({ count: 0, data: [] });
     }
     console.error("GET /api/maturity error:", err.message);
     res.status(500).json({ error: err.message });
@@ -389,8 +409,12 @@ app.get("/api/maturity", async (_req, res) => {
 
 app.get("/api/enforcement", async (_req, res) => {
   try {
+    // Table is dp_enforcement_actions; country_name joined in for display.
     const { rows } = await pool.query(
-      `SELECT * FROM enforcement_actions ORDER BY action_date DESC NULLS LAST`
+      `SELECT e.*, c.country_name
+       FROM dp_enforcement_actions e
+       JOIN dp_countries c ON c.id = e.country_id
+       ORDER BY e.action_date DESC NULLS LAST`
     );
     res.json({ count: rows.length, data: rows });
   } catch (err) {
@@ -398,6 +422,107 @@ app.get("/api/enforcement", async (_req, res) => {
       return res.json({ count: 0, data: [] });
     }
     console.error("GET /api/enforcement error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Content Engine ────────────────────────────────────────────────────────
+// Consumed by /content pages via src/lib/data/content.ts.
+
+app.get("/api/content/editions", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT e.*, c.country_name
+       FROM content_editions e
+       LEFT JOIN dp_countries c ON c.id = e.country_id
+       ORDER BY e.edition_number`
+    );
+    res.json({ count: rows.length, data: rows });
+  } catch (err) {
+    if (err.message && err.message.includes("does not exist")) {
+      return res.json({ count: 0, data: [] });
+    }
+    console.error("GET /api/content/editions error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/content/weekly-reports", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM weekly_reports ORDER BY created_at DESC`
+    );
+    res.json({ count: rows.length, data: rows });
+  } catch (err) {
+    if (err.message && err.message.includes("does not exist")) {
+      return res.json({ count: 0, data: [] });
+    }
+    console.error("GET /api/content/weekly-reports error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/content/editions", async (req, res) => {
+  try {
+    const allowed = [
+      "series", "edition_number", "country_id", "title", "subtitle",
+      "status", "target_publish_date", "actual_publish_date",
+      "file_path", "word_count",
+    ];
+    const cols = [];
+    const values = [];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        cols.push(key);
+        values.push(req.body[key]);
+      }
+    }
+    if (cols.length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+    const placeholders = cols.map((_, i) => `$${i + 1}`);
+    const { rows } = await pool.query(
+      `INSERT INTO content_editions (${cols.join(", ")})
+       VALUES (${placeholders.join(", ")}) RETURNING *`,
+      values
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("POST /api/content/editions error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/content/editions/:id", async (req, res) => {
+  try {
+    const allowed = [
+      "series", "edition_number", "country_id", "title", "subtitle",
+      "status", "target_publish_date", "actual_publish_date",
+      "file_path", "word_count",
+    ];
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        setClauses.push(`${key} = $${idx}`);
+        values.push(req.body[key]);
+        idx += 1;
+      }
+    }
+    if (setClauses.length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+    values.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE content_editions SET ${setClauses.join(", ")}, updated_at = NOW()
+       WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("PUT /api/content/editions/:id error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -580,7 +705,7 @@ app.get("/api/summary", async (_req, res) => {
     // Each query is wrapped so a missing table doesn't kill the whole endpoint
     const queries = [
       { key: "countries", sql: `SELECT count(*) AS c FROM dp_countries` },
-      { key: "enforcement_actions", sql: `SELECT count(*) AS c FROM enforcement_actions` },
+      { key: "enforcement_actions", sql: `SELECT count(*) AS c FROM dp_enforcement_actions` },
       { key: "prospects", sql: `SELECT count(*) AS c FROM compliance_prospects` },
       { key: "clients", sql: `SELECT count(*) AS c FROM compliance_clients` },
       { key: "pipeline_opportunities", sql: `SELECT count(*) AS c FROM bd_pipeline` },
