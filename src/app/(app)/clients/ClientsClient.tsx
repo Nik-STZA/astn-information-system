@@ -50,7 +50,7 @@ import {
   createDSAR,
   updateDSAR,
   deleteDSAR,
-} from "@/lib/data/client-management";
+} from "./actions";
 import { createClientAction, updateClientAction } from "./actions";
 import ComplianceRadar from "@/components/ComplianceRadar";
 import { exportROPA } from "@/lib/export-ropa";
@@ -1910,6 +1910,33 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
         </div>
       </div>
       {showEditClient && <EditClientModal client={client} onClose={() => setShowEditClient(false)} onSaved={() => { setShowEditClient(false); onClientUpdated?.(); }} />}
+      {/* IR verification carried over from the compliance pipeline (prospect link, migration 016) */}
+      {client.prospect_ir_registered != null && (
+        <div style={{ margin: "0 24px 14px", padding: "12px 16px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--table-header)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>IR verification</span>
+            <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 700, color: client.prospect_ir_registered ? "var(--success-green)" : "var(--risk-red)" }}>
+              {client.prospect_ir_registered ? "Registered" : "Not registered"}
+            </span>
+            {client.prospect_ir_registration_no && (
+              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "var(--tx)", fontVariantNumeric: "tabular-nums" }}>No. {client.prospect_ir_registration_no}</span>
+            )}
+            {client.prospect_ir_io_name && (
+              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "var(--label-text)" }}>
+                IO: {client.prospect_ir_io_name}{client.prospect_ir_io_designation ? ` (${client.prospect_ir_io_designation})` : ""}
+              </span>
+            )}
+            {client.prospect_ir_verified_date && (
+              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 11.5, fontWeight: 500, color: "var(--sub)" }}>
+                Verified {new Date(client.prospect_ir_verified_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+              </span>
+            )}
+          </div>
+          <a href="/compliance" style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none", whiteSpace: "nowrap" }}>
+            View compliance pipeline →
+          </a>
+        </div>
+      )}
       {/* Compliance radar */}
       {!loading && (
         <div style={{ padding: "0 24px 8px" }}>

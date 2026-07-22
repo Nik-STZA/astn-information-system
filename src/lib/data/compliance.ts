@@ -67,6 +67,22 @@ export type Client = {
   activity_count: number;
   created_at: string;
   updated_at: string;
+  // Pipeline linkage (migration 016): the prospect this client was converted
+  // from, plus its IR verification data joined in by the API so the client
+  // workspace shows the same record as the compliance pipeline.
+  prospect_id?: string | null;
+  ir_registration_number?: string | null;
+  ir_registration_date?: string | null;
+  io_appointed?: string | null;
+  prospect_ir_registered?: boolean | null;
+  prospect_ir_entity_name?: string | null;
+  prospect_ir_registration_no?: string | null;
+  prospect_ir_registration_date?: string | null;
+  prospect_ir_io_name?: string | null;
+  prospect_ir_io_designation?: string | null;
+  prospect_ir_organisation_type?: string | null;
+  prospect_ir_verified_date?: string | null;
+  prospect_research_status?: string | null;
 };
 
 export type Activity = {

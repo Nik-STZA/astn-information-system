@@ -48,10 +48,22 @@ app.get("/api/compliance/prospects", async (_req, res) => {
 
 app.get("/api/compliance/clients", async (_req, res) => {
   try {
+    // Prospect IR/pipeline data joined in via prospect_id (migration 016) so
+    // the client workspace shows the same record as the compliance pipeline.
     const { rows } = await pool.query(
       `SELECT c.*,
-              COALESCE(a.activity_count, 0) AS activity_count
+              COALESCE(a.activity_count, 0) AS activity_count,
+              p.ir_registered AS prospect_ir_registered,
+              p.ir_entity_name AS prospect_ir_entity_name,
+              p.ir_registration_no AS prospect_ir_registration_no,
+              p.ir_registration_date AS prospect_ir_registration_date,
+              p.ir_io_name AS prospect_ir_io_name,
+              p.ir_io_designation AS prospect_ir_io_designation,
+              p.ir_organisation_type AS prospect_ir_organisation_type,
+              p.ir_verified_date AS prospect_ir_verified_date,
+              p.research_status AS prospect_research_status
        FROM compliance_clients c
+       LEFT JOIN compliance_prospects p ON p.id = c.prospect_id
        LEFT JOIN (
          SELECT client_id, COUNT(*) AS activity_count
          FROM compliance_activities

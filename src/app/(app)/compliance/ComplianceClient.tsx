@@ -41,7 +41,7 @@ const SERVICE_TIERS = ["essential", "professional", "enterprise"];
 /* ── Pill colour metadata ──────────────────────────────────────── */
 
 const STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
-  identified: { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" },
+  identified: { color: "var(--sub)", bg: "#EEECE7", border: "#DED9CE" },
   researched: { color: "#3E6B8E", bg: "#E7EEF4", border: "#C6D8E5" },
   contacted:  { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
   responded:  { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
@@ -52,23 +52,23 @@ const STATUS_META: Record<string, { color: string; bg: string; border: string }>
 const PRIORITY_META: Record<string, { color: string; bg: string; border: string }> = {
   high:   { color: "#B4432C", bg: "#FBE7E1", border: "#EDCBBF" },
   medium: { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
-  low:    { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" },
+  low:    { color: "var(--sub)", bg: "#EEECE7", border: "#DED9CE" },
 };
 
 const CLIENT_STATUS_META: Record<string, { color: string; bg: string; border: string }> = {
-  prospect:   { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" },
+  prospect:   { color: "var(--sub)", bg: "#EEECE7", border: "#DED9CE" },
   onboarding: { color: "#3E6B8E", bg: "#E7EEF4", border: "#C6D8E5" },
   engaged:    { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
   paused:     { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
   churned:    { color: "#CC0000", bg: "#FBE3E3", border: "#E6C4C4" },
 };
 
-const PILL_UNSET = { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" };
+const PILL_UNSET = { color: "var(--sub)", bg: "#EEECE7", border: "#DED9CE" };
 
 /* ── Shared components ─────────────────────────────────────────── */
 
 function Pill({ value, meta }: { value: string | null; meta: Record<string, { color: string; bg: string; border: string }> }) {
-  if (!value) return <span style={{ fontSize: 12, color: "#B9B2A2" }}>{"—"}</span>;
+  if (!value) return <span style={{ fontSize: 12, color: "var(--empty-text)" }}>{"—"}</span>;
   const m = meta[value] ?? PILL_UNSET;
   return (
     <span
@@ -103,7 +103,7 @@ function StatCard({ label, value, dashed }: { label: string; value: string; dash
       <div className={dashed ? "kpi-number-empty" : ""} style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.1, color: dashed ? "#B9B2A2" : "var(--tx)" }}>
         {value}
       </div>
-      <div style={{ fontWeight: 500, fontSize: 11.5, color: "#8E9196", marginTop: 4 }}>
+      <div style={{ fontWeight: 500, fontSize: 11.5, color: "var(--sub)", marginTop: 4 }}>
         {label}
       </div>
     </div>
@@ -124,14 +124,14 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 function DetailRow({ label, value, link }: { label: string; value: string | null | undefined; link?: boolean }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-      <span style={{ fontWeight: 500, fontSize: 12.5, color: "#8E9196", width: 140, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontWeight: 500, fontSize: 12.5, color: "var(--sub)", width: 140, flexShrink: 0 }}>{label}</span>
       {value ? (
         link ? (
           <a
             href={value.startsWith("http") ? value : `https://${value}`}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontWeight: 500, fontSize: 12.5, color: "#B08D3F", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            style={{ fontWeight: 500, fontSize: 12.5, color: "var(--gold-dark)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
           >
             {value}
           </a>
@@ -139,7 +139,7 @@ function DetailRow({ label, value, link }: { label: string; value: string | null
           <span style={{ fontWeight: 500, fontSize: 12.5, color: "var(--tx)" }}>{value}</span>
         )
       ) : (
-        <span style={{ fontWeight: 500, fontSize: 12.5, color: "#B9B2A2" }}>{"—"}</span>
+        <span style={{ fontWeight: 500, fontSize: 12.5, color: "var(--empty-text)" }}>{"—"}</span>
       )}
     </div>
   );
@@ -176,7 +176,7 @@ const btnSecondaryStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: 12,
   lineHeight: 1,
-  color: "#55524C",
+  color: "var(--label-text)",
   background: "var(--pnl)",
   border: "1px solid #D4C5A9",
   borderRadius: 6,
@@ -206,7 +206,7 @@ function Modal({ open, onClose, title, children }: { open: boolean; onClose: () 
       <div style={{ position: "relative", background: "var(--pnl)", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "80vh", overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid var(--bd)" }}>
           <h3 style={{ fontWeight: 700, fontSize: 16, color: "var(--tx)", margin: 0 }}>{title}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#8E9196", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--sub)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
         </div>
         <div style={{ padding: "16px 24px" }}>{children}</div>
       </div>
@@ -277,7 +277,7 @@ function ProspectForm({ prospect, onClose }: { prospect?: Prospect; onClose: () 
 
       {/* Document / URL fields */}
       <div style={{ border: "1px solid var(--bd)", borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#8E9196" }}>Documents &amp; URLs for review</div>
+        <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--sub)" }}>Documents &amp; URLs for review</div>
         <FormField label="Privacy policy URL">
           <input name="privacy_policy_url" type="url" defaultValue={prospect?.privacy_policy_url ?? ""} style={inputStyle} placeholder="https://example.com/privacy" />
         </FormField>
@@ -330,7 +330,7 @@ function SeverityPill({ severity }: { severity: string }) {
     critical: { color: "#CC0000", bg: "#FBE3E3", border: "#E6C4C4" },
     high: { color: "#B4432C", bg: "#FBE7E1", border: "#EDCBBF" },
     medium: { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
-    low: { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" },
+    low: { color: "var(--sub)", bg: "#EEECE7", border: "#DED9CE" },
     info: { color: "#3E6B8E", bg: "#E7EEF4", border: "#C6D8E5" },
   };
   const m = meta[severity] ?? meta.info;
@@ -352,7 +352,7 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
   return (
     <div style={{ textAlign: "center", padding: "8px 4px" }}>
       <div style={{ fontWeight: 800, fontSize: 18, color }}>{s}</div>
-      <div style={{ fontWeight: 500, fontSize: 9, color: "#8E9196", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
+      <div style={{ fontWeight: 500, fontSize: 9, color: "var(--sub)", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
     </div>
   );
 }
@@ -365,7 +365,7 @@ function ScoreBadge100({ score, label }: { score: number; label: string }) {
   return (
     <div style={{ textAlign: "center", padding: "8px 4px" }}>
       <div style={{ fontWeight: 800, fontSize: 16, color }}>{s}</div>
-      <div style={{ fontWeight: 500, fontSize: 9, color: "#8E9196", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
+      <div style={{ fontWeight: 500, fontSize: 9, color: "var(--sub)", marginTop: 2, lineHeight: 1.2 }}>{label}</div>
     </div>
   );
 }
@@ -375,8 +375,8 @@ function IRVerificationPanel({ prospect, onProspectUpdate }: { prospect: Prospec
   const [saving, startSaving] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
   const isVerified = prospect.ir_verification_method && prospect.ir_verification_method !== "assumed";
-  const headerStyle: React.CSSProperties = { fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#8E9196", marginBottom: 10 };
-  const labelStyle: React.CSSProperties = { fontWeight: 500, fontSize: 10.5, color: "#B9B2A2", marginBottom: 3 };
+  const headerStyle: React.CSSProperties = { fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "var(--sub)", marginBottom: 10 };
+  const labelStyle: React.CSSProperties = { fontWeight: 500, fontSize: 10.5, color: "var(--empty-text)", marginBottom: 3 };
   const inputStyle: React.CSSProperties = { width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--bd)", fontSize: 12.5, fontFamily: "inherit", background: "var(--pnl)", color: "var(--tx)" };
 
   const handleSubmit = () => {
@@ -419,61 +419,61 @@ function IRVerificationPanel({ prospect, onProspectUpdate }: { prospect: Prospec
         <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14, marginTop: 6 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5 }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8E9196" }}>Status</span>
+              <span style={{ color: "var(--sub)" }}>Status</span>
               <span style={{ fontWeight: 600, color: prospect.ir_registered ? "#2E7D32" : "#B4432C" }}>
                 {prospect.ir_registered ? "Registered" : "Not registered"}
               </span>
             </div>
             {prospect.ir_entity_name && (
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8E9196" }}>Entity name</span>
+                <span style={{ color: "var(--sub)" }}>Entity name</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_entity_name}</span>
               </div>
             )}
             {prospect.ir_registration_no && (
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8E9196" }}>Registration no.</span>
+                <span style={{ color: "var(--sub)" }}>Registration no.</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_registration_no}</span>
               </div>
             )}
             {prospect.ir_registration_date && (
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8E9196" }}>Registration date</span>
+                <span style={{ color: "var(--sub)" }}>Registration date</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>{new Date(prospect.ir_registration_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
               </div>
             )}
             {prospect.ir_organisation_type && (
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8E9196" }}>Organisation type</span>
+                <span style={{ color: "var(--sub)" }}>Organisation type</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.ir_organisation_type}</span>
               </div>
             )}
             {prospect.ir_io_name && (
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8E9196" }}>Information Officer</span>
+                <span style={{ color: "var(--sub)" }}>Information Officer</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>
                   {prospect.ir_io_name}{prospect.ir_io_designation ? ` (${prospect.ir_io_designation})` : ""}
                 </span>
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8E9196" }}>Verified</span>
+              <span style={{ color: "var(--sub)" }}>Verified</span>
               <span style={{ fontWeight: 500, color: "var(--tx)" }}>
                 {prospect.ir_verified_date ? new Date(prospect.ir_verified_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"} via portal
               </span>
             </div>
             {prospect.ir_verification_notes && (
-              <p style={{ fontSize: 11.5, color: "#55524C", margin: "4px 0 0", lineHeight: 1.4, fontStyle: "italic" }}>{prospect.ir_verification_notes}</p>
+              <p style={{ fontSize: 11.5, color: "var(--label-text)", margin: "4px 0 0", lineHeight: 1.4, fontStyle: "italic" }}>{prospect.ir_verification_notes}</p>
             )}
           </div>
-          <button onClick={() => setOpen(true)} style={{ marginTop: 10, width: "100%", padding: "7px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", cursor: "pointer", fontSize: 11.5, fontWeight: 500, color: "#8E9196", fontFamily: "inherit" }}>
+          <button onClick={() => setOpen(true)} style={{ marginTop: 10, width: "100%", padding: "7px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", cursor: "pointer", fontSize: 11.5, fontWeight: 500, color: "var(--sub)", fontFamily: "inherit" }}>
             Re-verify
           </button>
         </div>
       ) : (
         <form ref={formRef} onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14, marginTop: 6, display: "flex", flexDirection: "column", gap: 10 }}>
-          <p style={{ fontSize: 11, color: "#8E9196", margin: 0, lineHeight: 1.4 }}>
-            Search the IR eServices portal (<a href="https://eservices.inforegulator.org.za/search/default.aspx" target="_blank" rel="noopener noreferrer" style={{ color: "#B08D3F" }}>Organisation Search</a>) and record the result below.
+          <p style={{ fontSize: 11, color: "var(--sub)", margin: 0, lineHeight: 1.4 }}>
+            Search the IR eServices portal (<a href="https://eservices.inforegulator.org.za/search/default.aspx" target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold-dark)" }}>Organisation Search</a>) and record the result below.
           </p>
           <div>
             <div style={labelStyle}>Found on register?</div>
@@ -530,7 +530,7 @@ function IRVerificationPanel({ prospect, onProspectUpdate }: { prospect: Prospec
               {saving ? "Saving..." : "Save verification"}
             </button>
             {isVerified && (
-              <button type="button" onClick={() => setOpen(false)} style={{ padding: "9px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "#8E9196", fontWeight: 500, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+              <button type="button" onClick={() => setOpen(false)} style={{ padding: "9px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "var(--sub)", fontWeight: 500, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
                 Cancel
               </button>
             )}
@@ -567,7 +567,7 @@ function ProspectDetail({
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <a href={`/compliance/assessment/${prospect.id}`} style={{ ...btnSecondaryStyle, textDecoration: "none", textAlign: "center" }}>Assessment</a>
             <button onClick={onEdit} style={btnPrimaryStyle}>Edit</button>
-            <button onClick={onClose} style={{ background: "none", border: "none", color: "#8E9196", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
+            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--sub)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
           </div>
         </div>
 
@@ -576,19 +576,19 @@ function ProspectDetail({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
             <div style={{ textAlign: "center", padding: 12, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)" }}>
               <Pill value={prospect.priority} meta={PRIORITY_META} />
-              <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 6 }}>Priority</div>
+              <div style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)", marginTop: 6 }}>Priority</div>
             </div>
             <div style={{ textAlign: "center", padding: 12, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)" }}>
               <Pill value={prospect.outreach_status} meta={STATUS_META} />
-              <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 6 }}>Status</div>
+              <div style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)", marginTop: 6 }}>Status</div>
             </div>
             <div style={{ textAlign: "center", padding: 12, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)" }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>
                 {prospect.ir_registered === true ? <span style={{ color: "#2E7D32" }}>Yes</span>
                   : prospect.ir_registered === false ? <span style={{ color: "#B4432C" }}>No</span>
-                  : <span style={{ color: "#B9B2A2" }}>Unknown</span>}
+                  : <span style={{ color: "var(--empty-text)" }}>Unknown</span>}
               </div>
-              <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 4 }}>IR registered</div>
+              <div style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)", marginTop: 4 }}>IR registered</div>
             </div>
           </div>
 
@@ -597,7 +597,7 @@ function ProspectDetail({
 
           {/* Company details */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Company details</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Company details</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <DetailRow label="Country" value={prospect.company_country} />
               <DetailRow label="Sector" value={prospect.sector} />
@@ -609,15 +609,15 @@ function ProspectDetail({
           {/* SA presence */}
           {prospect.sa_presence_evidence && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 6 }}>SA presence evidence</div>
-              <p style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", background: "var(--pnl)", borderRadius: 8, padding: 12, margin: 0, lineHeight: 1.5 }}>{prospect.sa_presence_evidence}</p>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 6 }}>SA presence evidence</div>
+              <p style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", background: "var(--pnl)", borderRadius: 8, padding: 12, margin: 0, lineHeight: 1.5 }}>{prospect.sa_presence_evidence}</p>
             </div>
           )}
 
           {/* Documents & URLs */}
           {(prospect.privacy_policy_url || prospect.terms_url || prospect.linkedin_url || prospect.app_store_url || prospect.other_urls) && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Documents &amp; URLs</div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Documents &amp; URLs</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <DetailRow label="Privacy policy" value={prospect.privacy_policy_url} link />
                 <DetailRow label="Terms of service" value={prospect.terms_url} link />
@@ -625,10 +625,10 @@ function ProspectDetail({
                 <DetailRow label="App Store" value={prospect.app_store_url} link />
                 {prospect.other_urls && (
                   <div>
-                    <span style={{ fontWeight: 500, fontSize: 10.5, color: "#B9B2A2" }}>Other URLs</span>
+                    <span style={{ fontWeight: 500, fontSize: 10.5, color: "var(--empty-text)" }}>Other URLs</span>
                     <div style={{ fontSize: 12.5, background: "var(--pnl)", borderRadius: 8, padding: 10, marginTop: 4, display: "flex", flexDirection: "column", gap: 4 }}>
                       {prospect.other_urls.split("\n").filter(Boolean).map((url, i) => (
-                        <a key={i} href={url.trim()} target="_blank" rel="noopener noreferrer" style={{ color: "#B08D3F", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{url.trim()}</a>
+                        <a key={i} href={url.trim()} target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold-dark)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{url.trim()}</a>
                       ))}
                     </div>
                   </div>
@@ -639,10 +639,10 @@ function ProspectDetail({
 
           {/* Research pipeline */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Compliance pipeline</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Compliance pipeline</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
-                <span style={{ color: "#8E9196" }}>Status</span>
+                <span style={{ color: "var(--sub)" }}>Status</span>
                 <Pill value={prospect.research_status || "not_started"} meta={{
                   assessed: { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
                   complete: { color: "#2E7D32", bg: "#E7F1EA", border: "#C7E1D1" },
@@ -650,15 +650,15 @@ function ProspectDetail({
                   analysing: { color: "#3E6B8E", bg: "#E7EEF4", border: "#C6D8E5" },
                   collected: { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
                   collecting: { color: "#A67514", bg: "#FBF1DE", border: "#EAD6A6" },
-                  not_started: { color: "#8E9196", bg: "#EEECE7", border: "#DED9CE" },
+                  not_started: { color: "var(--sub)", bg: "#EEECE7", border: "#DED9CE" },
                 }} />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
-                <span style={{ color: "#8E9196" }}>Documents</span>
+                <span style={{ color: "var(--sub)" }}>Documents</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>{prospect.document_count || 0}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
-                <span style={{ color: "#8E9196" }}>Findings</span>
+                <span style={{ color: "var(--sub)" }}>Findings</span>
                 <span style={{ fontWeight: 500, color: "var(--tx)" }}>
                   {prospect.finding_count || 0}
                   {(prospect.critical_finding_count || 0) > 0 && (
@@ -670,7 +670,7 @@ function ProspectDetail({
               </div>
               {prospect.last_research_date && (
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
-                  <span style={{ color: "#8E9196" }}>Last run</span>
+                  <span style={{ color: "var(--sub)" }}>Last run</span>
                   <span style={{ fontWeight: 500, color: "var(--tx)" }}>{new Date(prospect.last_research_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
                 </div>
               )}
@@ -701,7 +701,7 @@ function ProspectDetail({
           {/* Assessment scores (from rule engine) */}
           {pipelineData?.assessment && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Assessment scores</div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Assessment scores</div>
               <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -713,7 +713,7 @@ function ProspectDetail({
                     </span>
                     <SeverityPill severity={pipelineData.assessment.overall_severity} />
                   </div>
-                  <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>
+                  <span style={{ fontWeight: 500, fontSize: 10, color: "var(--sub)" }}>
                     {pipelineData.assessment.generated_by} v{pipelineData.assessment.agent_version}
                   </span>
                 </div>
@@ -726,7 +726,7 @@ function ProspectDetail({
                   <ScoreBadge score={pipelineData.assessment.score_data_subject_rights} label="DSR" />
                 </div>
                 {pipelineData.assessment.executive_summary && (
-                  <p style={{ fontWeight: 500, fontSize: 11.5, color: "#55524C", margin: "12px 0 0", lineHeight: 1.5, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+                  <p style={{ fontWeight: 500, fontSize: 11.5, color: "var(--label-text)", margin: "12px 0 0", lineHeight: 1.5, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
                     {pipelineData.assessment.executive_summary}
                   </p>
                 )}
@@ -737,19 +737,19 @@ function ProspectDetail({
           {/* Documents fetched */}
           {pipelineData && pipelineData.documents.length > 0 && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>Fetched documents ({pipelineData.documents.length})</div>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Fetched documents ({pipelineData.documents.length})</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {pipelineData.documents.map((doc) => (
                   <div key={doc.id} style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 12, color: "var(--tx)" }}>{doc.document_type}</span>
                       {doc.source_url && (
-                        <a href={doc.source_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "#B08D3F", textDecoration: "none" }}>
+                        <a href={doc.source_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "var(--gold-dark)", textDecoration: "none" }}>
                           source
                         </a>
                       )}
                     </div>
-                    <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>
+                    <span style={{ fontWeight: 500, fontSize: 10, color: "var(--sub)" }}>
                       {doc.markdown_content ? `${(doc.markdown_content.length / 1000).toFixed(1)}k chars` : "empty"}
                     </span>
                   </div>
@@ -761,7 +761,7 @@ function ProspectDetail({
           {/* Findings */}
           {pipelineData && pipelineData.findings.length > 0 && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>
                 Findings ({pipelineData.findings.length})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -773,9 +773,9 @@ function ProspectDetail({
                       </span>
                       <SeverityPill severity={f.severity} />
                     </div>
-                    <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.45, color: "#55524C" }}>{f.finding}</p>
+                    <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.45, color: "var(--label-text)" }}>{f.finding}</p>
                     {f.recommendation && (
-                      <p style={{ margin: "6px 0 0", fontSize: 10.5, lineHeight: 1.4, color: "#8E9196", fontStyle: "italic" }}>
+                      <p style={{ margin: "6px 0 0", fontSize: 10.5, lineHeight: 1.4, color: "var(--sub)", fontStyle: "italic" }}>
                         {f.recommendation}
                       </p>
                     )}
@@ -787,7 +787,7 @@ function ProspectDetail({
 
           {/* Outreach timeline */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Outreach timeline</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Outreach timeline</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <DetailRow label="Outreach date" value={prospect.outreach_date?.slice(0, 10)} />
               <DetailRow label="Channel" value={prospect.outreach_channel} />
@@ -798,8 +798,8 @@ function ProspectDetail({
           {/* Notes */}
           {prospect.notes && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 6 }}>Notes</div>
-              <p style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", whiteSpace: "pre-wrap", background: "var(--pnl)", borderRadius: 8, padding: 12, margin: 0, lineHeight: 1.5 }}>{prospect.notes}</p>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 6 }}>Notes</div>
+              <p style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", whiteSpace: "pre-wrap", background: "var(--pnl)", borderRadius: 8, padding: 12, margin: 0, lineHeight: 1.5 }}>{prospect.notes}</p>
             </div>
           )}
         </div>
@@ -899,7 +899,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={onAddActivity} style={btnSecondaryStyle}>+ Activity</button>
             <button onClick={onEdit} style={btnPrimaryStyle}>Edit</button>
-            <button onClick={onClose} style={{ background: "none", border: "none", color: "#8E9196", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
+            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--sub)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
           </div>
         </div>
 
@@ -908,23 +908,23 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
             <div style={{ textAlign: "center", padding: 12, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)" }}>
               <Pill value={client.status} meta={CLIENT_STATUS_META} />
-              <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 6 }}>Status</div>
+              <div style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)", marginTop: 6 }}>Status</div>
             </div>
             <div style={{ textAlign: "center", padding: 12, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "var(--tx)" }}>{client.service_tier ?? "—"}</div>
-              <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 4 }}>Service tier</div>
+              <div style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)", marginTop: 4 }}>Service tier</div>
             </div>
             <div style={{ textAlign: "center", padding: 12, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "var(--tx)" }}>
                 {client.annual_fee_gbp != null ? `£${Number(client.annual_fee_gbp).toLocaleString("en-GB")}` : "—"}
               </div>
-              <div style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196", marginTop: 4 }}>Annual fee</div>
+              <div style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)", marginTop: 4 }}>Annual fee</div>
             </div>
           </div>
 
           {/* Company details */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Company details</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Company details</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <DetailRow label="Country" value={client.company_country} />
               <DetailRow label="Website" value={client.company_website} link />
@@ -934,7 +934,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
 
           {/* Contact */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Contact</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Contact</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <DetailRow label="Name" value={client.contact_name} />
               <DetailRow label="Email" value={client.contact_email} />
@@ -944,7 +944,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
 
           {/* Data processing flags */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>Data processing</div>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>Data processing</div>
             <div style={{ display: "flex", gap: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: client.processes_biometric ? "#CC7700" : "#DED9CE" }} />
@@ -959,7 +959,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
 
           {/* ─── V2 Compliance Analysis Pipeline ─────────────────────── */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>
               Compliance analysis
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1001,7 +1001,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
 
           {/* V2 loading indicator */}
           {v2Loading && !v2Data && (
-            <p style={{ fontSize: 11.5, color: "#8E9196", fontStyle: "italic", margin: 0 }}>Loading assessment data...</p>
+            <p style={{ fontSize: 11.5, color: "var(--sub)", fontStyle: "italic", margin: 0 }}>Loading assessment data...</p>
           )}
 
           {/* V2 empty state — data loaded but no assessments */}
@@ -1011,7 +1011,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
               padding: "16px 20px", textAlign: "center",
             }}>
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--tx)", marginBottom: 4 }}>No assessments yet</div>
-              <p style={{ fontSize: 11.5, color: "#8E9196", margin: 0, lineHeight: 1.5 }}>
+              <p style={{ fontSize: 11.5, color: "var(--sub)", margin: 0, lineHeight: 1.5 }}>
                 Select a jurisdiction above and run a compliance analysis to assess this client&apos;s data protection posture.
               </p>
             </div>
@@ -1020,7 +1020,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
           {/* V2 Assessment results */}
           {latestAssessment && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 10 }}>
                 Assessment — {latestAssessment.jurisdiction ?? latestAssessment.jurisdiction_code ?? "unknown"}
               </div>
               <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: 14 }}>
@@ -1034,7 +1034,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
                     </span>
                     <SeverityPill severity={latestAssessment.confidence_level ?? "medium"} />
                   </div>
-                  <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>v{latestAssessment.engine_version}</span>
+                  <span style={{ fontWeight: 500, fontSize: 10, color: "var(--sub)" }}>v{latestAssessment.engine_version}</span>
                 </div>
 
                 {domainEntries.length > 0 && (
@@ -1050,21 +1050,21 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
                 )}
 
                 {latestAssessment.working_papers?.executive_summary && (
-                  <p style={{ fontWeight: 500, fontSize: 11.5, color: "#55524C", margin: "12px 0 0", lineHeight: 1.5, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+                  <p style={{ fontWeight: 500, fontSize: 11.5, color: "var(--label-text)", margin: "12px 0 0", lineHeight: 1.5, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
                     {latestAssessment.working_papers.executive_summary.slice(0, 400)}
                     {latestAssessment.working_papers.executive_summary.length > 400 ? "..." : ""}
                   </p>
                 )}
 
                 <div style={{ marginTop: 12, borderTop: "1px solid var(--bd)", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontWeight: 500, fontSize: 10.5, color: "#8E9196" }}>
+                  <span style={{ fontWeight: 500, fontSize: 10.5, color: "var(--sub)" }}>
                     {latestAssessment.completed_at
                       ? new Date(latestAssessment.completed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
                       : "In progress"}
                   </span>
                   <Link
                     href={`/compliance/assessment-v2/${latestAssessment.id}`}
-                    style={{ fontWeight: 600, fontSize: 11, color: "#B08D3F", textDecoration: "none" }}
+                    style={{ fontWeight: 600, fontSize: 11, color: "var(--gold-dark)", textDecoration: "none" }}
                   >
                     View full report &rarr;
                   </Link>
@@ -1076,7 +1076,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
           {/* V2 Documents */}
           {v2Data && v2Data.documents.length > 0 && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>
                 Documents ({v2Data.documents.length})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1085,10 +1085,10 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 12, color: "var(--tx)" }}>{doc.title || doc.document_type}</span>
                       {doc.source_url && (
-                        <a href={doc.source_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "#B08D3F", textDecoration: "none" }}>source</a>
+                        <a href={doc.source_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "var(--gold-dark)", textDecoration: "none" }}>source</a>
                       )}
                     </div>
-                    <span style={{ fontWeight: 500, fontSize: 10, color: "#8E9196" }}>
+                    <span style={{ fontWeight: 500, fontSize: 10, color: "var(--sub)" }}>
                       {doc.word_count ? `${doc.word_count.toLocaleString("en-GB")} words` : doc.status}
                     </span>
                   </div>
@@ -1100,14 +1100,14 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
           {/* Assessment history */}
           {v2Data && v2Data.assessments.length > 1 && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>
                 Assessment history ({v2Data.assessments.length})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {v2Data.assessments.map((a) => (
                   <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0" }}>
-                    <span style={{ color: "#55524C" }}>{a.jurisdiction ?? a.jurisdiction_code ?? "—"} — {Math.round(a.overall_score)}/100</span>
-                    <span style={{ color: "#8E9196", fontSize: 10 }}>
+                    <span style={{ color: "var(--label-text)" }}>{a.jurisdiction ?? a.jurisdiction_code ?? "—"} — {Math.round(a.overall_score)}/100</span>
+                    <span style={{ color: "var(--sub)", fontSize: 10 }}>
                       {a.status} · {a.completed_at ? new Date(a.completed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "pending"}
                     </span>
                   </div>
@@ -1118,15 +1118,15 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
 
           {/* Activity summary */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 6 }}>Activities</div>
-            <p style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", margin: 0 }}>{client.activity_count} activities logged</p>
+            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 6 }}>Activities</div>
+            <p style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", margin: 0 }}>{client.activity_count} activities logged</p>
           </div>
 
           {/* Notes */}
           {client.notes && (
             <div>
-              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E9196", marginBottom: 6 }}>Notes</div>
-              <p style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", whiteSpace: "pre-wrap", background: "var(--pnl)", borderRadius: 8, padding: 12, margin: 0, lineHeight: 1.5 }}>{client.notes}</p>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 6 }}>Notes</div>
+              <p style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", whiteSpace: "pre-wrap", background: "var(--pnl)", borderRadius: 8, padding: 12, margin: 0, lineHeight: 1.5 }}>{client.notes}</p>
             </div>
           )}
         </div>
@@ -1337,13 +1337,13 @@ export default function ComplianceClient({
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 10, lineHeight: 1, letterSpacing: "0.2em", textTransform: "uppercase", color: "#B08D3F", marginBottom: 9 }}>
+          <div style={{ fontWeight: 700, fontSize: 10, lineHeight: 1, letterSpacing: "0.2em", textTransform: "uppercase", color: "var(--gold-dark)", marginBottom: 9 }}>
             AfricanSTN &middot; Regulatory
           </div>
           <h1 style={{ fontWeight: 800, fontSize: 27, lineHeight: 1.1, letterSpacing: "-0.02em", color: "var(--tx)", margin: "0 0 5px" }}>
             Compliance services
           </h1>
-          <p style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.45, color: "#8E9196", margin: 0 }}>
+          <p style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.45, color: "var(--sub)", margin: 0 }}>
             POPIA representative services. {prospects.length} prospects, {activeClients.length} active clients.
           </p>
         </div>
@@ -1358,7 +1358,7 @@ export default function ComplianceClient({
         <StatCard label="Total prospects" value={String(prospects.length)} />
         <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: "16px 18px" }}>
           <div style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.1, color: "#B4432C" }}>{highPriority}</div>
-          <div style={{ fontWeight: 500, fontSize: 11.5, color: "#8E9196", marginTop: 4 }}>High priority</div>
+          <div style={{ fontWeight: 500, fontSize: 11.5, color: "var(--sub)", marginTop: 4 }}>High priority</div>
         </div>
         <StatCard label="Contacted" value={String(contacted)} />
         <StatCard label="Active clients" value={String(activeClients.length)} dashed />
@@ -1444,11 +1444,11 @@ export default function ComplianceClient({
       {tab === "prospects" && (
         <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(26,28,30,.05)" }}>
           {filteredProspects.length === 0 ? (
-            <div style={{ padding: "32px 18px", textAlign: "center", color: "#8E9196", fontSize: 13 }}>No prospects match the current filters.</div>
+            <div style={{ padding: "32px 18px", textAlign: "center", color: "var(--sub)", fontSize: 13 }}>No prospects match the current filters.</div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#F6F1E7", borderBottom: "1.5px solid #E4D9C4" }}>
+                <tr style={{ background: "var(--table-header)", borderBottom: "1.5px solid var(--bd)" }}>
                   {["Company", "Country", "Sector", "Priority", "Status", "IR reg.", ""].map((h) => (
                     <th key={h || "action"} style={{
                       textAlign: h === "" ? "right" : "left",
@@ -1466,8 +1466,8 @@ export default function ComplianceClient({
                   return (
                     <tr
                       key={p.id}
-                      style={{ background: idx % 2 ? "#FBF8F1" : "#FFFFFF", borderBottom: "1px solid #F0E8D8", cursor: "pointer" }}
-                      className="hover:!bg-[#FBF6EC]"
+                      style={{ background: idx % 2 ? "var(--table-header)" : "transparent", borderBottom: "1px solid var(--bd)", cursor: "pointer" }}
+                      className="hover:!bg-[var(--cardhover)]"
                       onClick={() => { setSelectedProspect(p); loadPipelineData(p); }}
                     >
                       <td style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3, color: "var(--tx)", padding: "12px 16px" }}>
@@ -1476,19 +1476,19 @@ export default function ComplianceClient({
                           {p.company_name}
                         </div>
                       </td>
-                      <td style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", padding: "12px 16px", whiteSpace: "nowrap" }}>{p.company_country ?? "—"}</td>
-                      <td style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", padding: "12px 16px" }}>{p.sector ?? "—"}</td>
+                      <td style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", padding: "12px 16px", whiteSpace: "nowrap" }}>{p.company_country ?? "—"}</td>
+                      <td style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", padding: "12px 16px" }}>{p.sector ?? "—"}</td>
                       <td style={{ padding: "12px 16px" }}><Pill value={p.priority} meta={PRIORITY_META} /></td>
                       <td style={{ padding: "12px 16px" }}><Pill value={p.outreach_status} meta={STATUS_META} /></td>
                       <td style={{ padding: "12px 16px", fontWeight: 600, fontSize: 12.5 }}>
                         {p.ir_registered === true ? <span style={{ color: "#2E7D32" }}>Yes</span>
                           : p.ir_registered === false ? <span style={{ color: "#B4432C" }}>No</span>
-                          : <span style={{ color: "#B9B2A2" }}>—</span>}
+                          : <span style={{ color: "var(--empty-text)" }}>—</span>}
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "right" }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); setSelectedProspect(p); loadPipelineData(p); }}
-                          style={{ fontWeight: 600, fontSize: 11, color: "#B08D3F", background: "none", border: "none", cursor: "pointer" }}
+                          style={{ fontWeight: 600, fontSize: 11, color: "var(--gold-dark)", background: "none", border: "none", cursor: "pointer" }}
                         >
                           View →
                         </button>
@@ -1506,14 +1506,14 @@ export default function ComplianceClient({
       {tab === "clients" && (
         <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(26,28,30,.05)" }}>
           {filteredClients.length === 0 ? (
-            <div style={{ padding: "40px 18px", textAlign: "center", border: "1.5px dashed #D9CDB4", borderRadius: 12, margin: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#8E9196", marginBottom: 4 }}>No clients yet</div>
-              <div style={{ fontWeight: 500, fontSize: 12, color: "#B9B2A2" }}>Convert prospects or add clients directly.</div>
+            <div style={{ padding: "40px 18px", textAlign: "center", border: "1.5px dashed var(--empty-border)", borderRadius: 12, margin: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "var(--sub)", marginBottom: 4 }}>No clients yet</div>
+              <div style={{ fontWeight: 500, fontSize: 12, color: "var(--empty-text)" }}>Convert prospects or add clients directly.</div>
             </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#F6F1E7", borderBottom: "1.5px solid #E4D9C4" }}>
+                <tr style={{ background: "var(--table-header)", borderBottom: "1.5px solid var(--bd)" }}>
                   {["Company", "Status", "Tier", "Annual fee", "Activities", ""].map((h) => (
                     <th key={h || "action"} style={{
                       textAlign: h === "" ? "right" : "left",
@@ -1529,17 +1529,17 @@ export default function ComplianceClient({
                 {filteredClients.map((c, idx) => (
                   <tr
                     key={c.id}
-                    style={{ background: idx % 2 ? "#FBF8F1" : "#FFFFFF", borderBottom: "1px solid #F0E8D8", cursor: "pointer" }}
-                    className="hover:!bg-[#FBF6EC]"
+                    style={{ background: idx % 2 ? "var(--table-header)" : "transparent", borderBottom: "1px solid var(--bd)", cursor: "pointer" }}
+                    className="hover:!bg-[var(--cardhover)]"
                     onClick={() => setSelectedClient(c)}
                   >
                     <td style={{ fontWeight: 600, fontSize: 13, color: "var(--tx)", padding: "12px 16px" }}>{c.company_name}</td>
                     <td style={{ padding: "12px 16px" }}><Pill value={c.status} meta={CLIENT_STATUS_META} /></td>
-                    <td style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", padding: "12px 16px", textTransform: "capitalize" }}>{c.service_tier ?? "—"}</td>
+                    <td style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", padding: "12px 16px", textTransform: "capitalize" }}>{c.service_tier ?? "—"}</td>
                     <td style={{ fontWeight: 600, fontSize: 12.5, color: "var(--tx)", padding: "12px 16px" }}>
                       {c.annual_fee_gbp != null ? `£${Number(c.annual_fee_gbp).toLocaleString("en-GB")}` : "—"}
                     </td>
-                    <td style={{ fontWeight: 500, fontSize: 12.5, color: "#55524C", padding: "12px 16px" }}>{c.activity_count}</td>
+                    <td style={{ fontWeight: 500, fontSize: 12.5, color: "var(--label-text)", padding: "12px 16px" }}>{c.activity_count}</td>
                     <td style={{ padding: "12px 16px", textAlign: "right", display: "flex", gap: 12, justifyContent: "flex-end" }}>
                       <Link
                         href={`/compliance/client/${c.id}`}
@@ -1550,7 +1550,7 @@ export default function ComplianceClient({
                       </Link>
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedClient(c); }}
-                        style={{ fontWeight: 600, fontSize: 11, color: "#B08D3F", background: "none", border: "none", cursor: "pointer" }}
+                        style={{ fontWeight: 600, fontSize: 11, color: "var(--gold-dark)", background: "none", border: "none", cursor: "pointer" }}
                       >
                         View →
                       </button>
@@ -1580,7 +1580,7 @@ export default function ComplianceClient({
 
       {showDeleteConfirm && (
         <Modal open onClose={() => setShowDeleteConfirm(null)} title="Delete prospect">
-          <p style={{ fontSize: 13, color: "#55524C", margin: "0 0 16px" }}>
+          <p style={{ fontSize: 13, color: "var(--label-text)", margin: "0 0 16px" }}>
             Permanently delete <strong>{showDeleteConfirm.company_name}</strong>? This cannot be undone.
           </p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
