@@ -51,7 +51,7 @@ import {
   updateDSAR,
   deleteDSAR,
 } from "@/lib/data/client-management";
-import { createClient } from "@/lib/data/compliance";
+import { createClient, updateClient } from "@/lib/data/compliance";
 import ComplianceRadar from "@/components/ComplianceRadar";
 import { exportROPA } from "@/lib/export-ropa";
 
@@ -1828,7 +1828,7 @@ function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: stri
 type ModalState = { type: "add"; entity: TabKey } | { type: "edit"; entity: "engagements"; item: Engagement } | { type: "edit"; entity: "io"; item: IORegistration } | { type: "edit"; entity: "breaches"; item: BreachIncident } | { type: "edit"; entity: "tasks"; item: ComplianceTask } | { type: "edit"; entity: "correspondence"; item: Correspondence } | { type: "edit"; entity: "data_mapping"; item: ProcessingActivity } | { type: "edit"; entity: "special_categories"; item: SpecialCategory } | { type: "edit"; entity: "dsars"; item: DataSubjectRequest } | null;
 type DeleteState = { entity: TabKey; id: number; label: string } | null;
 
-function ClientDetail({ client }: { client: Client }) {
+function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpdated?: () => void }) {
   const [tab, setTab] = useState<TabKey>("engagements");
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [registrations, setRegistrations] = useState<IORegistration[]>([]);
@@ -1844,6 +1844,7 @@ function ClientDetail({ client }: { client: Client }) {
   const [modal, setModal] = useState<ModalState>(null);
   const [confirmDelete, setConfirmDelete] = useState<DeleteState>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showEditClient, setShowEditClient] = useState(false);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
   const cid = String(client.id);
 
@@ -1904,9 +1905,11 @@ function ClientDetail({ client }: { client: Client }) {
               </div>
             )}
             <Pill status={client.status} meta={CLIENT_STATUS_META} />
+            <button onClick={() => setShowEditClient(true)} style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#8E9196", background: "none", border: "1px solid #D4C5A9", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" }} title="Edit client details">Edit</button>
           </div>
         </div>
       </div>
+      {showEditClient && <EditClientModal client={client} onClose={() => setShowEditClient(false)} onSaved={() => { setShowEditClient(false); onClientUpdated?.(); }} />}
       {/* Compliance radar */}
       {!loading && (
         <div style={{ padding: "0 24px 8px" }}>
@@ -2039,7 +2042,7 @@ export default function ClientsClient({ initialClients, summary }: { initialClie
           </div>
         </div>
         {/* Detail */}
-        {selected ? <ClientDetail client={selected} /> : <div style={{ flex: 1, padding: "60px 20px", textAlign: "center", fontFamily: "Manrope, sans-serif", fontSize: 14, color: "#8E9196" }}>Select a client</div>}
+        {selected ? <ClientDetail client={selected} onClientUpdated={() => window.location.reload()} /> : <div style={{ flex: 1, padding: "60px 20px", textAlign: "center", fontFamily: "Manrope, sans-serif", fontSize: 14, color: "#8E9196" }}>Select a client</div>}
       </div>
       {showAddForm && <AddClientModal onClose={() => setShowAddForm(false)} />}
     </div>
@@ -2104,6 +2107,70 @@ function AddClientModal({ onClose }: { onClose: () => void }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
           <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
           <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : "Add client"}</button>
+        </div>
+      </form>
+    </ModalBackdrop>
+  );
+}
+
+// ─── Edit client modal ──────────────────────────────────────────────────────
+
+function EditClientModal({ client, onClose, onSaved }: { client: Client; onClose: () => void; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    const fd = new FormData(e.currentTarget);
+    const payload: Record<string, unknown> = {
+      company_name: fd.get("company_name") as string,
+      company_website: (fd.get("company_website") as string) || null,
+      company_country: (fd.get("company_country") as string) || null,
+      contact_name: (fd.get("contact_name") as string) || null,
+      contact_email: (fd.get("contact_email") as string) || null,
+      contact_role: (fd.get("contact_role") as string) || null,
+      status: (fd.get("status") as string) || "prospect",
+      service_tier: (fd.get("service_tier") as string) || null,
+      annual_fee_gbp: fd.get("annual_fee_gbp") ? Number(fd.get("annual_fee_gbp")) : null,
+      notes: (fd.get("notes") as string) || null,
+    };
+    const res = await updateClient(client.id, payload);
+    setSaving(false);
+    if (res.error) { setError(res.error); return; }
+    onSaved();
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <h2 style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Edit client</h2>
+      {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "Manrope, sans-serif", fontSize: 12, color: "#CC0000" }}>{error}</div>}
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
+          <div><label style={labelStyle}>Company name *</label><input name="company_name" required defaultValue={client.company_name} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Website</label><input name="company_website" defaultValue={client.company_website ?? ""} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Country</label><input name="company_country" defaultValue={client.company_country ?? ""} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Contact name</label><input name="contact_name" defaultValue={client.contact_name ?? ""} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Contact email</label><input name="contact_email" type="email" defaultValue={client.contact_email ?? ""} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Contact role</label><input name="contact_role" defaultValue={client.contact_role ?? ""} style={inputStyle} /></div>
+          <div>
+            <label style={labelStyle}>Status</label>
+            <select name="status" defaultValue={client.status} style={inputStyle}>
+              <option value="prospect">Prospect</option><option value="onboarding">Onboarding</option><option value="engaged">Engaged</option><option value="paused">Paused</option><option value="churned">Churned</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Service tier</label>
+            <select name="service_tier" defaultValue={client.service_tier ?? ""} style={inputStyle}>
+              <option value="">—</option><option value="representative">Representative</option><option value="authorised_io">Authorised IO</option><option value="full_service">Full service</option>
+            </select>
+          </div>
+          <div><label style={labelStyle}>Annual fee (GBP)</label><input name="annual_fee_gbp" type="number" step="0.01" defaultValue={client.annual_fee_gbp ?? ""} style={inputStyle} /></div>
+          <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Notes</label><textarea name="notes" rows={3} defaultValue={client.notes ?? ""} style={{ ...inputStyle, resize: "vertical" }} /></div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+          <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : "Save changes"}</button>
         </div>
       </form>
     </ModalBackdrop>
