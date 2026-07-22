@@ -71,20 +71,124 @@ The Supabase JS client returns a maximum of 1,000 rows per query by default. Any
 - **Writing:** sentence case for headings; hyphens not em dashes; dates as "27 May 2026" (no ordinals); numbers with comma thousand separators via `toLocaleString('en-GB')`; Oxford comma.
 - Confidence pills: High → green, Medium → amber, Medium-Low/Low → red. Derive the band by prefix-matching the descriptive `source_confidence` string.
 
+## Cloud Run API (backend)
+
+The frontend talks to a separate Express API running on Cloud Run. This is NOT part of the Next.js app — it is a standalone Node.js server in the `deploy/` directory.
+
+### API architecture
+- **Entry point:** `deploy/server.js` — Express app with pg Pool connecting to Cloud SQL (PostgreSQL 17).
+- **Route files:** 8 modular route files live in the repo root and must be copied into `deploy/` before deploying. `deploy/server.js` loads them via `require()`:
+  - `server-listing-routes.js` — `/api/countries`, `/api/maturity`, `/api/enforcement`, `/api/sports`, `/api/organizations`
+  - `server-pipeline-routes.js` — `/api/prospects`, prospect CRUD
+  - `server-client-management-routes.js` — `/api/compliance/clients`, client CRUD, tabs (breaches, processing activities, special categories)
+  - `server-agent-routes.js` — `/api/compliance/clients/:id/analyze`, AI-powered POPIA analysis
+  - `server-remediation-routes.js` — `/api/compliance/clients/:id/remediation`, remediation board CRUD
+  - `server-processing-routes.js` — processing activities and special categories CRUD
+  - `server-dsar-routes.js` — `/api/compliance/clients/:id/dsars`, data subject access request CRUD
+  - `server-compliance-v2-routes.js` — V2 multi-jurisdiction analysis: document ingest, knowledge base, assessment runs
+- **Auth:** `X-API-Key` header checked against `API_KEY` env var. The key is stored in GCP Secret Manager (secret name: `api-key`), NOT in code.
+- **Frontend client:** `src/lib/cloud-run.ts` — wraps fetch with API key from `CLOUD_RUN_API_KEY` Netlify env var. Base URL defaults to `https://africastn-api-782190795609.europe-west1.run.app`.
+
+### GCP project
+- Project ID: `africanstn-research`, project number: `782190795609`
+- Region: `europe-west1`
+- Cloud Run service: `africastn-api`
+- Cloud SQL instance: `africastn-db` (PostgreSQL 17)
+- Service account for GitHub Actions: `github-deploy@africanstn-research.iam.gserviceaccount.com`
+- Workload Identity Federation pool: `github-pool`, provider: `github-provider`
+
+### Database (Cloud SQL)
+- DB name: `africastn_os`, user: `africastn_app`
+- Password stored in GCP Secret Manager (secret name: `db-password`)
+- Migrations are in `migrations/` (003 through 013), applied manually via psql or the Supabase MCP
+
+### Key database tables (Cloud SQL, not Supabase)
+These tables power the compliance engine and are separate from the Supabase `organizations`/`classified_items` tables:
+
+- `prospects` — compliance prospect pipeline
+- `clients`, `client_contacts` — compliance client management
+- `compliance_findings`, `compliance_scores` — V1 POPIA analysis results
+- `remediation_items` — remediation board (migration 009)
+- `audit_log` — compliance audit trail (migration 009)
+- `processing_activities`, `special_categories` — ROPA data mapping (migration 010)
+- `breach_register`, `breach_tasks` — breach management (migration 011)
+- `data_subject_requests` — DSAR tracking (migration 012)
+- `compliance_knowledge_base`, `jurisdiction_requirements`, `document_store`, `analysis_runs`, `analysis_findings` — V2 multi-jurisdiction engine (migration 013)
+
 ## Build & deploy workflow
 
+### Frontend (Netlify)
 - `npm run build` locally to verify before committing — catches type errors and server/client boundary violations that only surface at build time.
 - Commit to `main`; Netlify auto-deploys in ~90 seconds.
 - `.gitattributes` forces LF line endings; expect no CRLF warnings.
 - After deploy, verify the Overview counters read: Organisations 6,983 / Countries 55 / Sports 81 / Verified at High 93.7% / Partnerships 135 / Items this week ~647.
 
-## Roadmap (see scoping memo for detail)
+### Backend (Cloud Run) — CI/CD via GitHub Actions
+- **Workflow file:** `.github/workflows/deploy-cloud-run.yml`
+- **Triggers:** push to `main` when changes touch `deploy/**`, `server-*-routes.js`, or the workflow file itself.
+- **What it does:** checks out code → copies `server-*-routes.js` from repo root into `deploy/` → authenticates via Workload Identity Federation (keyless, no JSON keys) → deploys to Cloud Run using source-based build.
+- **Required GitHub repo secrets:**
+  - `WIF_PROVIDER`: `projects/782190795609/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+  - `WIF_SERVICE_ACCOUNT`: `github-deploy@africanstn-research.iam.gserviceaccount.com`
+- **Manual deploy alternative:** from repo root, run `deploy/deploy.sh` (bash) or the equivalent PowerShell commands — see script for details.
 
-- **Day 1 (done):** scaffold, auth, overview page, registry + reports skeletons.
-- **Day 1 fix (apply if not yet live):** the six schema fixes above, to `overview.ts`, `registry/page.tsx`, `RecentItemsFeed.tsx`.
-- **Day 2:** registry browser — filter bar (country/sport/type/confidence), pagination, click-through to `/registry/[id]` detail page, edit form with save-back to Supabase.
-- **Day 3:** profile report builder (templated Word doc population).
-- **v1.1+:** Claude-powered registry assistant and narrative reports; filtered + snapshot exports; verification-queue workflow.
+### CRITICAL: route file copy step
+The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `deploy/server.js` loads them via `require()` from its own directory. They MUST be copied into `deploy/` before any deploy. The GitHub Actions workflow and `deploy.sh` both handle this automatically. If you deploy manually without copying, the API will crash on startup with `MODULE_NOT_FOUND` errors and the frontend's Data Protection, Jurisdictions, and Compliance pages will break.
+
+## Security constraints
+
+- The API key (`CLOUD_RUN_API_KEY` / `API_KEY`) must NEVER be committed to git or stored in files that get synced. It lives only in: Netlify env vars, GCP Secret Manager, and the operator's password manager.
+- `DB_PASSWORD` is a GCP Secret Manager reference, not a plain-text env var.
+- `ANTHROPIC_API_KEY` has been removed from the Cloud Run service — the V2 analysis engine does not currently call Claude.
+- Tests must not depend on a working Anthropic API key.
+
+## What has been built (as of July 2026)
+
+### Frontend pages (Next.js, under `src/app/(app)/`)
+
+| Route | What it does |
+|---|---|
+| `/overview` | Dashboard with org/country/sport counts from Supabase |
+| `/registry` | Organisation registry browser with filters, pagination, detail view, edit form |
+| `/registry/[id]` | Organisation detail + profile report (Word export) |
+| `/data-protection` | Data protection landscape — country tracker, maturity scores, enforcement data (from Cloud Run API) |
+| `/data-protection/jurisdictions` | Multi-jurisdiction browser with side panel drilldown |
+| `/data-protection/editions` | AfricanSTN weekly edition content management |
+| `/pipeline` | Prospect pipeline (compliance services sales funnel) |
+| `/compliance` | Compliance services hub — client list, V1 and V2 assessments |
+| `/compliance/client/[id]` | Full client workspace with tabs: Overview, Findings, Data Mapping, Special Categories, Breaches, Remediation, DSARs, Audit Trail |
+| `/compliance/assessment/[id]` | V1 POPIA assessment report (printable) |
+| `/compliance/assessment-v2/[id]` | V2 multi-jurisdiction assessment report |
+| `/compliance/jurisdictions` | Knowledge base browser — jurisdictions and requirements |
+| `/clients` | Client management with edit modal, CRUD |
+| `/dashboard` | Secondary dashboard view |
+| `/content` | Content/article management |
+| `/reports` | Report generation tools |
+
+### Compliance engine (two versions)
+
+**V1 (POPIA-only):** Single-jurisdiction analysis. Scrapes a company's website, identifies privacy policy and terms, analyses against POPIA requirements, produces findings with severity scores, generates a compliance radar chart and executive summary. Supports remediation board, breach register, DSAR tracking, ROPA export.
+
+**V2 (multi-jurisdiction):** Extends V1 with a knowledge base architecture. Supports POPIA (South Africa) and UAE PDPL. Document ingest pipeline with content hash deduplication. Knowledge base stores jurisdiction requirements. Assessment runs produce findings mapped to specific requirements.
+
+**Known V2 limitations:**
+- The pipeline constructs URLs by guessing from `client.company_website` (appends `/privacy`, `/privacy-policy`, `/terms`). It does NOT use the `privacy_policy_url` or `terms_url` fields from the prospect record. This should be fixed.
+- No frontend UI for uploading documents directly (e.g., PAIA manuals). The API supports it via `POST /api/compliance/clients/:clientId/documents/ingest` with a `documents` array parameter, but the frontend only sends `urls`.
+- Content hash deduplication means re-ingesting identical content is silently skipped — re-running an assessment without new content produces no changes.
+
+## Pending work and known issues
+
+### Immediate (blocking)
+1. **GitHub Actions secrets not yet added** — `WIF_PROVIDER` and `WIF_SERVICE_ACCOUNT` must be added to GitHub repo settings (Settings → Secrets and variables → Actions). Values are in the "Required GitHub repo secrets" section above.
+2. **API_KEY not yet in GCP Secret Manager** — needs to be created via `gcloud secrets create api-key --data-file=- --replication-policy="automatic"`. The workflow references it as `API_KEY=api-key:latest`.
+3. **First deploy needed** — the workflow file exists but hasn't been pushed to `main` yet. Once secrets are set and the file is pushed, the first automated deploy will fix the broken Data Protection and Jurisdictions pages.
+
+### Feature backlog
+- **Document upload UI** — frontend needs a way to upload documents (PAIA manuals, custom URLs) for V2 compliance analysis. API supports it, frontend doesn't expose it.
+- **V2 pipeline should use prospect URL fields** — `privacy_policy_url` and `terms_url` from prospects should feed into the V2 pipeline rather than just guessing from `company_website`.
+- **Prospect-to-client conversion** — UX improvement to bridge or combine Compliance Services and Clients sections, reducing clicks.
+- **Registry assistant** — Claude-powered natural language query over the organisation registry.
+- **Narrative reports** — AI-generated country profile reports.
 
 ## Reference documents (in the STZA shared drive, not the repo)
 
@@ -92,6 +196,8 @@ The Supabase JS client returns a maximum of 1,000 rows per query by default. Any
 - `STZA_AfricanSTN_Licensed_Access_Architecture_Considerations_v1.docx` — read before any external-access work.
 - `AfricanSTN_Database_Audit_v1_2.docx` — the registry's contents and provenance.
 - STZA Brand Guidelines v1.0 — the full brand system.
+- `STZA_DPO_Engagement_Risk_Assessment.docx` — risk assessment for offering DPO/advisory services.
+- `STZA_POPIA_Engagement_Scope.docx` — template engagement scope for compliance advisory.
 
 ## Working style for Claude Code in this repo
 
@@ -99,4 +205,6 @@ The Supabase JS client returns a maximum of 1,000 rows per query by default. Any
 - Run `npm run build` before committing; show diffs before committing.
 - Keep the brand tokens centralised; never hard-code colours.
 - When unsure about a schema detail, query the live database rather than guessing — the cost of a wrong assumption here is silent wrong data in production, which is worse than a loud error.
+- When modifying route files, remember they must exist both in the repo root AND be copied to `deploy/` for the API to work. The CI/CD pipeline handles this, but manual deploys require the copy step.
+- The frontend and backend are separate deployments. Frontend changes deploy via Netlify on push. Backend changes deploy via GitHub Actions (or manually via `deploy.sh`).
 
