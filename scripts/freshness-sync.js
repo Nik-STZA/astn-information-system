@@ -36,7 +36,7 @@ async function cols(client, table) {
   const dst = new Client({
     host: "127.0.0.1",
     port: 15432,
-    user: "app_user",
+    user: process.env.CSQL_USER || "app_user",
     password: process.env.PGPWD,
     database: "africastn_os",
   });
