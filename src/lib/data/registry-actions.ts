@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { cloudRunMutate } from "@/lib/cloud-run";
 import {
   CONFIDENCE_BANDS,
   EDITABLE_FIELDS,
@@ -11,10 +12,9 @@ import {
 } from "@/lib/data/registry-shared";
 
 /**
- * Save edits to an organization row. Only the EDITABLE_FIELDS subset is
- * written; structural fields (country/sport/level) and identity fields
- * (organization_name, astn_id) are excluded server-side - the form omits
- * them but defence in depth.
+ * Save edits to an organization row via the Cloud Run API (organizations live
+ * in Cloud SQL since the Supabase migration). Only the EDITABLE_FIELDS subset
+ * is written; the API enforces the same whitelist server-side.
  *
  * Empty strings become NULL so the operator can clear a field.
  *
@@ -22,17 +22,15 @@ import {
  *   - source_confidence_band: dropdown (High / Medium / Medium-Low / Low / "")
  *   - source_confidence_descriptor: optional free-text, parenthesised on save
  *
- * Writes are gated by the "Nik can do anything" RLS policy
- * (auth.email() = 'nik@stza.io'); other allowlisted users see a permission
- * error surfaced via UpdateResult.
+ * The acting user's email (from the Supabase auth session, which remains the
+ * login layer until the IAP cutover) is passed as changed_by so the
+ * organizations_audit trigger records who made the change.
  */
 export async function updateOrganization(
   id: string,
   _prev: UpdateResult,
   formData: FormData,
 ): Promise<UpdateResult> {
-  const supabase = await createSupabaseServerClient();
-
   const patch: Record<string, string | null> = {};
   for (const field of EDITABLE_FIELDS) {
     // source_confidence is composed from band + descriptor below.
@@ -52,23 +50,28 @@ export async function updateOrganization(
   const descriptor = typeof descriptorRaw === "string" ? descriptorRaw : "";
   patch.source_confidence = composeSourceConfidence(band, descriptor);
 
-  // .select() so we can detect 0-rows-affected (RLS denial). Without it,
-  // PostgREST returns 200 with no body on UPDATE and we can't tell the
-  // difference between "saved" and "silently blocked by row-level security".
-  const { data, error } = await supabase
-    .from("organizations")
-    .update(patch)
-    .eq("id", id)
-    .select("id");
-  if (error) {
-    return { status: "error", message: error.message };
+  // Auth session still lives in Supabase until the IAP cutover — used here
+  // only to attribute the change in the audit log.
+  let changedBy = "system";
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data } = await supabase.auth.getUser();
+    if (data.user?.email) changedBy = data.user.email;
+  } catch {
+    // fall through with "system"
   }
-  if (!data || data.length === 0) {
-    return {
-      status: "error",
-      message:
-        "Update was not applied. This usually means a row-level security policy blocked it. Check your sign-in and the organizations policies.",
-    };
+
+  const res = await cloudRunMutate<{ id: string; updated: boolean }>(
+    `/api/organizations/${id}`,
+    "PUT",
+    { fields: patch, changed_by: changedBy },
+  );
+
+  if (res.error) {
+    return { status: "error", message: res.error };
+  }
+  if (!res.data?.updated) {
+    return { status: "error", message: "Update was not applied." };
   }
 
   revalidatePath(`/registry/${id}`);

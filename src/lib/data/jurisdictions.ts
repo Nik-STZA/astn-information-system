@@ -1,8 +1,8 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { cloudRunFetch } from "@/lib/cloud-run";
 
 /**
- * Data fetchers for dp_jurisdictions table.
- * Uses direct Supabase access (same pattern as overview.ts / registry.ts).
+ * Data fetchers for the dp_jurisdictions table, backed by the Cloud Run API
+ * (migrated from Supabase to Cloud SQL).
  */
 
 export type JurisdictionSummary = {
@@ -27,18 +27,27 @@ export type JurisdictionDetail = JurisdictionSummary & {
   updatedAt: string | null;
 };
 
-export async function fetchAllJurisdictions(): Promise<JurisdictionSummary[]> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("dp_jurisdictions")
-    .select(
-      "id, jurisdiction_id, country_name, country_iso, region, law_name, law_year, has_comprehensive_law, authority_name, authority_acronym, authority_operational, malabo_status",
-    )
-    .order("country_name", { ascending: true });
+type JurisdictionApiRow = {
+  id: string;
+  jurisdiction_id: string;
+  country_name: string;
+  country_iso: string;
+  region: string | null;
+  law_name: string | null;
+  law_year: number | null;
+  has_comprehensive_law: boolean | null;
+  authority_name: string | null;
+  authority_full_name?: string | null;
+  authority_acronym: string | null;
+  authority_operational: boolean | null;
+  malabo_status: string | null;
+  record_data?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
 
-  if (error || !data) return [];
-
-  return data.map((row) => ({
+function toSummary(row: JurisdictionApiRow): JurisdictionSummary {
+  return {
     id: row.id,
     jurisdictionId: row.jurisdiction_id,
     countryName: row.country_name,
@@ -51,61 +60,40 @@ export async function fetchAllJurisdictions(): Promise<JurisdictionSummary[]> {
     authorityAcronym: row.authority_acronym ?? null,
     authorityOperational: row.authority_operational ?? false,
     malaboStatus: row.malabo_status ?? null,
-  }));
+  };
+}
+
+export async function fetchAllJurisdictions(): Promise<JurisdictionSummary[]> {
+  const res = await cloudRunFetch<{ count: number; data: JurisdictionApiRow[] }>(
+    "/api/dp/jurisdictions",
+  );
+  return (res.data?.data ?? []).map(toSummary);
 }
 
 export async function fetchJurisdictionById(
   jurisdictionId: string,
 ): Promise<JurisdictionDetail | null> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("dp_jurisdictions")
-    .select("*")
-    .eq("jurisdiction_id", jurisdictionId)
-    .single();
-
-  if (error || !data) return null;
-
+  const res = await cloudRunFetch<JurisdictionApiRow>(
+    `/api/dp/jurisdictions/${encodeURIComponent(jurisdictionId)}`,
+  );
+  if (!res.data) return null;
+  const row = res.data;
   return {
-    id: data.id,
-    jurisdictionId: data.jurisdiction_id,
-    countryName: data.country_name,
-    countryIso: data.country_iso,
-    region: data.region ?? null,
-    lawName: data.law_name ?? null,
-    lawYear: data.law_year ?? null,
-    hasComprehensiveLaw: data.has_comprehensive_law ?? false,
-    authorityName: data.authority_name ?? null,
-    authorityFullName: data.authority_full_name ?? null,
-    authorityAcronym: data.authority_acronym ?? null,
-    authorityOperational: data.authority_operational ?? false,
-    malaboStatus: data.malabo_status ?? null,
-    recordData: (data.record_data as Record<string, unknown>) ?? {},
-    createdAt: data.created_at ?? null,
-    updatedAt: data.updated_at ?? null,
+    ...toSummary(row),
+    authorityFullName: row.authority_full_name ?? null,
+    recordData: (row.record_data as Record<string, unknown>) ?? {},
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
   };
 }
 
 export async function fetchJurisdictionMetrics() {
-  const supabase = await createSupabaseServerClient();
-
-  const { count: total } = await supabase
-    .from("dp_jurisdictions")
-    .select("*", { count: "exact", head: true });
-
-  const { count: withLaw } = await supabase
-    .from("dp_jurisdictions")
-    .select("*", { count: "exact", head: true })
-    .eq("has_comprehensive_law", true);
-
-  const { count: withDpa } = await supabase
-    .from("dp_jurisdictions")
-    .select("*", { count: "exact", head: true })
-    .eq("authority_operational", true);
-
-  return {
-    total: total ?? 0,
-    withComprehensiveLaw: withLaw ?? 0,
-    withOperationalDpa: withDpa ?? 0,
-  };
+  const res = await cloudRunFetch<{
+    total: number;
+    withComprehensiveLaw: number;
+    withOperationalDpa: number;
+  }>("/api/dp/jurisdictions/metrics");
+  return (
+    res.data ?? { total: 0, withComprehensiveLaw: 0, withOperationalDpa: 0 }
+  );
 }

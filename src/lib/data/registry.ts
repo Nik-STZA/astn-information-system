@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { cloudRunFetch } from "@/lib/cloud-run";
 import {
   REGISTRY_PAGE_SIZE,
   type FilterOptions,
@@ -11,9 +11,9 @@ import {
 export * from "@/lib/data/registry-shared";
 
 /**
- * Server-only registry data fetchers. Lists, filters, and paginates the
- * organizations table. Import shared types from registry-shared.ts in any
- * client component (importing this file pulls in next/headers).
+ * Server-only registry data fetchers, backed by the Cloud Run API
+ * (organizations live in Cloud SQL since the Supabase migration).
+ * Import shared types from registry-shared.ts in any client component.
  */
 
 export type RegistryPage = {
@@ -21,50 +21,7 @@ export type RegistryPage = {
   totalCount: number;
 };
 
-type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
-
-// PostgREST caps a single response at 1,000 rows. Page through with .range()
-// so distinct-value lookups see the whole table.
-async function fetchAllColumnValues(
-  supabase: SupabaseServerClient,
-  table: string,
-  column: string,
-): Promise<string[]> {
-  const pageSize = 1000;
-  const all: string[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(column)
-      .not(column, "is", null)
-      .range(from, from + pageSize - 1);
-    if (error || !data || data.length === 0) break;
-    for (const row of data) {
-      const v = (row as unknown as Record<string, unknown>)[column];
-      if (typeof v === "string" && v.length > 0) all.push(v);
-    }
-    if (data.length < pageSize) break;
-    from += pageSize;
-  }
-  return all;
-}
-
-export async function fetchFilterOptions(): Promise<FilterOptions> {
-  const supabase = await createSupabaseServerClient();
-  const [countries, sports, types] = await Promise.all([
-    fetchAllColumnValues(supabase, "organizations", "country"),
-    fetchAllColumnValues(supabase, "organizations", "sport"),
-    fetchAllColumnValues(supabase, "organizations", "organization_type"),
-  ]);
-  return {
-    countries: Array.from(new Set(countries)).sort((a, b) => a.localeCompare(b)),
-    sports: Array.from(new Set(sports)).sort((a, b) => a.localeCompare(b)),
-    types: Array.from(new Set(types)).sort((a, b) => a.localeCompare(b)),
-  };
-}
-
-// Sortable column keys — matches the select list in fetchOrganizations.
+// Sortable column keys — validated server-side too.
 export type RegistrySortField =
   | "organization_name"
   | "country"
@@ -94,121 +51,65 @@ type FetchOrganizationsOpts = {
   sortDir?: SortDir;
 };
 
+function filterParams(filters: RegistryFilters, opts: FetchOrganizationsOpts = {}): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.q) params.set("q", filters.q);
+  if (filters.country) params.set("country", filters.country);
+  if (filters.sport) params.set("sport", filters.sport);
+  if (filters.type) params.set("type", filters.type);
+  if (filters.confidence) params.set("confidence", filters.confidence);
+  if (opts.verifyMode) params.set("verify", "1");
+  return params;
+}
+
+export async function fetchFilterOptions(): Promise<FilterOptions> {
+  const res = await cloudRunFetch<FilterOptions>("/api/organizations/facets");
+  return res.data ?? { countries: [], sports: [], types: [] };
+}
+
 export async function fetchOrganizations(
   filters: RegistryFilters,
   page: number,
   pageSize: number = REGISTRY_PAGE_SIZE,
   opts: FetchOrganizationsOpts = {},
 ): Promise<RegistryPage> {
-  const supabase = await createSupabaseServerClient();
+  const params = filterParams(filters, opts);
+  params.set("page", String(Math.max(1, page)));
+  params.set("page_size", String(pageSize));
+  if (opts.sort) params.set("sort", opts.sort);
+  if (opts.sortDir) params.set("dir", opts.sortDir);
 
-  const from = Math.max(0, (page - 1) * pageSize);
-  const to = from + pageSize - 1;
-
-  const sortField = opts.sort ?? "organization_name";
-  const ascending = (opts.sortDir ?? "asc") === "asc";
-
-  let query = supabase
-    .from("organizations")
-    .select(
-      "id, organization_name, country, country_iso, sport, organization_type, source_confidence",
-      { count: "exact" },
-    )
-    .order(sortField, { ascending })
-    .range(from, to);
-
-  if (filters.q) query = query.ilike("organization_name", `%${filters.q}%`);
-  if (filters.country) query = query.eq("country", filters.country);
-  if (filters.sport) query = query.eq("sport", filters.sport);
-  if (filters.type) query = query.eq("organization_type", filters.type);
-
-  if (filters.confidence) {
-    if (filters.confidence === "Medium") {
-      // Medium band excludes Medium-Low.
-      query = query
-        .ilike("source_confidence", "Medium%")
-        .not("source_confidence", "ilike", "Medium-Low%");
-    } else {
-      query = query.ilike("source_confidence", `${filters.confidence}%`);
-    }
-  }
-
-  if (opts.verifyMode) {
-    // Anything not at High band - includes Medium / Medium-Low / Low and null.
-    query = query.or("source_confidence.is.null,source_confidence.not.ilike.High%");
-  }
-
-  const { data, count } = await query;
-
+  const res = await cloudRunFetch<{ count: number; data: RegistryRow[] }>(
+    `/api/organizations?${params.toString()}`,
+  );
   return {
-    rows: (data ?? []) as RegistryRow[],
-    totalCount: count ?? 0,
+    rows: res.data?.data ?? [],
+    totalCount: res.data?.count ?? 0,
   };
 }
 
 // Headline count of organisations awaiting verification - anything not at the
 // High band, including rows with a null source_confidence.
 export async function fetchVerificationQueueCount(): Promise<number> {
-  const supabase = await createSupabaseServerClient();
-  const { count } = await supabase
-    .from("organizations")
-    .select("*", { count: "exact", head: true })
-    .or("source_confidence.is.null,source_confidence.not.ilike.High%");
-  return count ?? 0;
+  const res = await cloudRunFetch<{ count: number }>("/api/organizations/verify-count");
+  return res.data?.count ?? 0;
 }
 
 // Bulk fetch every row matching the filters - used by /registry/export.
-// Pages through the 1,000-row PostgREST cap. No limit on result size; callers
-// that have an upper bound (the docx generator) should impose their own.
 export async function fetchAllOrganizationsMatching(
   filters: RegistryFilters,
   opts: FetchOrganizationsOpts = {},
 ): Promise<OrganizationDetail[]> {
-  const supabase = await createSupabaseServerClient();
-  const pageSize = 1000;
-  const all: OrganizationDetail[] = [];
-  let from = 0;
-  for (;;) {
-    let query = supabase
-      .from("organizations")
-      .select("*")
-      .order("organization_name", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (filters.country) query = query.eq("country", filters.country);
-    if (filters.sport) query = query.eq("sport", filters.sport);
-    if (filters.type) query = query.eq("organization_type", filters.type);
-    if (filters.confidence) {
-      if (filters.confidence === "Medium") {
-        query = query
-          .ilike("source_confidence", "Medium%")
-          .not("source_confidence", "ilike", "Medium-Low%");
-      } else {
-        query = query.ilike("source_confidence", `${filters.confidence}%`);
-      }
-    }
-    if (opts.verifyMode) {
-      query = query.or("source_confidence.is.null,source_confidence.not.ilike.High%");
-    }
-
-    const { data, error } = await query;
-    if (error || !data || data.length === 0) break;
-    all.push(...(data as OrganizationDetail[]));
-    if (data.length < pageSize) break;
-    from += pageSize;
-  }
-  return all;
+  const params = filterParams(filters, opts);
+  const res = await cloudRunFetch<{ count: number; data: OrganizationDetail[] }>(
+    `/api/organizations/export?${params.toString()}`,
+  );
+  return res.data?.data ?? [];
 }
 
 export async function fetchOrganization(id: string): Promise<OrganizationDetail | null> {
-  const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
-    .from("organizations")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  return (data as OrganizationDetail | null) ?? null;
+  const res = await cloudRunFetch<OrganizationDetail>(`/api/organizations/${id}`);
+  return res.data ?? null;
 }
 
 // Stringify a JSON-encoded audit value for display. The diff column stores
@@ -223,18 +124,20 @@ export async function fetchOrganizationChanges(
   orgId: string,
   limit = 20,
 ): Promise<OrganizationChange[]> {
-  const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
-    .from("organization_changes")
-    .select("id, changed_by, changed_at, diff")
-    .eq("org_id", orgId)
-    .order("changed_at", { ascending: false })
-    .limit(limit);
+  const res = await cloudRunFetch<{
+    count: number;
+    data: Array<{
+      id: string;
+      changed_by: string;
+      changed_at: string;
+      diff: Record<string, { old: unknown; new: unknown }> | null;
+    }>;
+  }>(`/api/organizations/${orgId}/changes?limit=${limit}`);
 
-  if (!data) return [];
+  if (!res.data) return [];
 
-  return data.map((row) => {
-    const diff = (row.diff ?? {}) as Record<string, { old: unknown; new: unknown }>;
+  return res.data.data.map((row) => {
+    const diff = row.diff ?? {};
     const fields = Object.entries(diff).map(([field, pair]) => ({
       field,
       oldValue: formatAuditValue(pair?.old),

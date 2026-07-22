@@ -108,6 +108,7 @@ global.pool = pool;
 global.nhm = nhm;
 
 require("./server-listing-routes");
+require("./server-registry-routes");
 require("./server-pipeline-routes");
 require("./server-client-management-routes");
 require("./server-agent-routes");
