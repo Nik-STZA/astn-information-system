@@ -7,6 +7,8 @@ import {
   createClient,
   updateClient,
   createActivity,
+  fetchProspects,
+  fetchClients,
   fetchProspectDocuments,
   fetchProspectAnalysis,
   fetchProspectAssessments,
@@ -96,6 +98,46 @@ export async function verifyIRStatus(id: string, formData: FormData) {
   return res;
 }
 // ─── Client actions ─────────────────────────────────────────────────────────
+
+/**
+ * One-click prospect → client conversion. Creates the client row LINKED to
+ * the prospect (prospect_id, migration 016) with company details and IR
+ * verification carried over, marks the prospect converted, and returns the
+ * new client. Guards against double-conversion.
+ */
+export async function convertProspectToClient(prospectId: string) {
+  const [prospectsRes, clientsRes] = await Promise.all([fetchProspects(), fetchClients()]);
+  const prospect = prospectsRes.data?.data?.find((p) => String(p.id) === String(prospectId));
+  if (!prospect) {
+    return { data: null, error: "Prospect not found" };
+  }
+  const existing = clientsRes.data?.data?.find(
+    (c) => String(c.prospect_id ?? "") === String(prospectId)
+  );
+  if (existing) {
+    return { data: existing, error: null, alreadyConverted: true as const };
+  }
+
+  const res = await createClient({
+    prospect_id: prospect.id,
+    company_name: prospect.company_name,
+    company_website: prospect.company_website ?? null,
+    company_country: prospect.company_country ?? null,
+    status: "engaged",
+    service_tier: prospect.estimated_tier ?? null,
+    ir_registration_number: prospect.ir_registration_no ?? null,
+    ir_registration_date: prospect.ir_registration_date ?? null,
+    io_appointed: prospect.ir_io_name ?? null,
+    notes: prospect.notes ?? null,
+  });
+
+  if (!res.error) {
+    await updateProspect(String(prospect.id), { outreach_status: "converted" });
+    revalidatePath("/clients");
+    revalidatePath("/compliance");
+  }
+  return res;
+}
 
 export async function addClient(formData: FormData) {
   const data = {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { Client } from "@/lib/data/compliance";
+import type { Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
+import { getProspectDocuments, getProspectAnalysis, getProspectAssessments } from "../compliance/actions";
 import { flagUrl } from "@/lib/country-iso";
 import type {
   Engagement,
@@ -249,10 +250,11 @@ const sectionLabel: React.CSSProperties = {
 
 // ─── Tab types ───────────────────────────────────────────────────────────────
 
-type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories" | "remediation" | "dsars";
+type TabKey = "engagements" | "io" | "breaches" | "tasks" | "correspondence" | "data_mapping" | "special_categories" | "remediation" | "dsars" | "pipeline";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "engagements", label: "Engagements" },
+  { key: "pipeline", label: "Pipeline" },
   { key: "io", label: "IO registrations" },
   { key: "data_mapping", label: "Data mapping" },
   { key: "special_categories", label: "Special categories" },
@@ -1848,6 +1850,23 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
   const cid = String(client.id);
 
+  // Pipeline data from the linked prospect (migration 016) — documents,
+  // findings, and assessments produced before conversion.
+  const [pipelineDocs, setPipelineDocs] = useState<ProspectDocument[]>([]);
+  const [pipelineFindings, setPipelineFindings] = useState<AnalysisFinding[]>([]);
+  const [pipelineAssessments, setPipelineAssessments] = useState<ProspectAssessment[]>([]);
+
+  useEffect(() => {
+    if (!client.prospect_id) return;
+    const pid = String(client.prospect_id);
+    Promise.all([getProspectDocuments(pid), getProspectAnalysis(pid), getProspectAssessments(pid)])
+      .then(([dR, aR, sR]) => {
+        setPipelineDocs(dR.data?.data ?? []);
+        setPipelineFindings(aR.data?.data ?? []);
+        setPipelineAssessments(sR.data?.data ?? []);
+      });
+  }, [client.prospect_id]);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([fetchEngagements(cid), fetchRegistrations(cid), fetchBreaches(cid), fetchClientTasks(cid), fetchClientCorrespondence(cid), fetchProcessingActivities(cid), fetchSpecialCategories(cid), fetchRemediationItems(cid), fetchDSARs(cid)])
@@ -1883,7 +1902,7 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
   const flag = flagUrl(client.company_country);
   const tabBase: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12.5, fontWeight: 700, background: "none", border: "none", padding: "14px 14px", cursor: "pointer", marginBottom: -1, whiteSpace: "nowrap" };
   const addBtnSmall: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" };
-  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "", dsars: "+ DSAR" };
+  const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", pipeline: "", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "", dsars: "+ DSAR" };
 
   return (
     <div style={{ flex: 1, minWidth: 420, background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, boxShadow: "0 1px 3px rgba(26,28,30,.05)", overflow: "hidden" }}>
@@ -1961,6 +1980,55 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
           <div style={{ padding: "36px 20px", textAlign: "center", fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 500, color: "#8E9196" }}>Loading…</div>
         ) : (
           <>
+            {tab === "pipeline" && (!client.prospect_id
+              ? <EmptyTab title="No linked prospect" subtitle="This client was created directly rather than converted from the compliance pipeline." />
+              : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div>
+                    <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Assessments ({pipelineAssessments.length})</div>
+                    {pipelineAssessments.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--empty-text)" }}>None yet.</div> : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {pipelineAssessments.slice(0, 5).map((a) => (
+                          <div key={a.id} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--tx)" }}>
+                              {a.overall_severity ? `Severity: ${a.overall_severity}` : "Assessment"}
+                              {a.score_overall != null ? ` · score ${Number(a.score_overall).toFixed(0)}` : ""}
+                            </span>
+                            <span style={{ fontSize: 11.5, color: "var(--sub)" }}>{a.created_at ? new Date(a.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Findings ({pipelineFindings.length})</div>
+                    {pipelineFindings.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--empty-text)" }}>None yet.</div> : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {pipelineFindings.slice(0, 10).map((f) => (
+                          <div key={f.id} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)", fontSize: 12.5, color: "var(--tx)", display: "flex", gap: 10, alignItems: "baseline" }}>
+                            {f.severity && <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", color: f.severity === "critical" || f.severity === "high" ? "var(--risk-red)" : "var(--sub)", whiteSpace: "nowrap" }}>{f.severity}</span>}
+                            <span>{f.finding || f.check_category || "Finding"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Documents ({pipelineDocs.length})</div>
+                    {pipelineDocs.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--empty-text)" }}>None yet.</div> : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {pipelineDocs.map((d) => (
+                          <div key={d.id} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)", fontSize: 12.5, display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <span style={{ color: "var(--tx)", fontWeight: 600 }}>{d.document_title ?? d.document_type}</span>
+                            {d.source_url && <a href={d.source_url} target="_blank" rel="noreferrer" style={{ color: "var(--gold-dark)", textDecoration: "none", fontSize: 11.5 }}>Open →</a>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <a href="/compliance" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none" }}>Open full pipeline view →</a>
+                </div>
+              ))}
             {tab === "engagements" && (engagements.length === 0
               ? <EmptyTab title="No engagements yet" subtitle="Add an engagement to track service agreements." />
               : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{engagements.map((e) => <EngagementCard key={e.id} e={e} onEdit={() => setModal({ type: "edit", entity: "engagements", item: e })} onDelete={() => setConfirmDelete({ entity: "engagements", id: e.id, label: e.service_tier === "representative" ? "Representative service" : "Authorised IO service" })} />)}</div>)}

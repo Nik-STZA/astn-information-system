@@ -19,6 +19,7 @@ import {
   analyseClientV2,
   assessClientV2,
   getClientPipelineResultsV2,
+  convertProspectToClient,
 } from "./actions";
 
 /* ── Constants ─────────────────────────────────────────────────── */
@@ -566,6 +567,18 @@ function ProspectDetail({
           <h3 style={{ fontWeight: 700, fontSize: 16, color: "var(--tx)", margin: 0 }}>{prospect.company_name}</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <a href={`/compliance/assessment/${prospect.id}`} style={{ ...btnSecondaryStyle, textDecoration: "none", textAlign: "center" }}>Assessment</a>
+            {prospect.outreach_status !== "converted" && (
+              <button
+                onClick={async () => {
+                  const res = await convertProspectToClient(String(prospect.id));
+                  if (!res.error) window.location.href = "/clients";
+                }}
+                style={btnSecondaryStyle}
+                title="Create a linked client record carrying over company details and IR verification"
+              >
+                Convert to client
+              </button>
+            )}
             <button onClick={onEdit} style={btnPrimaryStyle}>Edit</button>
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--sub)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
           </div>
