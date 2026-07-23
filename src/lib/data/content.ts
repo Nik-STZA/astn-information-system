@@ -45,6 +45,64 @@ export async function fetchWeeklyReports() {
   );
 }
 
+// ─── Review queue (editorial gate over classified_items) ────────────────────
+
+export type ReviewItem = {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  source_name: string | null;
+  source_url: string | null;
+  url: string;
+  category: string | null;
+  region: string | null;
+  relevance_score: number | null;
+  confidence: string | null;
+  verticals: string[] | null;
+  original_language: string | null;
+  created_at: string;
+  status: string;
+};
+
+export type ReviewStats = {
+  pending: number;
+  approved: number;
+  rejected: number;
+  pending_this_week: number;
+};
+
+export async function fetchReviewQueue(
+  status: "pending_review" | "approved" | "rejected" = "pending_review",
+  limit = 25,
+  offset = 0,
+) {
+  return cloudRunFetch<{ count: number; data: ReviewItem[] }>(
+    `/api/news/review-queue?status=${status}&limit=${limit}&offset=${offset}`,
+  );
+}
+
+export async function fetchReviewStats() {
+  return cloudRunFetch<ReviewStats>("/api/news/review-stats");
+}
+
+export async function reviewItem(
+  id: string,
+  payload: {
+    action: "approve" | "reject";
+    edited_title?: string;
+    edited_summary?: string;
+    edited_category?: string;
+    decision_reason?: string;
+    reviewed_by?: string;
+  },
+) {
+  return cloudRunMutate<{ id: string; status: string }>(
+    `/api/news/items/${id}/review`,
+    "POST",
+    payload,
+  );
+}
+
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
 export async function createEdition(data: Partial<Edition>) {

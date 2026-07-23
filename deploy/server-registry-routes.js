@@ -291,6 +291,99 @@ app.get("/api/news/recent", async (req, res) => {
   }
 });
 
+// ─── News review queue (editorial gate — replaces the Notion review loop) ──
+
+app.get("/api/news/review-queue", async (req, res) => {
+  try {
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "25", 10)));
+    const offset = Math.max(0, parseInt(req.query.offset || "0", 10));
+    const status = ["pending_review", "approved", "rejected"].includes(req.query.status)
+      ? req.query.status
+      : "pending_review";
+    const { rows } = await pool.query(
+      `SELECT id, title, summary, source_name, source_url, url, category, region,
+              relevance_score, confidence, verticals, original_language, created_at, status,
+              count(*) OVER()::int AS __total
+       FROM classified_items
+       WHERE status = $1 AND (is_duplicate IS NOT TRUE)
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [status, limit, offset]
+    );
+    const total = rows.length > 0 ? rows[0].__total : 0;
+    res.json({ count: total, data: rows.map(({ __total, ...r }) => r) });
+  } catch (err) {
+    console.error("GET /api/news/review-queue error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/news/review-stats", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        count(*) FILTER (WHERE status = 'pending_review' AND is_duplicate IS NOT TRUE)::int AS pending,
+        count(*) FILTER (WHERE status = 'approved')::int AS approved,
+        count(*) FILTER (WHERE status = 'rejected')::int AS rejected,
+        count(*) FILTER (WHERE status = 'pending_review' AND is_duplicate IS NOT TRUE
+                         AND created_at >= NOW() - INTERVAL '7 days')::int AS pending_this_week
+      FROM classified_items
+    `);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("GET /api/news/review-stats error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Approve or reject an item. Writes the approvals audit row and updates the
+// item's status (and title/summary when edited) so the research agent's
+// report generation can gate on database approvals instead of Notion.
+app.post("/api/news/items/:id/review", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { action, edited_title, edited_summary, edited_category, decision_reason, reviewed_by } = req.body || {};
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({ error: "action must be 'approve' or 'reject'" });
+    }
+    const status = action === "approve" ? "approved" : "rejected";
+
+    await client.query("BEGIN");
+
+    const sets = ["status = $1"];
+    const vals = [status];
+    if (edited_title) { vals.push(edited_title); sets.push(`title = $${vals.length}`); }
+    if (edited_summary) { vals.push(edited_summary); sets.push(`summary = $${vals.length}`); }
+    if (edited_category) { vals.push(edited_category); sets.push(`category = $${vals.length}`); }
+    vals.push(req.params.id);
+    const { rows } = await client.query(
+      `UPDATE classified_items SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING id`,
+      vals
+    );
+    if (rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Item not found" });
+    }
+
+    await client.query(
+      `INSERT INTO approvals (classified_item_id, status, decision_reason,
+                              edited_title, edited_summary, edited_category, approved_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [req.params.id, status, decision_reason ?? null, edited_title ?? null,
+       edited_summary ?? null, edited_category ?? null, reviewed_by ?? "nik@stza.io"]
+    );
+
+    await client.query("COMMIT");
+    res.json({ id: rows[0].id, status });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("POST /api/news/items/:id/review error:", err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── DP jurisdictions (migrated dp_jurisdictions table) ────────────────────
 
 app.get("/api/dp/jurisdictions/metrics", async (_req, res) => {

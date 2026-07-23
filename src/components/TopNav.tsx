@@ -45,6 +45,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "Publishing",
     items: [
+      { href: "/content/review", label: "Review" },
       { href: "/content", label: "Content" },
       { href: "/reports", label: "Reports" },
     ],
