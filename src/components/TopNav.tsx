@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 
 interface NavItem {
@@ -102,25 +101,12 @@ const activeLinkStyle: React.CSSProperties = {
   background: "#C5A059",
 };
 
-export default function TopNav({
-  userEmail,
-  authMode = "supabase",
-}: {
-  userEmail: string;
-  authMode?: "iap" | "supabase";
-}) {
+export default function TopNav({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
-  const router = useRouter();
 
   const handleSignOut = async () => {
-    if (authMode === "iap") {
-      // IAP session cookie is cleared at the proxy, not in the app.
-      window.location.href = "/_gcp_iap/clear_login_cookie";
-      return;
-    }
-    const supabase = createSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    router.push("/login");
+    // IAP session cookie is cleared at the proxy, not in the app.
+    window.location.href = "/_gcp_iap/clear_login_cookie";
   };
 
   return (
