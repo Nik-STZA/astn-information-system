@@ -222,15 +222,26 @@ export default function ReviewClient({
   const [items, setItems] = useState<ReviewItem[]>(initialItems);
   const [total, setTotal] = useState(initialTotal);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 0.4 mirrors the brief generator's relevance floor; 0 shows everything.
+  const [minScore, setMinScore] = useState(0.4);
 
   function handleDone(id: string) {
     setItems((prev) => prev.filter((i) => i.id !== id));
     setTotal((t) => Math.max(0, t - 1));
   }
 
+  async function switchFloor(nextFloor: number) {
+    setMinScore(nextFloor);
+    setLoadingMore(true);
+    const res = await loadReviewQueue("pending_review", 25, 0, nextFloor);
+    setItems(res.data?.data ?? []);
+    setTotal(res.data?.count ?? 0);
+    setLoadingMore(false);
+  }
+
   async function loadMore() {
     setLoadingMore(true);
-    const res = await loadReviewQueue("pending_review", 25, items.length);
+    const res = await loadReviewQueue("pending_review", 25, items.length, minScore);
     setItems((prev) => {
       const seen = new Set(prev.map((i) => i.id));
       return [...prev, ...(res.data?.data ?? []).filter((i) => !seen.has(i.id))];
@@ -261,6 +272,29 @@ export default function ReviewClient({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 12, color: "var(--sub)" }}>
+          {minScore > 0
+            ? `Showing publishable candidates (relevance ≥ ${minScore}) — ${total.toLocaleString("en-GB")} items`
+            : `Showing all pending items — ${total.toLocaleString("en-GB")} items`}
+        </span>
+        <button
+          onClick={() => switchFloor(minScore > 0 ? 0 : 0.4)}
+          disabled={loadingMore}
+          style={{
+            fontWeight: 600,
+            fontSize: 11.5,
+            padding: "5px 12px",
+            borderRadius: 6,
+            border: "1px solid var(--bd)",
+            background: "transparent",
+            color: "var(--gold-dark)",
+            cursor: "pointer",
+          }}
+        >
+          {minScore > 0 ? "Show low-relevance items" : "Hide low-relevance items"}
+        </button>
+      </div>
       {items.map((item) => (
         <ItemCard key={item.id} item={item} onDone={handleDone} />
       ))}

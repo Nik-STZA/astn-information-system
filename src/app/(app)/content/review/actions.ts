@@ -11,8 +11,9 @@ export async function loadReviewQueue(
   status: "pending_review" | "approved" | "rejected",
   limit: number,
   offset: number,
+  minScore = 0,
 ) {
-  return fetchReviewQueue(status, limit, offset);
+  return fetchReviewQueue(status, limit, offset, minScore);
 }
 
 export async function submitReview(

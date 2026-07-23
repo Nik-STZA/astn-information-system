@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic";
  * Approve/reject classified items; approved items form the weekly brief.
  */
 export default async function ReviewPage() {
+  // Default floor 0.4 — the same relevance threshold the brief generator uses.
   const [queueRes, statsRes] = await Promise.all([
-    fetchReviewQueue("pending_review", 25, 0),
+    fetchReviewQueue("pending_review", 25, 0, 0.4),
     fetchReviewStats(),
   ]);
 

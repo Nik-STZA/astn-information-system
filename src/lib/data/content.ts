@@ -75,9 +75,10 @@ export async function fetchReviewQueue(
   status: "pending_review" | "approved" | "rejected" = "pending_review",
   limit = 25,
   offset = 0,
+  minScore = 0,
 ) {
   return cloudRunFetch<{ count: number; data: ReviewItem[] }>(
-    `/api/news/review-queue?status=${status}&limit=${limit}&offset=${offset}`,
+    `/api/news/review-queue?status=${status}&limit=${limit}&offset=${offset}&min_score=${minScore}`,
   );
 }
 

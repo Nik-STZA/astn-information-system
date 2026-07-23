@@ -300,15 +300,20 @@ app.get("/api/news/review-queue", async (req, res) => {
     const status = ["pending_review", "approved", "rejected"].includes(req.query.status)
       ? req.query.status
       : "pending_review";
+    // Relevance floor — the brief generator ignores items under 0.4, so the
+    // human queue defaults to the same floor (pass min_score=0 to see all).
+    const minScore = req.query.min_score !== undefined ? parseFloat(req.query.min_score) : 0;
+    const params = [status, minScore, limit, offset];
     const { rows } = await pool.query(
       `SELECT id, title, summary, source_name, source_url, url, category, region,
               relevance_score, confidence, verticals, original_language, created_at, status,
               count(*) OVER()::int AS __total
        FROM classified_items
        WHERE status = $1 AND (is_duplicate IS NOT TRUE)
+         AND ($2 = 0 OR relevance_score >= $2)
        ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [status, limit, offset]
+       LIMIT $3 OFFSET $4`,
+      params
     );
     const total = rows.length > 0 ? rows[0].__total : 0;
     res.json({ count: total, data: rows.map(({ __total, ...r }) => r) });
