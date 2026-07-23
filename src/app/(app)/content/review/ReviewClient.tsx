@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import type { ReviewItem } from "@/lib/data/content";
-import { loadReviewQueue, submitReview } from "./actions";
+import { Fragment, useEffect, useState } from "react";
+import type { ReviewItem, ReviewItemDetail } from "@/lib/data/content";
+import { loadReviewQueue, loadItemDetail, submitReview } from "./actions";
 
 const CATEGORY_LABELS: Record<string, string> = {
-  company: "New company",
+  company: "Company",
   funding: "Funding",
   partnership: "Partnership",
   regulatory: "Regulatory",
@@ -15,47 +15,47 @@ const CATEGORY_LABELS: Record<string, string> = {
   data: "Market data",
 };
 
-function Pill({ text, color, bg }: { text: string; color: string; bg: string }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        fontWeight: 600,
-        fontSize: 10,
-        padding: "2px 8px",
-        borderRadius: 4,
-        background: bg,
-        color,
-        letterSpacing: "0.02em",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {text}
-    </span>
-  );
+function scoreColor(score: number | null): string {
+  if (score == null) return "var(--sub)";
+  if (score >= 0.7) return "var(--success-green)";
+  if (score >= 0.4) return "var(--gold-dark)";
+  return "var(--sub)";
 }
 
-function ItemCard({
+// Expanded row: article substance + classifier reasoning + edit-and-decide.
+function DetailPanel({
   item,
   onDone,
 }: {
   item: ReviewItem;
   onDone: (id: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [detail, setDetail] = useState<ReviewItemDetail | null>(null);
+  const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState(item.title ?? "");
   const [summary, setSummary] = useState(item.summary ?? "");
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Lazy-load full detail once on mount
+  useEffect(() => {
+    let cancelled = false;
+    loadItemDetail(item.id).then((res) => {
+      if (cancelled) return;
+      setDetail(res.data ?? null);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
+
   async function act(action: "approve" | "reject") {
     setBusy(action);
     setError(null);
     const payload: Parameters<typeof submitReview>[1] = { action };
-    if (editing) {
-      if (title.trim() && title.trim() !== (item.title ?? "")) payload.edited_title = title.trim();
-      if (summary.trim() && summary.trim() !== (item.summary ?? "")) payload.edited_summary = summary.trim();
-    }
+    if (title.trim() && title.trim() !== (item.title ?? "")) payload.edited_title = title.trim();
+    if (summary.trim() && summary.trim() !== (item.summary ?? "")) payload.edited_summary = summary.trim();
     const res = await submitReview(item.id, payload);
     setBusy(null);
     if (res.error) {
@@ -65,147 +65,93 @@ function ItemCard({
     onDone(item.id);
   }
 
+  const articleText = detail?.content || detail?.snippet || detail?.translated_text || null;
+
   return (
     <div
       style={{
-        background: "var(--pnl)",
-        border: "1px solid var(--bd)",
-        borderRadius: 10,
-        padding: "16px 18px",
+        padding: "14px 18px 18px",
+        background: "var(--table-header)",
+        borderTop: "1px solid var(--bd)",
         display: "flex",
         flexDirection: "column",
-        gap: 10,
+        gap: 12,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {item.category && (
-            <Pill
-              text={CATEGORY_LABELS[item.category] ?? item.category}
-              color="var(--gold-dark)"
-              bg="rgba(197,160,89,.12)"
-            />
-          )}
-          {item.region && <Pill text={item.region} color="var(--sub)" bg="var(--table-header)" />}
-          {item.relevance_score != null && (
-            <Pill
-              text={`Score ${Number(item.relevance_score).toFixed(1)}`}
-              color={Number(item.relevance_score) >= 7 ? "var(--success-green)" : "var(--sub)"}
-              bg="var(--table-header)"
-            />
-          )}
-        </div>
-        <span style={{ fontSize: 11.5, color: "var(--sub)" }}>
-          {item.source_name ?? "Unknown source"} ·{" "}
-          {new Date(item.created_at).toLocaleDateString("en-GB", {
-            day: "numeric",
-            month: "short",
-          })}
-        </span>
-      </div>
-
-      {editing ? (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+        {/* Left: editable brief copy */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+            Brief copy (editable)
+          </span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            style={{
-              fontSize: 13.5,
-              fontWeight: 700,
-              padding: "8px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--bd)",
-              background: "var(--pg)",
-              color: "var(--tx)",
-            }}
+            style={{ fontSize: 13, fontWeight: 700, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--bd)", background: "var(--pnl)", color: "var(--tx)" }}
           />
           <textarea
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            rows={3}
-            style={{
-              fontSize: 12.5,
-              padding: "8px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--bd)",
-              background: "var(--pg)",
-              color: "var(--tx)",
-              resize: "vertical",
-            }}
+            rows={5}
+            style={{ fontSize: 12.5, lineHeight: 1.5, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--bd)", background: "var(--pnl)", color: "var(--tx)", resize: "vertical" }}
           />
-        </div>
-      ) : (
-        <div>
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noreferrer"
-            style={{ fontSize: 13.5, fontWeight: 700, color: "var(--tx)", textDecoration: "none" }}
-          >
-            {item.title ?? "Untitled"} ↗
-          </a>
-          {item.summary && (
-            <p style={{ fontSize: 12.5, color: "var(--label-text)", margin: "6px 0 0", lineHeight: 1.5 }}>
-              {item.summary}
-            </p>
+          {detail?.gemini_reasoning && (
+            <div>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+                Classifier reasoning
+              </span>
+              <p style={{ fontSize: 12, color: "var(--label-text)", margin: "4px 0 0", lineHeight: 1.5 }}>
+                {detail.gemini_reasoning}
+              </p>
+            </div>
           )}
         </div>
-      )}
 
-      {error && (
-        <div style={{ fontSize: 12, color: "var(--alert-red)" }}>{error}</div>
-      )}
+        {/* Right: the article itself */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+              Article
+            </span>
+            <a href={item.url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none" }}>
+              Open original ↗
+            </a>
+          </div>
+          <div
+            style={{
+              maxHeight: 260,
+              overflowY: "auto",
+              fontSize: 12.5,
+              lineHeight: 1.55,
+              color: "var(--label-text)",
+              background: "var(--pnl)",
+              border: "1px solid var(--bd)",
+              borderRadius: 6,
+              padding: "10px 12px",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {loading ? "Loading article…" : articleText ?? "No stored article text — use Open original."}
+          </div>
+        </div>
+      </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      {error && <div style={{ fontSize: 12, color: "var(--alert-red)" }}>{error}</div>}
+
+      <div style={{ display: "flex", gap: 8 }}>
         <button
           onClick={() => act("approve")}
           disabled={busy !== null}
-          style={{
-            fontWeight: 700,
-            fontSize: 12,
-            padding: "7px 16px",
-            borderRadius: 6,
-            border: "none",
-            background: "var(--success-green)",
-            color: "#fff",
-            cursor: "pointer",
-            opacity: busy ? 0.6 : 1,
-          }}
+          style={{ fontWeight: 700, fontSize: 12, padding: "7px 18px", borderRadius: 6, border: "none", background: "var(--success-green)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}
         >
           {busy === "approve" ? "Approving…" : "Approve"}
         </button>
         <button
           onClick={() => act("reject")}
           disabled={busy !== null}
-          style={{
-            fontWeight: 600,
-            fontSize: 12,
-            padding: "7px 16px",
-            borderRadius: 6,
-            border: "1px solid var(--bd)",
-            background: "transparent",
-            color: "var(--risk-red)",
-            cursor: "pointer",
-            opacity: busy ? 0.6 : 1,
-          }}
+          style={{ fontWeight: 600, fontSize: 12, padding: "7px 18px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "var(--risk-red)", cursor: "pointer", opacity: busy ? 0.6 : 1 }}
         >
           {busy === "reject" ? "Rejecting…" : "Reject"}
-        </button>
-        <button
-          onClick={() => setEditing((e) => !e)}
-          disabled={busy !== null}
-          style={{
-            fontWeight: 600,
-            fontSize: 12,
-            padding: "7px 12px",
-            borderRadius: 6,
-            border: "none",
-            background: "transparent",
-            color: "var(--gold-dark)",
-            cursor: "pointer",
-          }}
-        >
-          {editing ? "Cancel edit" : "Edit"}
         </button>
       </div>
     </div>
@@ -222,6 +168,8 @@ export default function ReviewClient({
   const [items, setItems] = useState<ReviewItem[]>(initialItems);
   const [total, setTotal] = useState(initialTotal);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   // "candidates" replicates the old Notion view (last 7 days, score >= 0.4,
   // best first); "all" is the raw pending table.
   const [view, setView] = useState<"candidates" | "all">("candidates");
@@ -233,13 +181,23 @@ export default function ReviewClient({
   function handleDone(id: string) {
     setItems((prev) => prev.filter((i) => i.id !== id));
     setTotal((t) => Math.max(0, t - 1));
+    setExpandedId((e) => (e === id ? null : e));
+  }
+
+  // One-click decision straight from the row — no expansion needed.
+  async function quickAct(id: string, action: "approve" | "reject") {
+    setBusyId(id);
+    const res = await submitReview(id, { action });
+    setBusyId(null);
+    if (!res.error) handleDone(id);
   }
 
   async function switchView(next: "candidates" | "all") {
     setView(next);
     setLoadingMore(true);
+    setExpandedId(null);
     const p = viewParams(next);
-    const res = await loadReviewQueue("pending_review", 25, 0, p.minScore, p.days, p.sort);
+    const res = await loadReviewQueue("pending_review", 50, 0, p.minScore, p.days, p.sort);
     setItems(res.data?.data ?? []);
     setTotal(res.data?.count ?? 0);
     setLoadingMore(false);
@@ -248,33 +206,13 @@ export default function ReviewClient({
   async function loadMore() {
     setLoadingMore(true);
     const p = viewParams(view);
-    const res = await loadReviewQueue("pending_review", 25, items.length, p.minScore, p.days, p.sort);
+    const res = await loadReviewQueue("pending_review", 50, items.length, p.minScore, p.days, p.sort);
     setItems((prev) => {
       const seen = new Set(prev.map((i) => i.id));
       return [...prev, ...(res.data?.data ?? []).filter((i) => !seen.has(i.id))];
     });
     if (res.data) setTotal(res.data.count);
     setLoadingMore(false);
-  }
-
-  if (items.length === 0) {
-    return (
-      <div
-        style={{
-          padding: "48px 20px",
-          textAlign: "center",
-          border: "1.5px dashed var(--empty-border)",
-          borderRadius: 12,
-        }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 15, color: "var(--sub)", marginBottom: 4 }}>
-          Queue clear
-        </div>
-        <div style={{ fontWeight: 500, fontSize: 12.5, color: "var(--empty-text)" }}>
-          No items awaiting review. New items arrive with the Thursday fetch.
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -288,39 +226,105 @@ export default function ReviewClient({
         <button
           onClick={() => switchView(view === "candidates" ? "all" : "candidates")}
           disabled={loadingMore}
-          style={{
-            fontWeight: 600,
-            fontSize: 11.5,
-            padding: "5px 12px",
-            borderRadius: 6,
-            border: "1px solid var(--bd)",
-            background: "transparent",
-            color: "var(--gold-dark)",
-            cursor: "pointer",
-          }}
+          style={{ fontWeight: 600, fontSize: 11.5, padding: "5px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "var(--gold-dark)", cursor: "pointer" }}
         >
           {view === "candidates" ? "Show all pending" : "Show brief candidates"}
         </button>
       </div>
-      {items.map((item) => (
-        <ItemCard key={item.id} item={item} onDone={handleDone} />
-      ))}
-      {items.length < total && (
+
+      {items.length === 0 ? (
+        <div style={{ padding: "48px 20px", textAlign: "center", border: "1.5px dashed var(--empty-border)", borderRadius: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "var(--sub)", marginBottom: 4 }}>Queue clear</div>
+          <div style={{ fontWeight: 500, fontSize: 12.5, color: "var(--empty-text)" }}>
+            No items in this view. New items arrive with the Thursday fetch.
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "var(--table-header)", borderBottom: "1.5px solid var(--bd)" }}>
+                {["Score", "Category", "Title", "Source", ""].map((h) => (
+                  <th
+                    key={h || "actions"}
+                    style={{
+                      textAlign: h === "" ? "right" : "left",
+                      fontWeight: 700,
+                      fontSize: 10.5,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "var(--sub)",
+                      padding: "11px 14px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, idx) => (
+                <Fragment key={item.id}>
+                  <tr
+                    onClick={() => setExpandedId((e) => (e === item.id ? null : item.id))}
+                    style={{
+                      background: expandedId === item.id ? "var(--table-header)" : idx % 2 ? "var(--table-header)" : "transparent",
+                      borderBottom: expandedId === item.id ? "none" : "1px solid var(--bd)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <td style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: scoreColor(item.relevance_score), fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                      {item.relevance_score != null ? Number(item.relevance_score).toFixed(1) : "—"}
+                    </td>
+                    <td style={{ padding: "9px 14px", fontSize: 11.5, fontWeight: 600, color: "var(--gold-dark)", whiteSpace: "nowrap" }}>
+                      {item.category ? CATEGORY_LABELS[item.category] ?? item.category : "—"}
+                    </td>
+                    <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "var(--tx)", lineHeight: 1.35 }}>
+                      {item.title ?? "Untitled"}
+                    </td>
+                    <td style={{ padding: "9px 14px", fontSize: 11.5, color: "var(--sub)", whiteSpace: "nowrap" }}>
+                      {item.source_name ?? "—"} ·{" "}
+                      {new Date(item.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </td>
+                    <td style={{ padding: "9px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); quickAct(item.id, "approve"); }}
+                        disabled={busyId === item.id}
+                        title="Approve"
+                        style={{ fontWeight: 800, fontSize: 13, width: 30, height: 26, borderRadius: 6, border: "none", background: "rgba(46,125,50,.14)", color: "var(--success-green)", cursor: "pointer", marginRight: 6, opacity: busyId === item.id ? 0.5 : 1 }}
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); quickAct(item.id, "reject"); }}
+                        disabled={busyId === item.id}
+                        title="Reject"
+                        style={{ fontWeight: 800, fontSize: 13, width: 30, height: 26, borderRadius: 6, border: "none", background: "rgba(204,0,0,.10)", color: "var(--risk-red)", cursor: "pointer", opacity: busyId === item.id ? 0.5 : 1 }}
+                      >
+                        ✗
+                      </button>
+                    </td>
+                  </tr>
+                  {expandedId === item.id && (
+                    <tr style={{ borderBottom: "1px solid var(--bd)" }}>
+                      <td colSpan={5} style={{ padding: 0 }}>
+                        <DetailPanel item={item} onDone={handleDone} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {items.length > 0 && items.length < total && (
         <button
           onClick={loadMore}
           disabled={loadingMore}
-          style={{
-            alignSelf: "center",
-            fontWeight: 600,
-            fontSize: 12.5,
-            padding: "9px 22px",
-            borderRadius: 8,
-            border: "1px solid var(--bd)",
-            background: "var(--pnl)",
-            color: "var(--tx)",
-            cursor: "pointer",
-            marginTop: 4,
-          }}
+          style={{ alignSelf: "center", fontWeight: 600, fontSize: 12.5, padding: "9px 22px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)", color: "var(--tx)", cursor: "pointer", marginTop: 4 }}
         >
           {loadingMore ? "Loading…" : `Load more (${(total - items.length).toLocaleString("en-GB")} remaining)`}
         </button>

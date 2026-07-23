@@ -347,6 +347,34 @@ app.get("/api/news/review-stats", async (_req, res) => {
   }
 });
 
+// Full detail for one item: the stored article text (raw_items), the
+// classifier's reasoning, and any translation — so review can happen without
+// leaving the OS.
+app.get("/api/news/items/:id", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.title, c.summary, c.category, c.region, c.relevance_score,
+              c.confidence, c.verticals, c.original_language, c.translated_text,
+              c.gemini_reasoning, c.source_name, c.source_url, c.url, c.created_at,
+              c.status, r.snippet, r.content, r.published_at
+       FROM classified_items c
+       LEFT JOIN raw_items r ON r.id = c.raw_item_id
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    const row = rows[0];
+    // Cap article text — review needs the substance, not 100KB of scraped page
+    if (row.content && row.content.length > 12000) {
+      row.content = row.content.slice(0, 12000) + "\n\n[… truncated for review]";
+    }
+    res.json(row);
+  } catch (err) {
+    console.error("GET /api/news/items/:id error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Approve or reject an item. Writes the approvals audit row and updates the
 // item's status (and title/summary when edited) so the research agent's
 // report generation can gate on database approvals instead of Notion.

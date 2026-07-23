@@ -88,6 +88,18 @@ export async function fetchReviewStats() {
   return cloudRunFetch<ReviewStats>("/api/news/review-stats");
 }
 
+export type ReviewItemDetail = ReviewItem & {
+  translated_text: string | null;
+  gemini_reasoning: string | null;
+  snippet: string | null;
+  content: string | null;
+  published_at: string | null;
+};
+
+export async function fetchNewsItemDetail(id: string) {
+  return cloudRunFetch<ReviewItemDetail>(`/api/news/items/${id}`);
+}
+
 export async function reviewItem(
   id: string,
   payload: {
