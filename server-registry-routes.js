@@ -300,19 +300,25 @@ app.get("/api/news/review-queue", async (req, res) => {
     const status = ["pending_review", "approved", "rejected"].includes(req.query.status)
       ? req.query.status
       : "pending_review";
-    // Relevance floor — the brief generator ignores items under 0.4, so the
-    // human queue defaults to the same floor (pass min_score=0 to see all).
+    // Defaults mirror the old Notion candidate view: the brief generator's
+    // relevance floor (0.4), a rolling window, and relevance-first ordering.
+    // Pass min_score=0 / days=0 / sort=newest to see the raw table.
     const minScore = req.query.min_score !== undefined ? parseFloat(req.query.min_score) : 0;
-    const params = [status, minScore, limit, offset];
+    const days = req.query.days !== undefined ? Math.max(0, parseInt(req.query.days, 10) || 0) : 0;
+    const orderBy = req.query.sort === "relevance"
+      ? "relevance_score DESC NULLS LAST, created_at DESC"
+      : "created_at DESC";
+    const params = [status, minScore, days, limit, offset];
     const { rows } = await pool.query(
       `SELECT id, title, summary, source_name, source_url, url, category, region,
               relevance_score, confidence, verticals, original_language, created_at, status,
               count(*) OVER()::int AS __total
        FROM classified_items
        WHERE status = $1 AND (is_duplicate IS NOT TRUE)
-         AND ($2 = 0 OR relevance_score >= $2)
-       ORDER BY created_at DESC
-       LIMIT $3 OFFSET $4`,
+         AND ($2::float = 0 OR relevance_score >= $2::float)
+         AND ($3::int = 0 OR created_at >= NOW() - ($3::int || ' days')::interval)
+       ORDER BY ${orderBy}
+       LIMIT $4 OFFSET $5`,
       params
     );
     const total = rows.length > 0 ? rows[0].__total : 0;

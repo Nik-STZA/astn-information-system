@@ -12,8 +12,10 @@ export async function loadReviewQueue(
   limit: number,
   offset: number,
   minScore = 0,
+  days = 0,
+  sort: "relevance" | "newest" = "newest",
 ) {
-  return fetchReviewQueue(status, limit, offset, minScore);
+  return fetchReviewQueue(status, limit, offset, minScore, days, sort);
 }
 
 export async function submitReview(

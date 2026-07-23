@@ -8,9 +8,10 @@ export const dynamic = "force-dynamic";
  * Approve/reject classified items; approved items form the weekly brief.
  */
 export default async function ReviewPage() {
-  // Default floor 0.4 — the same relevance threshold the brief generator uses.
+  // Default view replicates the old Notion candidate list: last 7 days,
+  // relevance >= 0.4 (the brief generator's floor), best first.
   const [queueRes, statsRes] = await Promise.all([
-    fetchReviewQueue("pending_review", 25, 0, 0.4),
+    fetchReviewQueue("pending_review", 25, 0, 0.4, 7, "relevance"),
     fetchReviewStats(),
   ]);
 

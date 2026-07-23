@@ -222,18 +222,24 @@ export default function ReviewClient({
   const [items, setItems] = useState<ReviewItem[]>(initialItems);
   const [total, setTotal] = useState(initialTotal);
   const [loadingMore, setLoadingMore] = useState(false);
-  // 0.4 mirrors the brief generator's relevance floor; 0 shows everything.
-  const [minScore, setMinScore] = useState(0.4);
+  // "candidates" replicates the old Notion view (last 7 days, score >= 0.4,
+  // best first); "all" is the raw pending table.
+  const [view, setView] = useState<"candidates" | "all">("candidates");
+  const viewParams = (v: "candidates" | "all") =>
+    v === "candidates"
+      ? { minScore: 0.4, days: 7, sort: "relevance" as const }
+      : { minScore: 0, days: 0, sort: "newest" as const };
 
   function handleDone(id: string) {
     setItems((prev) => prev.filter((i) => i.id !== id));
     setTotal((t) => Math.max(0, t - 1));
   }
 
-  async function switchFloor(nextFloor: number) {
-    setMinScore(nextFloor);
+  async function switchView(next: "candidates" | "all") {
+    setView(next);
     setLoadingMore(true);
-    const res = await loadReviewQueue("pending_review", 25, 0, nextFloor);
+    const p = viewParams(next);
+    const res = await loadReviewQueue("pending_review", 25, 0, p.minScore, p.days, p.sort);
     setItems(res.data?.data ?? []);
     setTotal(res.data?.count ?? 0);
     setLoadingMore(false);
@@ -241,7 +247,8 @@ export default function ReviewClient({
 
   async function loadMore() {
     setLoadingMore(true);
-    const res = await loadReviewQueue("pending_review", 25, items.length, minScore);
+    const p = viewParams(view);
+    const res = await loadReviewQueue("pending_review", 25, items.length, p.minScore, p.days, p.sort);
     setItems((prev) => {
       const seen = new Set(prev.map((i) => i.id));
       return [...prev, ...(res.data?.data ?? []).filter((i) => !seen.has(i.id))];
@@ -274,12 +281,12 @@ export default function ReviewClient({
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 12, color: "var(--sub)" }}>
-          {minScore > 0
-            ? `Showing publishable candidates (relevance ≥ ${minScore}) — ${total.toLocaleString("en-GB")} items`
-            : `Showing all pending items — ${total.toLocaleString("en-GB")} items`}
+          {view === "candidates"
+            ? `This week's brief candidates (last 7 days, relevance ≥ 0.4, best first) — ${total.toLocaleString("en-GB")} items`
+            : `All pending items, newest first — ${total.toLocaleString("en-GB")} items`}
         </span>
         <button
-          onClick={() => switchFloor(minScore > 0 ? 0 : 0.4)}
+          onClick={() => switchView(view === "candidates" ? "all" : "candidates")}
           disabled={loadingMore}
           style={{
             fontWeight: 600,
@@ -292,7 +299,7 @@ export default function ReviewClient({
             cursor: "pointer",
           }}
         >
-          {minScore > 0 ? "Show low-relevance items" : "Hide low-relevance items"}
+          {view === "candidates" ? "Show all pending" : "Show brief candidates"}
         </button>
       </div>
       {items.map((item) => (

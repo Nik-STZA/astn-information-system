@@ -76,9 +76,11 @@ export async function fetchReviewQueue(
   limit = 25,
   offset = 0,
   minScore = 0,
+  days = 0,
+  sort: "relevance" | "newest" = "newest",
 ) {
   return cloudRunFetch<{ count: number; data: ReviewItem[] }>(
-    `/api/news/review-queue?status=${status}&limit=${limit}&offset=${offset}&min_score=${minScore}`,
+    `/api/news/review-queue?status=${status}&limit=${limit}&offset=${offset}&min_score=${minScore}&days=${days}&sort=${sort}`,
   );
 }
 
