@@ -118,6 +118,12 @@ export function validateLinkedInPost(text: string): Validation {
       hard: true,
     },
     {
+      label: "'supports/enables adoption', not 'drives adoption'",
+      pass: !drivesAdoption,
+      detail: drivesAdoption ? "found 'drives adoption' — use supports/enables" : "clean",
+      hard: true,
+    },
+    {
       label: "No #ASTN (that's the Australian network)",
       pass: !usesASTN,
       detail: usesASTN ? "#ASTN present — remove" : "clean",
@@ -152,12 +158,6 @@ export function validateLinkedInPost(text: string): Validation {
       label: "State of Sport report line present",
       pass: hasReportLine,
       detail: hasReportLine ? "present" : "missing",
-      hard: false,
-    },
-    {
-      label: "'supports/enables adoption', not 'drives adoption'",
-      pass: !drivesAdoption,
-      detail: drivesAdoption ? "found 'drives adoption'" : "clean",
       hard: false,
     },
   ];
