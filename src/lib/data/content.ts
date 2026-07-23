@@ -118,6 +118,32 @@ export async function reviewItem(
   );
 }
 
+// ─── Weekly briefs ──────────────────────────────────────────────────────────
+
+export type BriefSummary = {
+  id: string;
+  item_count: number;
+  created_at: string;
+  preview: string;
+};
+
+export type BriefDetail = {
+  id: string;
+  item_count: number;
+  created_at: string;
+  report_markdown: string;
+};
+
+export async function fetchBriefs() {
+  return cloudRunFetch<{ count: number; data: BriefSummary[] }>(
+    "/api/content/briefs",
+  );
+}
+
+export async function fetchBrief(id: string) {
+  return cloudRunFetch<BriefDetail>(`/api/content/briefs/${id}`);
+}
+
 // ─── Agent workflow triggers (brief generation etc.) ────────────────────────
 
 export type AgentWorkflow =

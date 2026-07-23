@@ -46,6 +46,7 @@ const GROUPS: NavGroup[] = [
     label: "Publishing",
     items: [
       { href: "/content/review", label: "Review" },
+      { href: "/content/briefs", label: "Briefs" },
       { href: "/content", label: "Content" },
       { href: "/reports", label: "Reports" },
     ],
@@ -62,6 +63,14 @@ function checkActive(pathname: string, href: string): boolean {
         !pathname.startsWith("/registry/verify"))
     );
   if (href === "/overview" || href === "/dashboard") return pathname === href;
+  /* /content exact — don't match /content/review or /content/briefs */
+  if (href === "/content")
+    return (
+      pathname === "/content" ||
+      (pathname.startsWith("/content/") &&
+        !pathname.startsWith("/content/review") &&
+        !pathname.startsWith("/content/briefs"))
+    );
   /* /data-protection exact — don't match /data-protection/jurisdictions or /editions */
   if (href === "/data-protection")
     return (

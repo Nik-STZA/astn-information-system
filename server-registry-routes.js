@@ -423,6 +423,36 @@ app.post("/api/news/items/:id/review", async (req, res) => {
   }
 });
 
+// ─── Weekly briefs (weekly_reports table — the brief's canonical copy) ─────
+
+app.get("/api/content/briefs", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, item_count, created_at, LEFT(report_markdown, 400) AS preview
+       FROM weekly_reports ORDER BY created_at DESC`
+    );
+    res.json({ count: rows.length, data: rows });
+  } catch (err) {
+    console.error("GET /api/content/briefs error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/content/briefs/:id", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, item_count, created_at, report_markdown
+       FROM weekly_reports WHERE id = $1`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("GET /api/content/briefs/:id error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Content pipeline triggers (research-agent workflows via GitHub API) ───
 // The agent's generation steps run as GitHub Actions in
 // Nik-STZA/africanstn-research-agent; these routes make them OS buttons.
