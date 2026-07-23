@@ -47,6 +47,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/content/review", label: "Review" },
       { href: "/content/briefs", label: "Briefs" },
+      { href: "/content/linkedin", label: "LinkedIn" },
       { href: "/content", label: "Content" },
       { href: "/reports", label: "Reports" },
     ],
@@ -69,7 +70,8 @@ function checkActive(pathname: string, href: string): boolean {
       pathname === "/content" ||
       (pathname.startsWith("/content/") &&
         !pathname.startsWith("/content/review") &&
-        !pathname.startsWith("/content/briefs"))
+        !pathname.startsWith("/content/briefs") &&
+        !pathname.startsWith("/content/linkedin"))
     );
   /* /data-protection exact — don't match /data-protection/jurisdictions or /editions */
   if (href === "/data-protection")

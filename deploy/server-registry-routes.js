@@ -457,6 +457,61 @@ app.get("/api/content/briefs/:id", async (req, res) => {
   }
 });
 
+// ─── LinkedIn drafts (linkedin_drafts table, migration 017) ────────────────
+
+app.get("/api/content/linkedin-drafts", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, brief_id, week_ending, post_text, edited_text, char_count,
+              word_count, status, created_at, updated_at
+       FROM linkedin_drafts ORDER BY created_at DESC LIMIT 50`
+    );
+    res.json({ count: rows.length, data: rows });
+  } catch (err) {
+    if (err.message && err.message.includes("does not exist")) {
+      return res.json({ count: 0, data: [] });
+    }
+    console.error("GET /api/content/linkedin-drafts error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/content/linkedin-drafts/:id", async (req, res) => {
+  try {
+    const allowed = ["edited_text", "status"];
+    const setClauses = [];
+    const values = [];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        values.push(req.body[key]);
+        setClauses.push(`${key} = $${values.length}`);
+      }
+    }
+    // Keep char/word counts in sync when the edited text changes.
+    if (req.body.edited_text !== undefined && req.body.edited_text !== null) {
+      const txt = String(req.body.edited_text);
+      values.push(txt.length);
+      setClauses.push(`char_count = $${values.length}`);
+      values.push(txt.trim().split(/\s+/).filter(Boolean).length);
+      setClauses.push(`word_count = $${values.length}`);
+    }
+    if (setClauses.length === 0) {
+      return res.status(400).json({ error: "No editable fields provided" });
+    }
+    values.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE linkedin_drafts SET ${setClauses.join(", ")}, updated_at = NOW()
+       WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("PUT /api/content/linkedin-drafts/:id error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Content pipeline triggers (research-agent workflows via GitHub API) ───
 // The agent's generation steps run as GitHub Actions in
 // Nik-STZA/africanstn-research-agent; these routes make them OS buttons.

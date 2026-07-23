@@ -144,6 +144,38 @@ export async function fetchBrief(id: string) {
   return cloudRunFetch<BriefDetail>(`/api/content/briefs/${id}`);
 }
 
+// ─── LinkedIn drafts ────────────────────────────────────────────────────────
+
+export type LinkedInDraft = {
+  id: string;
+  brief_id: string | null;
+  week_ending: string | null;
+  post_text: string;
+  edited_text: string | null;
+  char_count: number | null;
+  word_count: number | null;
+  status: "draft" | "approved" | "posted";
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchLinkedInDrafts() {
+  return cloudRunFetch<{ count: number; data: LinkedInDraft[] }>(
+    "/api/content/linkedin-drafts",
+  );
+}
+
+export async function updateLinkedInDraft(
+  id: string,
+  payload: { edited_text?: string; status?: "draft" | "approved" | "posted" },
+) {
+  return cloudRunMutate<LinkedInDraft>(
+    `/api/content/linkedin-drafts/${id}`,
+    "PUT",
+    payload,
+  );
+}
+
 // ─── Agent workflow triggers (brief generation etc.) ────────────────────────
 
 export type AgentWorkflow =
