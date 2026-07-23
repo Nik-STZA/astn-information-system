@@ -137,6 +137,7 @@ export type BriefDetail = {
 export async function fetchBriefs() {
   return cloudRunFetch<{ count: number; data: BriefSummary[] }>(
     "/api/content/briefs",
+    { cache: "no-store" },
   );
 }
 
@@ -160,8 +161,11 @@ export type LinkedInDraft = {
 };
 
 export async function fetchLinkedInDrafts() {
+  // Live editorial queue — never serve a stale cache (a freshly generated
+  // draft must appear immediately).
   return cloudRunFetch<{ count: number; data: LinkedInDraft[] }>(
     "/api/content/linkedin-drafts",
+    { cache: "no-store" },
   );
 }
 

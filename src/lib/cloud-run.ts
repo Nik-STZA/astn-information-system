@@ -51,11 +51,15 @@ export async function cloudRunFetch<T>(
   options?: RequestInit
 ): Promise<ApiResponse<T>> {
   try {
+    // Default: revalidate every 60s (server components). A caller passing
+    // cache: "no-store" opts out entirely — used by live editorial queues
+    // where a freshly written row must appear immediately. The two options
+    // are mutually exclusive in Next.js, so only set next when not no-store.
+    const noStore = options?.cache === "no-store";
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: apiHeaders(options?.headers),
-      // Revalidate every 60 seconds for server components
-      next: { revalidate: 60 },
+      ...(noStore ? {} : { next: { revalidate: 60 } }),
     });
 
     if (!res.ok) {
