@@ -423,6 +423,81 @@ app.post("/api/news/items/:id/review", async (req, res) => {
   }
 });
 
+// ─── Content pipeline triggers (research-agent workflows via GitHub API) ───
+// The agent's generation steps run as GitHub Actions in
+// Nik-STZA/africanstn-research-agent; these routes make them OS buttons.
+// Requires GH_DISPATCH_TOKEN (fine-grained PAT, Actions read+write on that
+// repo) in the environment via Secret Manager.
+
+const AGENT_REPO = "Nik-STZA/africanstn-research-agent";
+const AGENT_WORKFLOWS = {
+  "generate-report": "generate-report.yml",
+  "fetch-classify": "digest.yml",
+  "generate-newsletter": "generate-newsletter.yml",
+  "generate-linkedin": "generate-weekly-linkedin.yml",
+};
+
+function ghHeaders() {
+  return {
+    "Authorization": `Bearer ${(process.env.GH_DISPATCH_TOKEN || "").trim()}`,
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "stza-os",
+  };
+}
+
+app.post("/api/content/run-workflow", async (req, res) => {
+  try {
+    if (!process.env.GH_DISPATCH_TOKEN || process.env.GH_DISPATCH_TOKEN.trim() === "unset") {
+      return res.status(503).json({ error: "GitHub dispatch token not configured (GH_DISPATCH_TOKEN)" });
+    }
+    const file = AGENT_WORKFLOWS[req.body && req.body.workflow];
+    if (!file) {
+      return res.status(400).json({ error: `workflow must be one of: ${Object.keys(AGENT_WORKFLOWS).join(", ")}` });
+    }
+    const r = await fetch(
+      `https://api.github.com/repos/${AGENT_REPO}/actions/workflows/${file}/dispatches`,
+      { method: "POST", headers: ghHeaders(), body: JSON.stringify({ ref: "main" }) }
+    );
+    if (r.status !== 204) {
+      const body = await r.text();
+      return res.status(502).json({ error: `GitHub dispatch failed (${r.status}): ${body.slice(0, 200)}` });
+    }
+    res.json({ dispatched: true, workflow: req.body.workflow });
+  } catch (err) {
+    console.error("POST /api/content/run-workflow error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/content/workflow-status", async (req, res) => {
+  try {
+    if (!process.env.GH_DISPATCH_TOKEN || process.env.GH_DISPATCH_TOKEN.trim() === "unset") {
+      return res.status(503).json({ error: "GitHub dispatch token not configured (GH_DISPATCH_TOKEN)" });
+    }
+    const file = AGENT_WORKFLOWS[req.query.workflow];
+    if (!file) {
+      return res.status(400).json({ error: `workflow must be one of: ${Object.keys(AGENT_WORKFLOWS).join(", ")}` });
+    }
+    const r = await fetch(
+      `https://api.github.com/repos/${AGENT_REPO}/actions/workflows/${file}/runs?per_page=1`,
+      { headers: ghHeaders() }
+    );
+    const body = await r.json();
+    const run = body.workflow_runs && body.workflow_runs[0];
+    if (!run) return res.json({ status: "never_run" });
+    res.json({
+      status: run.status,               // queued | in_progress | completed
+      conclusion: run.conclusion,       // success | failure | null
+      started_at: run.run_started_at,
+      html_url: run.html_url,
+    });
+  } catch (err) {
+    console.error("GET /api/content/workflow-status error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── DP jurisdictions (migrated dp_jurisdictions table) ────────────────────
 
 app.get("/api/dp/jurisdictions/metrics", async (_req, res) => {

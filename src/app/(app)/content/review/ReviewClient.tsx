@@ -1,8 +1,75 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { ReviewItem, ReviewItemDetail } from "@/lib/data/content";
-import { loadReviewQueue, loadItemDetail, submitReview } from "./actions";
+import { loadReviewQueue, loadItemDetail, submitReview, triggerWorkflow, workflowStatus } from "./actions";
+
+// "Generate weekly brief" — dispatches the agent's generate-report workflow
+// and polls its status so GitHub stays invisible.
+function GenerateBriefButton() {
+  const [state, setState] = useState<"idle" | "dispatching" | "running" | "done" | "failed" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  async function poll() {
+    const res = await workflowStatus("generate-report");
+    if (res.error || !res.data) return;
+    if (res.data.status === "completed") {
+      if (pollRef.current) clearInterval(pollRef.current);
+      setState(res.data.conclusion === "success" ? "done" : "failed");
+      setMessage(res.data.conclusion === "success"
+        ? "Brief generated — check Notion / Beehiiv."
+        : "Generation failed — see the run in GitHub.");
+    }
+  }
+
+  async function run() {
+    setState("dispatching");
+    setMessage(null);
+    const res = await triggerWorkflow("generate-report");
+    if (res.error) {
+      setState("error");
+      setMessage(res.error.includes("not configured")
+        ? "Not connected yet — GitHub dispatch token pending."
+        : res.error);
+      return;
+    }
+    setState("running");
+    setMessage("Generating the weekly brief from your approvals…");
+    // First status read can lag the dispatch; poll gently.
+    pollRef.current = setInterval(poll, 15000);
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      {message && (
+        <span style={{ fontSize: 11.5, color: state === "failed" || state === "error" ? "var(--alert-red)" : "var(--sub)" }}>
+          {message}
+        </span>
+      )}
+      <button
+        onClick={run}
+        disabled={state === "dispatching" || state === "running"}
+        style={{
+          fontWeight: 700,
+          fontSize: 12,
+          padding: "8px 18px",
+          borderRadius: 6,
+          border: "none",
+          background: "#C5A059",
+          color: "#141414",
+          cursor: "pointer",
+          opacity: state === "dispatching" || state === "running" ? 0.6 : 1,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {state === "dispatching" ? "Starting…" : state === "running" ? "Generating…" : "Generate weekly brief"}
+      </button>
+    </div>
+  );
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   company: "Company",
@@ -223,13 +290,16 @@ export default function ReviewClient({
             ? `This week's brief candidates (last 7 days, relevance ≥ 0.4, best first) — ${total.toLocaleString("en-GB")} items`
             : `All pending items, newest first — ${total.toLocaleString("en-GB")} items`}
         </span>
-        <button
-          onClick={() => switchView(view === "candidates" ? "all" : "candidates")}
-          disabled={loadingMore}
-          style={{ fontWeight: 600, fontSize: 11.5, padding: "5px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "var(--gold-dark)", cursor: "pointer" }}
-        >
-          {view === "candidates" ? "Show all pending" : "Show brief candidates"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button
+            onClick={() => switchView(view === "candidates" ? "all" : "candidates")}
+            disabled={loadingMore}
+            style={{ fontWeight: 600, fontSize: 11.5, padding: "5px 12px", borderRadius: 6, border: "1px solid var(--bd)", background: "transparent", color: "var(--gold-dark)", cursor: "pointer" }}
+          >
+            {view === "candidates" ? "Show all pending" : "Show brief candidates"}
+          </button>
+          <GenerateBriefButton />
+        </div>
       </div>
 
       {items.length === 0 ? (

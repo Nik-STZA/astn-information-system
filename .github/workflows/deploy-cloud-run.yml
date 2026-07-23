@@ -41,6 +41,7 @@ jobs:
           secrets: |
             DB_PASSWORD=db-password:latest
             API_KEY=api-key:latest
+            GH_DISPATCH_TOKEN=github-dispatch-token:latest
           flags: >-
             --add-cloudsql-instances=africanstn-research:europe-west1:africastn-db
             --memory=512Mi

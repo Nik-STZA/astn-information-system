@@ -1,7 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { fetchReviewQueue, fetchNewsItemDetail, reviewItem } from "@/lib/data/content";
+import {
+  fetchReviewQueue,
+  fetchNewsItemDetail,
+  reviewItem,
+  runAgentWorkflow,
+  fetchWorkflowStatus,
+  type AgentWorkflow,
+} from "@/lib/data/content";
 import { getAuthEmail } from "@/lib/auth";
 
 // Server actions for the review queue — cloudRun calls must run server-side
@@ -20,6 +27,14 @@ export async function loadReviewQueue(
 
 export async function loadItemDetail(id: string) {
   return fetchNewsItemDetail(id);
+}
+
+export async function triggerWorkflow(workflow: AgentWorkflow) {
+  return runAgentWorkflow(workflow);
+}
+
+export async function workflowStatus(workflow: AgentWorkflow) {
+  return fetchWorkflowStatus(workflow);
 }
 
 export async function submitReview(

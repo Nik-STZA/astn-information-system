@@ -118,6 +118,35 @@ export async function reviewItem(
   );
 }
 
+// ─── Agent workflow triggers (brief generation etc.) ────────────────────────
+
+export type AgentWorkflow =
+  | "generate-report"
+  | "fetch-classify"
+  | "generate-newsletter"
+  | "generate-linkedin";
+
+export type WorkflowStatus = {
+  status: "queued" | "in_progress" | "completed" | "never_run";
+  conclusion?: "success" | "failure" | null;
+  started_at?: string;
+  html_url?: string;
+};
+
+export async function runAgentWorkflow(workflow: AgentWorkflow) {
+  return cloudRunMutate<{ dispatched: boolean; workflow: string }>(
+    "/api/content/run-workflow",
+    "POST",
+    { workflow },
+  );
+}
+
+export async function fetchWorkflowStatus(workflow: AgentWorkflow) {
+  return cloudRunFetch<WorkflowStatus>(
+    `/api/content/workflow-status?workflow=${workflow}`,
+  );
+}
+
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
 export async function createEdition(data: Partial<Edition>) {
