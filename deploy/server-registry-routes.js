@@ -425,10 +425,14 @@ app.post("/api/news/items/:id/review", async (req, res) => {
 
 // ─── Weekly briefs (weekly_reports table — the brief's canonical copy) ─────
 
-app.get("/api/content/briefs", async (_req, res) => {
+app.get("/api/content/briefs", async (req, res) => {
   try {
+    // ?full=1 returns full report_markdown (used by the africanstn.com build);
+    // default returns a 400-char preview (used by the OS list view).
+    const full = req.query.full === "1" || req.query.full === "true";
+    const bodyCol = full ? "report_markdown" : "LEFT(report_markdown, 400) AS preview";
     const { rows } = await pool.query(
-      `SELECT id, item_count, created_at, LEFT(report_markdown, 400) AS preview
+      `SELECT id, item_count, created_at, ${bodyCol}
        FROM weekly_reports ORDER BY created_at DESC`
     );
     res.json({ count: rows.length, data: rows });
