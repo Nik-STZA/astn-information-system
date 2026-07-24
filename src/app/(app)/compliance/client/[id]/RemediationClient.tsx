@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import ProcessorRegisterPanel from "./ProcessorRegisterPanel";
 import Link from "next/link";
 import type { Client } from "@/lib/data/compliance";
 import type { RemediationItem, AuditEntry } from "@/lib/data/remediation";
@@ -158,7 +159,7 @@ function formatDateTime(iso: string | null) {
 
 /* ── Tab type ──────────────────────────────────────────────────── */
 
-type Tab = "remediation" | "audit";
+type Tab = "remediation" | "audit" | "systems";
 
 /* ── Main component ────────────────────────────────────────────── */
 
@@ -395,7 +396,7 @@ export default function RemediationClient({
           marginBottom: 20,
         }}
       >
-        {(["remediation", "audit"] as Tab[]).map((t) => (
+        {(["remediation", "audit", "systems"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -412,10 +413,12 @@ export default function RemediationClient({
               transition: "color 0.15s",
             }}
           >
-            {t === "remediation" ? "Remediation items" : "Audit trail"}
+            {t === "remediation" ? "Remediation items" : t === "audit" ? "Audit trail" : "Systems & DPAs"}
           </button>
         ))}
       </div>
+
+      {tab === "systems" && <ProcessorRegisterPanel clientId={client.id} />}
 
       {/* ── Remediation tab ───────────────────────────────────── */}
       {tab === "remediation" && (
