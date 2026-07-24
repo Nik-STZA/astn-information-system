@@ -24,7 +24,7 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-pro-latest';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8';
 
 // ── Sample client document (stands in for an ingested privacy policy) ────────
