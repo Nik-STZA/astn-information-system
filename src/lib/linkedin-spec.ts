@@ -53,7 +53,6 @@ export function validateLinkedInPost(text: string): Validation {
   const headerOk = /^AfricanSTN \| Weekly Intelligence Brief \| w\/e \d{1,2} [A-Z][a-z]+ \d{4}$/.test(firstLine);
 
   const bulletCount = nonEmpty.filter((l) => l.startsWith("▪")).length;
-  const hasDivider = lines.some((l) => l.trim() === "---");
 
   const hashtagLine = [...nonEmpty].reverse().find((l) => l.includes("#")) || "";
   const hashtags = hashtagLine.match(/#\w+/g) || [];
@@ -71,7 +70,6 @@ export function validateLinkedInPost(text: string): Validation {
   const bodyLink = /(https?:\/\/|www\.|\.pdf)/i.test(t);
   const hypeHit = HYPE.filter((w) => t.toLowerCase().includes(w));
   const drivesAdoption = /drives?\s+adoption/i.test(t);
-  const hasReportLine = /State of Sport in Africa/i.test(t);
 
   const checks: Check[] = [
     // ── Hard gates ──
@@ -100,10 +98,10 @@ export function validateLinkedInPost(text: string): Validation {
       hard: true,
     },
     {
-      label: "No links in body (http/www/.pdf)",
-      pass: !bodyLink,
-      detail: bodyLink ? "move links to the first comment" : "none",
-      hard: true,
+      label: "Links in body (brief link fine; others reduce reach)",
+      pass: true,
+      detail: bodyLink ? "link(s) present — the brief link is standard; keep other external links to the first comment" : "none",
+      hard: false,
     },
     {
       label: "Does not end with a question",
@@ -143,21 +141,9 @@ export function validateLinkedInPost(text: string): Validation {
       hard: false,
     },
     {
-      label: "Divider (---) present",
-      pass: hasDivider,
-      detail: hasDivider ? "present" : "missing",
-      hard: false,
-    },
-    {
       label: "10–11 hashtags, core set complete",
       pass: hashtagCount >= 8 && hashtagCount <= 12 && missingCore.length === 0,
       detail: missingCore.length ? `${hashtagCount} tags — missing ${missingCore.length} core` : `${hashtagCount} tags`,
-      hard: false,
-    },
-    {
-      label: "State of Sport report line present",
-      pass: hasReportLine,
-      detail: hasReportLine ? "present" : "missing",
       hard: false,
     },
   ];
