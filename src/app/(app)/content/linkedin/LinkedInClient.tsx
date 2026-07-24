@@ -138,6 +138,7 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
 
 export default function LinkedInClient({ initialDrafts }: { initialDrafts: LinkedInDraft[] }) {
   const [drafts, setDrafts] = useState<LinkedInDraft[]>(initialDrafts);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function refresh() {
     const res = await loadDrafts();
@@ -145,6 +146,12 @@ export default function LinkedInClient({ initialDrafts }: { initialDrafts: Linke
   }
 
   const latest = drafts[0];
+
+  function fmtWeek(d: LinkedInDraft) {
+    return d.week_ending
+      ? new Date(d.week_ending).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+      : new Date(d.created_at).toLocaleDateString("en-GB");
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -160,22 +167,43 @@ export default function LinkedInClient({ initialDrafts }: { initialDrafts: Linke
           </div>
         </div>
       ) : (
-        <DraftEditor key={latest.id} draft={latest} onSaved={refresh} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+            This week
+          </div>
+          <DraftEditor key={latest.id} draft={latest} onSaved={refresh} />
+        </div>
       )}
 
+      {/* Every earlier week is its own expandable section, newest first. */}
       {drafts.length > 1 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>
-            Earlier drafts
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+            Earlier weeks
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {drafts.slice(1).map((d) => (
-              <div key={d.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 14px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)", fontSize: 12.5 }}>
-                <span style={{ color: "var(--tx)" }}>w/e {d.week_ending ?? new Date(d.created_at).toLocaleDateString("en-GB")}</span>
-                <span style={{ color: d.status === "approved" ? "var(--success-green)" : d.status === "posted" ? "var(--gold-dark)" : "var(--sub)", textTransform: "capitalize" }}>{d.status}</span>
+          {drafts.slice(1).map((d) => {
+            const open = expandedId === d.id;
+            return (
+              <div key={d.id} style={{ border: "1px solid var(--bd)", borderRadius: 8, overflow: "hidden", background: "var(--pnl)" }}>
+                <button
+                  onClick={() => setExpandedId(open ? null : d.id)}
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", background: open ? "var(--table-header)" : "transparent", border: "none", cursor: "pointer" }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: "var(--sub)", fontSize: 12, width: 12 }}>{open ? "▾" : "▸"}</span>
+                    <span style={{ color: "var(--tx)", fontSize: 13, fontWeight: 600 }}>w/e {fmtWeek(d)}</span>
+                    <span style={{ color: "var(--sub)", fontSize: 11.5 }}>{d.char_count ?? "?"} chars</span>
+                  </span>
+                  <span style={{ color: d.status === "approved" ? "var(--success-green)" : d.status === "posted" ? "var(--gold-dark)" : "var(--sub)", fontSize: 11.5, fontWeight: 600, textTransform: "capitalize" }}>{d.status}</span>
+                </button>
+                {open && (
+                  <div style={{ padding: "14px 16px", borderTop: "1px solid var(--bd)" }}>
+                    <DraftEditor key={d.id} draft={d} onSaved={refresh} />
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
     </div>
