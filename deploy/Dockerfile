@@ -17,6 +17,7 @@ COPY server-remediation-routes.js ./
 COPY server-processing-routes.js ./
 COPY server-dsar-routes.js ./
 COPY server-compliance-v2-routes.js ./
+COPY server-processor-register-routes.js ./
 
 EXPOSE 8080
 
