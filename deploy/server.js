@@ -118,6 +118,7 @@ require("./server-dsar-routes");
 require("./server-compliance-v2-routes");
 require("./server-processor-register-routes");
 require("./server-remediation-resolution-routes");
+require("./server-remediation-v2-routes");
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 

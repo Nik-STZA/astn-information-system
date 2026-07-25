@@ -6,6 +6,7 @@ on:
     paths:
       - 'deploy/**'
       - 'server-*-routes.js'
+      - 'server-lib-*.js'
       - '.github/workflows/deploy-cloud-run.yml'
 
 jobs:
@@ -19,8 +20,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Copy route files into deploy/
-        run: cp server-*-routes.js deploy/
+      - name: Copy route files and shared libs into deploy/
+        run: cp server-*-routes.js server-lib-*.js deploy/
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
