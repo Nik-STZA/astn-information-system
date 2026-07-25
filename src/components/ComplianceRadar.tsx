@@ -16,6 +16,10 @@ import {
 /* ------------------------------------------------------------------ */
 
 type ComplianceRadarProps = {
+  // When provided, the radar renders the REAL assessment's per-domain scores.
+  // Falls back to the operational heuristics only when there is no assessment.
+  assessmentDomains?: { dimension: string; score: number }[];
+  assessmentLabel?: string;
   registrations: { registration_status: string }[];
   processingActivities: {
     status: string;
@@ -248,6 +252,8 @@ function Legend() {
 /* ------------------------------------------------------------------ */
 
 export default function ComplianceRadar({
+  assessmentDomains,
+  assessmentLabel,
   registrations,
   processingActivities,
   specialCategories,
@@ -257,25 +263,32 @@ export default function ComplianceRadar({
 }: ComplianceRadarProps) {
   const [showKey, setShowKey] = useState(false);
 
-  const scores = {
-    io: scoreIORegistration(registrations),
-    ropa: scoreROPA(processingActivities),
-    special: scoreSpecialCategories(specialCategories),
-    breach: scoreBreachReadiness(breaches),
-    dsr: scoreDSR(dsars),
-    crossBorder: scoreCrossBorder(processingActivities),
-    governance: scoreGovernance(tasks),
-  };
+  const useReal = !!assessmentDomains && assessmentDomains.length > 0;
 
-  const dimensions = [
-    { dimension: "IO Registration", score: scores.io, target: 100 },
-    { dimension: "ROPA", score: scores.ropa, target: 100 },
-    { dimension: "Special categories", score: scores.special, target: 100 },
-    { dimension: "Breach readiness", score: scores.breach, target: 100 },
-    { dimension: "Data subject rights", score: scores.dsr, target: 100 },
-    { dimension: "Cross-border", score: scores.crossBorder, target: 100 },
-    { dimension: "Governance", score: scores.governance, target: 100 },
+  const heuristicDimensions = [
+    { dimension: "IO Registration", score: scoreIORegistration(registrations), target: 100 },
+    { dimension: "ROPA", score: scoreROPA(processingActivities), target: 100 },
+    { dimension: "Special categories", score: scoreSpecialCategories(specialCategories), target: 100 },
+    { dimension: "Breach readiness", score: scoreBreachReadiness(breaches), target: 100 },
+    { dimension: "Data subject rights", score: scoreDSR(dsars), target: 100 },
+    { dimension: "Cross-border", score: scoreCrossBorder(processingActivities), target: 100 },
+    { dimension: "Governance", score: scoreGovernance(tasks), target: 100 },
   ];
+
+  const dimensions = useReal
+    ? assessmentDomains!.map((d) => ({ dimension: d.dimension, score: d.score, target: 100 }))
+    : heuristicDimensions;
+
+  // Retained for the heuristic-methodology key panel (shown only in fallback mode).
+  const scores = {
+    io: heuristicDimensions[0].score,
+    ropa: heuristicDimensions[1].score,
+    special: heuristicDimensions[2].score,
+    breach: heuristicDimensions[3].score,
+    dsr: heuristicDimensions[4].score,
+    crossBorder: heuristicDimensions[5].score,
+    governance: heuristicDimensions[6].score,
+  };
 
   // All dimensions now scored
   const overall =
@@ -307,7 +320,7 @@ export default function ComplianceRadar({
             margin: 0,
           }}
         >
-          POPIA compliance health
+          {useReal ? `${assessmentLabel || "Compliance"} assessment` : "Operational readiness"}
         </h3>
         <div style={{ textAlign: "right" }}>
           <span
@@ -341,7 +354,9 @@ export default function ComplianceRadar({
           fontWeight: 400,
         }}
       >
-        Average across all 7 compliance dimensions
+        {useReal
+          ? `From the latest assessment — ${dimensions.length} domains, scored from findings`
+          : "Operational data readiness — run an assessment for scored compliance findings"}
       </p>
 
       {/* Chart */}
@@ -394,7 +409,8 @@ export default function ComplianceRadar({
 
       <Legend />
 
-      {/* Scoring key toggle */}
+      {/* Scoring key toggle (heuristic methodology — fallback mode only) */}
+      {!useReal && (
       <div style={{ textAlign: "center", marginTop: 12 }}>
         <button
           onClick={() => setShowKey(!showKey)}
@@ -414,8 +430,9 @@ export default function ComplianceRadar({
           {showKey ? "Hide scoring key" : "How is this scored?"}
         </button>
       </div>
+      )}
 
-      {showKey && (
+      {!useReal && showKey && (
         <div
           style={{
             marginTop: 12,

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
+import { fetchClientAssessmentsV2 } from "@/lib/data/compliance";
 import { getProspectDocuments, getProspectAnalysis, getProspectAssessments } from "../compliance/actions";
 import { flagUrl } from "@/lib/country-iso";
 import type {
@@ -1843,6 +1844,8 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
   const [dsars, setDsars] = useState<DataSubjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [assessmentDomains, setAssessmentDomains] = useState<{ dimension: string; score: number }[]>([]);
+  const [assessmentLabel, setAssessmentLabel] = useState<string>("");
   const [modal, setModal] = useState<ModalState>(null);
   const [confirmDelete, setConfirmDelete] = useState<DeleteState>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1880,6 +1883,27 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
         setDsars(dsarR.data?.data ?? []);
         setLoading(false);
       });
+  }, [cid, refreshKey]);
+
+  // Real compliance scores for the radar — the latest assessment's per-domain scores.
+  useEffect(() => {
+    fetchClientAssessmentsV2(cid).then((r) => {
+      const list = (r.data?.data ?? []).filter(
+        (a) => a.status === "completed" || a.status === "reviewed",
+      );
+      const latest = list.sort((a, b) => b.id - a.id)[0];
+      if (latest?.domain_scores) {
+        setAssessmentDomains(
+          Object.values(latest.domain_scores).map((d) => ({
+            dimension: d.name,
+            score: Math.round(d.score),
+          })),
+        );
+        setAssessmentLabel(latest.jurisdiction || latest.jurisdiction_code || "Compliance");
+      } else {
+        setAssessmentDomains([]);
+      }
+    });
   }, [cid, refreshKey]);
 
   async function handleDelete() {
@@ -1960,6 +1984,8 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
       {!loading && (
         <div style={{ padding: "0 24px 8px" }}>
           <ComplianceRadar
+            assessmentDomains={assessmentDomains}
+            assessmentLabel={assessmentLabel}
             registrations={registrations}
             processingActivities={processingActivities}
             specialCategories={specialCategories}
