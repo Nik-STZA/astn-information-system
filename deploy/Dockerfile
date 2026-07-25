@@ -20,7 +20,9 @@ COPY server-compliance-v2-routes.js ./
 COPY server-processor-register-routes.js ./
 COPY server-remediation-resolution-routes.js ./
 COPY server-remediation-v2-routes.js ./
+COPY server-assessment-v2-routes.js ./
 COPY server-lib-resolution.js ./
+COPY server-lib-assessment.js ./
 
 EXPOSE 8080
 

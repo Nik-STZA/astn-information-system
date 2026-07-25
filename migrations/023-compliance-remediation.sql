@@ -64,3 +64,6 @@ CREATE INDEX IF NOT EXISTS idx_remediation_resolutions_remediation_id
 -- One resolution per V2 remediation item (enables ON CONFLICT upsert from the generator).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_remediation_resolutions_remediation_id
   ON remediation_resolutions (remediation_id) WHERE remediation_id IS NOT NULL;
+-- V2 resolutions link via remediation_id, not the legacy remediation_item_id — so that
+-- column must be nullable (it was NOT NULL from migration 022, breaking V2 inserts).
+ALTER TABLE remediation_resolutions ALTER COLUMN remediation_item_id DROP NOT NULL;
