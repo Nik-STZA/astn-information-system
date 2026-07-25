@@ -44,6 +44,19 @@ Rules:
 - Respond with ONLY a JSON object:
   {"summary":"one sentence on the core gap","gaps":["specific gap 1","gap 2"],"redraft":"the suggested corrected clause text","citations":["s26","s27(1)(b)"]}`;
 
+// Forces Gemini to return valid, parseable JSON (a long free-form redraft otherwise
+// produces invalid JSON that fails to parse).
+const RESOLUTION_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    summary: { type: "STRING" },
+    gaps: { type: "ARRAY", items: { type: "STRING" } },
+    redraft: { type: "STRING" },
+    citations: { type: "ARRAY", items: { type: "STRING" } },
+  },
+  required: ["summary", "gaps", "redraft", "citations"],
+};
+
 function stripHtml(h) {
   return (h || "")
     .replace(/<[^>]+>/g, " ")
@@ -78,6 +91,7 @@ async function callGemini(user) {
           temperature: 0,
           thinkingConfig: { thinkingBudget: -1 },
           responseMimeType: "application/json",
+          responseSchema: RESOLUTION_SCHEMA,
         },
       }),
     },
@@ -122,9 +136,12 @@ function crossCheck(g, c) {
   const gc = new Set((g?.citations || []).map(normCite).filter(Boolean));
   const cc = new Set((c?.citations || []).map(normCite).filter(Boolean));
   if (!gc.size || !cc.size) return "flagged";
-  // Agreed if the smaller set is fully contained in the larger (aligned citations).
+  // Agreed if every citation in the smaller set aligns with one in the larger,
+  // prefix-tolerant so a general vs specific cite (s27 ~ s27(1)(b)) still agrees.
   const [small, big] = gc.size <= cc.size ? [gc, cc] : [cc, gc];
-  const contained = [...small].every((x) => big.has(x));
+  const contained = [...small].every((x) =>
+    [...big].some((y) => y.startsWith(x) || x.startsWith(y)),
+  );
   return contained ? "agreed" : "flagged";
 }
 
