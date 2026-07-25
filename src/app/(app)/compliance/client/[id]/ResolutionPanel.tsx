@@ -21,6 +21,85 @@ const primaryBtn: React.CSSProperties = {
   color: "#1A1C1E",
 };
 
+// Split the composed resolution into its sections for distinct styling.
+function parseResolution(text: string) {
+  let rest = text || "";
+  let reviewNote: string | null = null;
+  const rev = rest.match(/^REVIEW:\s*([\s\S]+?)(?:\n\n|$)/);
+  if (rev) {
+    reviewNote = rev[1].trim();
+    rest = rest.slice(rev[0].length);
+  }
+  let citations: string[] = [];
+  const cit = rest.match(/\n\nCitations:\s*([\s\S]+)$/);
+  if (cit) {
+    citations = cit[1].split(",").map((s) => s.trim()).filter(Boolean);
+    rest = rest.slice(0, rest.length - cit[0].length);
+  }
+  let redraft: string | null = null;
+  const rd = rest.match(/\n\nSuggested redraft[^\n]*:\n([\s\S]+)$/);
+  if (rd) {
+    redraft = rd[1].trim();
+    rest = rest.slice(0, rest.length - rd[0].length);
+  }
+  let gaps: string[] = [];
+  const gp = rest.match(/\n\nGaps:\n([\s\S]+)$/);
+  if (gp) {
+    gaps = gp[1].split("\n").map((l) => l.replace(/^-\s*/, "").trim()).filter(Boolean);
+    rest = rest.slice(0, rest.length - gp[0].length);
+  }
+  return { reviewNote, summary: rest.trim(), gaps, redraft, citations };
+}
+
+function ResolutionBody({ text }: { text: string }) {
+  const p = parseResolution(text);
+  const label: React.CSSProperties = {
+    fontWeight: 700,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    marginBottom: 5,
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {p.reviewNote && (
+        <div style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: "rgba(204,119,0,0.1)", color: "#CC7700", border: "1px solid rgba(204,119,0,0.25)" }}>
+          {p.reviewNote}
+        </div>
+      )}
+      {p.summary && (
+        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--tx)" }}>{p.summary}</div>
+      )}
+      {p.gaps.length > 0 && (
+        <div>
+          <div style={{ ...label, color: "#CC0000" }}>Gaps identified</div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
+            {p.gaps.map((g, i) => (
+              <li key={i} style={{ fontSize: 12, lineHeight: 1.55, color: "var(--tx)" }}>{g}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {p.redraft && (
+        <div style={{ borderLeft: "3px solid #C5A059", background: "rgba(197,160,89,0.07)", borderRadius: "0 6px 6px 0", padding: "10px 12px" }}>
+          <div style={{ ...label, color: "#C5A059" }}>Suggested redraft — pending client legal review</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--tx)", whiteSpace: "pre-wrap" }}>{p.redraft}</div>
+        </div>
+      )}
+      {p.citations.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <span style={{ ...label, color: "var(--label-text)", marginBottom: 0, marginRight: 2 }}>Cites</span>
+          {p.citations.map((c, i) => (
+            <span key={i} style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 10, border: "1px solid var(--gold-border, #D4C5A9)", color: "var(--tx)", background: "var(--bg)" }}>
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResolutionPanel({ itemId }: { itemId: number }) {
   const [res, setRes] = useState<RemediationResolution | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,9 +194,7 @@ export default function ResolutionPanel({ itemId }: { itemId: number }) {
         </div>
       ) : (
         <div>
-          <div style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--tx)", whiteSpace: "pre-wrap" }}>
-            {res.resolution}
-          </div>
+          <ResolutionBody text={res.resolution || ""} />
           <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "var(--sub)", textTransform: "capitalize" }}>status: {res.status.replace(/_/g, " ")}</span>
             {res.status !== "confirmed" && res.status !== "applied" && (
