@@ -7,6 +7,12 @@ import {
 } from "@/lib/data/remediation";
 import { fetchClientRemediation } from "@/lib/data/remediation";
 import {
+  fetchResolution,
+  generateResolution as genResolution,
+  updateResolution,
+  type RemediationResolution,
+} from "@/lib/data/remediation";
+import {
   fetchClientProcessors,
   updateProcessor,
   fetchClientRegulatorRegistrations,
@@ -71,4 +77,30 @@ export async function saveRegistration(
   const result = await updateRegulatorRegistration(id, patch);
   revalidatePath("/compliance");
   return result;
+}
+
+/* ── AI-generated remediation resolutions (dual-model, cross-checked) ──────── */
+
+export async function loadResolution(
+  itemId: number,
+): Promise<RemediationResolution | null> {
+  const r = await fetchResolution(itemId);
+  return r.data ?? null;
+}
+
+export async function generateResolution(
+  itemId: number,
+): Promise<RemediationResolution | null> {
+  const r = await genResolution(itemId);
+  revalidatePath("/compliance");
+  return r.data ?? null;
+}
+
+export async function saveResolution(
+  itemId: number,
+  patch: { resolution?: string; status?: string },
+): Promise<RemediationResolution | null> {
+  const r = await updateResolution(itemId, { ...patch, reviewed_by: "nik@stza.io" });
+  revalidatePath("/compliance");
+  return r.data ?? null;
 }

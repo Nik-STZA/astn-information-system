@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import ProcessorRegisterPanel from "./ProcessorRegisterPanel";
+import ResolutionPanel from "./ResolutionPanel";
 import Link from "next/link";
 import type { Client } from "@/lib/data/compliance";
 import type { RemediationItem, AuditEntry } from "@/lib/data/remediation";
@@ -586,6 +587,9 @@ export default function RemediationClient({
                             </div>
                           </div>
                         )}
+
+                        {/* AI-generated resolution (dual-model) */}
+                        <ResolutionPanel itemId={item.id} />
 
                         {/* Resolution summary */}
                         {item.resolution_summary && (

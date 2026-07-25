@@ -160,3 +160,44 @@ export async function generateRemediation(
     performed_by,
   });
 }
+
+// ─── AI-generated, dual-model-verified resolutions (migration 022) ────────────
+
+export type RemediationResolution = {
+  id: number;
+  remediation_item_id: number;
+  resolution: string | null;
+  status: "draft" | "needs_review" | "confirmed" | "applied";
+  agreement: "agreed" | "flagged" | null;
+  models: unknown;
+  generated_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+};
+
+export async function fetchResolution(itemId: number) {
+  return cloudRunFetch<RemediationResolution | null>(
+    `/api/remediation/${itemId}/resolution`,
+    { cache: "no-store" },
+  );
+}
+
+export async function generateResolution(itemId: number) {
+  // Empty body avoids Cloud Run's 411 on bodyless POST.
+  return cloudRunMutate<RemediationResolution>(
+    `/api/remediation/${itemId}/generate-resolution`,
+    "POST",
+    {},
+  );
+}
+
+export async function updateResolution(
+  itemId: number,
+  patch: { resolution?: string; status?: string; reviewed_by?: string },
+) {
+  return cloudRunMutate<RemediationResolution>(
+    `/api/remediation/${itemId}/resolution`,
+    "PUT",
+    patch,
+  );
+}
