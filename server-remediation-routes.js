@@ -310,6 +310,22 @@ app.post("/api/clients/:id/remediation/generate", async (req, res) => {
     const clientId = req.params.id;
     let { prospect_id, assessment_id, performed_by = "nik@stza.io" } = req.body;
 
+    // GUARD (docs/compliance-engine-principles.md, Invariants 3 & 4): this legacy generator
+    // resolves the client to a prospect BY COMPANY NAME, which cross-wires entities in a group
+    // and produces framework-hardcoded (POPIA) items. Any client with a V2 assessment must use
+    // the jurisdiction-native engine instead. Refuse here so the landmine can't be re-triggered.
+    const { rows: v2 } = await pool.query(
+      "SELECT 1 FROM compliance_assessments WHERE client_id = $1 LIMIT 1",
+      [clientId]
+    );
+    if (v2.length) {
+      return res.status(409).json({
+        error:
+          "This client uses the V2 assessment engine. Generate remediation from a specific " +
+          "assessment: POST /api/v2/clients/:clientId/assessments/:assessmentId/remediation/generate",
+      });
+    }
+
     // If no prospect_id provided (or empty), look up the prospect linked to this client
     // by matching company_name
     if (!prospect_id) {
