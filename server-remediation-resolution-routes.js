@@ -41,6 +41,11 @@ Rules:
 - Provide a concrete redraft: the corrected clause/paragraph the client could adopt (mark it as a draft, pending the client's own legal review).
 - Cite the EXACT statutory section numbers that apply. Do not invent sections. Be precise (e.g. children's data is POPIA s34-35, not s26).
 - Judge only from the document text; do not assume facts not stated.
+- LEGAL CAUTION — be precise and appropriately hedged, do not overstate:
+  * Do NOT assert that prior authorisation from the regulator is required. Prior authorisation (e.g. POPIA s57-58) applies only to specified processing activities; frame it as "certain processing may require prior authorisation under s57-58 where applicable" and note it should be assessed, not assumed.
+  * Do NOT pre-select a single lawful basis as invariably applicable. Present the basis as "may include" the relevant section (e.g. "may include s27(1)(b)"); the applicable ground depends on the circumstances and should be confirmed by the client's legal counsel.
+  * Prefer "does not intentionally collect / solicit" over "does not collect" — data subjects may submit unexpected information.
+  * Where it affects obligations, note whether the party is acting as a responsible party (controller) or an operator (processor).
 - Respond with ONLY a JSON object:
   {"summary":"one sentence on the core gap","gaps":["specific gap 1","gap 2"],"redraft":"the suggested corrected clause text","citations":["s26","s27(1)(b)"]}`;
 
