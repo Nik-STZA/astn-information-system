@@ -381,6 +381,28 @@ export async function assessClientV2(
   return res;
 }
 
+/**
+ * Run the substance-reading dual-model assessment: Gemini + Claude READ the client's ingested
+ * documents and judge each requirement present/partial/absent with a verified verbatim quote,
+ * then adjudicate (disagreement → conservative status, flagged for review). Deeper and
+ * token-costing vs the keyword pipeline; reads documents already ingested for the client.
+ */
+export async function assessClientDualModel(clientId: string, jurisdictionId: number) {
+  const res = await cloudRunMutate<{
+    assessment_id: number;
+    jurisdiction: string;
+    overall_score: number;
+    confidence_level: string;
+    requirements: number;
+    needs_review: number;
+    disagreements: number;
+  }>(`/api/v2/clients/${clientId}/assessments/dual-model`, "POST", {
+    jurisdiction_id: jurisdictionId,
+  });
+  revalidatePath("/compliance");
+  return res;
+}
+
 /** Run the full V2 pipeline: ingest → analyse → assess. */
 export async function runClientPipelineV2(
   clientId: string,

@@ -18,6 +18,7 @@ import {
   ingestClientDocuments,
   analyseClientV2,
   assessClientV2,
+  assessClientDualModel,
   getClientPipelineResultsV2,
   convertProspectToClient,
 } from "./actions";
@@ -897,6 +898,34 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
     });
   }, [client, selectedJurisdiction, loadV2Data]);
 
+  // Substance-reading dual-model assessment (Gemini + Claude read the ingested documents).
+  const handleRunDualModel = useCallback(() => {
+    if (!selectedJurisdiction) return;
+    setV2Running(true);
+    setV2Error(null);
+    setV2Success(null);
+    startV2(async () => {
+      try {
+        const res = await assessClientDualModel(client.id, selectedJurisdiction as number);
+        if (res.error) {
+          setV2Error(`Dual-model: ${res.error}`);
+          return;
+        }
+        const d = res.data;
+        setV2Success(
+          d
+            ? `Dual-model complete — ${d.overall_score}/100, ${d.needs_review} finding(s) to review, ${d.disagreements} model disagreement(s)`
+            : "Dual-model assessment complete",
+        );
+        loadV2Data();
+      } catch (err) {
+        setV2Error(`Dual-model failed: ${err instanceof Error ? err.message : "unexpectedly"}`);
+      } finally {
+        setV2Running(false);
+      }
+    });
+  }, [client, selectedJurisdiction, loadV2Data]);
+
   const latestAssessment = v2Data?.latestAssessment;
   const domainEntries = latestAssessment?.domain_scores
     ? Object.entries(latestAssessment.domain_scores)
@@ -1000,8 +1029,30 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
                   transition: "background .15s",
                 }}
               >
-                {v2Running ? "Running pipeline..." : latestAssessment ? "Re-run analysis" : "Run compliance analysis"}
+                {v2Running ? "Running..." : latestAssessment ? "Re-run keyword analysis" : "Run keyword analysis"}
               </button>
+
+              <button
+                onClick={handleRunDualModel}
+                disabled={v2Running || !selectedJurisdiction}
+                style={{
+                  width: "100%", padding: "10px 16px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+                  border: "1px solid " + (v2Running || !selectedJurisdiction ? "#E4D9C4" : "#C5A059"),
+                  cursor: v2Running || !selectedJurisdiction ? "not-allowed" : "pointer",
+                  background: v2Running || !selectedJurisdiction ? "#EEECE7" : "#C5A059",
+                  color: v2Running || !selectedJurisdiction ? "#8E9196" : "#1A1C1E",
+                  transition: "background .15s",
+                }}
+              >
+                {v2Running ? "Reading documents (Gemini + Claude)…" : "Run dual-model assessment"}
+              </button>
+
+              <p style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--sub)", margin: "2px 0 0" }}>
+                <strong>Keyword</strong> = fast first pass (keyword matching). <strong>Dual-model</strong> = two
+                models read the actual document text and judge each requirement, flagging weak clauses and
+                disagreements for your review — deeper and more accurate, slower and token-costing. Both read
+                the client&apos;s already-ingested documents.
+              </p>
 
               {v2Error && (
                 <p style={{ fontSize: 11, color: "#B4432C", background: "#FBE7E1", borderRadius: 6, padding: 10, margin: 0 }}>{v2Error}</p>
