@@ -201,3 +201,99 @@ export async function updateResolution(
     patch,
   );
 }
+
+// ─── V2 remediation board (jurisdiction-native, migration 023) ────────────────
+// Fed by the real assessment engine (compliance_assessments/assessment_findings).
+// No framework is hardcoded: jurisdiction_code + legal_reference carry any regime.
+
+export type RemediationV2Item = {
+  id: number;
+  client_id: string;
+  assessment_id: number;
+  finding_id: number | null;
+  jurisdiction_code: string;
+  jurisdiction_name?: string;
+  domain_code: string | null;
+  requirement_code: string | null;
+  legal_reference: string | null;
+  category: string | null;
+  title: string;
+  description: string | null;
+  severity: string | null;
+  finding_status: string | null;
+  recommendation: string | null;
+  status: string;
+  assigned_to: string | null;
+  due_date: string | null;
+  resolved_date: string | null;
+  verified_date: string | null;
+  resolution_summary: string | null;
+  created_at: string;
+  updated_at: string;
+  // joined
+  resolution_status?: string | null;
+  resolution_agreement?: string | null;
+  has_resolution?: boolean;
+};
+
+export type RemediationV2Board = {
+  data: RemediationV2Item[];
+  jurisdictions: {
+    jurisdiction_code: string;
+    jurisdiction_name: string;
+    total: number;
+    open: number;
+  }[];
+};
+
+export async function fetchClientRemediationV2(clientId: string) {
+  return cloudRunFetch<RemediationV2Board>(
+    `/api/v2/clients/${clientId}/remediation`,
+    { cache: "no-store" },
+  );
+}
+
+export async function generateRemediationFromAssessment(
+  clientId: string,
+  assessmentId: number,
+  performed_by = "nik@stza.io",
+) {
+  return cloudRunMutate<{ count: number; removed: number; jurisdiction: string }>(
+    `/api/v2/clients/${clientId}/assessments/${assessmentId}/remediation/generate`,
+    "POST",
+    { performed_by },
+  );
+}
+
+export async function updateRemediationV2Item(
+  id: number,
+  patch: Partial<RemediationV2Item> & { performed_by?: string },
+) {
+  return cloudRunMutate<RemediationV2Item>(`/api/v2/remediation/${id}`, "PUT", patch);
+}
+
+export async function fetchResolutionV2(id: number) {
+  return cloudRunFetch<RemediationResolution | null>(
+    `/api/v2/remediation/${id}/resolution`,
+    { cache: "no-store" },
+  );
+}
+
+export async function generateResolutionV2(id: number) {
+  return cloudRunMutate<RemediationResolution>(
+    `/api/v2/remediation/${id}/generate-resolution`,
+    "POST",
+    {},
+  );
+}
+
+export async function updateResolutionV2(
+  id: number,
+  patch: { resolution?: string; status?: string; reviewed_by?: string },
+) {
+  return cloudRunMutate<RemediationResolution>(
+    `/api/v2/remediation/${id}/resolution`,
+    "PUT",
+    patch,
+  );
+}

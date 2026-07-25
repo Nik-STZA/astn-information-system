@@ -100,7 +100,23 @@ function ResolutionBody({ text }: { text: string }) {
   );
 }
 
-export default function ResolutionPanel({ itemId }: { itemId: number }) {
+// Actions are injectable so the same panel drives both the legacy board and the V2
+// jurisdiction-native board (which hits /api/v2/... endpoints). Defaults to V1.
+type ResolutionActions = {
+  load: (id: number) => Promise<RemediationResolution | null>;
+  generate: (id: number) => Promise<RemediationResolution | null>;
+  save: (id: number, patch: { resolution?: string; status?: string }) => Promise<RemediationResolution | null>;
+};
+
+export default function ResolutionPanel({
+  itemId,
+  actions,
+}: {
+  itemId: number;
+  actions?: ResolutionActions;
+}) {
+  const A: ResolutionActions =
+    actions ?? { load: loadResolution, generate: generateResolution, save: saveResolution };
   const [res, setRes] = useState<RemediationResolution | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, startTransition] = useTransition();
@@ -109,7 +125,7 @@ export default function ResolutionPanel({ itemId }: { itemId: number }) {
 
   useEffect(() => {
     let live = true;
-    loadResolution(itemId).then((r) => {
+    A.load(itemId).then((r) => {
       if (live) {
         setRes(r);
         setLoading(false);
@@ -118,23 +134,24 @@ export default function ResolutionPanel({ itemId }: { itemId: number }) {
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
   function generate() {
     startTransition(async () => {
-      const r = await generateResolution(itemId);
+      const r = await A.generate(itemId);
       if (r) setRes(r);
     });
   }
   function approve() {
     startTransition(async () => {
-      const r = await saveResolution(itemId, { status: "confirmed" });
+      const r = await A.save(itemId, { status: "confirmed" });
       if (r) setRes(r);
     });
   }
   function saveEdit() {
     startTransition(async () => {
-      const r = await saveResolution(itemId, { resolution: draft, status: "confirmed" });
+      const r = await A.save(itemId, { resolution: draft, status: "confirmed" });
       if (r) setRes(r);
       setEditing(false);
     });

@@ -13,6 +13,27 @@ import {
   type RemediationResolution,
 } from "@/lib/data/remediation";
 import {
+  fetchClientRemediationV2,
+  generateRemediationFromAssessment,
+  updateRemediationV2Item,
+  fetchResolutionV2,
+  generateResolutionV2 as genResolutionV2,
+  updateResolutionV2,
+  type RemediationV2Item,
+} from "@/lib/data/remediation";
+import { fetchClientAssessmentsV2 } from "@/lib/data/compliance";
+
+export type RemediationBoardV2Loaded = {
+  data: RemediationV2Item[];
+  jurisdictions: {
+    jurisdiction_code: string;
+    jurisdiction_name: string;
+    total: number;
+    open: number;
+  }[];
+  assessments: { id: number; jurisdiction: string; overall_score: string | number | null }[];
+};
+import {
   fetchClientProcessors,
   updateProcessor,
   fetchClientRegulatorRegistrations,
@@ -101,6 +122,70 @@ export async function saveResolution(
   patch: { resolution?: string; status?: string },
 ): Promise<RemediationResolution | null> {
   const r = await updateResolution(itemId, { ...patch, reviewed_by: "nik@stza.io" });
+  revalidatePath("/compliance");
+  return r.data ?? null;
+}
+
+/* ── V2 remediation board (jurisdiction-native, fed by the real assessment) ── */
+
+export async function loadRemediationBoardV2(
+  clientId: string,
+): Promise<RemediationBoardV2Loaded> {
+  const [board, asmts] = await Promise.all([
+    fetchClientRemediationV2(clientId),
+    fetchClientAssessmentsV2(clientId),
+  ]);
+  // Attach the client's completed/reviewed assessments so the panel can offer
+  // "generate from <jurisdiction> assessment" per regime.
+  const assessments = (asmts.data?.data ?? [])
+    .filter((a) => a.status === "completed" || a.status === "reviewed")
+    .map((a) => ({
+      id: a.id,
+      jurisdiction: a.jurisdiction || a.jurisdiction_name || a.jurisdiction_code || "Assessment",
+      overall_score: a.overall_score,
+    }));
+  return {
+    data: board.data?.data ?? [],
+    jurisdictions: board.data?.jurisdictions ?? [],
+    assessments,
+  };
+}
+
+export async function generateBoardFromAssessment(
+  clientId: string,
+  assessmentId: number,
+): Promise<{ count: number; removed: number; jurisdiction: string } | null> {
+  const r = await generateRemediationFromAssessment(clientId, assessmentId);
+  revalidatePath("/compliance");
+  return r.data ?? null;
+}
+
+export async function updateRemediationStatusV2(id: number, status: string) {
+  const r = await updateRemediationV2Item(id, { status, performed_by: "nik@stza.io" });
+  revalidatePath("/compliance");
+  return r.data ?? null;
+}
+
+export async function loadResolutionV2(
+  id: number,
+): Promise<RemediationResolution | null> {
+  const r = await fetchResolutionV2(id);
+  return r.data ?? null;
+}
+
+export async function generateResolutionV2(
+  id: number,
+): Promise<RemediationResolution | null> {
+  const r = await genResolutionV2(id);
+  revalidatePath("/compliance");
+  return r.data ?? null;
+}
+
+export async function saveResolutionV2(
+  id: number,
+  patch: { resolution?: string; status?: string },
+): Promise<RemediationResolution | null> {
+  const r = await updateResolutionV2(id, { ...patch, reviewed_by: "nik@stza.io" });
   revalidatePath("/compliance");
   return r.data ?? null;
 }
