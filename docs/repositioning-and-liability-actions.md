@@ -65,11 +65,40 @@ accountable human, (3) cross-border multi-entity handling. **Stop leading with:*
 
 ## Benchmark the competitors (this week)
 
-- [ ] Hands-on test **Priviso** and **NetDocuments Privacy Policy Analyzer** — run a sample policy through
-      each, compare output quality, citations, and redraft usefulness against ours. (Access/how-to-test
-      findings appended once the competitor-review research lands.)
-- [ ] Note where they're weak (jurisdiction depth? human accountability? emerging-market coverage?
-      redline export?) — that's your wedge, or your warning.
+**Key finding: 4 of 5 named competitors have essentially NO independent product reviews.** Only
+DataGuard has a real reviewed track record — and it skews critical on exactly the "generic template /
+accuracy" axis your product targets. The category is **wide open on trust and demonstrated accuracy.**
+That's the opportunity; it's also why *proving* accuracy (and not over-claiming it — liability) matters.
+
+**Method:** prepare ONE sample privacy policy with **deliberately known defects** (e.g. missing
+automated-decision-making disclosure, no POPIA breach-notification clause, weak cross-border transfer
+wording). Run it through your tool and each competitor you can reach; compare — same gaps caught? right
+sections cited? real redraft or boilerplate?
+
+**Ranked by ease of hands-on testing:**
+
+1. **Legiseye — do first (self-serve).** Free signup + a **public sample gap-analysis report** to study
+   immediately. Gap-analysis feature is gated (listed at Pro **$80/mo cancel-anytime**, but the feature
+   page says "Enterprise, contact us" — paywall is ambiguous). Closest apples-to-apples output compare.
+   Early/tiny team (likely Turkey-based), no reviews.
+2. **DataGuard — benchmark by *reading its reviews*, no trial needed.** G2 4.6 (96) / Capterra 4.7 (47) /
+   **Trustpilot 3.2 (95)**. The recurring complaints — "generic/outdated templates," "basic spreadsheets
+   for thousands of pounds," 1-yr lock-in — **are your differentiation narrative** (AI-native, reads
+   *their* doc, not blank templates). Established (~220 staff, ~$80M raised). Optionally book a demo to
+   see the human-in-the-loop pitch. Sales-led, ~€175/mo start.
+3. **Priviso — your direct SA rival, but thinner than it looks.** No independent reviews, ~190 LinkedIn
+   followers; actually a **~10-yr boutique POPIA consultancy** (MD Anthony Olivier) that was a *PrivIQ*
+   user — the "AI platform" is a newer layer. No self-serve, no public pricing, no named logos. **Request
+   a demo as an SA prospect** to learn if it's genuinely AI-native or a consultancy wrapper, and get pricing.
+4. **NetDocuments Privacy Policy Analyzer — demo-only.** No self-serve, no public pricing; gated behind
+   ndMAX/enterprise DMS sales (i.e. *not* serving your cross-border-SME segment). No reviews of the
+   analyzer itself. Book the non-customer demo only if you want to see an incumbent's output quality.
+5. **Tech Hive Advisory — not a testable product.** It's a pan-African law/tech *advisory* firm (reports,
+   masterclasses, consulting); "automated compliance-as-a-service" is marketing over services. Thin,
+   possibly-seeded reviews (Trustburn 4.0/12). Treat as market/positioning context, not a benchmark.
+
+**This week, realistically:** Legiseye (hands-on output compare) + DataGuard (read the reviews = your
+wedge narrative) + Priviso (demo request — it's your regional rival). The rest are context.
 
 ---
 
