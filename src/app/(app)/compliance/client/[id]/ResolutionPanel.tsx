@@ -72,11 +72,29 @@ function ResolutionBody({ text }: { text: string }) {
       )}
       {p.gaps.length > 0 && (
         <div>
-          <div style={{ ...label, color: "#CC0000" }}>Gaps identified</div>
+          <div style={{ ...label, color: "var(--label-text)" }}>Gaps &amp; enhancements</div>
           <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
-            {p.gaps.map((g, i) => (
-              <li key={i} style={{ fontSize: 12, lineHeight: 1.55, color: "var(--tx)" }}>{g}</li>
-            ))}
+            {p.gaps.map((g, i) => {
+              const m = g.match(/^\[(Statutory|Enhancement)\]\s*(.*)$/i);
+              const kind = m ? m[1].toLowerCase() : null;
+              const text = m ? m[2] : g;
+              const tag =
+                kind === "statutory"
+                  ? { t: "Statutory", fg: "#CC0000", bg: "rgba(204,0,0,0.10)" }
+                  : kind === "enhancement"
+                    ? { t: "Enhancement", fg: "#CC7700", bg: "rgba(204,119,0,0.10)" }
+                    : null;
+              return (
+                <li key={i} style={{ fontSize: 12, lineHeight: 1.55, color: "var(--tx)" }}>
+                  {tag && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", padding: "1px 6px", borderRadius: 4, marginRight: 6, color: tag.fg, background: tag.bg }}>
+                      {tag.t}
+                    </span>
+                  )}
+                  {text}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

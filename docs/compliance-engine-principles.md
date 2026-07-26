@@ -70,3 +70,16 @@ Append here whenever a rebuild corrects a real defect. Date + one-line cause + t
 - **2026-07-25d — Radar invented scores.** The compliance radar computed arbitrary heuristics from
   operational tables instead of reading `domain_scores`. → Invariant 4. Fix: radar reads the real
   assessment, falls back to clearly-labelled heuristics only when no assessment exists.
+
+- **2026-07-26 — Overstated best-practice as statutory; wrong instrument.** Expert (human) review of a
+  breach-notification resolution found the engine (a) conflated mandatory statutory obligations with
+  best-practice drafting enhancements, presenting the latter as compliance failures; (b) demanded
+  internal incident-response-playbook detail (full s22(4) contents, timelines) inside a *public*
+  privacy notice; (c) risked absolute role statements ("as responsible party") for an entity that may
+  act as an operator elsewhere. → Invariant 5. Fix (RESOLUTION_SYSTEM): classify each gap
+  `[Statutory]` vs `[Enhancement]`; match the fix to the document type (public notice = high-level,
+  operational detail lives in the internal procedure; if the internal procedure already has it, the
+  gap is "public notice less specific than internal procedure", not "procedure missing"); distinguish
+  related subsections precisely (POPIA s22(3) delay / s22(4) content / s22(5) Regulator publication);
+  conditional role framing; verify prescribed regulatory forms rather than hard-coding them. General
+  principle: **a defensible finding separates "the law requires this" from "this would be better".**
