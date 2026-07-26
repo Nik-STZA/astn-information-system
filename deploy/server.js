@@ -120,6 +120,7 @@ require("./server-processor-register-routes");
 require("./server-remediation-resolution-routes");
 require("./server-remediation-v2-routes");
 require("./server-assessment-v2-routes");
+require("./server-document-gen-routes");
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 

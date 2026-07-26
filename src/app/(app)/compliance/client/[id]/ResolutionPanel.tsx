@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { loadResolution, generateResolution, saveResolution } from "./actions";
 import type { RemediationResolution } from "@/lib/data/remediation";
+import { parseResolution, parseGapTag } from "@/lib/resolution-parse";
 
 const btn: React.CSSProperties = {
   fontSize: 12,
@@ -20,36 +21,6 @@ const primaryBtn: React.CSSProperties = {
   background: "#C5A059",
   color: "#1A1C1E",
 };
-
-// Split the composed resolution into its sections for distinct styling.
-function parseResolution(text: string) {
-  let rest = text || "";
-  let reviewNote: string | null = null;
-  const rev = rest.match(/^REVIEW:\s*([\s\S]+?)(?:\n\n|$)/);
-  if (rev) {
-    reviewNote = rev[1].trim();
-    rest = rest.slice(rev[0].length);
-  }
-  let citations: string[] = [];
-  const cit = rest.match(/\n\nCitations:\s*([\s\S]+)$/);
-  if (cit) {
-    citations = cit[1].split(",").map((s) => s.trim()).filter(Boolean);
-    rest = rest.slice(0, rest.length - cit[0].length);
-  }
-  let redraft: string | null = null;
-  const rd = rest.match(/\n\nSuggested redraft[^\n]*:\n([\s\S]+)$/);
-  if (rd) {
-    redraft = rd[1].trim();
-    rest = rest.slice(0, rest.length - rd[0].length);
-  }
-  let gaps: string[] = [];
-  const gp = rest.match(/\n\nGaps:\n([\s\S]+)$/);
-  if (gp) {
-    gaps = gp[1].split("\n").map((l) => l.replace(/^-\s*/, "").trim()).filter(Boolean);
-    rest = rest.slice(0, rest.length - gp[0].length);
-  }
-  return { reviewNote, summary: rest.trim(), gaps, redraft, citations };
-}
 
 function ResolutionBody({ text }: { text: string }) {
   const p = parseResolution(text);
@@ -75,13 +46,11 @@ function ResolutionBody({ text }: { text: string }) {
           <div style={{ ...label, color: "var(--label-text)" }}>Gaps &amp; enhancements</div>
           <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
             {p.gaps.map((g, i) => {
-              const m = g.match(/^\[(Statutory|Enhancement)\]\s*(.*)$/i);
-              const kind = m ? m[1].toLowerCase() : null;
-              const text = m ? m[2] : g;
+              const { tag: kind, text } = parseGapTag(g);
               const tag =
-                kind === "statutory"
+                kind === "Statutory"
                   ? { t: "Statutory", fg: "#CC0000", bg: "rgba(204,0,0,0.10)" }
-                  : kind === "enhancement"
+                  : kind === "Enhancement"
                     ? { t: "Enhancement", fg: "#CC7700", bg: "rgba(204,119,0,0.10)" }
                     : null;
               return (

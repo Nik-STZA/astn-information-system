@@ -19,8 +19,10 @@ import {
   fetchResolutionV2,
   generateResolutionV2 as genResolutionV2,
   updateResolutionV2,
+  fetchAmendmentSchedule,
   type RemediationV2Item,
 } from "@/lib/data/remediation";
+import type { AmendmentScheduleData } from "@/lib/reports/amendmentSchedule";
 import { fetchClientAssessmentsV2 } from "@/lib/data/compliance";
 
 export type RemediationBoardV2Loaded = {
@@ -187,5 +189,13 @@ export async function saveResolutionV2(
 ): Promise<RemediationResolution | null> {
   const r = await updateResolutionV2(id, { ...patch, reviewed_by: "nik@stza.io" });
   revalidatePath("/compliance");
+  return r.data ?? null;
+}
+
+export async function loadAmendmentSchedule(
+  clientId: string,
+  includeDrafts: boolean,
+): Promise<AmendmentScheduleData | null> {
+  const r = await fetchAmendmentSchedule(clientId, includeDrafts);
   return r.data ?? null;
 }

@@ -9,8 +9,10 @@ import {
   loadResolutionV2,
   generateResolutionV2,
   saveResolutionV2,
+  loadAmendmentSchedule,
   type RemediationBoardV2Loaded,
 } from "./actions";
+import { generateAmendmentSchedule } from "@/lib/reports/amendmentSchedule";
 import type { RemediationV2Item } from "@/lib/data/remediation";
 
 const SEV: Record<string, { fg: string; bg: string }> = {
@@ -86,6 +88,34 @@ export default function RemediationV2Panel({ clientId }: { clientId: string }) {
     });
   }
 
+  const [dlBusy, setDlBusy] = useState(false);
+  const [includeDrafts, setIncludeDrafts] = useState(true);
+  async function downloadSchedule() {
+    setDlBusy(true);
+    try {
+      const data = await loadAmendmentSchedule(clientId, includeDrafts);
+      if (!data || !data.documents.length) {
+        alert(
+          includeDrafts
+            ? "No resolutions yet. Generate resolutions on the findings first."
+            : "No confirmed resolutions yet. Approve resolutions (or tick “include drafts” to preview).",
+        );
+        return;
+      }
+      const blob = await generateAmendmentSchedule(data);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Amendment_Schedule_${data.client.company_name.replace(/[^a-z0-9]+/gi, "_")}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDlBusy(false);
+    }
+  }
+
   if (loading) return <div style={{ color: "var(--sub)", fontSize: 13, padding: 12 }}>Loading remediation…</div>;
 
   const assessments = board?.assessments ?? [];
@@ -125,6 +155,40 @@ export default function RemediationV2Panel({ clientId }: { clientId: string }) {
         ))}
         <span style={{ fontSize: 10.5, color: "var(--sub)", flexBasis: "100%" }}>
           Reads the real dual-model assessment findings for that regime and rebuilds its board. Preserves any status you&apos;ve already set.
+        </span>
+      </div>
+
+      {/* Document generation — amendment schedule (redline pack) */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 10,
+          alignItems: "center",
+          marginBottom: 14,
+          padding: 12,
+          border: "1px solid var(--bd)",
+          borderRadius: 8,
+          background: "var(--pnl)",
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--label-text)" }}>
+          Documents
+        </span>
+        <button
+          onClick={downloadSchedule}
+          disabled={dlBusy}
+          style={{ ...btn, border: "1px solid #C5A059", background: dlBusy ? "#EEECE7" : "#C5A059", color: "#1A1C1E", fontWeight: 700 }}
+        >
+          {dlBusy ? "Preparing…" : "Download amendment schedule (.docx)"}
+        </button>
+        <label style={{ fontSize: 11.5, color: "var(--sub)", display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+          <input type="checkbox" checked={includeDrafts} onChange={(e) => setIncludeDrafts(e.target.checked)} />
+          include drafts (preview)
+        </label>
+        <span style={{ fontSize: 10.5, color: "var(--sub)", flexBasis: "100%" }}>
+          A per-clause redline pack: current gap → proposed wording, tagged Statutory/Enhancement with citations. Advisory —
+          the client&apos;s counsel adopts the changes. Uses confirmed resolutions only unless &ldquo;include drafts&rdquo; is ticked.
         </span>
       </div>
 

@@ -272,6 +272,15 @@ export async function updateRemediationV2Item(
   return cloudRunMutate<RemediationV2Item>(`/api/v2/remediation/${id}`, "PUT", patch);
 }
 
+import type { AmendmentScheduleData } from "@/lib/reports/amendmentSchedule";
+
+export async function fetchAmendmentSchedule(clientId: string, includeDrafts: boolean) {
+  return cloudRunFetch<AmendmentScheduleData>(
+    `/api/v2/clients/${clientId}/amendment-schedule?include_drafts=${includeDrafts}`,
+    { cache: "no-store" },
+  );
+}
+
 export async function fetchResolutionV2(id: number) {
   return cloudRunFetch<RemediationResolution | null>(
     `/api/v2/remediation/${id}/resolution`,
