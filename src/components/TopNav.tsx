@@ -4,55 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
-
-interface NavItem {
-  href: string;
-  label: string;
-}
-
-interface NavGroup {
-  label: string;
-  items: NavItem[];
-}
-
-const GROUPS: NavGroup[] = [
-  { label: "Home", items: [{ href: "/dashboard", label: "Dashboard" }] },
-  {
-    label: "Registry",
-    items: [
-      { href: "/overview", label: "Overview" },
-      { href: "/registry", label: "Registry" },
-      { href: "/registry/verify", label: "Verify" },
-    ],
-  },
-  {
-    label: "Regulatory",
-    items: [
-      { href: "/data-protection", label: "Data protection" },
-      { href: "/data-protection/jurisdictions", label: "Jurisdictions" },
-      { href: "/data-protection/editions", label: "Editions" },
-      { href: "/compliance", label: "Compliance" },
-      { href: "/compliance/jurisdictions", label: "Knowledge base" },
-    ],
-  },
-  {
-    label: "Commercial",
-    items: [
-      { href: "/clients", label: "Clients" },
-      { href: "/pipeline", label: "Pipeline" },
-    ],
-  },
-  {
-    label: "Publishing",
-    items: [
-      { href: "/content/review", label: "Review" },
-      { href: "/content/briefs", label: "Briefs" },
-      { href: "/content/linkedin", label: "LinkedIn" },
-      { href: "/content", label: "Content" },
-      { href: "/reports", label: "Reports" },
-    ],
-  },
-];
+import type { NavGroup } from "@/shared/layout/nav";
 
 function checkActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
@@ -113,7 +65,28 @@ const activeLinkStyle: React.CSSProperties = {
   background: "#C5A059",
 };
 
-export default function TopNav({ userEmail }: { userEmail: string }) {
+const badgeStyle: React.CSSProperties = {
+  marginLeft: 5,
+  fontSize: 7,
+  fontWeight: 800,
+  lineHeight: 1,
+  letterSpacing: "0.08em",
+  padding: "2px 4px",
+  borderRadius: 3,
+  background: "#C5A059",
+  color: "#141414",
+  verticalAlign: "middle",
+};
+
+// Groups are resolved server-side from the FEATURES flag and passed in, so a
+// disabled module never reaches the browser at all.
+export default function TopNav({
+  userEmail,
+  groups,
+}: {
+  userEmail: string;
+  groups: NavGroup[];
+}) {
   const pathname = usePathname();
 
   const handleSignOut = async () => {
@@ -195,7 +168,7 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
             minWidth: 0,
           }}
         >
-          {GROUPS.map((group, idx) => {
+          {groups.map((group, idx) => {
             return (
               <div key={group.label} style={{ display: "contents" }}>
                 {idx > 0 && (
@@ -239,6 +212,7 @@ export default function TopNav({ userEmail }: { userEmail: string }) {
                           }}
                         >
                           {item.label}
+                          {item.badge && <span style={badgeStyle}>{item.badge}</span>}
                         </Link>
                       );
                     })}

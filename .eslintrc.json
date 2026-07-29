@@ -1,0 +1,43 @@
+{
+  "root": true,
+  "extends": ["next/core-web-vitals"],
+  "plugins": ["boundaries"],
+  "settings": {
+    "boundaries/include": ["src/**/*.{ts,tsx,js,jsx}"],
+    "boundaries/elements": [
+      { "type": "shared", "pattern": "src/shared/*", "capture": ["segment"] },
+      { "type": "module", "pattern": "src/modules/*", "capture": ["moduleName"] },
+      { "type": "legacy-app", "pattern": "src/app/**/*", "mode": "full" },
+      { "type": "legacy-lib", "pattern": "src/lib/**/*", "mode": "full" },
+      { "type": "legacy-components", "pattern": "src/components/**/*", "mode": "full" },
+      { "type": "legacy-styles", "pattern": "src/styles/**/*", "mode": "full" }
+    ]
+  },
+  "rules": {
+    "boundaries/no-unknown": "off",
+    "boundaries/no-unknown-files": "off",
+    "boundaries/element-types": [
+      "error",
+      {
+        "default": "allow",
+        "rules": [
+          {
+            "from": ["module"],
+            "disallow": [["module", { "moduleName": "!${from.moduleName}" }]],
+            "message": "Module '${from.moduleName}' must not import from module '${target.moduleName}'. Shared code belongs in src/shared/*."
+          },
+          {
+            "from": ["module"],
+            "disallow": ["legacy-app", "legacy-lib", "legacy-components"],
+            "message": "Module '${from.moduleName}' must not import legacy AfricanSTN code from ${target.type}. Use src/shared/* instead."
+          },
+          {
+            "from": ["shared"],
+            "disallow": ["module", "legacy-app", "legacy-lib", "legacy-components"],
+            "message": "src/shared must not depend on ${target.type}. Shared code carries no module or app knowledge."
+          }
+        ]
+      }
+    ]
+  }
+}

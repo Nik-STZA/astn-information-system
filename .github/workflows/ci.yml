@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "chore/**"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Lint, boundaries and types
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Module isolation gate. Fails the build if src/modules/finance imports
+      # from another module or from the legacy AfricanSTN code in src/app,
+      # src/lib or src/components. Rule lives in .eslintrc.json.
+      - name: Check module boundaries
+        run: npm run lint:boundaries
+
+      # Schema isolation gate. The platform database is shared and AfricanSTN
+      # occupies public, so a Finance migration missing its schema prefix would
+      # land next to tables this repo does not own.
+      - name: Check Finance migrations stay in the finance schema
+        run: npm run check:finance-schema
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Pure logic only: parsers, money handling, feature flags. No database and
+      # no network, so this runs without credentials.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          CLOUD_RUN_API_URL: https://example.invalid
+          CLOUD_RUN_API_KEY: ci-placeholder
+          FEATURES: registry,compliance,publishing,finance

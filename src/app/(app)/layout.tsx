@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getIapEmail } from "@/lib/auth";
 import TopNav from "@/components/TopNav";
+import { navigationForEnvironment } from "@/app/(app)/navigation";
 
 /**
  * Layout shared by all authenticated routes.
@@ -22,7 +23,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className="min-h-screen" style={{ background: "var(--pg)" }}>
-      <TopNav userEmail={userEmail} />
+      <TopNav userEmail={userEmail} groups={navigationForEnvironment()} />
       <main className="page-container">{children}</main>
     </div>
   );
