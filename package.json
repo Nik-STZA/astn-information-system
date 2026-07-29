@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "lint:boundaries": "next lint --dir src/modules --dir src/shared",
+    "check:finance-schema": "node scripts/check-finance-schema.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

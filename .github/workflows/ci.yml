@@ -31,6 +31,12 @@ jobs:
       - name: Check module boundaries
         run: npm run lint:boundaries
 
+      # Schema isolation gate. The platform database is shared and AfricanSTN
+      # occupies public, so a Finance migration missing its schema prefix would
+      # land next to tables this repo does not own.
+      - name: Check Finance migrations stay in the finance schema
+        run: npm run check:finance-schema
+
       - name: Lint
         run: npm run lint
 
