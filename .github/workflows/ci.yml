@@ -47,6 +47,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Pure logic only: parsers, money handling, feature flags. No database and
+      # no network, so this runs without credentials.
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
         env:

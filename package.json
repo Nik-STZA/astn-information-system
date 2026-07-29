@@ -15,7 +15,9 @@
     "migrate:status": "node scripts/migrate.mjs --status",
     "import:master-mapping": "node scripts/import-master-mapping.mjs",
     "import:client-files": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/import-client-files.mjs",
-    "watch:client-files": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/watch-client-files.mjs"
+    "watch:client-files": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/watch-client-files.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "docx": "^9.0.2",
@@ -38,6 +40,7 @@
     "pg": "^8.22.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.14",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.10"
   }
 }

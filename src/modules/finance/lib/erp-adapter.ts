@@ -200,15 +200,28 @@ export function money(amount: number, currency = "GBP"): Money {
   return { amount: Math.round(amount), currency };
 }
 
-// Parses a decimal string or number from an ERP into minor units. Uses string
-// handling rather than multiplying by 100, because 19.99 * 100 is 1998.9999...
+// Parses a decimal string or number from an ERP into minor units.
+//
+// Works on the digits rather than multiplying by 100. For ordinary two-decimal
+// amounts a float multiply with Math.round lands on the same answer, so this is
+// not about 19.99 * 100 being 1998.9999...; rounding hides that. It is about
+// keeping the rounding decision explicit and staying exact at magnitudes where
+// a float multiply starts to drift.
+//
+// Rounds half away from zero at the third decimal rather than truncating. ERP
+// unit prices carry four decimals, and truncating 1.005 to 1.00 loses value
+// silently, which is the worst way to lose it.
 export function toMinorUnits(value: string | number, currency = "GBP"): Money {
-  const text = typeof value === "number" ? value.toFixed(2) : value.trim();
-  const negative = text.startsWith("-");
+  const text = typeof value === "number" ? value.toFixed(4) : value.trim();
+  const negative = text.trim().startsWith("-");
   const digits = text.replace(/[^0-9.]/g, "");
   const [whole, frac = ""] = digits.split(".");
-  const minor = Number(whole || "0") * 100 + Number((frac + "00").slice(0, 2));
-  return { amount: negative ? -minor : minor, currency };
+
+  const padded = (frac + "000").slice(0, 3);
+  const minor = Number(whole || "0") * 100 + Number(padded.slice(0, 2));
+  const rounded = minor + (Number(padded[2]) >= 5 ? 1 : 0);
+
+  return { amount: negative ? -rounded : rounded, currency };
 }
 
 export function formatMoney(m: Money, locale = "en-GB"): string {
