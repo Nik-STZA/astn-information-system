@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "migrate": "node scripts/migrate.mjs",
     "migrate:status": "node scripts/migrate.mjs --status",
-    "import:master-mapping": "node scripts/import-master-mapping.mjs"
+    "import:master-mapping": "node scripts/import-master-mapping.mjs",
+    "import:client-files": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/import-client-files.mjs",
+    "watch:client-files": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/watch-client-files.mjs"
   },
   "dependencies": {
     "docx": "^9.0.2",
