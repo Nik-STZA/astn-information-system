@@ -5,6 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getIapEmail } from "@/lib/auth";
 import { accessXeroSecret } from "@/modules/finance/lib/secrets";
+import { clientIpFrom } from "@/shared/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function POST(
     field,
     action,
     actorEmail,
-    ip: req.headers.get("x-forwarded-for") ?? undefined,
+    ip: clientIpFrom(req.headers.get("x-forwarded-for")) ?? undefined,
   });
 
   if (!result.ok) {

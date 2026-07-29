@@ -201,13 +201,32 @@ async function readSecret(name) {
   return v.payload.data.toString("utf8");
 }
 
+// X-Forwarded-For is a comma separated chain and the ip_address column is a
+// Postgres inet, which takes exactly one address. Passing the raw header threw
+// "invalid input syntax for type inet" and rolled back the transaction it was
+// part of, which is how a bad audit value took a whole Xero connection with it.
+//
+// The caller already normalises this; doing it again here means a malformed
+// header can never cost anything more than a null in the audit row.
+function normaliseIp(value) {
+  if (!value) return null;
+  const first = String(value).split(",")[0].trim();
+  if (!first) return null;
+  const bracketed = /^\[(.+)\](?::\d+)?$/.exec(first);
+  const candidate = bracketed ? bracketed[1] : first;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(candidate);
+  if (v4) return v4.slice(1).every((o) => Number(o) <= 255) ? candidate : null;
+  if (candidate.includes(":") && /^[0-9a-fA-F:.]+$/.test(candidate)) return candidate;
+  return null;
+}
+
 // Writes an audit row. Never receives or stores an unmasked value.
-async function audit(conn, { actorEmail, action, targetType, targetId, clientId, payload, ip }) {
+async function audit(conn, { actorEmail, actorRole, action, targetType, targetId, clientId, payload, ip }) {
   await conn.query(
     `INSERT INTO finance.audit_log
-       (actor_email, action, target_type, target_id, client_id, payload, ip_address)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [actorEmail, action, targetType, targetId, clientId, payload || {}, ip || null]
+       (actor_email, actor_role, action, target_type, target_id, client_id, payload, ip_address)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [actorEmail, actorRole || null, action, targetType, targetId, clientId, payload || {}, normaliseIp(ip)]
   );
 }
 
@@ -234,8 +253,15 @@ app.get("/api/finance/clients/:slug/xero", route(async (req, res) => {
   const data = [];
   for (const e of entities) {
     const secretName = refreshSecretName(req.params.slug, e.slug);
-    const connected = appConfigured && (await secretExists(secretName));
     const cfg = e.accounting_system_config || {};
+
+    // Both halves must be present. The refresh token is written to Secret
+    // Manager before the database transaction, which is not atomic with it, so
+    // a failure in between leaves a token with no tenant id. Requiring both
+    // means such a state reports as not connected and re-running Connect
+    // repairs it, rather than looking healthy while being unusable.
+    const connected =
+      appConfigured && Boolean(cfg.tenant_id) && (await secretExists(secretName));
     data.push({
       slug: e.slug,
       name: e.name,
@@ -492,7 +518,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
           scopes: XERO_SCOPES.split(" "),
           secretName,
         }),
-        req.get("X-Forwarded-For") || req.ip,
+        normaliseIp(req.get("X-Forwarded-For") || req.ip),
       ]
     );
     await conn.query("COMMIT");

@@ -3,6 +3,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { getIapEmail } from "@/lib/auth";
+import { clientIpFrom, publicOrigin } from "@/shared/lib/request-origin";
 import {
   completeConnection,
   decodeState,
@@ -25,7 +26,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   }
 
-  const origin = req.nextUrl.origin;
+  // Behind the load balancer the request origin is the container's own
+  // address, so a redirect built from it is unreachable from a browser.
+  const origin = publicOrigin(req.headers, req.nextUrl.origin);
   const code = req.nextUrl.searchParams.get("code");
   const rawState = req.nextUrl.searchParams.get("state");
   const xeroError = req.nextUrl.searchParams.get("error");
@@ -61,7 +64,7 @@ export async function GET(req: NextRequest) {
     code,
     redirectUri,
     actorEmail,
-    ip: req.headers.get("x-forwarded-for") ?? undefined,
+    ip: clientIpFrom(req.headers.get("x-forwarded-for")) ?? undefined,
   });
 
   return result.ok

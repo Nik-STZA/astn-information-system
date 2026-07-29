@@ -4,6 +4,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
 import { getIapEmail } from "@/lib/auth";
+import { publicOrigin } from "@/shared/lib/request-origin";
 import {
   buildAuthorizeUrl,
   encodeState,
@@ -16,7 +17,10 @@ function redirectUri(req: NextRequest): string {
   // Must match the URI registered on the Xero app exactly.
   const configured = process.env.XERO_REDIRECT_URI;
   if (configured) return configured;
-  return new URL("/api/finance/xero/callback", req.nextUrl.origin).toString();
+  return new URL(
+    "/api/finance/xero/callback",
+    publicOrigin(req.headers, req.nextUrl.origin)
+  ).toString();
 }
 
 export async function GET(
@@ -38,7 +42,7 @@ export async function GET(
     return NextResponse.redirect(
       new URL(
         `/finance/clients/${params.slug}/xero?error=${encodeURIComponent(message)}`,
-        req.nextUrl.origin
+        publicOrigin(req.headers, req.nextUrl.origin)
       )
     );
   }
