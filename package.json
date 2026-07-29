@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "lint:boundaries": "next lint --dir src/modules --dir src/shared",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "docx": "^9.0.2",
@@ -26,6 +28,7 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.18",
+    "eslint-plugin-boundaries": "^4.2.2",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3"

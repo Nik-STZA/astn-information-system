@@ -41,6 +41,7 @@ jobs:
           env_vars: |
             AUTH_MODE=iap
             CLOUD_RUN_API_URL=https://africastn-api-782190795609.europe-west1.run.app
+            FEATURES=registry,compliance,publishing,finance
           secrets: |
             CLOUD_RUN_API_KEY=api-key:latest
           flags: >-
