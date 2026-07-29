@@ -41,15 +41,18 @@ jobs:
           # env_vars and secrets are replaced wholesale on every deploy, so
           # anything set by hand on the service is lost here. Add new values to
           # these lists, not with gcloud run services update.
+          #
+          # Do not put comments inside the env_vars block: the action does not
+          # strip them and turns each one into an environment variable.
+          #
+          # FEATURES is space separated because the action treats a comma inside
+          # a value as a delimiter between variables, which once reduced it to
+          # FEATURES=registry and hid three live modules in production.
           env_vars: |
             AUTH_MODE=iap
             CLOUD_RUN_API_URL=https://africastn-api-782190795609.europe-west1.run.app
             FINANCE_API_URL=https://stza-finance-api-782190795609.europe-west1.run.app
             XERO_REDIRECT_URI=https://os.stza.io/api/finance/xero/callback
-            # Space separated on purpose. The deploy action treats a comma
-            # inside a value as its own delimiter, which once split this into
-            # FEATURES=registry plus three empty variables and hid three live
-            # modules in production.
             FEATURES=registry compliance publishing finance
           secrets: |
             CLOUD_RUN_API_KEY=api-key:latest
