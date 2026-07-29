@@ -152,6 +152,172 @@ app.get("/api/finance/clients/:slug/open-items", route(async (req, res) => {
   res.json({ count: rows.length, data: rows });
 }));
 
+// ── Xero connections ────────────────────────────────────────────────────────
+//
+// Secret layout, chosen so onboarding a new client needs no new Xero app:
+//
+//   xero-app-client-id       practice level, one STZA app, all clients
+//   xero-app-client-secret   practice level
+//   xero-refresh-<client>-<entity>   one per authorised connection
+//
+// One Xero app can hold many independent authorisations, including several of
+// the same tenant. That is what lets the portal hold its own connection
+// without disturbing the refresh token the close pipeline owns: Xero refresh
+// tokens are single use and rotate on every call, so two holders of the same
+// token would invalidate each other.
+//
+// Status is derived from secret EXISTENCE, never by reading the value.
+
+const SECRET_PROJECT = process.env.SECRET_PROJECT || "africanstn-research";
+let secretClientPromise = null;
+
+async function secretManager() {
+  if (!secretClientPromise) {
+    secretClientPromise = import("@google-cloud/secret-manager").then(
+      (m) => new m.SecretManagerServiceClient()
+    );
+  }
+  return secretClientPromise;
+}
+
+const secretPath = (name) => `projects/${SECRET_PROJECT}/secrets/${name}`;
+const refreshSecretName = (clientSlug, entitySlug) =>
+  `xero-refresh-${clientSlug}-${entitySlug}`;
+
+async function secretExists(name) {
+  try {
+    const sm = await secretManager();
+    await sm.getSecret({ name: secretPath(name) });
+    return true;
+  } catch (e) {
+    if (e.code === 5 || /NOT_FOUND/i.test(e.message || "")) return false;
+    throw e;
+  }
+}
+
+async function readSecret(name) {
+  const sm = await secretManager();
+  const [v] = await sm.accessSecretVersion({ name: `${secretPath(name)}/versions/latest` });
+  return v.payload.data.toString("utf8");
+}
+
+// Writes an audit row. Never receives or stores an unmasked value.
+async function audit(conn, { actorEmail, action, targetType, targetId, clientId, payload, ip }) {
+  await conn.query(
+    `INSERT INTO finance.audit_log
+       (actor_email, action, target_type, target_id, client_id, payload, ip_address)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [actorEmail, action, targetType, targetId, clientId, payload || {}, ip || null]
+  );
+}
+
+app.get("/api/finance/clients/:slug/xero", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows: entities } = await pool.query(
+    `SELECT slug, name, legal_name, role, accounting_system, accounting_system_config
+     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+    [client.id]
+  );
+
+  let appConfigured = false;
+  try {
+    appConfigured =
+      (await secretExists("xero-app-client-id")) &&
+      (await secretExists("xero-app-client-secret"));
+  } catch (e) {
+    console.error("secret manager unavailable:", e.message);
+    return res.status(503).json({ error: `Secret Manager unavailable: ${e.message}` });
+  }
+
+  const data = [];
+  for (const e of entities) {
+    const secretName = refreshSecretName(req.params.slug, e.slug);
+    const connected = appConfigured && (await secretExists(secretName));
+    const cfg = e.accounting_system_config || {};
+    data.push({
+      slug: e.slug,
+      name: e.name,
+      legalName: e.legal_name,
+      role: e.role,
+      accountingSystem: e.accounting_system,
+      tenantId: cfg.tenant_id || null,
+      configName: cfg.config_name || null,
+      connectedAt: cfg.connected_at || null,
+      lastRefreshedAt: cfg.last_refreshed_at || null,
+      secretName,
+      connected,
+    });
+  }
+
+  res.json({ appConfigured, count: data.length, data });
+}));
+
+// Reveal or copy a sensitive field. Both return the value, and both are
+// audited. The distinction is what the operator did with it, which matters
+// when reconstructing who saw what.
+app.post("/api/finance/clients/:slug/xero/:entity/secret", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { action, field } = req.body || {};
+  if (!["reveal", "copy"].includes(action)) {
+    return res.status(400).json({ error: "action must be reveal or copy" });
+  }
+
+  const names = {
+    client_id: "xero-app-client-id",
+    client_secret: "xero-app-client-secret",
+    refresh_token: refreshSecretName(req.params.slug, req.params.entity),
+  };
+  const secretName = names[field];
+  if (!secretName) return res.status(400).json({ error: "unknown field" });
+
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+
+  const conn = await pool.connect();
+  try {
+    if (!(await secretExists(secretName))) {
+      await audit(conn, {
+        actorEmail, action: `${action}_secret_missing`, targetType: "xero_secret",
+        targetId: `${req.params.entity}:${field}`, clientId: client.id,
+        payload: { field, entity: req.params.entity },
+        ip: req.get("X-Forwarded-For") || req.ip,
+      });
+      return res.status(404).json({ error: "not connected" });
+    }
+
+    const value = await readSecret(secretName);
+
+    // The payload records that it happened and to what, never the value.
+    await audit(conn, {
+      actorEmail, action: `${action}_secret`, targetType: "xero_secret",
+      targetId: `${req.params.entity}:${field}`, clientId: client.id,
+      payload: { field, entity: req.params.entity, secretName },
+      ip: req.get("X-Forwarded-For") || req.ip,
+    });
+
+    res.json({ value });
+  } finally {
+    conn.release();
+  }
+}));
+
+app.get("/api/finance/clients/:slug/audit", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows } = await pool.query(
+    `SELECT actor_email, action, target_type, target_id, payload, occurred_at
+     FROM finance.audit_log WHERE client_id = $1
+     ORDER BY occurred_at DESC LIMIT 50`,
+    [client.id]
+  );
+  res.json({ count: rows.length, data: rows });
+}));
+
 // ── Sync ────────────────────────────────────────────────────────────────────
 //
 // The file watcher parses locally and posts the result here, so the write
