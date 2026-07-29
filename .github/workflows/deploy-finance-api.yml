@@ -46,6 +46,8 @@ jobs:
           service: stza-finance-api
           region: europe-west1
           source: ./finance-api
+          # See deploy-frontend.yml for why this is overwrite and not merge.
+          env_vars_update_strategy: overwrite
           env_vars: |
             DB_NAME=africastn_os
             DB_USER=africastn_app

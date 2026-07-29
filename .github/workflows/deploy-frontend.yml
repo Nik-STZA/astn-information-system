@@ -38,9 +38,14 @@ jobs:
           service: astn-os
           region: europe-west1
           source: ./
-          # env_vars and secrets are replaced wholesale on every deploy, so
-          # anything set by hand on the service is lost here. Add new values to
-          # these lists, not with gcloud run services update.
+          # env_vars_update_strategy: overwrite makes this block the complete
+          # and only source of environment variables. The action defaults to
+          # merge, which leaves anything previously set on the service in place
+          # even after it is deleted here. Deleting a variable from this file
+          # must actually remove it from the service.
+          #
+          # Anything set by hand with gcloud run services update is therefore
+          # lost on the next deploy. Add new values here, not on the service.
           #
           # Do not put comments inside the env_vars block: the action does not
           # strip them and turns each one into an environment variable.
@@ -48,6 +53,7 @@ jobs:
           # FEATURES is space separated because the action treats a comma inside
           # a value as a delimiter between variables, which once reduced it to
           # FEATURES=registry and hid three live modules in production.
+          env_vars_update_strategy: overwrite
           env_vars: |
             AUTH_MODE=iap
             CLOUD_RUN_API_URL=https://africastn-api-782190795609.europe-west1.run.app
