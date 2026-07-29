@@ -53,11 +53,16 @@ jobs:
           secrets: |
             DB_PASSWORD=db-password:latest
             FINANCE_API_KEY=finance-api-key:latest
+          # Ingress is "all", mirroring africastn-api. astn-os calls this
+          # service over the public internet, so internal-and-cloud-load-
+          # balancing would block it. The X-API-Key check is what protects the
+          # service, and only the Next.js server holds the key.
           flags: >-
             --memory=512Mi
             --cpu=1
             --min-instances=0
             --max-instances=3
             --timeout=60
-            --ingress=internal-and-cloud-load-balancing
+            --ingress=all
+            --allow-unauthenticated
             --add-cloudsql-instances=africanstn-research:europe-west1:africastn-db
