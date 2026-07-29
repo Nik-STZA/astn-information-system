@@ -57,4 +57,4 @@ jobs:
         env:
           CLOUD_RUN_API_URL: https://example.invalid
           CLOUD_RUN_API_KEY: ci-placeholder
-          FEATURES: registry,compliance,publishing,finance
+          FEATURES: registry compliance publishing finance

@@ -35,6 +35,17 @@ describe("enabledModules", () => {
     expect(enabledModules(" Finance , REGISTRY ")).toEqual(["registry", "finance"]);
   });
 
+  // Deployment tooling treats a comma inside an environment value as its own
+  // delimiter. That once reduced FEATURES to "registry" in production and hid
+  // three live modules, so space separation is what the workflow now writes
+  // and both forms must parse identically.
+  it("accepts space separation as well as commas", () => {
+    const expected = ["registry", "compliance", "publishing", "finance"];
+    expect(enabledModules("registry compliance publishing finance")).toEqual(expected);
+    expect(enabledModules("registry,compliance,publishing,finance")).toEqual(expected);
+    expect(enabledModules("registry, compliance;publishing  finance")).toEqual(expected);
+  });
+
   it("ignores unknown names rather than trusting them", () => {
     expect(enabledModules("finance,payroll,nonsense")).toEqual(["finance"]);
   });
