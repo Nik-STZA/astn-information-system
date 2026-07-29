@@ -70,6 +70,28 @@ function Meta({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ConnectButton({ slug, conn }: { slug: string; conn: XeroConnection }) {
+  return (
+    <a
+      href={`/api/finance/${encodeURIComponent(slug)}/xero/${encodeURIComponent(conn.slug)}/connect`}
+      style={{
+        fontFamily: "Manrope, sans-serif",
+        fontSize: 12,
+        fontWeight: 700,
+        padding: "7px 14px",
+        borderRadius: 6,
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+        color: conn.connected ? "var(--sub)" : "#141414",
+        background: conn.connected ? "transparent" : "#C5A059",
+        border: conn.connected ? "1px solid var(--bd)" : "1px solid #C5A059",
+      }}
+    >
+      {conn.connected ? "Reconnect" : "Connect to Xero"}
+    </a>
+  );
+}
+
 function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
   return (
     <section
@@ -114,7 +136,10 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
             </div>
           )}
         </div>
-        <StatusDot connected={conn.connected} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <StatusDot connected={conn.connected} />
+          <ConnectButton slug={slug} conn={conn} />
+        </div>
       </div>
 
       <div
@@ -156,13 +181,43 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
   );
 }
 
-export default async function XeroPage({ params }: { params: { slug: string } }) {
+function Banner({ tone, children }: { tone: "good" | "bad"; children: React.ReactNode }) {
+  const colour = tone === "good" ? "var(--success-green)" : "var(--warning-amber)";
+  return (
+    <div
+      style={{
+        padding: "12px 14px",
+        borderRadius: 8,
+        border: `1px solid ${colour}`,
+        color: colour,
+        fontFamily: "Manrope, sans-serif",
+        fontSize: 13,
+        marginBottom: 18,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export default async function XeroPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams?: { connected?: string; error?: string };
+}) {
   const status = await fetchXeroStatus(params.slug);
 
   return (
     <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Xero connections" />
       <ClientTabs slug={params.slug} active="xero" />
+
+      {searchParams?.connected && (
+        <Banner tone="good">Connected to {searchParams.connected}.</Banner>
+      )}
+      {searchParams?.error && <Banner tone="bad">{searchParams.error}</Banner>}
 
       {status.error && (
         <div

@@ -318,6 +318,199 @@ app.get("/api/finance/clients/:slug/audit", route(async (req, res) => {
   res.json({ count: rows.length, data: rows });
 }));
 
+// ── Xero OAuth ──────────────────────────────────────────────────────────────
+//
+// The token exchange happens here, not in the Next.js app, so the client
+// secret never leaves this service. The app only ever handles the code and the
+// CSRF state.
+//
+// Scopes are the new granular set, because apps created after 2 March 2026 do
+// not get the broad ones. accounting.manualjournals is a write scope and is
+// requested from the start: journals are created as drafts and flipped to
+// posted on approval, so write access is needed before the first approval, not
+// at a later phase.
+
+const XERO_AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize";
+const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
+const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
+
+const XERO_SCOPES = [
+  "offline_access",
+  "accounting.settings.read",
+  "accounting.contacts.read",
+  "accounting.invoices.read",
+  "accounting.banktransactions.read",
+  "accounting.manualjournals",
+  "accounting.reports.trialbalance.read",
+  "accounting.reports.balancesheet.read",
+  "accounting.reports.profitandloss.read",
+  "accounting.reports.banksummary.read",
+  "accounting.reports.aged.read",
+].join(" ");
+
+app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
+  const { state, redirect_uri: redirectUri } = req.query;
+  if (!state || !redirectUri) {
+    return res.status(400).json({ error: "state and redirect_uri are required" });
+  }
+
+  const clientId = await readSecret("xero-app-client-id");
+  const url =
+    `${XERO_AUTHORIZE_URL}?response_type=code` +
+    `&client_id=${encodeURIComponent(clientId)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&scope=${encodeURIComponent(XERO_SCOPES)}` +
+    `&state=${encodeURIComponent(state)}`;
+
+  res.json({ url });
+}));
+
+// Ensures a secret exists, then adds the value as a new version. Rotating a
+// token is therefore just another version, and the old one stays auditable
+// until explicitly destroyed.
+async function storeSecret(name, value) {
+  const sm = await secretManager();
+  if (!(await secretExists(name))) {
+    await sm.createSecret({
+      parent: `projects/${SECRET_PROJECT}`,
+      secretId: name,
+      secret: { replication: { automatic: {} } },
+    });
+  }
+  await sm.addSecretVersion({
+    parent: secretPath(name),
+    payload: { data: Buffer.from(value, "utf8") },
+  });
+}
+
+app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { code, redirectUri } = req.body || {};
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!code || !redirectUri) return res.status(400).json({ error: "code and redirectUri are required" });
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+
+  const { rows: entityRows } = await pool.query(
+    "SELECT id, slug, name, accounting_system_config FROM finance.entities WHERE client_id = $1 AND slug = $2",
+    [client.id, req.params.entity]
+  );
+  if (!entityRows.length) return res.status(404).json({ error: "entity not found" });
+  const entity = entityRows[0];
+
+  const [clientIdSecret, clientSecret] = await Promise.all([
+    readSecret("xero-app-client-id"),
+    readSecret("xero-app-client-secret"),
+  ]);
+
+  const basic = Buffer.from(`${clientIdSecret}:${clientSecret}`).toString("base64");
+  const tokenRes = await fetch(XERO_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basic}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    // Xero's error body can echo request detail, so it is not returned to the
+    // browser verbatim.
+    console.error("Xero token exchange failed:", tokenRes.status, (await tokenRes.text()).slice(0, 300));
+    return res.status(502).json({ error: `Xero rejected the authorisation (${tokenRes.status})` });
+  }
+
+  const tokens = await tokenRes.json();
+  if (!tokens.refresh_token) {
+    return res.status(502).json({ error: "Xero returned no refresh token. Was offline_access granted?" });
+  }
+
+  // Which organisation did they actually pick? The tenant id comes from Xero,
+  // never from the caller.
+  const connRes = await fetch(XERO_CONNECTIONS_URL, {
+    headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: "application/json" },
+  });
+  if (!connRes.ok) {
+    return res.status(502).json({ error: `Could not read Xero connections (${connRes.status})` });
+  }
+  const connections = await connRes.json();
+  if (!connections.length) {
+    return res.status(400).json({ error: "No Xero organisation was authorised" });
+  }
+  const tenant = connections[0];
+
+  const secretName = refreshSecretName(req.params.slug, entity.slug);
+  await storeSecret(secretName, tokens.refresh_token);
+
+  const now = new Date().toISOString();
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    await conn.query(
+      `UPDATE finance.entities
+       SET accounting_system_config = COALESCE(accounting_system_config, '{}'::jsonb) || $2::jsonb
+       WHERE id = $1`,
+      [
+        entity.id,
+        JSON.stringify({
+          tenant_id: tenant.tenantId,
+          tenant_name: tenant.tenantName,
+          connected_at: now,
+          last_refreshed_at: now,
+          scopes: XERO_SCOPES.split(" "),
+          secret_name: secretName,
+        }),
+      ]
+    );
+
+    const role = await conn.query(
+      "SELECT finance.role_at($1, $2, CURRENT_DATE) AS role",
+      [client.id, actorEmail]
+    );
+
+    await conn.query(
+      `INSERT INTO finance.audit_log
+         (actor_email, actor_role, action, target_type, target_id, client_id, payload, ip_address)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        actorEmail,
+        role.rows[0].role,
+        "connect_xero",
+        "xero_connection",
+        entity.slug,
+        client.id,
+        // Records what was connected and with what access. Never the tokens.
+        JSON.stringify({
+          entity: entity.slug,
+          tenantId: tenant.tenantId,
+          tenantName: tenant.tenantName,
+          scopes: XERO_SCOPES.split(" "),
+          secretName,
+        }),
+        req.get("X-Forwarded-For") || req.ip,
+      ]
+    );
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  res.json({
+    ok: true,
+    entity: entity.slug,
+    tenantId: tenant.tenantId,
+    tenantName: tenant.tenantName,
+  });
+}));
+
 // ── Sync ────────────────────────────────────────────────────────────────────
 //
 // The file watcher parses locally and posts the result here, so the write

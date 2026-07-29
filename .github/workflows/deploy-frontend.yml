@@ -45,6 +45,7 @@ jobs:
             AUTH_MODE=iap
             CLOUD_RUN_API_URL=https://africastn-api-782190795609.europe-west1.run.app
             FINANCE_API_URL=https://stza-finance-api-782190795609.europe-west1.run.app
+            XERO_REDIRECT_URI=https://os.stza.io/api/finance/xero/callback
             FEATURES=registry,compliance,publishing,finance
           secrets: |
             CLOUD_RUN_API_KEY=api-key:latest
