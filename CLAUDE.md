@@ -4,67 +4,103 @@ This file gives standing context to Claude Code for every session in this reposi
 
 ## What this project is
 
-The internal operating system for **African Sports Technology Network (AfricanSTN)**, operated by **Sports Tech Africa Limited (STZA)**. A Next.js 14 dashboard, deployed to Netlify, authenticated via Supabase Auth with Google OAuth, backed by a Supabase Postgres database.
+The internal operating system for **African Sports Technology Network (AfricanSTN)**, operated by **Sports Tech Africa Limited (STZA)**. A Next.js 14 dashboard, deployed to Cloud Run, authenticated by Google Cloud Identity-Aware Proxy, backed by Cloud SQL for PostgreSQL 17.
 
 It is an **internal-only** tool for a single operator today. It is NOT a licensed or public product. See the "Future considerations" section of README.md before doing anything that would expose data externally — licensed access requires a separate architecture (a separate surface, server-side-only DB access, tiered permissions, auditing, rate limiting) and must not be bolted onto this codebase.
 
 ## Tech stack
 
 - Next.js 14 (App Router), TypeScript, Tailwind CSS
-- Supabase Auth (Google OAuth provider) + Supabase Postgres via PostgREST
-- `@supabase/ssr` (browser + server clients are in separate files — see below)
+- Google Cloud Identity-Aware Proxy for authentication (see "Authentication" below)
+- Cloud SQL for PostgreSQL 17, reached through the Express API on Cloud Run
 - Recharts for charts, `docx` for Word generation
-- Deployed on Netlify from the `main` branch of `Nik-STZA/astn-information-system`
-- Live at https://astn-information-system.netlify.app
+- Deployed to Cloud Run service `astn-os` by GitHub Actions from the `main` branch
+  of `Nik-STZA/astn-information-system`
+- Live at https://os.stza.io
+
+### Styling reality vs the config
+
+Tailwind is installed but barely used. The established pattern is **inline React
+style objects reading CSS custom properties** defined in `src/styles/globals.css`
+(`var(--pg)`, `var(--pnl)`, `var(--bd)`, `var(--tx)`, `var(--sub)`). Theme
+switching sets `data-theme` on `<html>`; the toggle persists to localStorage under
+`stza-theme`. There is no shadcn/ui, no Radix and no icon library. Match this
+pattern rather than introducing a component library.
+
+## Authentication
+
+The app runs behind Google Cloud Identity-Aware Proxy. IAP authenticates every
+request at the load balancer and enforces access via IAM
+(`roles/iap.httpsResourceAccessor`). The app trusts the
+`x-goog-authenticated-user-email` assertion header.
+
+- `src/lib/auth.ts` — `getIapEmail()` reads and parses the assertion header
+- `src/middleware.ts` — rejects any request lacking the header
+- `src/app/(app)/layout.tsx` — reads the email for display, redirects to `/blocked`
+- Sign-out clears the session at the proxy via `/_gcp_iap/clear_login_cookie`
+
+There is **no Supabase Auth and no Firebase Auth**. IAP IAM is the allowlist.
+`ALLOWED_EMAILS` survives in `.env.example` and the deploy config but nothing in
+`src/` reads it, and `src/lib/allowlist.ts` no longer exists.
 
 ## CRITICAL: database schema facts
 
-These were learned the hard way in production. The Day 1 build assumed column names that did not match the live schema, producing silently-wrong numbers. **Always verify schema against the live database before writing queries.** Use the Supabase MCP or a quick query rather than assuming.
+These were learned the hard way in production. The Day 1 build assumed column names that did not match the live schema, producing silently-wrong numbers. **Always verify schema against the live database before writing queries.** Query the live database rather than assuming.
 
-Known facts about the `organizations` table (~6,983 rows):
+Known facts about the `organizations` table (7,003 rows as at 29 July 2026):
 - Organisation name column is **`organization_name`**, NOT `name`.
-- **`source_confidence`** holds DESCRIPTIVE STRINGS, not enum values. E.g. "High (via governing body listing)", "Medium-Low (Wikipedia)". To filter for High-confidence, use **`ILIKE 'High%'`**, never `= 'High'` (which matches zero rows). 6,543 of 6,983 (93.7%) are High.
+- **`source_confidence`** holds DESCRIPTIVE STRINGS, not enum values. E.g. "High (via governing body listing)", "Medium-Low (Wikipedia)". To filter for High-confidence, use **`ILIKE 'High%'`**, never `= 'High'` (which matches zero rows). About 94 per cent are High.
 - **`country`** and **`sport`** are denormalised onto the table as human-readable names, alongside `country_iso` and `sport_code`. Prefer the denormalised `country`/`sport` for display — avoids needing the lookup join.
 - There are 55 distinct `country_iso` values (54 sovereign African countries + a pan-African classification) and 81 distinct `sport_code` values.
 
 `lookup_countries` table:
 - Country code column is **`iso_code`**, NOT `iso`. Columns: `iso_code`, `name`, `region`, `created_at`.
 
-`classified_items` table (~6,417 rows):
+`classified_items` table (11,903 rows as at 29 July 2026):
 - Has **`created_at`** and `classified_at` but **NO `published_at`**. Use `created_at` for ordering recent items.
 - ~647 items in the last 7 days at time of writing.
 - RLS: a "Nik can do anything" policy keyed on `auth.email() = 'nik@stza.io'`, plus an "Others can see approved items" policy for `status = 'approved'`.
 
 `partnerships` table: ~135 rows.
 
-### The 1,000-row PostgREST limit
-The Supabase JS client returns a maximum of 1,000 rows per query by default. Any aggregation that scans the full organizations table (distinct counts, top-N groupings) MUST paginate past this limit or use a HEAD `count`, otherwise it silently sees only the first 1,000 rows and returns wrong numbers. See `fetchAllColumnValues` in `src/lib/data/overview.ts` for the pagination pattern. For large-scale aggregation, prefer a Postgres RPC.
+### Aggregation over large tables
+Aggregations that scan the full organizations table (distinct counts, top-N
+groupings) run server-side in the Cloud Run API against Cloud SQL, so the old
+1,000-row PostgREST cap no longer applies. `src/lib/data/overview.ts` now calls
+`cloudRunFetch` rather than a Supabase client.
 
-## Supabase project
+## Legacy Supabase project
 
-- Project ref: `vjtdcsshsqnmfcftlver`
-- URL: `https://vjtdcsshsqnmfcftlver.supabase.co`
-- Auth uses the **legacy anon key** (the `eyJ...` JWT), not the new `sb_publishable_` format, because the pinned SDK version expects the legacy format. Migrate to publishable keys only alongside an SDK update.
-
-### Deployment settings that must stay correct (these have broken before)
-- Supabase Auth → URL Configuration → **Site URL** must be `https://astn-information-system.netlify.app` (it defaulted to `http://localhost:3000`, which broke sign-in — symptom was "localhost refused to connect" after Google auth).
-- Redirect URLs must include `https://astn-information-system.netlify.app/auth/callback` and `http://localhost:3000/auth/callback`.
-- Supabase Auth → Providers → Google must be **enabled** with Client ID and Secret present (symptom when off: "provider is not enabled").
-- Netlify env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ALLOWED_EMAILS` (currently `nik@stza.io`).
+The platform has moved to Cloud SQL. The Supabase project `vjtdcsshsqnmfcftlver`
+still holds `dp_jurisdictions` and `dp_editions`; everything else has migrated.
+Do not add new tables there. There are no Supabase packages in `package.json`
+and no Supabase client files in `src/` any more.
 
 ## Architecture conventions
 
-- **Browser vs server Supabase clients are in separate files** and must stay separate (Next.js forbids mixing `next/headers` server imports into client components):
-  - `src/lib/supabase-browser.ts` — `createSupabaseBrowserClient()` for client components
-  - `src/lib/supabase-server.ts` — `createSupabaseServerClient()` for server components and route handlers
-- Authenticated routes live under the `src/app/(app)/` route group, which shares a layout enforcing the auth + allowlist check and rendering the TopNav.
-- Auth is enforced in two places (defence in depth): `src/middleware.ts` and the `(app)` layout.
-- Allowlist check is in `src/lib/allowlist.ts`, reading the `ALLOWED_EMAILS` env var.
-- Data-fetching functions live in `src/lib/data/`.
+- Authenticated routes live under the `src/app/(app)/` route group, which shares a
+  layout that reads the IAP identity and renders the TopNav.
+- Auth is enforced in two places (defence in depth): `src/middleware.ts` and the
+  `(app)` layout.
+- Data-fetching functions live in `src/lib/data/`, and reach the database through
+  `src/lib/cloud-run.ts`. **The Next.js app has no database driver.** Every query
+  goes through the Express API on Cloud Run with an `X-API-Key` header.
+- Navigation is a horizontal grouped top nav in `src/components/TopNav.tsx`
+  (Home / Registry / Regulatory / Commercial / Publishing). There is no sidebar.
+
+### Module structure (added July 2026 for the Finance module)
+
+- `src/shared/*` — cross-module foundation, safe to import anywhere
+- `src/modules/<name>/*` — self-contained modules, currently `finance`
+- A module may import from `src/shared` but never from another module, and never
+  from the legacy `src/app`, `src/lib` or `src/components`. Enforced by
+  `eslint-plugin-boundaries` in `.eslintrc.json` and gated in CI.
+- The four original modules (registry, compliance, publishing) still live in
+  `src/app/(app)/` and have not been relocated.
 
 ## Brand rules (STZA Brand Guidelines v1.0) — apply everywhere
 
-- **Font:** Calibri, with fallback chain `'Calibri', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif`.
+- **Font:** Manrope, set in `src/styles/globals.css`. (The brand guideline names Calibri; the app shipped with Manrope and has stayed there.)
 - **Colours** (defined as Tailwind tokens in `tailwind.config.ts` and CSS vars in `globals.css` — always reference the token, never hard-code a hex):
   - Brand Dark `#1A1C1E`, Brand Gold `#C5A059`, Warm Grey `#8E9196`, Near Black `#0F1113`, Warm Light `#F5F0E8`, Gold Border `#D4C5A9`, Alert Red `#CC0000`, Warning Amber `#CC7700`, Success Green `#2E7D32`.
 - **Naming:** "African Sports Technology Network" on first reference (login/hero only), "AfricanSTN" everywhere else. **Never** "ASTN" (that is the Australian network).
@@ -87,7 +123,7 @@ The frontend talks to a separate Express API running on Cloud Run. This is NOT p
   - `server-dsar-routes.js` — `/api/compliance/clients/:id/dsars`, data subject access request CRUD
   - `server-compliance-v2-routes.js` — V2 multi-jurisdiction analysis: document ingest, knowledge base, assessment runs
 - **Auth:** `X-API-Key` header checked against `API_KEY` env var. The key is stored in GCP Secret Manager (secret name: `api-key`), NOT in code.
-- **Frontend client:** `src/lib/cloud-run.ts` — wraps fetch with API key from `CLOUD_RUN_API_KEY` Netlify env var. Base URL defaults to `https://africastn-api-782190795609.europe-west1.run.app`.
+- **Frontend client:** `src/lib/cloud-run.ts` — wraps fetch with API key from the `CLOUD_RUN_API_KEY` env var, injected from Secret Manager. Base URL defaults to `https://africastn-api-782190795609.europe-west1.run.app`.
 
 ### GCP project
 - Project ID: `africanstn-research`, project number: `782190795609`
@@ -100,13 +136,13 @@ The frontend talks to a separate Express API running on Cloud Run. This is NOT p
 ### Database (Cloud SQL)
 - DB name: `africastn_os`, user: `africastn_app`
 - Password stored in GCP Secret Manager (secret name: `db-password`)
-- Migrations are in `migrations/` (003 through 013), applied manually via psql or the Supabase MCP
+- Migrations are in `migrations/` (003 through 024), applied manually. Note there is no psql or migration runner on the operator machine; use the Cloud SQL Auth Proxy plus a small `pg` script
 
 ### Key database tables (Cloud SQL, not Supabase)
 These tables power the compliance engine and are separate from the Supabase `organizations`/`classified_items` tables:
 
 - `prospects` — compliance prospect pipeline
-- `clients`, `client_contacts` — compliance client management
+- `compliance_clients` — compliance client management. **There is no `clients` table.**
 - `compliance_findings`, `compliance_scores` — V1 POPIA analysis results
 - `remediation_items` — remediation board (migration 009)
 - `audit_log` — compliance audit trail (migration 009)
@@ -117,11 +153,11 @@ These tables power the compliance engine and are separate from the Supabase `org
 
 ## Build & deploy workflow
 
-### Frontend (Netlify)
+### Frontend (Cloud Run)
 - `npm run build` locally to verify before committing — catches type errors and server/client boundary violations that only surface at build time.
-- Commit to `main`; Netlify auto-deploys in ~90 seconds.
+- Commit to `main`; the `deploy-frontend.yml` workflow builds and deploys Cloud Run service `astn-os`.
 - `.gitattributes` forces LF line endings; expect no CRLF warnings.
-- After deploy, verify the Overview counters read: Organisations 6,983 / Countries 55 / Sports 81 / Verified at High 93.7% / Partnerships 135 / Items this week ~647.
+- After deploy, verify the Overview counters read: Organisations 7,003 / Countries 55 / Sports 81 / Partnerships 135.
 
 ### Backend (Cloud Run) — CI/CD via GitHub Actions
 - **Workflow file:** `.github/workflows/deploy-cloud-run.yml`
@@ -137,7 +173,7 @@ The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `d
 
 ## Security constraints
 
-- The API key (`CLOUD_RUN_API_KEY` / `API_KEY`) must NEVER be committed to git or stored in files that get synced. It lives only in: Netlify env vars, GCP Secret Manager, and the operator's password manager.
+- The API key (`CLOUD_RUN_API_KEY` / `API_KEY`) must NEVER be committed to git or stored in files that get synced. It lives only in: GCP Secret Manager and the operator's password manager.
 - `DB_PASSWORD` is a GCP Secret Manager reference, not a plain-text env var.
 - `ANTHROPIC_API_KEY` has been removed from the Cloud Run service — the V2 analysis engine does not currently call Claude.
 - Tests must not depend on a working Anthropic API key.
@@ -206,5 +242,5 @@ The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `d
 - Keep the brand tokens centralised; never hard-code colours.
 - When unsure about a schema detail, query the live database rather than guessing — the cost of a wrong assumption here is silent wrong data in production, which is worse than a loud error.
 - When modifying route files, remember they must exist both in the repo root AND be copied to `deploy/` for the API to work. The CI/CD pipeline handles this, but manual deploys require the copy step.
-- The frontend and backend are separate deployments. Frontend changes deploy via Netlify on push. Backend changes deploy via GitHub Actions (or manually via `deploy.sh`).
+- The frontend and backend are separate Cloud Run services (`astn-os` and `africastn-api`), each with its own GitHub Actions workflow.
 
