@@ -45,12 +45,17 @@ function discover() {
     if (!existsSync(set.dir)) continue;
     for (const f of readdirSync(set.dir).filter((x) => x.endsWith(".sql")).sort()) {
       const sql = readFileSync(join(set.dir, f), "utf-8");
+      // Hash with line endings normalised. Git rewrites LF to CRLF on
+      // checkout, so hashing the raw bytes reports every applied migration as
+      // edited the first time git touches the file. A warning that is always
+      // wrong is worse than none, because it trains you to ignore the real one.
+      const canonical = sql.replace(/\r\n/g, "\n");
       out.push({
         set: set.name,
         file: f,
         path: join(set.dir, f),
         sql,
-        checksum: createHash("sha256").update(sql).digest("hex").slice(0, 16),
+        checksum: createHash("sha256").update(canonical).digest("hex").slice(0, 16),
       });
     }
   }
