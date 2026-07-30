@@ -12,7 +12,7 @@
 //     --role "Fractional CFO" [--jurisdiction "United Kingdom"] \
 //     [--framework "FRS 102"] [--year-end 2026-12-31] [--dry-run]
 
-import { existsSync, mkdirSync, readdirSync, copyFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { connect } from "./db.mjs";
 
@@ -66,15 +66,56 @@ function ensureDir(path, dryRun) {
   return true;
 }
 
-function copyTemplateFiles(dest, dryRun) {
+// Substitutes only what onboarding actually knows. Everything else stays as a
+// placeholder on purpose: a VAT regime or a tenant id invented to make a file
+// look finished is worse than a visible gap, because the next reader cannot
+// tell which values were established and which were guessed.
+function substitutions(ctx) {
+  const map = new Map([
+    ["{{CLIENT NAME}}", ctx.name],
+    ["{{Country}}", ctx.jurisdiction],
+    ["{{Framework}}", ctx.framework],
+    ["{{FRS 102 / FRS 105 / IFRS / US GAAP}}", ctx.framework],
+    ["{{DD MMMM YYYY}}", ctx.today],
+  ]);
+  ctx.entities.forEach((e, i) => {
+    map.set(`{{ENTITY ${i + 1}}}`, e.name);
+  });
+  if (ctx.entity) {
+    map.set("{{ENTITY NAME}}", ctx.entity.name);
+    if (ctx.entity.role) map.set("{{Holding / Operating / Trading / Dormant}}", ctx.entity.role);
+  }
+  return map;
+}
+
+function applyTemplate(text, ctx) {
+  let out = text;
+  for (const [from, to] of substitutions(ctx)) {
+    if (to) out = out.split(from).join(to);
+  }
+  return out;
+}
+
+function countPlaceholders(text) {
+  return (text.match(/\{\{[^}]+\}\}/g) || []).length;
+}
+
+let remainingPlaceholders = 0;
+
+function copyTemplateFile(from, to, ctx, dryRun) {
+  if (!existsSync(from) || existsSync(to)) return;
+  const filled = applyTemplate(readFileSync(from, "utf-8"), ctx);
+  remainingPlaceholders += countPlaceholders(filled);
+  if (!dryRun) writeFileSync(to, filled, "utf-8");
+  created.push(to);
+}
+
+function copyTemplateFiles(dest, ctx, dryRun) {
   if (!existsSync(TEMPLATE)) return;
   for (const name of readdirSync(TEMPLATE)) {
     const from = join(TEMPLATE, name);
     if (statSync(from).isDirectory()) continue; // entities handled separately
-    const to = join(dest, name);
-    if (existsSync(to)) continue;
-    if (!dryRun) copyFileSync(from, to);
-    created.push(to);
+    copyTemplateFile(from, join(dest, name), ctx, dryRun);
   }
 }
 
@@ -105,19 +146,43 @@ async function main() {
   console.log("");
 
   // ── Folders ───────────────────────────────────────────────────────────────
+  const today = new Date().toLocaleDateString("en-GB", {
+    day: "numeric", month: "long", year: "numeric",
+  });
+  const ctx = { name, jurisdiction, framework, today, entities, entity: null };
+
   ensureDir(clientRoot, dryRun);
-  copyTemplateFiles(clientRoot, dryRun);
+  copyTemplateFiles(clientRoot, ctx, dryRun);
   for (const d of CLIENT_DIRS) ensureDir(join(clientRoot, d), dryRun);
   buildWipTree(clientRoot, dryRun); // group-scoped work
 
   ensureDir(join(clientRoot, "entities"), dryRun);
+  const entityTemplate = join(TEMPLATE, "entities", "_template-entity");
   for (const e of entities) {
     const entityRoot = join(clientRoot, "entities", e.slug);
     ensureDir(entityRoot, dryRun);
     buildWipTree(entityRoot, dryRun);
+
+    // The entity template was previously not copied at all, so a new entity
+    // folder held nothing but empty WIP directories.
+    if (existsSync(entityTemplate)) {
+      // Named file, not name: the client name is in scope here and shadowing
+      // it would be a quiet trap for the next edit.
+      for (const file of readdirSync(entityTemplate)) {
+        const from = join(entityTemplate, file);
+        if (statSync(from).isDirectory()) continue;
+        copyTemplateFile(from, join(entityRoot, file), { ...ctx, entity: e }, dryRun);
+      }
+    }
   }
 
   console.log(`${created.length} path(s) ${dryRun ? "would be created" : "created"}`);
+  if (remainingPlaceholders) {
+    console.log(
+      `${remainingPlaceholders} placeholder(s) left to complete by hand. These are the ` +
+      `values onboarding cannot know, such as VAT regime and accounting system ids.`
+    );
+  }
   if (created.length) {
     for (const p of created.slice(0, 8)) console.log(`  ${p.replace(CLIENTS_ROOT, "...")}`);
     if (created.length > 8) console.log(`  ... and ${created.length - 8} more`);
