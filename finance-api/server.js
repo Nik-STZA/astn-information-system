@@ -903,6 +903,134 @@ app.post("/api/finance/clients/:slug/notes", route(async (req, res) => {
   res.status(201).json(rows[0]);
 }));
 
+// ── Agent runs ──────────────────────────────────────────────────────────────
+//
+// The portal queues work; a runner on the operator's machine executes it. The
+// portal never executes anything itself, because the agents need the client
+// folder and the accounting MCP, both of which are local.
+//
+// Every run is recorded whether or not it produces work to approve: a run that
+// only answered a question still read client data.
+
+app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { agent, instruction } = req.body || {};
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!instruction || !String(instruction).trim()) {
+    return res.status(400).json({ error: "instruction is required" });
+  }
+
+  const role = await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [
+    client.id, actorEmail,
+  ]);
+
+  const { rows } = await pool.query(
+    `INSERT INTO finance.agent_runs
+       (client_id, requested_by_email, requested_by_role, agent, instruction, status)
+     VALUES ($1,$2,$3,$4,$5,'queued')
+     RETURNING id, agent, instruction, status, queued_at`,
+    [client.id, actorEmail, role.rows[0].role, agent || null, String(instruction).trim()]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows } = await pool.query(
+    `SELECT id, agent, instruction, status, session_id, output, error,
+            tools_used, files_touched, duration_ms, cost_usd, wip_ref,
+            requested_by_email, requested_by_role,
+            queued_at, started_at, finished_at
+     FROM finance.agent_runs
+     WHERE client_id = $1
+     ORDER BY queued_at DESC
+     LIMIT 100`,
+    [client.id]
+  );
+  res.json({ count: rows.length, data: rows });
+}));
+
+// The runner claims one job at a time. SKIP LOCKED means a second runner takes
+// the next job rather than blocking or, worse, running the same one twice.
+app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const { rows } = await conn.query(
+      `WITH next AS (
+         SELECT id FROM finance.agent_runs
+         WHERE status = 'queued'
+         ORDER BY queued_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+       )
+       UPDATE finance.agent_runs r
+       SET status = 'running', started_at = now()
+       FROM next WHERE r.id = next.id
+       RETURNING r.id, r.agent, r.instruction, r.client_id`
+    );
+    if (!rows.length) {
+      await conn.query("COMMIT");
+      return res.status(204).end();
+    }
+    const job = rows[0];
+    const c = await conn.query(
+      "SELECT slug, name, folder_path FROM shared.clients WHERE id = $1",
+      [job.client_id]
+    );
+    await conn.query("COMMIT");
+    res.json({
+      id: job.id,
+      agent: job.agent,
+      instruction: job.instruction,
+      client: c.rows[0],
+    });
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+}));
+
+app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
+  const {
+    status, sessionId, output, error, toolsUsed, filesTouched, durationMs, costUsd, wipRef,
+  } = req.body || {};
+
+  if (!["succeeded", "failed", "cancelled"].includes(status)) {
+    return res.status(400).json({ error: "status must be succeeded, failed or cancelled" });
+  }
+
+  // finished_at is set here, which is what makes the row immutable afterwards.
+  const { rows } = await pool.query(
+    `UPDATE finance.agent_runs
+     SET status = $2, session_id = $3, output = $4, error = $5,
+         tools_used = COALESCE($6::jsonb, '[]'::jsonb),
+         files_touched = COALESCE($7::jsonb, '[]'::jsonb),
+         duration_ms = $8, cost_usd = $9, wip_ref = $10, finished_at = now()
+     WHERE id = $1 AND finished_at IS NULL
+     RETURNING id, status, finished_at`,
+    [
+      req.params.id, status, sessionId || null, output || null, error || null,
+      toolsUsed ? JSON.stringify(toolsUsed) : null,
+      filesTouched ? JSON.stringify(filesTouched) : null,
+      durationMs || null, costUsd || null, wipRef || null,
+    ]
+  );
+
+  if (!rows.length) {
+    return res.status(409).json({ error: "run not found, or already finished and therefore immutable" });
+  }
+  res.json(rows[0]);
+}));
+
 // ── Sync ────────────────────────────────────────────────────────────────────
 //
 // The file watcher parses locally and posts the result here, so the write
