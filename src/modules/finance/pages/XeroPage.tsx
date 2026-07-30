@@ -150,7 +150,8 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
           marginBottom: 6,
         }}
       >
-        <Meta label="Tenant id" value={conn.tenantId ?? "not recorded"} />
+        <Meta label="Xero organisation" value={conn.tenantName ?? "not connected"} />
+        <Meta label="Tenant id" value={conn.tenantId ? "recorded" : "not recorded"} />
         <Meta label="Pipeline config" value={conn.configName ?? "-"} />
         <Meta label="Connected" value={conn.connectedAt ?? "-"} />
         <Meta label="Last refreshed" value={conn.lastRefreshedAt ?? "-"} />

@@ -60,6 +60,7 @@ export interface XeroConnection {
   role: string | null;
   accountingSystem: string;
   tenantId: string | null;
+  tenantName: string | null;
   configName: string | null;
   connectedAt: string | null;
   lastRefreshedAt: string | null;

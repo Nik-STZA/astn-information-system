@@ -269,6 +269,7 @@ app.get("/api/finance/clients/:slug/xero", route(async (req, res) => {
       role: e.role,
       accountingSystem: e.accounting_system,
       tenantId: cfg.tenant_id || null,
+      tenantName: cfg.tenant_name || null,
       configName: cfg.config_name || null,
       connectedAt: cfg.connected_at || null,
       lastRefreshedAt: cfg.last_refreshed_at || null,
@@ -361,6 +362,7 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
 const XERO_SCOPES = [
+  "openid",
   "offline_access",
   "accounting.settings.read",
   "accounting.contacts.read",
@@ -390,6 +392,21 @@ app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
 
   res.json({ url });
 }));
+
+// Reads the authorisation event id from the id token. Payload only: this
+// selects among tenants Xero has already authorised, it is not an access
+// decision, and the token came straight from Xero over TLS.
+function readAuthEventId(idToken) {
+  if (!idToken) return null;
+  try {
+    const payload = idToken.split(".")[1];
+    if (!payload) return null;
+    const json = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return json.authentication_event_id || null;
+  } catch {
+    return null;
+  }
+}
 
 // Ensures a secret exists, then adds the value as a new version. Rotating a
 // token is therefore just another version, and the old one stays auditable
@@ -456,8 +473,23 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
     return res.status(502).json({ error: "Xero returned no refresh token. Was offline_access granted?" });
   }
 
-  // Which organisation did they actually pick? The tenant id comes from Xero,
-  // never from the caller.
+  // Which organisation did they actually pick?
+  //
+  // /connections returns every tenant the token can reach, which after the
+  // first connection includes organisations authorised earlier. Taking the
+  // first entry is therefore a guess, and it guessed wrong in practice:
+  // Feldspar Group Holdings was mapped to Ultraspeed Digital Limited because
+  // Ultraspeed happened to be listed first. A journal approved for one company
+  // would have posted to another's ledger.
+  //
+  // Each connection records the authorisation event that created it, and the
+  // id token from this exchange identifies the event that just happened. The
+  // intersection is exactly the organisation the operator chose, with no
+  // guessing. The id token is read, not verified, because it arrived over TLS
+  // in the direct response to our own authenticated token request; it is used
+  // only to select among tenants Xero has already vouched for.
+  const authEventId = readAuthEventId(tokens.id_token);
+
   const connRes = await fetch(XERO_CONNECTIONS_URL, {
     headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: "application/json" },
   });
@@ -468,7 +500,25 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
   if (!connections.length) {
     return res.status(400).json({ error: "No Xero organisation was authorised" });
   }
-  const tenant = connections[0];
+
+  const matched = authEventId
+    ? connections.filter((c) => c.authEventId === authEventId)
+    : connections;
+
+  // Refuse rather than guess. A wrong tenant here is a journal in the wrong
+  // company's books, which is worse than making the operator try again.
+  if (matched.length !== 1) {
+    console.error(
+      `Ambiguous Xero connection: ${matched.length} of ${connections.length} matched auth event ${authEventId}`
+    );
+    return res.status(409).json({
+      error:
+        matched.length === 0
+          ? "Could not identify which Xero organisation was authorised. Please try connecting again."
+          : `${matched.length} organisations were authorised at once. Connect one organisation at a time.`,
+    });
+  }
+  const tenant = matched[0];
 
   const secretName = refreshSecretName(req.params.slug, entity.slug);
   await storeSecret(secretName, tokens.refresh_token);
