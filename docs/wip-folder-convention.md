@@ -14,10 +14,11 @@ portal to be running.
 clients/<client-slug>/
   wip/                                  group-scoped work
     pending-cfo/
-      2026-07-31-month-end-group-pack/
-        wip.json
-        review.md
-        artefacts/
+      month-end/
+        2026-07-31-pack-sign-off/
+          wip.json
+          review.md
+          artefacts/
   entities/
     <entity-slug>/
       wip/                              entity-scoped work
@@ -26,13 +27,36 @@ clients/<client-slug>/
         pending-fc/
         pending-cfo/
         sent-back/
-          fm1/
-          fm2/
-          fc/
-          clerk/
         posted/
         rejected/
 ```
+
+The path is `wip/<state>/<type>/<batch>`.
+
+**Both attributes are in the path, deliberately.** They behave differently and
+each is there for its own reason.
+
+**State** is where an item sits in the review chain, and it changes three to
+five times. It is in the path because a state that is a field can be stale,
+wrong, or edited without the folder moving. Here it cannot disagree with itself:
+the state IS the location, correct by construction and visible in Explorer
+without the portal.
+
+**Type** is what kind of work it is, and it never changes. It is in the path
+because the previous convention lost it. Work was created at `wip/ap/<batch>`
+but escalated to `wip/pending-fc/`, at which point an AP batch and a VAT return
+became indistinguishable by path.
+
+**State comes first** because the question asked most often is "what needs me",
+which is then one directory listing with type as natural grouping inside it.
+
+**Only the state level is created at onboarding.** Every type under every state
+would be 49 empty directories per entity before any work exists. A type folder
+appears when work of that type first does.
+
+**The tier a sent-back item went to is not in the path.** It is a property of
+the last review rather than a place, `review.md` already records it, and adding
+it would make the tree four deep.
 
 Entity-scoped work sits under the entity it belongs to. Group-scoped work
 (intercompany reconciliation, consolidation, the management pack) sits at the
@@ -46,11 +70,13 @@ should make that mistake hard, not merely visible.
 ## Batch folder naming
 
 ```
-<YYYY-MM-DD>-<type>-<short-slug>
+<YYYY-MM-DD>-<short-slug>
 ```
 
-Date first so a directory listing sorts chronologically. Type from the set in
-the data model: `ap`, `ar`, `vat`, `month-end`, `reconciliation`, `tax`, `fpa`.
+Date first so a directory listing sorts chronologically. The type is already
+the parent directory and is not repeated here.
+
+Types are `ap`, `ar`, `vat`, `month-end`, `reconciliation`, `tax`, `fpa`.
 
 The name is for humans. It is never identity: see below.
 
@@ -73,6 +99,10 @@ Written once when the folder is created, and not rewritten as it moves.
 ```
 
 `ref` is the identity. Everything else is descriptive.
+
+`entity` and `type` in the manifest must agree with the path, and a folder where
+they disagree is refused rather than silently resolved either way. The path is
+what an operator can see, and a disagreement is a copy-paste.
 
 **Why the folder path cannot be the identity.** The lifecycle of a WIP item is
 moving its folder between state directories. Keying on the path means the key
@@ -106,7 +136,7 @@ review chain on the approval detail.
 | `pending-fm/` | With FM1 or FM2 | In progress upstream |
 | `pending-fc/` | With the FC | In progress upstream |
 | `pending-cfo/` | Awaiting the CFO. **The only approval gate.** | Awaiting decision |
-| `sent-back/<tier>/` | Returned to a tier with findings | In progress upstream |
+| `sent-back/` | Returned to a tier with findings, tier recorded in review.md | In progress upstream |
 | `posted/` | Approved and written to the ledger | Activity |
 | `rejected/` | Declined, no ledger effect | Activity |
 

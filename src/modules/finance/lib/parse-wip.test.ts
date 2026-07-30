@@ -13,7 +13,7 @@ const manifest = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-const PATH = "entities/ultraspeed-digital/wip/pending-cfo/2026-07-31-vat-q2-return";
+const PATH = "entities/ultraspeed-digital/wip/pending-cfo/vat/2026-07-31-q2-return";
 
 describe("parseWipFolder", () => {
   it("reads a folder into a work item", () => {
@@ -56,7 +56,7 @@ describe("parseWipFolder", () => {
 
   it("reads a group-scoped item", () => {
     const item = parseWipFolder({
-      relativePath: "wip/pending-cfo/2026-07-31-month-end-group-pack",
+      relativePath: "wip/pending-cfo/month-end/2026-07-31-group-pack",
       manifestJson: manifest({ type: "month-end" }),
     });
     expect(item.entity).toBeNull();
@@ -108,14 +108,22 @@ describe("parseWipFolder", () => {
     ).toThrow(/not a WIP folder/);
   });
 
-  it("carries the tier for a sent-back item", () => {
+  it("reads a sent-back item", () => {
     const item = parseWipFolder({
-      relativePath: "entities/feldspar-ltd/wip/sent-back/fm2/2026-07-15-ap-batch",
+      relativePath: "entities/feldspar-ltd/wip/sent-back/ap/2026-07-15-batch",
       manifestJson: manifest({ type: "ap" }),
     });
     expect(item.state).toBe("sent-back");
-    expect(item.tier).toBe("fm2");
+    expect(item.type).toBe("ap");
     expect(item.panel).toBe("in-progress-upstream");
+  });
+
+  // Same rule as the entity, and for the same reason: the path is what an
+  // operator can see, so a manifest disagreeing with it is a copy-paste.
+  it("refuses a manifest whose type contradicts its path", () => {
+    expect(() =>
+      parseWipFolder({ relativePath: PATH, manifestJson: manifest({ type: "ap" }) })
+    ).toThrow(/claims type/);
   });
 });
 

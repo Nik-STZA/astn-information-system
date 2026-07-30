@@ -12,51 +12,62 @@ import {
 
 describe("parseWipPath", () => {
   it("reads an entity-scoped item", () => {
-    const p = parseWipPath("entities/ultraspeed-digital/wip/pending-cfo/2026-07-31-vat-q2-return");
+    const p = parseWipPath("entities/ultraspeed-digital/wip/pending-cfo/vat/2026-07-31-q2-return");
     expect(p).toEqual({
       state: "pending-cfo",
-      tier: null,
+      type: "vat",
       entity: "ultraspeed-digital",
       entityScope: "entity",
-      batch: "2026-07-31-vat-q2-return",
+      batch: "2026-07-31-q2-return",
     });
   });
 
   it("reads a group-scoped item", () => {
-    const p = parseWipPath("wip/pending-cfo/2026-07-31-month-end-group-pack");
+    const p = parseWipPath("wip/pending-cfo/month-end/2026-07-31-group-pack");
     expect(p?.entity).toBeNull();
     expect(p?.entityScope).toBe("group");
   });
 
-  it("reads the tier a sent-back item went to", () => {
-    const p = parseWipPath("entities/feldspar-ltd/wip/sent-back/fm2/2026-07-15-ap-batch");
+  // Type survives escalation. The previous convention lost it: an AP batch and
+  // a VAT return both landed in pending-fc and became indistinguishable.
+  it("keeps the type at every state", () => {
+    for (const state of ["drafting", "pending-fc", "pending-cfo", "posted"]) {
+      const p = parseWipPath(`entities/feldspar-ltd/wip/${state}/ap/2026-07-15-batch`);
+      expect(p?.type).toBe("ap");
+      expect(p?.state).toBe(state);
+    }
+  });
+
+  it("reads a sent-back item, with the tier held in review.md rather than the path", () => {
+    const p = parseWipPath("entities/feldspar-ltd/wip/sent-back/ap/2026-07-15-batch");
     expect(p?.state).toBe("sent-back");
-    expect(p?.tier).toBe("fm2");
+    expect(p?.type).toBe("ap");
     expect(p?.entity).toBe("feldspar-ltd");
   });
 
   it("accepts Windows separators", () => {
-    const p = parseWipPath("entities\\feldspar-ltd\\wip\\posted\\2026-06-30-ap-batch");
+    const p = parseWipPath("entities\\feldspar-ltd\\wip\\posted\\ap\\2026-06-30-batch");
     expect(p?.state).toBe("posted");
+    expect(p?.type).toBe("ap");
     expect(p?.entity).toBe("feldspar-ltd");
   });
 
   // The entity comes from the path, so a mix-up cannot happen silently. This
   // is the mis-keying risk the client notes already flag.
   it("takes the entity from the path, not from anywhere else", () => {
-    expect(parseWipPath("entities/feldspar-group-holdings/wip/drafting/x")?.entity)
+    expect(parseWipPath("entities/feldspar-group-holdings/wip/drafting/ap/x")?.entity)
       .toBe("feldspar-group-holdings");
-    expect(parseWipPath("entities/ultraspeed-digital/wip/drafting/x")?.entity)
+    expect(parseWipPath("entities/ultraspeed-digital/wip/drafting/ap/x")?.entity)
       .toBe("ultraspeed-digital");
   });
 
   it("rejects anything that is not a WIP path", () => {
     expect(parseWipPath("diary/2026-07.md")).toBeNull();
     expect(parseWipPath("entities/feldspar-ltd/CLAUDE.md")).toBeNull();
-    expect(parseWipPath("wip/not-a-state/batch")).toBeNull();
-    expect(parseWipPath("wip/pending-cfo")).toBeNull();          // no batch folder
-    expect(parseWipPath("wip/sent-back/2026-07-x")).toBeNull();  // missing tier
-    expect(parseWipPath("wip/sent-back/nobody/2026-07-x")).toBeNull();
+    expect(parseWipPath("wip/not-a-state/ap/batch")).toBeNull();
+    expect(parseWipPath("wip/pending-cfo/ap")).toBeNull();        // no batch folder
+    expect(parseWipPath("wip/pending-cfo/2026-07-x")).toBeNull(); // missing type
+    expect(parseWipPath("wip/pending-cfo/not-a-type/batch")).toBeNull();
     expect(parseWipPath("")).toBeNull();
   });
 });

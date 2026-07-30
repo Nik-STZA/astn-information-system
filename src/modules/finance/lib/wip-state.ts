@@ -43,9 +43,21 @@ const PANEL_BY_STATE: Record<WipState, Panel> = {
   rejected: "activity",
 };
 
+export const WIP_TYPES = [
+  "ap",
+  "ar",
+  "vat",
+  "month-end",
+  "reconciliation",
+  "tax",
+  "fpa",
+] as const;
+
+export type WipType = (typeof WIP_TYPES)[number];
+
 export interface ParsedWipPath {
   state: WipState;
-  tier: Tier | null;
+  type: WipType;
   /** Entity slug, or null for group-scoped work. */
   entity: string | null;
   entityScope: "entity" | "group";
@@ -53,7 +65,17 @@ export interface ParsedWipPath {
   batch: string;
 }
 
-// entities/<entity>/wip/<state>[/<tier>]/<batch>  or  wip/<state>[/<tier>]/<batch>
+// entities/<entity>/wip/<state>/<type>/<batch>  or  wip/<state>/<type>/<batch>
+//
+// Both attributes are in the path deliberately. State is there because it
+// changes and must never be able to disagree with itself: it IS the location.
+// Type is there because losing it on escalation is what the previous
+// convention did, leaving an AP batch and a VAT return indistinguishable once
+// both reached the same review tier.
+//
+// The tier a sent-back item went to is not in the path. It is a property of
+// the last review rather than a place, review.md already records it, and
+// putting it here would make the tree four deep.
 export function parseWipPath(relativePath: string): ParsedWipPath | null {
   const parts = relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
 
@@ -68,30 +90,21 @@ export function parseWipPath(relativePath: string): ParsedWipPath | null {
     return null;
   }
 
-  // rest is now: wip / state / [tier] / batch
+  // rest is now: wip / state / type / batch
   const state = rest[1] as WipState;
   if (!WIP_STATES.includes(state)) return null;
 
-  // sent-back nests one level deeper, by the tier it went back to.
-  if (state === "sent-back") {
-    const tier = rest[2] as Tier;
-    if (!TIERS.includes(tier) || !rest[3]) return null;
-    return {
-      state,
-      tier,
-      entity,
-      entityScope: entity ? "entity" : "group",
-      batch: rest[3],
-    };
-  }
+  const type = rest[2] as WipType;
+  if (!WIP_TYPES.includes(type)) return null;
 
-  if (!rest[2]) return null;
+  if (!rest[3]) return null;
+
   return {
     state,
-    tier: null,
+    type,
     entity,
     entityScope: entity ? "entity" : "group",
-    batch: rest[2],
+    batch: rest[3],
   };
 }
 

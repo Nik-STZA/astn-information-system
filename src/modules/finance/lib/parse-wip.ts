@@ -39,7 +39,6 @@ export interface WipItem {
   ref: string;
   state: WipState;
   panel: Panel;
-  tier: string | null;
   entity: string | null;
   entityScope: "entity" | "group";
   batch: string;
@@ -173,16 +172,24 @@ export function parseWipFolder(opts: {
     );
   }
 
+  // Same rule as the entity: the path is what an operator can see, so a
+  // manifest disagreeing with it is a copy-paste and is refused rather than
+  // silently preferred either way.
+  if (manifest.type && manifest.type !== parsed.type) {
+    throw new WipParseError(
+      `wip.json in ${opts.relativePath} claims type "${manifest.type}" but sits under "${parsed.type}"`
+    );
+  }
+
   return {
     ref: manifest.ref,
     state: parsed.state,
     panel: panelForState(parsed.state),
-    tier: parsed.tier,
     entity,
     entityScope,
     batch: parsed.batch,
     folderPath: opts.relativePath.replace(/\\/g, "/"),
-    type: manifest.type ?? "month-end",
+    type: parsed.type,
     title: manifest.title,
     amountTotal: normaliseAmount(manifest.amountTotal),
     currency: manifest.currency ?? "GBP",

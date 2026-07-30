@@ -26,7 +26,7 @@ const SEEDS = [
   {
     entity: "ultraspeed-digital",
     state: "pending-cfo",
-    batch: "2026-07-31-vat-q2-return",
+    batch: "2026-07-31-q2-return",
     type: "vat",
     title: "VAT return, quarter ended 30 June 2026",
     amountTotal: "18420.50",
@@ -58,7 +58,7 @@ const SEEDS = [
   {
     entity: null,
     state: "pending-cfo",
-    batch: "2026-07-31-weekly-payment-run",
+    batch: "2026-07-31-payment-run",
     type: "ap",
     title: "Weekly payment run, week commencing 28 July",
     amountTotal: "42317.88",
@@ -78,7 +78,7 @@ const SEEDS = [
   {
     entity: null,
     state: "pending-cfo",
-    batch: "2026-07-31-july-pack-sign-off",
+    batch: "2026-07-31-pack-sign-off",
     type: "month-end",
     title: "July management pack, sign-off",
     amountTotal: null,
@@ -93,7 +93,7 @@ const SEEDS = [
   {
     entity: "feldspar-ltd",
     state: "pending-fc",
-    batch: "2026-07-29-ap-batch",
+    batch: "2026-07-29-batch",
     type: "ap",
     title: "AP batch, 9 supplier invoices",
     amountTotal: "8940.12",
@@ -104,8 +104,7 @@ const SEEDS = [
   {
     entity: "feldspar-ltd",
     state: "sent-back",
-    tier: "fm2",
-    batch: "2026-07-28-bank-reconciliation",
+    batch: "2026-07-28-bank-rec",
     type: "reconciliation",
     title: "Bank reconciliation at 31 July",
     amountTotal: null,
@@ -145,7 +144,9 @@ function main() {
   let skipped = 0;
 
   for (const s of SEEDS) {
-    const stateDir = s.tier ? join("wip", s.state, s.tier) : join("wip", s.state);
+    // wip/<state>/<type>/<batch>: both attributes in the path, so neither is
+    // lost when the item moves.
+    const stateDir = join("wip", s.state, s.type);
     const rel = s.entity
       ? join("entities", s.entity, stateDir, s.batch)
       : join(stateDir, s.batch);

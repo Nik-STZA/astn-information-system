@@ -20,15 +20,16 @@ const CLIENTS_ROOT = process.env.CLIENTS_ROOT || "C:\\Users\\yogim\\STZA Group\\
 const TEMPLATE = join(CLIENTS_ROOT, "_template");
 
 // State directories a WIP tree contains. Order is the order work flows.
+// Only the state level is created up front. The path is
+// wip/<state>/<type>/<batch>, and creating every type under every state would
+// mean 49 empty directories per entity before any work exists. Type folders
+// appear when work of that type first does.
 const WIP_STATES = [
   "drafting",
   "pending-fm",
   "pending-fc",
   "pending-cfo",
-  "sent-back/fm1",
-  "sent-back/fm2",
-  "sent-back/fc",
-  "sent-back/clerk",
+  "sent-back",
   "posted",
   "rejected",
 ];
