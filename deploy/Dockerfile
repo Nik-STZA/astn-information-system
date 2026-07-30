@@ -24,6 +24,7 @@ COPY server-assessment-v2-routes.js ./
 COPY server-document-gen-routes.js ./
 COPY server-lib-resolution.js ./
 COPY server-lib-assessment.js ./
+COPY server-content-routes.js ./
 
 EXPOSE 8080
 
