@@ -69,6 +69,25 @@ Agent execution is on the practitioner's machine in the United Kingdom, with
 model inference by Anthropic. **The inference processing location must be
 established and recorded** as part of closing the gap above.
 
+
+### 2.6 Interim position while the sub-processor gap is open
+
+Model training is disabled on the current plan, which closes the largest single
+risk: client data does not contribute to a model. It does not create a data
+processing agreement, and it does not satisfy the disclosure or record-keeping
+obligations, which sit with the practice regardless of the provider's settings.
+
+**Interim control, adopted 30 July 2026.** Development continues; agent
+execution over live client data does not. The remaining build (job runner,
+segregation fix, instruction capture, schema and interface) requires a client
+folder with plausible files, not a real ledger. Real amounts, supplier names and
+entity names are kept out of agent sessions until the contractual position is
+closed.
+
+This separates the exposure from the work rather than pausing both, and is
+recorded here so the interim position is deliberate and dated rather than
+assumed.
+
 ### 2.3 Model training
 
 No client data may be used to train, fine-tune, adapt or enhance any AI model.

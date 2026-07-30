@@ -199,6 +199,80 @@ it.
 
 ---
 
+---
+
+## 11. Notes are append only, enforced in the database
+
+**Decided:** `finance.notes` refuses UPDATE and DELETE by trigger. Corrections
+are further notes.
+
+**Why.** The purpose is an audit record, not a comment thread. "Payment run
+loaded, three vendors held and why" is a decision, and a decision that can be
+quietly revised afterwards is not evidence. Enforcing it in the application
+would rely on every future caller remembering; enforcing it in the database
+means an application bug cannot rewrite history.
+
+**Cost.** Test data written to prove the trigger cannot be removed without
+disabling the control, which is itself the demonstration that it works. One
+such note remains against open item 1.
+
+**Detail.** Notes carry a kind (note, decision, hold, query) so a deliberate
+hold can be told from commentary without parsing prose, and the author's
+engagement capacity is snapshotted at write time.
+
+---
+
+## 12. The portal is where the work is driven, not a view over it
+
+**Decided (2026-07-30):** the module's purpose is to be the surface from which
+agents are run, with the audit trail as a by-product. Not a read-only mirror of
+files that Cowork can already read.
+
+**Why.** Challenged directly: what does the portal give that a Cowork session
+does not. Honest answer at the time was, for a single operator, very little.
+Almost everything it displayed was derived from files readable in the session,
+with a sync layer and two services to maintain. The three things that are not
+redundant are the append-only audit trail, cross-client state, and anyone who
+is not the practitioner.
+
+**Consequence.** Execution stays local: a runner on the practitioner's machine
+claims queued jobs, runs the agent headlessly against the client folder with
+the accounting MCP available, and returns output as work for review. The portal
+queues and records; it does not execute. Proven feasible: headless execution
+works, and a plugin loads from its repository without installation.
+
+**Cost.** The portal can do nothing while that machine is off. Accepted for now
+because it works this week and answers whether the practitioner would drive
+agents this way before anyone builds infrastructure for it.
+
+---
+
+## 13. Agent output is better than parsing, and the parser should stop pretending
+
+**Observed:** asked to count active open items, the FC agent reported 17 where
+the parser reported 20. The agent was right: three rows sit in the active table
+with a status of DONE, two read "Partially DONE" and one is a standing review
+rather than a task.
+
+**Consequence.** The open items page has been overstating the workload since it
+was built. More broadly, a parser that shreds a document into rows will keep
+losing to an agent that reads it. Where interpretation is required, interpret;
+do not encode a heuristic and call it data.
+
+---
+
+## 14. The record must not imply segregation of duties that does not exist
+
+**Decided:** the audit record captures who actually performed each step, by
+identity, and states plainly where the same person prepared and reviewed.
+
+**Why.** The system models preparer, FM2, FC and CFO. Today every one of those
+is the same person. Combining preparation and review is normal and unavoidable
+in a sole practice; a record asserting four tiers of independent review is not.
+This gates any use of the record to support a professional opinion.
+
+See `finance-module-governance.md` for the full position and gap register.
+
 ## Open questions carried forward
 
 - Draft journals in Xero can be posted manually, bypassing the approval queue.
