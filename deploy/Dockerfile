@@ -6,25 +6,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
-# Copy server files
-COPY server.js ./
-COPY server-listing-routes.js ./
-COPY server-registry-routes.js ./
-COPY server-pipeline-routes.js ./
-COPY server-client-management-routes.js ./
-COPY server-agent-routes.js ./
-COPY server-remediation-routes.js ./
-COPY server-processing-routes.js ./
-COPY server-dsar-routes.js ./
-COPY server-compliance-v2-routes.js ./
-COPY server-processor-register-routes.js ./
-COPY server-remediation-resolution-routes.js ./
-COPY server-remediation-v2-routes.js ./
-COPY server-assessment-v2-routes.js ./
-COPY server-document-gen-routes.js ./
-COPY server-lib-resolution.js ./
-COPY server-lib-assessment.js ./
-COPY server-content-routes.js ./
+# Copy all JS server files in one layer (avoids cache issues with individual COPYs)
+COPY *.js ./
+RUN ls -la /app/server*.js && echo "--- All server files copied ---"
 
 EXPOSE 8080
 
