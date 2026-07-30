@@ -408,6 +408,63 @@ function readAuthEventId(idToken) {
   }
 }
 
+// Exchanges a stored refresh token for an access token, and persists the
+// rotated refresh token immediately.
+//
+// Xero refresh tokens are single use: every refresh returns a new one and
+// invalidates the one just used. If the new token is not stored before
+// anything else can fail, the connection is dead and only re-authorising
+// recovers it. So the write happens first, before the access token is
+// returned to the caller.
+async function refreshAccessToken(secretName) {
+  const refreshToken = await readSecret(secretName);
+  const [clientId, clientSecret] = await Promise.all([
+    readSecret("xero-app-client-id"),
+    readSecret("xero-app-client-secret"),
+  ]);
+
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const r = await fetch(XERO_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basic}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
+  });
+
+  if (!r.ok) {
+    console.error(`Xero refresh failed for ${secretName}:`, r.status, (await r.text()).slice(0, 200));
+    throw new ErpUnavailable(
+      r.status === 400
+        ? "The Xero connection has expired. Reconnect this entity."
+        : `Xero refused the token refresh (${r.status})`
+    );
+  }
+
+  const tokens = await r.json();
+  if (tokens.refresh_token && tokens.refresh_token !== refreshToken) {
+    await storeSecret(secretName, tokens.refresh_token);
+  }
+  return tokens.access_token;
+}
+
+class ErpUnavailable extends Error {}
+
+// Lists the Xero organisations the stored token can reach.
+async function listXeroOrganisations(secretName) {
+  const accessToken = await refreshAccessToken(secretName);
+  const r = await fetch(XERO_CONNECTIONS_URL, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+  });
+  if (!r.ok) throw new ErpUnavailable(`Could not read Xero connections (${r.status})`);
+  return (await r.json()).map((c) => ({
+    tenantId: c.tenantId,
+    tenantName: c.tenantName,
+    tenantType: c.tenantType,
+  }));
+}
+
 // Ensures a secret exists, then adds the value as a new version. Rotating a
 // token is therefore just another version, and the old one stays auditable
 // until explicitly destroyed.
@@ -585,6 +642,129 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
     tenantId: tenant.tenantId,
     tenantName: tenant.tenantName,
   });
+}));
+
+// Organisations reachable with this client's existing authorisation.
+//
+// Xero does not offer a picker for organisations an app is already connected
+// to, so per-entity authorisation cannot be used to disambiguate them. One
+// authorisation reaches every connected organisation, and the mapping of
+// entity to organisation is made here instead, where it can be seen and
+// corrected.
+app.get("/api/finance/clients/:slug/xero/organisations", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows } = await pool.query(
+    `SELECT slug, accounting_system_config->>'secret_name' AS secret_name
+     FROM finance.entities WHERE client_id = $1`,
+    [client.id]
+  );
+
+  // Any stored token for this client reaches all of its organisations.
+  const candidates = rows
+    .map((r) => r.secret_name || refreshSecretName(req.params.slug, r.slug))
+    .filter(Boolean);
+
+  for (const secretName of candidates) {
+    if (!(await secretExists(secretName))) continue;
+    try {
+      const orgs = await listXeroOrganisations(secretName);
+      return res.json({ count: orgs.length, data: orgs, via: secretName });
+    } catch (e) {
+      console.error(`could not list organisations via ${secretName}: ${e.message}`);
+    }
+  }
+
+  res.status(409).json({
+    error: "No working Xero connection for this client yet. Connect one entity first.",
+  });
+}));
+
+// Maps an entity to one of those organisations.
+app.post("/api/finance/clients/:slug/xero/:entity/organisation", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { tenantId } = req.body || {};
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!tenantId) return res.status(400).json({ error: "tenantId is required" });
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+
+  const { rows: entityRows } = await pool.query(
+    "SELECT id, slug, accounting_system_config FROM finance.entities WHERE client_id = $1 AND slug = $2",
+    [client.id, req.params.entity]
+  );
+  if (!entityRows.length) return res.status(404).json({ error: "entity not found" });
+  const entity = entityRows[0];
+
+  const secretName = refreshSecretName(req.params.slug, entity.slug);
+  if (!(await secretExists(secretName))) {
+    return res.status(409).json({ error: "This entity has no Xero authorisation yet." });
+  }
+
+  // The tenant must be one Xero actually grants, not merely well formed.
+  // Otherwise a typo or a stale page could point an entity at any id at all.
+  let orgs;
+  try {
+    orgs = await listXeroOrganisations(secretName);
+  } catch (e) {
+    return res.status(502).json({ error: e.message });
+  }
+  const chosen = orgs.find((o) => o.tenantId === tenantId);
+  if (!chosen) {
+    return res.status(400).json({ error: "That organisation is not available on this connection." });
+  }
+
+  // One organisation cannot serve two entities: that is the fault this whole
+  // change exists to prevent.
+  const { rows: clash } = await pool.query(
+    `SELECT slug FROM finance.entities
+     WHERE client_id = $1 AND slug <> $2 AND accounting_system_config->>'tenant_id' = $3`,
+    [client.id, entity.slug, tenantId]
+  );
+  if (clash.length) {
+    return res.status(409).json({
+      error: `${chosen.tenantName} is already mapped to ${clash[0].slug}. Clear that first.`,
+    });
+  }
+
+  const now = new Date().toISOString();
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    await conn.query(
+      `UPDATE finance.entities
+       SET accounting_system_config = COALESCE(accounting_system_config,'{}'::jsonb) || $2::jsonb
+       WHERE id = $1`,
+      [entity.id, JSON.stringify({
+        tenant_id: chosen.tenantId,
+        tenant_name: chosen.tenantName,
+        connected_at: entity.accounting_system_config?.connected_at || now,
+        last_refreshed_at: now,
+        secret_name: secretName,
+      })]
+    );
+    const role = await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail]);
+    await audit(conn, {
+      actorEmail,
+      actorRole: role.rows[0].role,
+      action: "map_xero_organisation",
+      targetType: "xero_connection",
+      targetId: entity.slug,
+      clientId: client.id,
+      payload: { entity: entity.slug, tenantId: chosen.tenantId, tenantName: chosen.tenantName },
+      ip: req.get("X-Forwarded-For") || req.ip,
+    });
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  res.json({ ok: true, entity: entity.slug, tenantName: chosen.tenantName });
 }));
 
 // ── Sync ────────────────────────────────────────────────────────────────────
