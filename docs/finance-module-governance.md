@@ -249,8 +249,8 @@ Moving execution to an always-on machine addresses the first and not the second.
 |---|---|---|---|---|
 | 1 | Anthropic not disclosed as sub-processor; no DPA | High | Practice | Open |
 | 2 | Inference data residency not established | High | Practice | Open |
-| 3 | Audit record implies segregation of duties that does not exist | High | Build | Open |
-| 4 | Instruction given to an agent not captured in the record | Medium | Build | Open |
+| 3 | Audit record implies segregation of duties that does not exist | High | Build | Part closed 30 Jul: identity columns and `has_independent_review()` in place and verified. Not yet populated by the importer, not yet stated on screen. |
+| 4 | Instruction given to an agent not captured in the record | Medium | Build | Part closed 30 Jul: `finance.agent_runs` requires an instruction and is immutable once finished. Nothing writes to it until the runner exists. |
 | 5 | No retention period or legal hold for transcripts | Medium | Both | Open |
 | 6 | No non-production environment or release record | Medium | Build | Open, deferred until client-facing |
 | 7 | Execution depends on a single machine | Medium | Practice | Accepted for now |
