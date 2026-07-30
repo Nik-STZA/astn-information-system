@@ -11,6 +11,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import type { WipItemRow } from "@/modules/finance/lib/api";
+import NoteThread from "@/modules/finance/components/NoteThread";
 
 type Panel = WipItemRow["panel"];
 
@@ -193,9 +194,11 @@ function StatePanel({
 
 function Detail({
   item,
+  slug,
   onBack,
 }: {
   item: WipItemRow;
+  slug: string;
   onBack: () => void;
 }) {
   return (
@@ -341,6 +344,21 @@ function Detail({
         ))
       )}
 
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: ".07em",
+          textTransform: "uppercase",
+          color: "var(--sub)",
+          margin: "20px 0 8px",
+        }}
+      >
+        Notes
+      </div>
+      <NoteThread slug={slug} targetType="wip_item" targetId={item.id} />
+
       <div style={{ marginTop: 18, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "var(--sub)" }}>
         {item.folderPath}
       </div>
@@ -392,7 +410,7 @@ export default function ApprovalsBoard({
     >
       <div>
         {selected ? (
-          <Detail item={selected} onBack={() => select(null)} />
+          <Detail item={selected} slug={slug} onBack={() => select(null)} />
         ) : (
           <>
             <div

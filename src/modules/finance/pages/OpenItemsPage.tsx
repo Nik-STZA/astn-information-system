@@ -7,6 +7,7 @@
 import PageHeader from "@/shared/ui/PageHeader";
 import ClientTabs from "@/modules/finance/components/ClientTabs";
 import { fetchOpenItems, type OpenItemRow } from "@/modules/finance/lib/api";
+import NoteThread from "@/modules/finance/components/NoteThread";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ function Pill({ text, colour }: { text: string; colour: string }) {
   );
 }
 
-function Row({ item }: { item: OpenItemRow }) {
+function Row({ item, slug }: { item: OpenItemRow; slug: string }) {
   return (
     <div
       style={{
@@ -71,12 +72,18 @@ function Row({ item }: { item: OpenItemRow }) {
         <span style={{ fontSize: 11, color: "var(--sub)" }}>
           {item.closed_at ?? item.last_update_at ?? item.raised_at ?? ""}
         </span>
+        <NoteThread
+          slug={slug}
+          targetType="open_item"
+          targetId={item.id}
+          initialCount={item.note_count ?? 0}
+        />
       </div>
     </div>
   );
 }
 
-function Group({ title, items }: { title: string; items: OpenItemRow[] }) {
+function Group({ title, items, slug }: { title: string; items: OpenItemRow[]; slug: string }) {
   if (items.length === 0) return null;
   return (
     <div style={{ marginBottom: 28 }}>
@@ -94,7 +101,7 @@ function Group({ title, items }: { title: string; items: OpenItemRow[] }) {
         {title} ({items.length})
       </div>
       {items.map((i) => (
-        <Row key={i.id} item={i} />
+        <Row key={i.id} item={i} slug={slug} />
       ))}
     </div>
   );
@@ -133,11 +140,12 @@ export default async function OpenItemsPage({
         <Group
           key={c}
           title={c}
+          slug={params.slug}
           items={active.filter((i) => (i.category ?? "Uncategorised") === c)}
         />
       ))}
 
-      <Group title="Closed and superseded" items={closed} />
+      <Group title="Closed and superseded" items={closed} slug={params.slug} />
     </div>
   );
 }

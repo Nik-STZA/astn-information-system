@@ -144,14 +144,16 @@ app.get("/api/finance/clients/:slug/open-items", route(async (req, res) => {
   if (!client) return res.status(404).json({ error: "client not found" });
 
   const { rows } = await pool.query(
-    `SELECT id, ref, title, category, owner_label, priority, status,
-            raised_at, last_update_at, closed_at, resolution, is_closed,
-            source_file, source_line
-     FROM finance.open_items
-     WHERE client_id = $1
-     ORDER BY is_closed,
-              CASE priority WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 ELSE 4 END,
-              raised_at NULLS LAST`,
+    `SELECT o.id, o.ref, o.title, o.category, o.owner_label, o.priority, o.status,
+            o.raised_at, o.last_update_at, o.closed_at, o.resolution, o.is_closed,
+            o.source_file, o.source_line,
+            (SELECT COUNT(*)::int FROM finance.notes n
+              WHERE n.target_type = 'open_item' AND n.target_id = o.id) AS note_count
+     FROM finance.open_items o
+     WHERE o.client_id = $1
+     ORDER BY o.is_closed,
+              CASE o.priority WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 ELSE 4 END,
+              o.raised_at NULLS LAST`,
     [client.id]
   );
   res.json({ count: rows.length, data: rows });
@@ -807,6 +809,78 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
       reviews: byWip.get(w.id) ?? [],
     })),
   });
+}));
+
+// ── Notes ───────────────────────────────────────────────────────────────────
+//
+// Append only. There is no update and no delete endpoint, because the table
+// refuses both: a record that can be edited afterwards is not evidence.
+
+app.get("/api/finance/clients/:slug/notes", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { targetType, targetId } = req.query;
+  const params = [client.id];
+  let where = "n.client_id = $1";
+  if (targetType) { params.push(targetType); where += ` AND n.target_type = $${params.length}`; }
+  if (targetId)   { params.push(targetId);   where += ` AND n.target_id = $${params.length}`; }
+
+  const { rows } = await pool.query(
+    `SELECT n.id, n.target_type, n.target_id, n.body, n.kind,
+            n.actor_email, n.actor_role, n.created_at
+     FROM finance.notes n
+     WHERE ${where}
+     ORDER BY n.created_at DESC
+     LIMIT 500`,
+    params
+  );
+  res.json({ count: rows.length, data: rows });
+}));
+
+app.post("/api/finance/clients/:slug/notes", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { targetType, targetId, body, kind } = req.body || {};
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!["wip_item", "open_item"].includes(targetType)) {
+    return res.status(400).json({ error: "targetType must be wip_item or open_item" });
+  }
+  if (!targetId) return res.status(400).json({ error: "targetId is required" });
+  if (!body || !String(body).trim()) return res.status(400).json({ error: "body is required" });
+  if (kind && !["note", "decision", "hold", "query"].includes(kind)) {
+    return res.status(400).json({ error: "unknown kind" });
+  }
+
+  // The target must belong to this client, or a note could be attached to
+  // another client's work by guessing an id.
+  const table = targetType === "wip_item" ? "finance.wip_items" : "finance.open_items";
+  const owns = await pool.query(
+    `SELECT 1 FROM ${table} WHERE id = $1 AND client_id = $2`,
+    [targetId, client.id]
+  );
+  if (!owns.rowCount) return res.status(404).json({ error: "target not found for this client" });
+
+  const role = await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [
+    client.id,
+    actorEmail,
+  ]);
+
+  const { rows } = await pool.query(
+    `INSERT INTO finance.notes
+       (client_id, target_type, target_id, body, kind, actor_email, actor_role, ip_address)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING id, body, kind, actor_email, actor_role, created_at`,
+    [
+      client.id, targetType, targetId, String(body).trim(), kind || "note",
+      actorEmail, role.rows[0].role, normaliseIp(req.get("X-Forwarded-For") || req.ip),
+    ]
+  );
+
+  res.status(201).json(rows[0]);
 }));
 
 // ── Sync ────────────────────────────────────────────────────────────────────

@@ -53,6 +53,7 @@ export interface OpenItemRow {
   is_closed: boolean;
   source_file: string;
   source_line: number | null;
+  note_count?: number;
 }
 
 export class FinanceApiError extends Error {
