@@ -18,6 +18,8 @@ export interface WipManifest {
   amountTotal?: string | number | null;
   currency?: string;
   drafterRole?: string | null;
+  drafterEmail?: string | null;
+  drafterAgent?: string | null;
   draftedAt?: string | null;
   priority?: string | null;
   dueAt?: string | null;
@@ -47,6 +49,8 @@ export interface WipItem {
   amountTotal: string | null;
   currency: string;
   drafterRole: string | null;
+  drafterEmail: string | null;
+  drafterAgent: string | null;
   draftedAt: string | null;
   priority: string | null;
   dueAt: string | null;
@@ -183,6 +187,8 @@ export function parseWipFolder(opts: {
     amountTotal: normaliseAmount(manifest.amountTotal),
     currency: manifest.currency ?? "GBP",
     drafterRole: manifest.drafterRole ?? null,
+    drafterEmail: manifest.drafterEmail ?? null,
+    drafterAgent: manifest.drafterAgent ?? null,
     draftedAt: manifest.draftedAt ?? null,
     priority: manifest.priority ?? null,
     dueAt: manifest.dueAt ?? null,

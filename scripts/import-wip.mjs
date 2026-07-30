@@ -118,8 +118,8 @@ async function main() {
         `INSERT INTO finance.wip_items
            (client_id, entity_id, entity_scope, ref, type, status, panel, priority,
             folder_path, state_path, drafter_role, title, amount_total, due_at,
-            blocked_on, drafted_at, tier)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            blocked_on, drafted_at, tier, drafter_email, drafter_agent)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
          ON CONFLICT (client_id, ref) DO UPDATE SET
            entity_id    = EXCLUDED.entity_id,
            entity_scope = EXCLUDED.entity_scope,
@@ -135,13 +135,15 @@ async function main() {
            due_at       = EXCLUDED.due_at,
            blocked_on   = EXCLUDED.blocked_on,
            drafted_at   = EXCLUDED.drafted_at,
-           tier         = EXCLUDED.tier
+           tier         = EXCLUDED.tier,
+           drafter_email = EXCLUDED.drafter_email,
+           drafter_agent = EXCLUDED.drafter_agent
          RETURNING id`,
         [
           clientId, entityId, item.entityScope, item.ref, item.type, item.state,
           item.panel, item.priority, item.folderPath, item.state, item.drafterRole,
           item.title, item.amountTotal, item.dueAt, item.blockedOn, item.draftedAt,
-          item.tier,
+          item.tier, item.drafterEmail, item.drafterAgent,
         ]
       );
       const wipId = res.rows[0].id;

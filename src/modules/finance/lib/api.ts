@@ -134,6 +134,9 @@ export interface WipItemRow {
   blockedOn: string | null;
   draftedAt: string | null;
   updatedAt: string | null;
+  drafterEmail: string | null;
+  drafterAgent: string | null;
+  reviewIndependence: "independent" | "same-person" | "not-recorded";
   reviews: WipReviewRow[];
 }
 

@@ -165,3 +165,24 @@ export function parseOpenItems(markdown: string, sourceFile: string): OpenItem[]
 
   return items;
 }
+
+// Whether a status means the item no longer needs action.
+//
+// The register keeps completed items in the active table until someone tidies
+// up, so section alone overstates the workload. Counting rows reported 20 open
+// items where 17 were genuinely open, because items 7, 8 and 14 read "DONE via
+// ..." while still sitting under Active items.
+//
+// "Partially DONE" is deliberately still open: schema delivered, reader
+// pending, is not done. The rule matches DONE only at the start of the status,
+// so a partial reads as outstanding, which is what it is.
+export function isDoneStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return /^\s*done\b/i.test(status);
+}
+
+// An item still needing action: not in the closed section, and not marked done
+// in place.
+export function isOutstanding(item: { isClosed: boolean; status: string | null }): boolean {
+  return !item.isClosed && !isDoneStatus(item.status);
+}

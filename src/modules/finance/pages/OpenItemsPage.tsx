@@ -7,6 +7,7 @@
 import PageHeader from "@/shared/ui/PageHeader";
 import ClientTabs from "@/modules/finance/components/ClientTabs";
 import { fetchOpenItems, type OpenItemRow } from "@/modules/finance/lib/api";
+import { isDoneStatus } from "@/modules/finance/lib/parse-open-items";
 import NoteThread from "@/modules/finance/components/NoteThread";
 
 export const dynamic = "force-dynamic";
@@ -113,7 +114,12 @@ export default async function OpenItemsPage({
   params: { slug: string };
 }) {
   const items = await fetchOpenItems(params.slug);
-  const active = items.filter((i) => !i.is_closed);
+
+  // The register keeps completed items in the active table until someone tidies
+  // up, so counting rows overstates the workload. Outstanding means not in the
+  // closed section and not marked done in place.
+  const active = items.filter((i) => !i.is_closed && !isDoneStatus(i.status));
+  const doneInPlace = items.filter((i) => !i.is_closed && isDoneStatus(i.status));
   const closed = items.filter((i) => i.is_closed);
 
   const categories = Array.from(
@@ -133,7 +139,8 @@ export default async function OpenItemsPage({
           margin: "0 0 22px",
         }}
       >
-        {active.length} active, {closed.length} closed. Mirrored from open-items.md.
+        {active.length} outstanding, {doneInPlace.length} done but still listed as active,{" "}
+        {closed.length} closed. Mirrored from open-items.md.
       </p>
 
       {categories.map((c) => (
@@ -144,6 +151,8 @@ export default async function OpenItemsPage({
           items={active.filter((i) => (i.category ?? "Uncategorised") === c)}
         />
       ))}
+
+      <Group title="Done, still filed under active" items={doneInPlace} slug={params.slug} />
 
       <Group title="Closed and superseded" items={closed} slug={params.slug} />
     </div>

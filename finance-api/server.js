@@ -90,10 +90,15 @@ app.get("/api/finance/clients", route(async (_req, res) => {
   const { rows } = await pool.query(`
     SELECT c.id, c.slug, c.name, c.jurisdiction, c.framework, c.year_end, c.status,
            f.accounting_system, f.close_cadence, f.reporting_currency,
+           -- Completed items linger in the active table until tidied, so
+           -- an is_closed test alone overstates the workload. A status
+           -- beginning DONE is done; "Partially DONE" is not.
            (SELECT COUNT(*)::int FROM finance.open_items o
-             WHERE o.client_id = c.id AND o.is_closed = false) AS open_item_count,
+             WHERE o.client_id = c.id AND o.is_closed = false
+               AND COALESCE(o.status,'') !~* '^[[:space:]]*done([^[:alnum:]]|$)') AS open_item_count,
            (SELECT COUNT(*)::int FROM finance.open_items o
-             WHERE o.client_id = c.id AND o.is_closed = false AND o.priority = 'P1') AS p1_count
+             WHERE o.client_id = c.id AND o.is_closed = false AND o.priority = 'P1'
+               AND COALESCE(o.status,'') !~* '^[[:space:]]*done([^[:alnum:]]|$)') AS p1_count
     FROM shared.clients c
     JOIN finance.client_finance_config f ON f.client_id = c.id
     ORDER BY c.name
@@ -750,7 +755,19 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
     `SELECT w.id, w.ref, w.type, w.status, w.panel, w.priority, w.title,
             w.amount_total, w.folder_path, w.drafter_role, w.tier,
             w.entity_scope, w.due_at, w.blocked_on, w.drafted_at, w.updated_at,
-            e.slug AS entity_slug, e.name AS entity_name
+            w.drafter_email, w.drafter_agent,
+            e.slug AS entity_slug, e.name AS entity_name,
+            -- Three states, not two. "Cannot tell" must not read as "yes".
+            CASE
+              WHEN w.drafter_email IS NULL THEN 'not-recorded'
+              WHEN EXISTS (SELECT 1 FROM finance.wip_review_log r
+                            WHERE r.wip_id = w.id AND r.reviewer_email IS NOT NULL
+                              AND r.reviewer_email <> w.drafter_email) THEN 'independent'
+              WHEN EXISTS (SELECT 1 FROM finance.wip_review_log r
+                            WHERE r.wip_id = w.id AND r.reviewer_email = w.drafter_email)
+                   THEN 'same-person'
+              ELSE 'not-recorded'
+            END AS review_independence
      FROM finance.wip_items w
      LEFT JOIN finance.entities e ON e.id = w.entity_id
      WHERE w.client_id = $1
@@ -805,6 +822,9 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
       dueAt: w.due_at,
       blockedOn: w.blocked_on,
       draftedAt: w.drafted_at,
+      drafterEmail: w.drafter_email,
+      drafterAgent: w.drafter_agent,
+      reviewIndependence: w.review_independence,
       updatedAt: w.updated_at,
       reviews: byWip.get(w.id) ?? [],
     })),

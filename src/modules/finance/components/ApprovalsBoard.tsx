@@ -192,6 +192,45 @@ function StatePanel({
   );
 }
 
+
+// States the segregation position rather than letting four role labels imply
+// independence that may not exist. "Cannot tell" is shown as its own state,
+// never folded into either answer.
+function IndependenceNote({ item }: { item: WipItemRow }) {
+  const map = {
+    independent: {
+      colour: "var(--success-green)",
+      text: "Reviewed by someone other than the preparer.",
+    },
+    "same-person": {
+      colour: "var(--warning-amber)",
+      text: "Prepared and reviewed by the same person. The tiers below are a workflow record, not independent review.",
+    },
+    "not-recorded": {
+      colour: "var(--sub)",
+      text: "Who performed each step was not recorded, so independence cannot be established from this record.",
+    },
+  } as const;
+  const s = map[item.reviewIndependence] ?? map["not-recorded"];
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${s.colour}`,
+        borderRadius: 7,
+        padding: "9px 11px",
+        marginBottom: 12,
+        fontFamily: "Manrope, sans-serif",
+        fontSize: 11.5,
+        lineHeight: 1.5,
+        color: s.colour,
+      }}
+    >
+      {s.text}
+    </div>
+  );
+}
+
 function Detail({
   item,
   slug,
@@ -302,6 +341,8 @@ function Detail({
       >
         Review chain
       </div>
+
+      <IndependenceNote item={item} />
 
       {item.reviews.length === 0 ? (
         <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12.5, color: "var(--sub)" }}>

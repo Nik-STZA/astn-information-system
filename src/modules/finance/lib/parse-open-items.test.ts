@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseOpenItems } from "@/modules/finance/lib/parse-open-items";
+import {
+  isDoneStatus,
+  isOutstanding,
+  parseOpenItems,
+} from "@/modules/finance/lib/parse-open-items";
 
 const HEADER = "| # | Item | Owner | Pri | Status | Surfaced | Last update |";
 const RULE = "|---|---|---|---|---|---|---|";
@@ -136,5 +140,43 @@ describe("parseOpenItems", () => {
 
   it("returns nothing for a register with no tables", () => {
     expect(parseOpenItems("# Register\n\nProse only.", "open-items.md")).toEqual([]);
+  });
+});
+
+describe("isDoneStatus", () => {
+  // The three live statuses that made the page overstate the workload.
+  it("treats a DONE status as done", () => {
+    expect(isDoneStatus("DONE via finalize_pack.py — see closed item C7")).toBe(true);
+    expect(isDoneStatus("DONE (with parked follow-on)")).toBe(true);
+    expect(isDoneStatus("DONE via `scripts/monthly_close.py`")).toBe(true);
+  });
+
+  // Schema delivered, reader pending, is not done.
+  it("treats Partially DONE as still outstanding", () => {
+    expect(isDoneStatus("Partially DONE (schema); reader pending")).toBe(false);
+    expect(isDoneStatus("Partially DONE (schema); CFO inputs at close")).toBe(false);
+  });
+
+  it("leaves ordinary statuses alone", () => {
+    expect(isDoneStatus("In progress")).toBe(false);
+    expect(isDoneStatus("Awaiting external (HSBC)")).toBe(false);
+    expect(isDoneStatus("Blocked pending CEO call to HMRC")).toBe(false);
+    expect(isDoneStatus("Live (review annually + at month-end)")).toBe(false);
+    expect(isDoneStatus(null)).toBe(false);
+    expect(isDoneStatus("")).toBe(false);
+  });
+
+  it("does not match done inside another word", () => {
+    expect(isDoneStatus("Donated")).toBe(false);
+    expect(isDoneStatus("Awaiting done confirmation")).toBe(false);
+  });
+});
+
+describe("isOutstanding", () => {
+  it("counts only work that still needs action", () => {
+    expect(isOutstanding({ isClosed: false, status: "In progress" })).toBe(true);
+    expect(isOutstanding({ isClosed: false, status: "DONE (with parked follow-on)" })).toBe(false);
+    expect(isOutstanding({ isClosed: true, status: "Closed" })).toBe(false);
+    expect(isOutstanding({ isClosed: false, status: "Partially DONE (schema)" })).toBe(true);
   });
 });
