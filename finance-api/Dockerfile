@@ -7,7 +7,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
+# lib/ holds the tested decision logic. Copying server.js alone left
+# require("./lib/xero") unresolvable and the container failed to start.
 COPY server.js ./
+COPY lib ./lib
 
 ENV NODE_ENV=production
 EXPOSE 8080

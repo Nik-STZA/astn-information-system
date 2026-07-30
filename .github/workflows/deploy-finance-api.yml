@@ -51,6 +51,7 @@ jobs:
           env_vars: |
             DB_NAME=africastn_os
             DB_USER=africastn_app
+            SECRET_PROJECT=africanstn-research
             INSTANCE_CONNECTION_NAME=africanstn-research:europe-west1:africastn-db
           secrets: |
             DB_PASSWORD=db-password:latest

@@ -1,2 +1,6 @@
 node_modules
 npm-debug.log
+
+# Tests run in CI, not in the image.
+*.test.js
+lib/*.test.js
