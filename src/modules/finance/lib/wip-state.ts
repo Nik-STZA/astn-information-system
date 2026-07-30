@@ -1,0 +1,153 @@
+// The WIP state machine.
+//
+// State is the directory a folder sits in, per docs/wip-folder-convention.md,
+// so it is correct by construction rather than a field someone can set wrong.
+// This module turns a path into a state, decides which Approvals panel it
+// belongs in, and says which transitions are legitimate.
+//
+// Pure: no file system, no database. The parts that decide what may happen to
+// money are the parts worth testing without a Xero account.
+
+export const WIP_STATES = [
+  "drafting",
+  "pending-fm",
+  "pending-fc",
+  "pending-cfo",
+  "sent-back",
+  "posted",
+  "rejected",
+] as const;
+
+export type WipState = (typeof WIP_STATES)[number];
+
+export const TIERS = ["clerk", "fm1", "fm2", "fc"] as const;
+export type Tier = (typeof TIERS)[number];
+
+// The five panels from the brief. Every item belongs to exactly one, the same
+// rule as a Gmail multi-inbox: panel is a function of state, never a category
+// set by hand.
+export type Panel =
+  | "awaiting-decision"
+  | "blocked-external"
+  | "in-progress-upstream"
+  | "upcoming"
+  | "activity";
+
+const PANEL_BY_STATE: Record<WipState, Panel> = {
+  drafting: "in-progress-upstream",
+  "pending-fm": "in-progress-upstream",
+  "pending-fc": "in-progress-upstream",
+  "pending-cfo": "awaiting-decision",
+  "sent-back": "in-progress-upstream",
+  posted: "activity",
+  rejected: "activity",
+};
+
+export interface ParsedWipPath {
+  state: WipState;
+  tier: Tier | null;
+  /** Entity slug, or null for group-scoped work. */
+  entity: string | null;
+  entityScope: "entity" | "group";
+  /** The batch folder name. Descriptive only, never identity. */
+  batch: string;
+}
+
+// entities/<entity>/wip/<state>[/<tier>]/<batch>  or  wip/<state>[/<tier>]/<batch>
+export function parseWipPath(relativePath: string): ParsedWipPath | null {
+  const parts = relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
+
+  let entity: string | null = null;
+  let rest = parts;
+
+  if (parts[0] === "entities") {
+    if (parts.length < 4 || parts[2] !== "wip") return null;
+    entity = parts[1];
+    rest = parts.slice(2);
+  } else if (parts[0] !== "wip") {
+    return null;
+  }
+
+  // rest is now: wip / state / [tier] / batch
+  const state = rest[1] as WipState;
+  if (!WIP_STATES.includes(state)) return null;
+
+  // sent-back nests one level deeper, by the tier it went back to.
+  if (state === "sent-back") {
+    const tier = rest[2] as Tier;
+    if (!TIERS.includes(tier) || !rest[3]) return null;
+    return {
+      state,
+      tier,
+      entity,
+      entityScope: entity ? "entity" : "group",
+      batch: rest[3],
+    };
+  }
+
+  if (!rest[2]) return null;
+  return {
+    state,
+    tier: null,
+    entity,
+    entityScope: entity ? "entity" : "group",
+    batch: rest[2],
+  };
+}
+
+export function panelForState(state: WipState): Panel {
+  return PANEL_BY_STATE[state];
+}
+
+// Legitimate moves. Deliberately restrictive: anything not listed is a bug or
+// a hand edit, and should be surfaced rather than accepted.
+//
+// Only pending-cfo reaches posted or rejected, because the CFO is the sole
+// approval gate. Nothing leaves posted: a posted item is in the ledger, and
+// correcting it is a new item, not a state change.
+const ALLOWED: Record<WipState, readonly WipState[]> = {
+  drafting: ["pending-fm", "pending-fc", "pending-cfo"],
+  "pending-fm": ["pending-fc", "sent-back", "pending-cfo"],
+  "pending-fc": ["pending-cfo", "sent-back"],
+  "pending-cfo": ["posted", "rejected", "sent-back"],
+  "sent-back": ["drafting", "pending-fm", "pending-fc", "pending-cfo"],
+  posted: [],
+  rejected: [],
+};
+
+export function canTransition(from: WipState, to: WipState): boolean {
+  return ALLOWED[from]?.includes(to) ?? false;
+}
+
+export function transitionError(from: WipState, to: WipState): string | null {
+  if (canTransition(from, to)) return null;
+  if (from === "posted") {
+    return "A posted item is in the ledger. Correct it with a new item rather than moving this one.";
+  }
+  if (from === "rejected") {
+    return "A rejected item is closed. Raise a new item rather than reopening this one.";
+  }
+  if (to === "posted" || to === "rejected") {
+    return `Only an item awaiting the CFO can be ${to}. This one is ${from}.`;
+  }
+  return `Cannot move an item from ${from} to ${to}.`;
+}
+
+/** Which state directory an approval decision moves the folder to. */
+export function stateForDecision(decision: "approve" | "reject" | "send-back"): WipState {
+  switch (decision) {
+    case "approve":
+      return "posted";
+    case "reject":
+      return "rejected";
+    case "send-back":
+      return "sent-back";
+  }
+}
+
+/** Types whose approval writes to the ledger. */
+const LEDGER_TYPES = new Set(["ap", "vat", "month-end", "tax"]);
+
+export function writesToLedger(type: string): boolean {
+  return LEDGER_TYPES.has(type);
+}

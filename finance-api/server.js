@@ -15,6 +15,11 @@
 
 const express = require("express");
 const { Pool } = require("pg");
+const {
+  selectTenant,
+  readAuthEventId,
+  normaliseIp,
+} = require("./lib/xero");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -201,25 +206,6 @@ async function readSecret(name) {
   return v.payload.data.toString("utf8");
 }
 
-// X-Forwarded-For is a comma separated chain and the ip_address column is a
-// Postgres inet, which takes exactly one address. Passing the raw header threw
-// "invalid input syntax for type inet" and rolled back the transaction it was
-// part of, which is how a bad audit value took a whole Xero connection with it.
-//
-// The caller already normalises this; doing it again here means a malformed
-// header can never cost anything more than a null in the audit row.
-function normaliseIp(value) {
-  if (!value) return null;
-  const first = String(value).split(",")[0].trim();
-  if (!first) return null;
-  const bracketed = /^\[(.+)\](?::\d+)?$/.exec(first);
-  const candidate = bracketed ? bracketed[1] : first;
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(candidate);
-  if (v4) return v4.slice(1).every((o) => Number(o) <= 255) ? candidate : null;
-  if (candidate.includes(":") && /^[0-9a-fA-F:.]+$/.test(candidate)) return candidate;
-  return null;
-}
-
 // Writes an audit row. Never receives or stores an unmasked value.
 async function audit(conn, { actorEmail, actorRole, action, targetType, targetId, clientId, payload, ip }) {
   await conn.query(
@@ -392,21 +378,6 @@ app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
 
   res.json({ url });
 }));
-
-// Reads the authorisation event id from the id token. Payload only: this
-// selects among tenants Xero has already authorised, it is not an access
-// decision, and the token came straight from Xero over TLS.
-function readAuthEventId(idToken) {
-  if (!idToken) return null;
-  try {
-    const payload = idToken.split(".")[1];
-    if (!payload) return null;
-    const json = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    return json.authentication_event_id || null;
-  } catch {
-    return null;
-  }
-}
 
 // Exchanges a stored refresh token for an access token, and persists the
 // rotated refresh token immediately.
