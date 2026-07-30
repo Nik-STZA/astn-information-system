@@ -34,7 +34,7 @@ app.use((req, res, next) => {
   }
   res.setHeader(
     "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS"
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
@@ -121,6 +121,7 @@ require("./server-remediation-resolution-routes");
 require("./server-remediation-v2-routes");
 require("./server-assessment-v2-routes");
 require("./server-document-gen-routes");
+require("./server-content-routes");
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 
