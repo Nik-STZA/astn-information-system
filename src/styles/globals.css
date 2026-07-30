@@ -461,3 +461,9 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* The approvals queue is a two-pane layout on desktop and a single column on a
+   phone, where the state panels stack under the activity list. */
+@media (max-width: 900px) {
+  .finance-two-pane { grid-template-columns: 1fr !important; }
+}

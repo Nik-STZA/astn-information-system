@@ -99,3 +99,46 @@ export async function fetchOpenItems(slug: string): Promise<OpenItemRow[]> {
   );
   return r.data;
 }
+
+export interface WipReviewRow {
+  reviewerRole: string;
+  outcome: string | null;
+  findings: string[];
+  notes: string | null;
+  nextStep: string | null;
+  reviewedAt: string | null;
+}
+
+export interface WipItemRow {
+  id: string;
+  ref: string;
+  type: string;
+  status: string;
+  panel:
+    | "awaiting-decision"
+    | "blocked-external"
+    | "in-progress-upstream"
+    | "upcoming"
+    | "activity";
+  priority: string | null;
+  title: string;
+  amountTotal: string | null;
+  folderPath: string;
+  drafterRole: string | null;
+  tier: string | null;
+  entityScope: "entity" | "group";
+  entitySlug: string | null;
+  entityLabel: string;
+  dueAt: string | null;
+  blockedOn: string | null;
+  draftedAt: string | null;
+  updatedAt: string | null;
+  reviews: WipReviewRow[];
+}
+
+export async function fetchWipItems(slug: string): Promise<WipItemRow[]> {
+  const r = await get<{ data: WipItemRow[] }>(
+    `/api/finance/clients/${encodeURIComponent(slug)}/wip`
+  );
+  return r.data;
+}

@@ -738,6 +738,77 @@ app.post("/api/finance/clients/:slug/xero/:entity/organisation", route(async (re
   res.json({ ok: true, entity: entity.slug, tenantName: chosen.tenantName });
 }));
 
+// ── Work in progress ────────────────────────────────────────────────────────
+
+app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows } = await pool.query(
+    `SELECT w.id, w.ref, w.type, w.status, w.panel, w.priority, w.title,
+            w.amount_total, w.folder_path, w.drafter_role, w.tier,
+            w.entity_scope, w.due_at, w.blocked_on, w.drafted_at, w.updated_at,
+            e.slug AS entity_slug, e.name AS entity_name
+     FROM finance.wip_items w
+     LEFT JOIN finance.entities e ON e.id = w.entity_id
+     WHERE w.client_id = $1
+     ORDER BY
+       CASE w.priority WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 ELSE 4 END,
+       w.drafted_at DESC NULLS LAST`,
+    [client.id]
+  );
+
+  const { rows: reviews } = await pool.query(
+    `SELECT r.wip_id, r.reviewer_role, r.outcome, r.findings, r.notes,
+            r.next_step, r.reviewed_at
+     FROM finance.wip_review_log r
+     JOIN finance.wip_items w ON w.id = r.wip_id
+     WHERE w.client_id = $1
+     ORDER BY r.reviewed_at`,
+    [client.id]
+  );
+
+  const byWip = new Map();
+  for (const r of reviews) {
+    if (!byWip.has(r.wip_id)) byWip.set(r.wip_id, []);
+    byWip.get(r.wip_id).push({
+      reviewerRole: r.reviewer_role,
+      outcome: r.outcome,
+      findings: r.findings ?? [],
+      notes: r.notes,
+      nextStep: r.next_step,
+      reviewedAt: r.reviewed_at,
+    });
+  }
+
+  res.json({
+    count: rows.length,
+    data: rows.map((w) => ({
+      id: w.id,
+      ref: w.ref,
+      type: w.type,
+      status: w.status,
+      panel: w.panel,
+      priority: w.priority,
+      title: w.title,
+      amountTotal: w.amount_total,
+      folderPath: w.folder_path,
+      drafterRole: w.drafter_role,
+      tier: w.tier,
+      entityScope: w.entity_scope,
+      entitySlug: w.entity_slug,
+      // Group-scoped work has no entity, and the queue shows "Group" rather
+      // than attributing it to a company it does not belong to.
+      entityLabel: w.entity_name || "Group",
+      dueAt: w.due_at,
+      blockedOn: w.blocked_on,
+      draftedAt: w.drafted_at,
+      updatedAt: w.updated_at,
+      reviews: byWip.get(w.id) ?? [],
+    })),
+  });
+}));
+
 // ── Sync ────────────────────────────────────────────────────────────────────
 //
 // The file watcher parses locally and posts the result here, so the write
