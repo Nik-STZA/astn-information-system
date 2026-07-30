@@ -91,3 +91,56 @@ export async function fetchXeroStatus(slug: string): Promise<XeroStatus> {
   const body = await res.json();
   return { appConfigured: body.appConfigured, connections: body.data };
 }
+
+export interface XeroOrganisation {
+  tenantId: string;
+  tenantName: string;
+  tenantType: string;
+}
+
+// Listing organisations costs a token refresh, and Xero rotates the refresh
+// token on every one. So this is called on demand when the operator opens the
+// picker, never on page load.
+export async function fetchXeroOrganisations(
+  slug: string
+): Promise<{ ok: boolean; data?: XeroOrganisation[]; error?: string; status: number }> {
+  const key = process.env.FINANCE_API_KEY;
+  if (!key) return { ok: false, error: "FINANCE_API_KEY is not configured", status: 500 };
+
+  const res = await fetch(
+    `${BASE_URL}/api/finance/clients/${encodeURIComponent(slug)}/xero/organisations`,
+    { headers: { "X-API-Key": key }, cache: "no-store" }
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: body.error ?? `upstream ${res.status}`, status: res.status };
+  return { ok: true, data: body.data as XeroOrganisation[], status: 200 };
+}
+
+export async function mapXeroOrganisation(opts: {
+  slug: string;
+  entity: string;
+  tenantId: string;
+  actorEmail: string;
+  ip?: string;
+}): Promise<{ ok: boolean; tenantName?: string; error?: string; status: number }> {
+  const key = process.env.FINANCE_API_KEY;
+  if (!key) return { ok: false, error: "FINANCE_API_KEY is not configured", status: 500 };
+
+  const res = await fetch(
+    `${BASE_URL}/api/finance/clients/${encodeURIComponent(opts.slug)}/xero/${encodeURIComponent(opts.entity)}/organisation`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": key,
+        "X-Actor-Email": opts.actorEmail,
+        ...(opts.ip ? { "X-Forwarded-For": opts.ip } : {}),
+      },
+      body: JSON.stringify({ tenantId: opts.tenantId }),
+      cache: "no-store",
+    }
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: body.error ?? `upstream ${res.status}`, status: res.status };
+  return { ok: true, tenantName: body.tenantName, status: 200 };
+}

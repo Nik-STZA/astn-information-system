@@ -7,6 +7,7 @@
 import PageHeader from "@/shared/ui/PageHeader";
 import ClientTabs from "@/modules/finance/components/ClientTabs";
 import SensitiveField from "@/modules/finance/components/SensitiveField";
+import OrganisationPicker from "@/modules/finance/components/OrganisationPicker";
 import { fetchXeroStatus, type XeroConnection } from "@/modules/finance/lib/secrets";
 
 export const dynamic = "force-dynamic";
@@ -150,11 +151,20 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
           marginBottom: 6,
         }}
       >
-        <Meta label="Xero organisation" value={conn.tenantName ?? "not connected"} />
+        <Meta label="Xero organisation" value={conn.tenantName ?? "not set"} />
         <Meta label="Tenant id" value={conn.tenantId ? "recorded" : "not recorded"} />
         <Meta label="Pipeline config" value={conn.configName ?? "-"} />
         <Meta label="Connected" value={conn.connectedAt ?? "-"} />
         <Meta label="Last refreshed" value={conn.lastRefreshedAt ?? "-"} />
+      </div>
+
+      <div style={{ margin: "12px 0 4px" }}>
+        <OrganisationPicker
+          slug={slug}
+          entity={conn.slug}
+          entityName={conn.name}
+          current={conn.tenantName}
+        />
       </div>
 
       <SensitiveField
