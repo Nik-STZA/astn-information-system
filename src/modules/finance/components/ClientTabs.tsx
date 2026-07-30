@@ -7,6 +7,7 @@ import Link from "next/link";
 
 const WORK = [
   { seg: "approvals", label: "Approvals" },
+  { seg: "agents", label: "Agents" },
   { seg: "close", label: "Close" },
   { seg: "reports", label: "Reports" },
   { seg: "diary", label: "Diary" },

@@ -146,3 +146,30 @@ export async function fetchWipItems(slug: string): Promise<WipItemRow[]> {
   );
   return r.data;
 }
+
+export interface AgentRunRow {
+  id: string;
+  agent: string | null;
+  instruction: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  session_id: string | null;
+  output: string | null;
+  error: string | null;
+  tools_used: Array<{ name: string; count: number }>;
+  files_touched: string[];
+  duration_ms: number | null;
+  cost_usd: string | null;
+  wip_ref: string | null;
+  requested_by_email: string;
+  requested_by_role: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export async function fetchAgentRuns(slug: string): Promise<AgentRunRow[]> {
+  const r = await get<{ data: AgentRunRow[] }>(
+    `/api/finance/clients/${encodeURIComponent(slug)}/agent-runs`
+  );
+  return r.data;
+}
