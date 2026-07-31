@@ -8,6 +8,12 @@
 // directly for the importer and the watcher: its type stripping resolves
 // neither tsconfig path aliases nor extensionless specifiers.
 import { parseWipPath, panelForState, type Panel, type WipState } from "./wip-state.ts";
+import {
+  classify,
+  classifyWithoutConfig,
+  type RoutingClass,
+  type RoutingConfig,
+} from "./routing.ts";
 
 export interface WipManifest {
   ref?: string;
@@ -57,8 +63,20 @@ export interface WipItem {
   priority: string | null;
   dueAt: string | null;
   blockedOn: string | null;
+  /**
+   * Whether this reaches the CFO inside a batch or on its own. Derived from
+   * the client's routing config, never taken from the manifest.
+   */
+  routingClass: RoutingClass;
+  routingReason: string;
   reviews: WipReview[];
 }
+
+// Fields an agent must not be able to set, because setting them would let the
+// drafter decide how closely its own work is read. Refused rather than ignored:
+// a manifest carrying one of these was written against the wrong convention,
+// and silently dropping it would leave the author believing it took effect.
+const FORBIDDEN_MANIFEST_FIELDS = ["routingClass", "routingReason", "class", "materiality"];
 
 export class WipParseError extends Error {}
 
@@ -139,6 +157,8 @@ export function parseWipFolder(opts: {
   relativePath: string;
   manifestJson: string;
   reviewMarkdown?: string;
+  /** The client's routing rules. Absent means everything routes individually. */
+  routingConfig?: RoutingConfig | null;
 }): WipItem {
   const parsed = parseWipPath(opts.relativePath);
   if (!parsed) {
@@ -164,6 +184,16 @@ export function parseWipFolder(opts: {
     throw new WipParseError(`wip.json in ${opts.relativePath} has no title`);
   }
 
+  const claimed = FORBIDDEN_MANIFEST_FIELDS.filter(
+    (f) => (manifest as Record<string, unknown>)[f] !== undefined
+  );
+  if (claimed.length) {
+    throw new WipParseError(
+      `wip.json in ${opts.relativePath} sets ${claimed.join(", ")}. Approval routing is ` +
+        `derived from the client's routing config, not declared by the drafter.`
+    );
+  }
+
   // The path is authoritative for entity and scope. The manifest may disagree
   // through a copy-paste, and the path is the thing an operator can see.
   const entity = parsed.entity;
@@ -184,6 +214,11 @@ export function parseWipFolder(opts: {
     );
   }
 
+  const amountTotal = normaliseAmount(manifest.amountTotal);
+  const routing = opts.routingConfig
+    ? classify({ type: parsed.type, amountTotal }, opts.routingConfig)
+    : classifyWithoutConfig({ type: parsed.type });
+
   return {
     ref: manifest.ref,
     state: parsed.state,
@@ -196,7 +231,7 @@ export function parseWipFolder(opts: {
     folderPath: opts.relativePath.replace(/\\/g, "/"),
     type: parsed.type,
     title: manifest.title,
-    amountTotal: normaliseAmount(manifest.amountTotal),
+    amountTotal,
     currency: manifest.currency ?? "GBP",
     drafterRole: manifest.drafterRole ?? null,
     drafterEmail: manifest.drafterEmail ?? null,
@@ -205,6 +240,8 @@ export function parseWipFolder(opts: {
     priority: manifest.priority ?? null,
     dueAt: manifest.dueAt ?? null,
     blockedOn: manifest.blockedOn ?? null,
+    routingClass: routing.class,
+    routingReason: routing.reason,
     reviews: parseReviewLog(opts.reviewMarkdown ?? ""),
   };
 }

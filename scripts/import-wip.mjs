@@ -15,6 +15,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { connect } from "./db.mjs";
 import { parseWipFolder } from "../src/modules/finance/lib/parse-wip.ts";
+import { parseRoutingConfig } from "../src/modules/finance/lib/routing.ts";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -76,6 +77,28 @@ async function main() {
     console.log(`Client: ${slug}`);
     console.log(`Folder: ${clientRoot}\n`);
 
+    // Approval routing is derived from this file, not from wip.json. A client
+    // without one has every item reach the CFO individually, which is the
+    // behaviour before routing existed: an absent config buys more human
+    // attention, never less.
+    const routingPath = join(clientRoot, "configs", "routing.json");
+    let routingConfig = null;
+    if (existsSync(routingPath)) {
+      try {
+        routingConfig = parseRoutingConfig(readUtf8(routingPath));
+        console.log(`Routing: configs/routing.json v${routingConfig.version}`);
+      } catch (e) {
+        // Onboarding writes this file with its thresholds unset, because
+        // materiality is a judgement made at engagement start and a default
+        // invented here would become a real number nobody decided. An
+        // incomplete config is loud and harmless; it is not fatal.
+        console.log(`Routing: configs/routing.json is not usable (${e.message})`);
+        console.log("         Every item routes to the CFO individually until it is completed.");
+      }
+    } else {
+      console.log("Routing: no configs/routing.json, every item routes individually");
+    }
+
     const folders = findWipFolders(clientRoot);
     const items = [];
     const failures = [];
@@ -90,6 +113,7 @@ async function main() {
             reviewMarkdown: existsSync(join(abs, "review.md"))
               ? readUtf8(join(abs, "review.md"))
               : "",
+            routingConfig,
           })
         );
       } catch (e) {
@@ -126,8 +150,9 @@ async function main() {
         `INSERT INTO finance.wip_items
            (client_id, entity_id, entity_scope, ref, type, status, panel, priority,
             folder_path, state_path, drafter_role, title, amount_total, due_at,
-            blocked_on, drafted_at, drafter_email, drafter_agent)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            blocked_on, drafted_at, drafter_email, drafter_agent,
+            routing_class, routing_reason)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
          ON CONFLICT (client_id, ref) DO UPDATE SET
            entity_id    = EXCLUDED.entity_id,
            entity_scope = EXCLUDED.entity_scope,
@@ -144,13 +169,16 @@ async function main() {
            blocked_on   = EXCLUDED.blocked_on,
            drafted_at   = EXCLUDED.drafted_at,
            drafter_email = EXCLUDED.drafter_email,
-           drafter_agent = EXCLUDED.drafter_agent
+           drafter_agent = EXCLUDED.drafter_agent,
+           routing_class = EXCLUDED.routing_class,
+           routing_reason = EXCLUDED.routing_reason
          RETURNING id`,
         [
           clientId, entityId, item.entityScope, item.ref, item.type, item.state,
           item.panel, item.priority, item.folderPath, item.state, item.drafterRole,
           item.title, item.amountTotal, item.dueAt, item.blockedOn, item.draftedAt,
           item.drafterEmail, item.drafterAgent,
+          item.routingClass, item.routingReason,
         ]
       );
       const wipId = res.rows[0].id;

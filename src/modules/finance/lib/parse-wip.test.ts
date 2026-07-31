@@ -184,3 +184,48 @@ describe("parseReviewLog", () => {
     expect(reviews[1].findings).toHaveLength(2);
   });
 });
+
+// The drafting agent writes wip.json. If it could also write the field that
+// decides how closely its own work is read, the approval gate would have a
+// self-service bypass. Same principle as posting tools being physically absent
+// rather than forbidden by instruction.
+describe("approval routing is derived, not declared", () => {
+  const config = {
+    version: 1,
+    currency: "GBP",
+    clientThreshold: "25000.00",
+    trivialDifference: "50.00",
+    typeRules: { vat: { class: "mechanical" as const, threshold: "5000.00" } },
+  };
+
+  it("refuses a manifest that classifies its own work", () => {
+    for (const field of ["routingClass", "class", "materiality"]) {
+      expect(() =>
+        parseWipFolder({ relativePath: PATH, manifestJson: manifest({ [field]: "mechanical" }) })
+      ).toThrow(WipParseError);
+    }
+  });
+
+  it("names the field it refused, so the author knows what to remove", () => {
+    expect(() =>
+      parseWipFolder({ relativePath: PATH, manifestJson: manifest({ routingClass: "mechanical" }) })
+    ).toThrow(/routingClass/);
+  });
+
+  it("derives the class from the client config", () => {
+    const item = parseWipFolder({
+      relativePath: PATH,
+      manifestJson: manifest(),
+      routingConfig: config,
+    });
+    // 18,420.50 against VAT's 5,000 threshold.
+    expect(item.routingClass).toBe("judgement");
+    expect(item.routingReason).toContain("5000.00");
+  });
+
+  it("routes everything individually when the client has no config", () => {
+    const item = parseWipFolder({ relativePath: PATH, manifestJson: manifest() });
+    expect(item.routingClass).toBe("judgement");
+    expect(item.routingReason).toContain("no routing config");
+  });
+});

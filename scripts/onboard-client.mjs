@@ -32,7 +32,16 @@ const ARCHIVE_ROOTS = ["posted", "rejected"];
 
 // Present on every client, matching the live Feldspar engagement rather than
 // the sparser original template.
-const CLIENT_DIRS = ["diary", "policies", "reconciliations", "correspondence", "skills"];
+const CLIENT_DIRS = [
+  "diary", "policies", "reconciliations", "correspondence", "skills", "configs", "registers",
+];
+
+// The reporting framework decides the two treatments the practice most often
+// gets wrong: whether leases sit on the balance sheet, and whether receivable
+// impairment is incurred-loss or expected-credit-loss. Free text here would let
+// a typo become a silent branch, so the value is enumerated and an unrecognised
+// one is refused rather than accepted and guessed at downstream.
+const FRAMEWORKS = ["FRS 105", "FRS 102 Section 1A", "FRS 102", "IFRS"];
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(name);
@@ -116,6 +125,35 @@ function copyTemplateFiles(dest, ctx, dryRun) {
   }
 }
 
+// Written with its thresholds unset on purpose. Materiality is a judgement made
+// at engagement start, and a default invented here would become a real number
+// nobody decided. Until it is completed every item reaches the CFO
+// individually, so an unfinished file costs attention rather than control.
+function writeRoutingSkeleton(clientRoot, dryRun) {
+  const path = join(clientRoot, "configs", "routing.json");
+  if (existsSync(path)) return;
+
+  const skeleton = {
+    _status: "UNSET - set thresholds at engagement start, then delete this line",
+    version: 1,
+    currency: "GBP",
+    clientThreshold: null,
+    trivialDifference: null,
+    typeRules: {
+      ap: { class: "mechanical", threshold: null },
+      ar: { class: "mechanical", threshold: null },
+      reconciliation: { class: "mechanical", threshold: null },
+      vat: { class: "mechanical", threshold: null },
+      "month-end": { class: "judgement" },
+      tax: { class: "judgement" },
+      fpa: { class: "judgement" },
+    },
+  };
+
+  if (!dryRun) writeFileSync(path, JSON.stringify(skeleton, null, 2) + "\n", "utf-8");
+  created.push(path);
+}
+
 function buildWipTree(root, dryRun) {
   ensureDir(join(root, "wip"), dryRun);
   for (const state of WIP_STATES) ensureDir(join(root, "wip", state), dryRun);
@@ -129,6 +167,12 @@ async function main() {
   const entities = parseEntities(arg("--entities"));
   const jurisdiction = arg("--jurisdiction", "United Kingdom");
   const framework = arg("--framework", "FRS 102");
+  if (!FRAMEWORKS.includes(framework)) {
+    throw new Error(
+      `unrecognised framework "${framework}". One of: ${FRAMEWORKS.join(", ")}. ` +
+      `FRS 105 and FRS 102 differ on lease and revenue treatment, so the value has to be exact.`
+    );
+  }
   const yearEnd = arg("--year-end");
   const actorEmail = arg("--actor", "nik@stza.io");
   const dryRun = process.argv.includes("--dry-run");
@@ -150,6 +194,7 @@ async function main() {
   ensureDir(clientRoot, dryRun);
   copyTemplateFiles(clientRoot, ctx, dryRun);
   for (const d of CLIENT_DIRS) ensureDir(join(clientRoot, d), dryRun);
+  writeRoutingSkeleton(clientRoot, dryRun);
   buildWipTree(clientRoot, dryRun); // group-scoped work
 
   ensureDir(join(clientRoot, "entities"), dryRun);
