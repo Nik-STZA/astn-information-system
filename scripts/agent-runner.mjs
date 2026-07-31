@@ -223,6 +223,22 @@ let PATH_IN_USE;
 async function main() {
   if (!API_KEY) throw new Error("FINANCE_API_KEY is not set");
   PATH_IN_USE = resolveProcessingPath();
+
+  // Vertex reads Application Default Credentials, which "gcloud auth login"
+  // does NOT write - that needs "gcloud auth application-default login". Without
+  // them the run does not fail fast, it hangs for three minutes and then reports
+  // a credentials error, which is a slow way to learn something checkable here.
+  if (PATH_IN_USE.kind === "vertex") {
+    const adc =
+      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+      join(process.env.APPDATA || join(process.env.HOME || "", ".config"), "gcloud", "application_default_credentials.json");
+    if (!existsSync(adc)) {
+      throw new Error(
+        `Vertex is configured but Application Default Credentials were not found at ${adc}. ` +
+          `Run: gcloud auth application-default login`
+      );
+    }
+  }
   const once = process.argv.includes("--once");
   const pollSeconds = Number(arg("--poll", "5"));
 
