@@ -270,12 +270,10 @@ app.post("/api/content/ingest", async (req, res) => {
   );
   const runId = runRows[0].id;
 
-  // Don't block the HTTP response — run ingestion async
-  res.json({ run_id: runId, status: "started" });
-
-  // ── Async ingestion ──
+  // Run ingestion synchronously — Cloud Run kills background work after
+  // the response is sent (even with --no-cpu-throttling, DB connections
+  // time out). Keeping the request open ensures CPU + DB stay active.
   try {
-    // Only fetch RSS sources for now (website scraping is Phase 2)
     const { rows: sources } = await pool.query(
       `SELECT * FROM content_sources WHERE active = true AND source_type = 'rss' ORDER BY priority ASC`
     );
@@ -289,7 +287,6 @@ app.post("/api/content/ingest", async (req, res) => {
     for (const source of sources) {
       sourcesChecked++;
       try {
-        // Fetch the RSS feed with a timeout
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
 
@@ -310,7 +307,6 @@ app.post("/api/content/ingest", async (req, res) => {
         const items = parseRSS(xml);
         totalFetched += items.length;
 
-        // Insert new items, skip duplicates
         for (const item of items) {
           const hash = contentHash(item.url, item.title);
 
@@ -329,7 +325,7 @@ app.post("/api/content/ingest", async (req, res) => {
                 item.summary,
                 hash,
                 source.category,
-                0.5, // default relevance — can be refined by AI classifier later
+                0.5,
                 source.languages ? source.languages.split(",")[0].trim() : "en",
                 source.region_focus,
                 item.publishedAt ? new Date(item.publishedAt) : null,
@@ -342,12 +338,10 @@ app.post("/api/content/ingest", async (req, res) => {
               totalSkipped++;
             }
           } catch (insertErr) {
-            // Skip individual item errors (bad dates, etc.)
             totalSkipped++;
           }
         }
 
-        // Update source metadata
         await pool.query(
           `UPDATE content_sources
            SET last_fetched_at = now(), last_item_count = $1, fetch_errors = 0, updated_at = now()
@@ -365,7 +359,6 @@ app.post("/api/content/ingest", async (req, res) => {
       }
     }
 
-    // Complete the run
     await pool.query(
       `UPDATE ingestion_runs
        SET completed_at = now(), status = 'completed',
@@ -378,12 +371,23 @@ app.post("/api/content/ingest", async (req, res) => {
     console.log(
       `Ingestion run ${runId} complete: ${sourcesChecked} sources, ${totalFetched} fetched, ${totalNew} new, ${totalSkipped} skipped, ${errors.length} errors`
     );
+
+    res.json({
+      run_id: runId,
+      status: "completed",
+      sources_checked: sourcesChecked,
+      items_fetched: totalFetched,
+      items_new: totalNew,
+      items_skipped: totalSkipped,
+      errors_count: errors.length,
+    });
   } catch (err) {
     console.error(`Ingestion run ${runId} failed:`, err.message);
     await pool.query(
       `UPDATE ingestion_runs SET completed_at = now(), status = 'failed', errors = $1 WHERE id = $2`,
       [JSON.stringify([{ error: err.message }]), runId]
     );
+    res.status(500).json({ run_id: runId, status: "failed", error: err.message });
   }
 });
 
