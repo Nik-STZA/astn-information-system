@@ -11,6 +11,11 @@ import { spawn, execSync } from "node:child_process";
 import { createConnection } from "node:net";
 import pg from "pg";
 
+// DATE (oid 1082) as the string Postgres stored, not a JS Date at local
+// midnight. The default parse serialises a 31 March year end back as
+// "2027-03-30T23:00:00.000Z" under British Summer Time. See finance-api/server.js.
+pg.types.setTypeParser(1082, (v) => v);
+
 const INSTANCE = "africanstn-research:europe-west1:africastn-db";
 const PROJECT = "africanstn-research";
 const PORT = Number(process.env.DB_PROXY_PORT || 5433);

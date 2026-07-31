@@ -14,7 +14,17 @@
  */
 
 const express = require("express");
-const { Pool } = require("pg");
+const { Pool, types } = require("pg");
+
+// A DATE column is a calendar date with no time and no zone. node-postgres
+// parses it into a JS Date at LOCAL midnight, which serialises back a day early
+// whenever the server is ahead of UTC: a 31 March year end leaves here as
+// "2027-03-30T23:00:00.000Z" through British Summer Time.
+//
+// Returning the string Postgres actually stored removes the whole class of
+// error. A year end, a period end or a due date that is silently one day out is
+// exactly the kind of wrong number this system exists to prevent.
+types.setTypeParser(1082, (v) => v);
 const {
   selectTenant,
   readAuthEventId,
