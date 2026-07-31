@@ -16,6 +16,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { resolveProcessingPath } from "../src/modules/finance/lib/processing-path.ts";
 
 const API_URL = process.env.FINANCE_API_URL || "http://127.0.0.1:8080";
 const API_KEY = process.env.FINANCE_API_KEY;
@@ -102,7 +103,7 @@ function extractFromTranscript(cwd, sessionId) {
   };
 }
 
-function runClaude(cwd, prompt) {
+function runClaude(cwd, prompt, path) {
   return new Promise((resolve) => {
     const args = ["-p", prompt, "--output-format", "json", "--plugin-dir", PLUGIN_DIR];
     // shell:true because claude is a .cmd shim on Windows, which Node will not
@@ -111,6 +112,10 @@ function runClaude(cwd, prompt) {
       cwd,
       shell: true,
       windowsHide: true,
+      // The path decides which commercial arrangement the client's data is
+      // processed under, so it is set explicitly on every child rather than
+      // inherited and hoped for.
+      env: { ...process.env, ...path.env },
     });
 
     let stdout = "";
@@ -140,7 +145,7 @@ async function runJob(job) {
   const prompt = job.agent ? `Use the ${job.agent} agent. ${job.instruction}` : job.instruction;
 
   const started = Date.now();
-  const { code, stdout, stderr } = await runClaude(cwd, prompt);
+  const { code, stdout, stderr } = await runClaude(cwd, prompt, PATH_IN_USE);
   const durationMs = Date.now() - started;
 
   let parsed = null;
@@ -176,6 +181,8 @@ async function runJob(job) {
       filesTouched: extract.filesTouched,
       durationMs,
       costUsd: parsed.total_cost_usd ?? null,
+      processingPath: PATH_IN_USE.kind,
+      processingPathLabel: PATH_IN_USE.label,
     }),
   });
 
@@ -186,12 +193,26 @@ async function runJob(job) {
   );
 }
 
+// Established once, before any job is claimed. A runner that resolved this per
+// job could process one client under a commercial agreement and the next over a
+// consumer sign-in without anyone noticing.
+let PATH_IN_USE;
+
 async function main() {
   if (!API_KEY) throw new Error("FINANCE_API_KEY is not set");
+  PATH_IN_USE = resolveProcessingPath();
   const once = process.argv.includes("--once");
   const pollSeconds = Number(arg("--poll", "5"));
 
   log(`runner started. api=${API_URL} plugin=${PLUGIN_DIR}`);
+  log(`processing path: ${PATH_IN_USE.label}`);
+  if (!PATH_IN_USE.governed) {
+    log("");
+    log("  WARNING: no commercial agreement governs this path.");
+    log("  Synthetic data only. Do not run this over a real client ledger.");
+    log("  Every run will be recorded as ungoverned.");
+    log("");
+  }
   if (once) log("running in --once mode: one job, then exit");
 
   for (;;) {
