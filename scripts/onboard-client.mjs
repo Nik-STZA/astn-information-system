@@ -164,7 +164,7 @@ async function main() {
   const slug = required("--slug");
   const name = required("--name");
   const role = required("--role");
-  const entities = parseEntities(arg("--entities"));
+  let entities = parseEntities(arg("--entities"));
   const jurisdiction = arg("--jurisdiction", "United Kingdom");
   const framework = arg("--framework", "FRS 102");
   if (!FRAMEWORKS.includes(framework)) {
@@ -176,6 +176,16 @@ async function main() {
   const yearEnd = arg("--year-end");
   const actorEmail = arg("--actor", "nik@stza.io");
   const dryRun = process.argv.includes("--dry-run");
+
+  // A single-company client still needs one entity row. Everything downstream
+  // hangs off finance.entities - the Xero tenant mapping above all - so a client
+  // with none looks healthy and simply offers no way to connect anything. Onboard
+  // one named after the company rather than leaving a state the rest of the
+  // system cannot use.
+  if (!entities.length) {
+    entities = [{ slug, name, role: null }];
+    console.log("No entities given, so onboarding the company itself as the single entity.");
+  }
 
   const clientRoot = join(CLIENTS_ROOT, slug);
 
