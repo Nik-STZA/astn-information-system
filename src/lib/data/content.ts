@@ -118,6 +118,22 @@ export async function reviewItem(
   );
 }
 
+// ─── Ingestion ──────────────────────────────────────────────────────────────
+
+export type IngestResult = {
+  run_id: number;
+  status: string;
+  sources_checked: number;
+  items_fetched: number;
+  items_new: number;
+  items_skipped: number;
+  errors_count: number;
+};
+
+export async function triggerIngest() {
+  return cloudRunMutate<IngestResult>("/api/content/ingest", "POST", {});
+}
+
 // ─── Weekly briefs ──────────────────────────────────────────────────────────
 
 export type BriefSummary = {

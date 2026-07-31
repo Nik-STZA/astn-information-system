@@ -7,6 +7,7 @@ import {
   reviewItem,
   runAgentWorkflow,
   fetchWorkflowStatus,
+  triggerIngest,
   type AgentWorkflow,
 } from "@/lib/data/content";
 import { getAuthEmail } from "@/lib/auth";
@@ -35,6 +36,12 @@ export async function triggerWorkflow(workflow: AgentWorkflow) {
 
 export async function workflowStatus(workflow: AgentWorkflow) {
   return fetchWorkflowStatus(workflow);
+}
+
+export async function runIngest() {
+  const res = await triggerIngest();
+  revalidatePath("/content/review");
+  return res;
 }
 
 export async function submitReview(

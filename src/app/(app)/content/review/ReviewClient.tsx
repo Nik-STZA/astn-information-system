@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ReviewItem, ReviewItemDetail } from "@/lib/data/content";
-import { loadReviewQueue, loadItemDetail, submitReview, triggerWorkflow, workflowStatus } from "./actions";
+import { loadReviewQueue, loadItemDetail, submitReview, triggerWorkflow, workflowStatus, runIngest } from "./actions";
 
 // "Generate weekly brief" — dispatches the agent's generate-report workflow
 // and polls its status so GitHub stays invisible.
@@ -66,6 +66,58 @@ function GenerateBriefButton() {
         }}
       >
         {state === "dispatching" ? "Starting…" : state === "running" ? "Generating…" : "Generate weekly brief"}
+      </button>
+    </div>
+  );
+}
+
+// "Fetch sources" — triggers the RSS ingestion pipeline and shows results.
+function FetchSourcesButton({ onComplete }: { onComplete: () => void }) {
+  const [state, setState] = useState<"idle" | "fetching" | "done" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run() {
+    setState("fetching");
+    setMessage("Fetching RSS sources — this may take a few minutes…");
+    const res = await runIngest();
+    if (res.error) {
+      setState("error");
+      setMessage(res.error);
+      return;
+    }
+    if (res.data) {
+      setState("done");
+      setMessage(
+        `Done — ${res.data.items_new.toLocaleString("en-GB")} new items from ${res.data.sources_checked.toLocaleString("en-GB")} sources (${res.data.items_skipped.toLocaleString("en-GB")} duplicates skipped).`
+      );
+      onComplete();
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      {message && (
+        <span style={{ fontSize: 11.5, color: state === "error" ? "var(--alert-red)" : "var(--sub)" }}>
+          {message}
+        </span>
+      )}
+      <button
+        onClick={run}
+        disabled={state === "fetching"}
+        style={{
+          fontWeight: 700,
+          fontSize: 12,
+          padding: "8px 18px",
+          borderRadius: 6,
+          border: "1px solid var(--bd)",
+          background: "var(--pnl)",
+          color: "var(--tx)",
+          cursor: "pointer",
+          opacity: state === "fetching" ? 0.6 : 1,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {state === "fetching" ? "Fetching…" : "Fetch sources"}
       </button>
     </div>
   );
@@ -298,6 +350,7 @@ export default function ReviewClient({
           >
             {view === "candidates" ? "Show all pending" : "Show brief candidates"}
           </button>
+          <FetchSourcesButton onComplete={() => switchView(view)} />
           <GenerateBriefButton />
         </div>
       </div>
