@@ -766,6 +766,7 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
             w.amount_total, w.folder_path, w.drafter_role, w.tier,
             w.entity_scope, w.due_at, w.blocked_on, w.drafted_at, w.updated_at,
             w.drafter_email, w.drafter_agent,
+            w.routing_class, w.routing_reason,
             e.slug AS entity_slug, e.name AS entity_name,
             -- Three states, not two. "Cannot tell" must not read as "yes".
             CASE
@@ -824,6 +825,8 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
       folderPath: w.folder_path,
       drafterRole: w.drafter_role,
       tier: w.tier,
+      routingClass: w.routing_class,
+      routingReason: w.routing_reason,
       entityScope: w.entity_scope,
       entitySlug: w.entity_slug,
       // Group-scoped work has no entity, and the queue shows "Group" rather

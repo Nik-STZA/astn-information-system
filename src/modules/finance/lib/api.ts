@@ -127,6 +127,12 @@ export interface WipItemRow {
   folderPath: string;
   drafterRole: string | null;
   tier: string | null;
+  /**
+   * Whether this reaches the CFO inside a batch or on its own. Derived from the
+   * client's routing config at import, never declared by the drafting agent.
+   */
+  routingClass: "mechanical" | "judgement";
+  routingReason: string | null;
   entityScope: "entity" | "group";
   entitySlug: string | null;
   entityLabel: string;

@@ -10,7 +10,7 @@ describe("resolveProcessingPath", () => {
       CLAUDE_CODE_USE_VERTEX: "1",
       ANTHROPIC_VERTEX_PROJECT_ID: "africanstn-research",
       CLOUD_ML_REGION: "europe-west1",
-    } as NodeJS.ProcessEnv);
+    });
 
     expect(path.kind).toBe("vertex");
     expect(path.governed).toBe(true);
@@ -22,14 +22,14 @@ describe("resolveProcessingPath", () => {
   // deliberate and silently runs over the subscription. Refuse instead.
   it("refuses a half-configured Vertex path rather than falling back", () => {
     expect(() =>
-      resolveProcessingPath({ CLAUDE_CODE_USE_VERTEX: "1" } as NodeJS.ProcessEnv)
+      resolveProcessingPath({ CLAUDE_CODE_USE_VERTEX: "1" })
     ).toThrow(ProcessingPathError);
 
     expect(() =>
       resolveProcessingPath({
         CLAUDE_CODE_USE_VERTEX: "1",
         ANTHROPIC_VERTEX_PROJECT_ID: "p",
-      } as NodeJS.ProcessEnv)
+      })
     ).toThrow(/CLOUD_ML_REGION/);
   });
 
@@ -38,12 +38,12 @@ describe("resolveProcessingPath", () => {
       resolveProcessingPath({
         CLAUDE_CODE_USE_VERTEX: "1",
         ANTHROPIC_VERTEX_PROJECT_ID: "p",
-      } as NodeJS.ProcessEnv)
+      })
     ).toThrow(/not defaulted/);
   });
 
   it("falls to the direct API when a key is present", () => {
-    const path = resolveProcessingPath({ ANTHROPIC_API_KEY: "sk-test" } as NodeJS.ProcessEnv);
+    const path = resolveProcessingPath({ ANTHROPIC_API_KEY: "sk-test" });
     expect(path.kind).toBe("anthropic-api");
     expect(path.governed).toBe(true);
   });
@@ -54,12 +54,12 @@ describe("resolveProcessingPath", () => {
       ANTHROPIC_VERTEX_PROJECT_ID: "p",
       CLOUD_ML_REGION: "europe-west1",
       ANTHROPIC_API_KEY: "sk-test",
-    } as NodeJS.ProcessEnv);
+    });
     expect(path.kind).toBe("vertex");
   });
 
   it("refuses to run at all when nothing is configured", () => {
-    expect(() => resolveProcessingPath({} as NodeJS.ProcessEnv)).toThrow(ProcessingPathError);
+    expect(() => resolveProcessingPath({})).toThrow(ProcessingPathError);
   });
 
   // The escape hatch exists so the runner can be exercised against synthetic
@@ -69,7 +69,7 @@ describe("resolveProcessingPath", () => {
   it("allows an ungoverned run only when explicitly asked, and marks it", () => {
     const path = resolveProcessingPath({
       STZA_ALLOW_UNGOVERNED_PATH: "1",
-    } as NodeJS.ProcessEnv);
+    });
     expect(path.kind).toBe("ungoverned");
     expect(path.governed).toBe(false);
     expect(path.label).toContain("no commercial agreement");

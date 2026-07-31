@@ -118,6 +118,54 @@ function PanelRow({
   );
 }
 
+
+// Sums for display without going through a float. The rest of the module keeps
+// money as strings for exactly this reason, and a total that is a penny out on
+// an attestation the CFO signs is not a rounding curiosity.
+function sumPence(items: WipItemRow[]): number {
+  return items.reduce((acc, i) => {
+    if (!i.amountTotal) return acc;
+    const [whole, frac = ""] = i.amountTotal.replace("-", "").split(".");
+    const sign = i.amountTotal.startsWith("-") ? -1 : 1;
+    return acc + sign * Number(whole + frac.padEnd(2, "0").slice(0, 2));
+  }, 0);
+}
+
+// Mechanical work below the client's materiality threshold may be approved as a
+// population rather than read line by line. The banner states what that
+// approval actually covers, because the alternative - recording individual
+// approval of items nobody read individually - produces durable evidence of a
+// review that did not happen.
+function BatchBanner({ items }: { items: WipItemRow[] }) {
+  const total = sumPence(items);
+  return (
+    <div
+      style={{
+        padding: "9px 14px",
+        borderBottom: "1px solid var(--bd)",
+        background: "color-mix(in srgb, var(--pg) 60%, transparent)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "Manrope, sans-serif",
+          fontSize: 11,
+          fontWeight: 700,
+          color: "var(--tx)",
+        }}
+      >
+        Batch of {items.length} item{items.length === 1 ? "" : "s"}
+        {total !== 0 && `, ${money((total / 100).toFixed(2))} total`}
+      </div>
+      <div style={{ fontSize: 10.5, color: "var(--sub)", marginTop: 3, lineHeight: 1.45 }}>
+        Mechanical and below threshold, reconciling clean. Approving here attests
+        to the population, not to each line. Anything carrying judgement is listed
+        separately below and is not part of this batch.
+      </div>
+    </div>
+  );
+}
+
 function StatePanel({
   panel,
   items,
@@ -129,6 +177,11 @@ function StatePanel({
   selectedRef: string | null;
   onSelect: (ref: string) => void;
 }) {
+  // Only the decision panel splits. Everywhere else the class is irrelevant,
+  // because nothing is being approved.
+  const batchable = items.filter((i) => i.routingClass === "mechanical");
+  const individual = items.filter((i) => i.routingClass !== "mechanical");
+
   return (
     <section
       style={{
@@ -180,14 +233,38 @@ function StatePanel({
           {items.length}
         </span>
       </div>
-      {items.map((i) => (
-        <PanelRow
-          key={i.ref}
-          item={i}
-          selected={i.ref === selectedRef}
-          onSelect={onSelect}
-        />
-      ))}
+      {panel.key === "awaiting-decision" ? (
+        <>
+          {batchable.length > 0 && <BatchBanner items={batchable} />}
+          {batchable.map((i) => (
+            <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />
+          ))}
+          {individual.length > 0 && batchable.length > 0 && (
+            <div
+              style={{
+                padding: "7px 14px",
+                borderTop: "1px solid var(--bd)",
+                borderBottom: "1px solid var(--bd)",
+                fontFamily: "Manrope, sans-serif",
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: ".06em",
+                textTransform: "uppercase",
+                color: GOLD,
+              }}
+            >
+              Read individually
+            </div>
+          )}
+          {individual.map((i) => (
+            <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />
+          ))}
+        </>
+      ) : (
+        items.map((i) => (
+          <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />
+        ))
+      )}
     </section>
   );
 }

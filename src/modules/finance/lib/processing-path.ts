@@ -33,7 +33,9 @@ const truthy = (v?: string) => v === "1" || v?.toLowerCase() === "true";
  * subscription, because the fallback is invisible and the whole point is that
  * it must not happen by accident.
  */
-export function resolveProcessingPath(env: NodeJS.ProcessEnv = process.env): ProcessingPath {
+export function resolveProcessingPath(
+  env: Record<string, string | undefined> = process.env
+): ProcessingPath {
   if (truthy(env.CLAUDE_CODE_USE_VERTEX)) {
     const project = env.ANTHROPIC_VERTEX_PROJECT_ID;
     const region = env.CLOUD_ML_REGION;
