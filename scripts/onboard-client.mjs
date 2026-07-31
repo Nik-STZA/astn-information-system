@@ -19,20 +19,16 @@ import { connect } from "./db.mjs";
 const CLIENTS_ROOT = process.env.CLIENTS_ROOT || "C:\\Users\\yogim\\STZA Group\\Clients";
 const TEMPLATE = join(CLIENTS_ROOT, "_template");
 
-// State directories a WIP tree contains. Order is the order work flows.
-// Only the state level is created up front. The path is
-// wip/<state>/<type>/<batch>, and creating every type under every state would
-// mean 49 empty directories per entity before any work exists. Type folders
-// appear when work of that type first does.
-const WIP_STATES = [
-  "drafting",
-  "pending-fm",
-  "pending-fc",
-  "pending-cfo",
-  "sent-back",
-  "posted",
-  "rejected",
-];
+// Live states, in the order work flows through them. The path is
+// wip/<state>/<type>/<batch>, and only the state level is created up front:
+// every type under every state would be dozens of empty directories before any
+// work exists, so a type folder appears when work of that type first does.
+const WIP_STATES = ["drafting", "pending-fm", "pending-fc", "pending-cfo", "sent-back"];
+
+// Finished work leaves wip/ entirely and is archived by month, so wip/ only
+// holds what is outstanding and an item can never be in both places. The year
+// and month folders are created when work is first archived.
+const ARCHIVE_ROOTS = ["posted", "rejected"];
 
 // Present on every client, matching the live Feldspar engagement rather than
 // the sparser original template.
@@ -122,9 +118,8 @@ function copyTemplateFiles(dest, ctx, dryRun) {
 
 function buildWipTree(root, dryRun) {
   ensureDir(join(root, "wip"), dryRun);
-  for (const state of WIP_STATES) {
-    ensureDir(join(root, "wip", ...state.split("/")), dryRun);
-  }
+  for (const state of WIP_STATES) ensureDir(join(root, "wip", state), dryRun);
+  for (const archive of ARCHIVE_ROOTS) ensureDir(join(root, archive), dryRun);
 }
 
 async function main() {

@@ -44,6 +44,9 @@ export interface WipItem {
   batch: string;
   folderPath: string;
   type: string;
+  /** Present only for posted and rejected work, which is archived by month. */
+  archivedYear: string | null;
+  archivedMonth: string | null;
   title: string;
   amountTotal: string | null;
   currency: string;
@@ -188,6 +191,8 @@ export function parseWipFolder(opts: {
     entity,
     entityScope,
     batch: parsed.batch,
+    archivedYear: parsed.archivedYear ?? null,
+    archivedMonth: parsed.archivedMonth ?? null,
     folderPath: opts.relativePath.replace(/\\/g, "/"),
     type: parsed.type,
     title: manifest.title,

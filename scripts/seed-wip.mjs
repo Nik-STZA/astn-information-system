@@ -144,9 +144,12 @@ function main() {
   let skipped = 0;
 
   for (const s of SEEDS) {
-    // wip/<state>/<type>/<batch>: both attributes in the path, so neither is
-    // lost when the item moves.
-    const stateDir = join("wip", s.state, s.type);
+    // Live work is wip/<state>/<type>/<batch>. Finished work leaves wip
+    // entirely: <posted|rejected>/<YYYY>/<MM>/<type>/<batch>.
+    const archived = s.state === "posted" || s.state === "rejected";
+    const stateDir = archived
+      ? join(s.state, s.archivedYear ?? "2026", s.archivedMonth ?? "07", s.type)
+      : join("wip", s.state, s.type);
     const rel = s.entity
       ? join("entities", s.entity, stateDir, s.batch)
       : join(stateDir, s.batch);

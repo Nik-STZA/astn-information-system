@@ -1,5 +1,14 @@
 # WIP folder convention
 
+**The authoritative definition is `handoff-protocol/SKILL.md` in the
+stza-finance-agents plugin.** The agents read that; the portal reads this. Where
+the two disagree, the skill wins and this file is wrong.
+
+This file records what the portal expects and why, so a change here without a
+matching change there is a bug. That is not hypothetical: the portal was built
+against a convention invented here while the skill already specified a different
+one, and the two produced folder layouts that could not both be read.
+
 How work in progress is held on disk, how it moves through review, and what the
 portal reads. Created for a client automatically at onboarding; see
 `scripts/onboard-client.mjs`.
@@ -12,26 +21,27 @@ portal to be running.
 
 ```
 clients/<client-slug>/
-  wip/                                  group-scoped work
-    pending-cfo/
-      month-end/
-        2026-07-31-pack-sign-off/
-          wip.json
-          review.md
-          artefacts/
+  wip/                                  LIVE work only, group-scoped
+    drafting/<type>/<batch>/
+    pending-fm/<type>/<batch>/
+    pending-fc/<type>/<batch>/
+    pending-cfo/<type>/<batch>/
+      month-end/2026-07-31-pack-sign-off/
+        wip.json
+        review.md
+        artefacts/
+    sent-back/<type>/<batch>/
+  posted/<YYYY>/<MM>/<type>/<batch>/    finished, out of the queue
+  rejected/<YYYY>/<MM>/<type>/<batch>/
   entities/
-    <entity-slug>/
-      wip/                              entity-scoped work
-        drafting/
-        pending-fm/
-        pending-fc/
-        pending-cfo/
-        sent-back/
-        posted/
-        rejected/
+    <entity-slug>/                      same shape again, entity-scoped
+      wip/<state>/<type>/<batch>/
+      posted/<YYYY>/<MM>/<type>/<batch>/
+      rejected/<YYYY>/<MM>/<type>/<batch>/
 ```
 
-The path is `wip/<state>/<type>/<batch>`.
+Live work is `wip/<state>/<type>/<batch>`. Finished work leaves `wip/`
+entirely.
 
 **Both attributes are in the path, deliberately.** They behave differently and
 each is there for its own reason.
@@ -53,6 +63,12 @@ which is then one directory listing with type as natural grouping inside it.
 **Only the state level is created at onboarding.** Every type under every state
 would be 49 empty directories per entity before any work exists. A type folder
 appears when work of that type first does.
+
+**Finished work leaves `wip/`.** `posted/` and `rejected/` sit at the client
+root, archived by month. So `wip/` holds only what is outstanding, the archive
+never grows inside the queue, and an item cannot appear in both. Anything
+`posted` or `rejected` found inside `wip/` is refused rather than read, because
+that would let the queue and the archive disagree about the same item.
 
 **The tier a sent-back item went to is not in the path.** It is a property of
 the last review rather than a place, `review.md` already records it, and adding
@@ -137,8 +153,8 @@ review chain on the approval detail.
 | `pending-fc/` | With the FC | In progress upstream |
 | `pending-cfo/` | Awaiting the CFO. **The only approval gate.** | Awaiting decision |
 | `sent-back/` | Returned to a tier with findings, tier recorded in review.md | In progress upstream |
-| `posted/` | Approved and written to the ledger | Activity |
-| `rejected/` | Declined, no ledger effect | Activity |
+| `posted/<YYYY>/<MM>/` | Approved and written to the ledger. Outside `wip/`. | Activity |
+| `rejected/<YYYY>/<MM>/` | Declined, no ledger effect. Outside `wip/`. | Activity |
 
 Routing follows the tiers already recorded in the client CLAUDE.md: `FM1 → FC →
 CFO` for month-end work, `clerk → FM2 → FC → CFO` for AP, AR and VAT. The CFO

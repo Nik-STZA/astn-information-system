@@ -31,7 +31,7 @@ describe("parseWipPath", () => {
   // Type survives escalation. The previous convention lost it: an AP batch and
   // a VAT return both landed in pending-fc and became indistinguishable.
   it("keeps the type at every state", () => {
-    for (const state of ["drafting", "pending-fc", "pending-cfo", "posted"]) {
+    for (const state of ["drafting", "pending-fm", "pending-fc", "pending-cfo"]) {
       const p = parseWipPath(`entities/feldspar-ltd/wip/${state}/ap/2026-07-15-batch`);
       expect(p?.type).toBe("ap");
       expect(p?.state).toBe(state);
@@ -46,10 +46,46 @@ describe("parseWipPath", () => {
   });
 
   it("accepts Windows separators", () => {
-    const p = parseWipPath("entities\\feldspar-ltd\\wip\\posted\\ap\\2026-06-30-batch");
-    expect(p?.state).toBe("posted");
+    const p = parseWipPath("entities\\feldspar-ltd\\wip\\pending-fc\\ap\\2026-06-30-batch");
+    expect(p?.state).toBe("pending-fc");
     expect(p?.type).toBe("ap");
     expect(p?.entity).toBe("feldspar-ltd");
+  });
+
+  // Terminal work lives outside wip, archived by month, so wip only ever holds
+  // live work and the archive does not grow inside the queue.
+  it("reads archived work from outside wip", () => {
+    const p = parseWipPath("entities/feldspar-ltd/posted/2026/06/ap/2026-06-30-batch");
+    expect(p).toEqual({
+      state: "posted",
+      type: "ap",
+      entity: "feldspar-ltd",
+      entityScope: "entity",
+      batch: "2026-06-30-batch",
+      archivedYear: "2026",
+      archivedMonth: "06",
+    });
+  });
+
+  it("reads rejected work the same way", () => {
+    const p = parseWipPath("rejected/2026/07/vat/2026-07-31-q2-return");
+    expect(p?.state).toBe("rejected");
+    expect(p?.entityScope).toBe("group");
+    expect(p?.archivedMonth).toBe("07");
+  });
+
+  // Finished work inside wip would let the queue and the archive disagree
+  // about the same item.
+  it("refuses posted or rejected inside wip", () => {
+    expect(parseWipPath("wip/posted/ap/2026-06-30-batch")).toBeNull();
+    expect(parseWipPath("wip/rejected/ap/2026-06-30-batch")).toBeNull();
+  });
+
+  it("refuses a malformed archive path", () => {
+    expect(parseWipPath("posted/26/06/ap/batch")).toBeNull();   // short year
+    expect(parseWipPath("posted/2026/6/ap/batch")).toBeNull();  // unpadded month
+    expect(parseWipPath("posted/2026/06/batch")).toBeNull();    // no type
+    expect(parseWipPath("posted/2026/06/ap")).toBeNull();       // no batch
   });
 
   // The entity comes from the path, so a mix-up cannot happen silently. This

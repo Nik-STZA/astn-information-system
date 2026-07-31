@@ -24,6 +24,12 @@ function arg(name, fallback) {
 const readUtf8 = (p) => readFileSync(p, "utf-8").replace(/^﻿/, "");
 
 // A WIP folder is any directory containing a wip.json.
+// Live work is under wip/. Finished work is not: posted/ and rejected/ sit
+// alongside it, archived by month, so wip/ only ever holds what is outstanding.
+// All three have to be scanned or approved work would silently disappear from
+// the record the moment it was approved.
+const ROOTS = ["wip", "posted", "rejected"];
+
 function findWipFolders(clientRoot) {
   const found = [];
   const walk = (dir) => {
@@ -35,11 +41,13 @@ function findWipFolders(clientRoot) {
       else walk(path);
     }
   };
-  walk(join(clientRoot, "wip"));
+
+  for (const root of ROOTS) walk(join(clientRoot, root));
+
   const entities = join(clientRoot, "entities");
   if (existsSync(entities)) {
     for (const e of readdirSync(entities)) {
-      walk(join(entities, e, "wip"));
+      for (const root of ROOTS) walk(join(entities, e, root));
     }
   }
   return found;

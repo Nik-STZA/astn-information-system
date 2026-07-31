@@ -63,6 +63,9 @@ export interface ParsedWipPath {
   entityScope: "entity" | "group";
   /** The batch folder name. Descriptive only, never identity. */
   batch: string;
+  /** Present only for posted and rejected work, which is archived by month. */
+  archivedYear?: string;
+  archivedMonth?: string;
 }
 
 // entities/<entity>/wip/<state>/<type>/<batch>  or  wip/<state>/<type>/<batch>
@@ -76,6 +79,11 @@ export interface ParsedWipPath {
 // The tier a sent-back item went to is not in the path. It is a property of
 // the last review rather than a place, review.md already records it, and
 // putting it here would make the tree four deep.
+// Terminal work sits outside wip, so wip only ever holds live work and the
+// archive never grows inside the queue. Nothing in wip is finished, by
+// construction.
+const ARCHIVE_STATES: readonly WipState[] = ["posted", "rejected"];
+
 export function parseWipPath(relativePath: string): ParsedWipPath | null {
   const parts = relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
 
@@ -83,29 +91,47 @@ export function parseWipPath(relativePath: string): ParsedWipPath | null {
   let rest = parts;
 
   if (parts[0] === "entities") {
-    if (parts.length < 4 || parts[2] !== "wip") return null;
+    if (parts.length < 4) return null;
     entity = parts[1];
     rest = parts.slice(2);
-  } else if (parts[0] !== "wip") {
-    return null;
   }
 
-  // rest is now: wip / state / type / batch
+  const entityScope: "entity" | "group" = entity ? "entity" : "group";
+  const head = rest[0] as WipState;
+
+  // Archived: <posted|rejected>/<YYYY>/<MM>/<type>/<batch>
+  if (ARCHIVE_STATES.includes(head)) {
+    const [, year, month, archivedType, archivedBatch] = rest;
+    if (!/^[0-9]{4}$/.test(year ?? "")) return null;
+    if (!/^[0-9]{2}$/.test(month ?? "")) return null;
+    if (!WIP_TYPES.includes(archivedType as WipType)) return null;
+    if (!archivedBatch) return null;
+
+    return {
+      state: head,
+      type: archivedType as WipType,
+      entity,
+      entityScope,
+      batch: archivedBatch,
+      archivedYear: year,
+      archivedMonth: month,
+    };
+  }
+
+  // Live: wip/<state>/<type>/<batch>
+  if (rest[0] !== "wip") return null;
+
   const state = rest[1] as WipState;
   if (!WIP_STATES.includes(state)) return null;
+  // Finished work in wip would let the queue and the archive disagree about
+  // the same item.
+  if (ARCHIVE_STATES.includes(state)) return null;
 
   const type = rest[2] as WipType;
   if (!WIP_TYPES.includes(type)) return null;
-
   if (!rest[3]) return null;
 
-  return {
-    state,
-    type,
-    entity,
-    entityScope: entity ? "entity" : "group",
-    batch: rest[3],
-  };
+  return { state, type, entity, entityScope, batch: rest[3] };
 }
 
 export function panelForState(state: WipState): Panel {

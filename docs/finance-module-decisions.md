@@ -273,6 +273,84 @@ This gates any use of the record to support a professional opinion.
 
 See `finance-module-governance.md` for the full position and gap register.
 
+---
+
+## 15. The folder convention was already specified, and I did not read it
+
+**What happened.** The portal was built against a WIP folder convention designed
+here, and options were then put to the operator as an open design question. It
+was not open: `handoff-protocol/SKILL.md` in the agents plugin already defined
+the structure, and its description says so explicitly. Only the agent files that
+reference it had been read, not the skill that defines it.
+
+**Consequence.** Two incompatible layouts. The portal could not read what the
+agents wrote, and the operator was asked to choose between options when a
+decision already existed.
+
+**Fix.** `handoff-protocol/SKILL.md` is authoritative and now says so, and
+`docs/wip-folder-convention.md` states plainly that it is subordinate and that
+the skill wins where they disagree. A change to one without the other is a bug.
+
+**The lesson, which is the same one twice.** Before designing a convention, find
+the thing that already produces the artefact. The first time this happened the
+agents were the unread producer; the second time it was the skill they inherit
+from.
+
+---
+
+## 16. Live and finished work are separated, and both attributes are in the path
+
+**Decided:** `wip/<state>/<type>/<batch>` for live work,
+`<posted|rejected>/<YYYY>/<MM>/<type>/<batch>` for finished work.
+
+Combines the two conventions, each contributing what the other lacked.
+
+**From the existing skill:** finished work leaves `wip/` and is archived by
+month. So `wip/` means only what is outstanding, the archive never grows inside
+the queue, and an item cannot appear in both. Extended to `rejected/`, which is
+equally terminal.
+
+**From the portal design:** state and type are both in the path. State because
+it changes three to five times and must never be able to disagree with itself:
+it IS the folder. Type because the previous convention lost it on escalation,
+leaving an AP batch and a VAT return indistinguishable once both reached the FC.
+
+Anything `posted` or `rejected` found inside `wip/` is refused rather than read,
+because that would let the queue and the archive disagree about one item.
+
+The skill also had no stable identity and no entity level. Both were added:
+`wip.json` carries a `ref` that survives every move, and entity-scoped work sits
+under its entity, which is where the mis-keying risk the client notes already
+flag actually lives.
+
+---
+
+## 17. Build note: how the recurring defect in this project happens
+
+Four defects in this build share one shape, and it is worth recording because it
+will recur.
+
+| Where | What reached production or was reported |
+|---|---|
+| gcloud env var | A comma split `FEATURES` into four variables, hiding three live modules |
+| SQL in a template literal | `'^\s*done\M'` arrived at Postgres as `^s*doneM` and matched nothing |
+| Transcript path encoding | An audit record stating an agent touched no files when it had read two |
+| Parser rewrite | A change reported as applied that had not been applied at all |
+
+Each involved editing or passing a value through a layer that consumes
+backslashes or commas: a shell, a template literal, a scripted string
+replacement. In every case the source looked correct.
+
+Two rules that would have caught all four:
+
+1. **Do not use scripted string replacement on files containing backslashes.**
+   Use the editor directly. Three of the four came from this.
+2. **Verify the result, not the tool's success message.** A replacement that
+   matched nothing still reports success. A deploy that went green still needs
+   the deployed behaviour checked. The fourth defect was reported as working
+   because the test count went up, when the tests were old ones passing against
+   old code.
+
 ## Open questions carried forward
 
 - Draft journals in Xero can be posted manually, bypassing the approval queue.
