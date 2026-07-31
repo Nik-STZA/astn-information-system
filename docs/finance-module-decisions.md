@@ -447,6 +447,77 @@ find the next one.** Using the system will. That is an argument against the
 instinct this project has followed for most of its life, and it is why the
 register moved to the front of the build order rather than the end.
 
+## Parked for later: AP through Hubdoc and Xero
+
+Discussed 31 July 2026 and deliberately not built. Recorded in enough detail that
+picking it up does not mean deriving it again.
+
+**Do not rebuild ingestion.** Hubdoc already ingests the PDF, OCRs it, creates the
+draft bill in Xero and **attaches the source document to it**. A PDF → Markdown →
+CSV import pipeline redoes all four, worse, and *creates* the attachment problem
+it appears to solve: CSV import produces records with no document, so the PDF then
+has to be attached and matched by hand. Hubdoc's route never has that problem.
+
+**The attachment is not a blocker either way.** Xero's Attachments API
+(`PUT /Invoices/{id}/Attachments/{filename}`) can push a document onto a record.
+It needs the `accounting.attachments` scope, which is not currently requested.
+
+**Where the errors actually are.** Hubdoc is good at supplier, date, amounts and
+VAT figures. It is weak on account coding — especially policy-driven judgements
+like capitalise versus expense — VAT treatment and place of supply, duplicates
+against the existing ledger, and cut-off. Those are exactly what the benchmark
+cases test, and they are the agent's job. **Hubdoc ingests and attaches; the agent
+reviews and codes.**
+
+Three shapes, in increasing scope:
+
+- **A, findings only.** Agent reads draft bills and their attachments, produces
+  findings, the CFO applies and approves in Xero. Works with roughly the current
+  scopes. No writes.
+- **B, agent recodes the draft.** Needs `accounting.transactions` write. The agent
+  corrects coding on the **draft**; approval stays a CFO keystroke. One narrow
+  write path, at the draft stage, never at approval. **The version to aim at.**
+- **C, import route.** Needs attachment and transaction writes, discards Hubdoc's
+  OCR, reintroduces document matching. Rejected.
+
+**State ownership is the subtle part.** The WIP folder convention was designed for
+work agents *create*, which has no existence until written, so the folder can
+safely be its state. Hubdoc bills already exist in Xero with their own lifecycle.
+Copying them into WIP folders gives two state machines over the same objects and
+they will diverge. **The WIP item should be the review — one item covering many
+bill IDs — with the bills and their documents staying in Xero.**
+
+**On token cost.** Converting a PDF to text is a real saving, not a marginal one:
+a PDF page reaches a model largely as an image at roughly 1,500 to 3,000 tokens,
+against 200 to 500 for the same invoice as text, and a bill is read more than once
+as it moves up the chain. That matters once execution is metered on Vertex rather
+than flat on a subscription.
+
+But an extraction is a **summary**, and `fc.md` requires findings to be recorded
+from a source. An agent reading extracted text cannot catch an extraction error,
+because the extraction is its input. Resolution is the same shape as the
+mechanical-versus-judgement split: cheap text for the bulk pass — coding,
+duplicates, dates, arithmetic — and fetch the PDF for anything flagged or where
+the amount or VAT treatment is itself the question.
+
+For Hubdoc bills specifically the cheap input already exists: Hubdoc has parsed
+the invoice into structured fields on the Xero record, so the agent reads a small
+JSON object. Conversion is only worth building for documents that never went
+through Hubdoc.
+
+**A browser-driving agent was considered and rejected.** An agent in a logged-in
+Hubdoc session has every capability the session has, and a browser cannot have a
+capability removed. That destroys decision 1 — posting tools physically absent
+below the CFO — which is the only claim in this architecture that survives an
+adversarial reading. It also degrades the audit trail from API records to
+screenshots, and collapses drafter, reviewer and approver into one act.
+Read-only browser use is fine; looking is not posting.
+
+**Blocked on:** a scope decision. `accounting.attachments`, `accounting.transactions`
+write, `accounting.reports.read` and `accounting.journals.read` are all absent, and
+widening any of them means reconnecting every entity. Worth doing once,
+deliberately, rather than several times.
+
 ## Open questions carried forward
 
 - Draft journals in Xero can be posted manually, bypassing the approval queue.
