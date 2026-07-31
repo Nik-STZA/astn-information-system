@@ -73,6 +73,11 @@ async function main() {
     // The column that matters. A tier returning nothing over a quarter is
     // either receiving clean work or is not reviewing, and the design should
     // not have to guess which.
+    //
+    // review.md holds every pair of eyes on the work, which includes the
+    // drafter's own Submitted and Resubmitted entries. Those are handoffs, not
+    // reviews, and counting them credits a clerk with reviewing its own batch
+    // and dilutes every rate below.
     const reviewers = await client.query(
       `SELECT r.reviewer_role,
               COUNT(*)::int AS reviews,
@@ -81,6 +86,8 @@ async function main() {
          JOIN finance.wip_items w ON w.id = r.wip_id
          JOIN shared.clients c ON c.id = w.client_id
         WHERE r.reviewed_at > now() - ($1 || ' months')::interval ${where}
+          AND r.outcome NOT ILIKE 'submitted%'
+          AND r.outcome NOT ILIKE 'resubmitted%'
         GROUP BY r.reviewer_role
         ORDER BY reviews DESC`,
       params
@@ -155,6 +162,21 @@ async function main() {
         row(c.type, String(c.n).padStart(8), String(c.days ?? "-").padStart(10));
       }
     }
+
+    // Outcomes are free text in review.md, so the two filters above are
+    // exclusions rather than a whitelist. Print the vocabulary actually in use
+    // so drift is visible instead of quietly landing in the wrong column.
+    const outcomes = await client.query(
+      `SELECT r.outcome, COUNT(*)::int AS n
+         FROM finance.wip_review_log r
+         JOIN finance.wip_items w ON w.id = r.wip_id
+         JOIN shared.clients c ON c.id = w.client_id
+        WHERE r.reviewed_at > now() - ($1 || ' months')::interval ${where}
+        GROUP BY r.outcome ORDER BY n DESC`,
+      params
+    );
+    console.log("\nOutcome vocabulary in use");
+    console.log(`  ${outcomes.rows.map((o) => `${o.outcome} (${o.n})`).join(", ") || "none"}`);
 
     console.log("");
   } finally {

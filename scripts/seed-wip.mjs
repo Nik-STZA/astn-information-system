@@ -22,6 +22,9 @@ function arg(name, fallback) {
 }
 
 // Drawn from the live open-items register so the queue reads like real work.
+//
+// Drafter roles follow the tier split of 31 July 2026: FM1 drafts, FM2 reviews.
+// VAT and balance sheet reconciliations are FM1's; FM2 draws nothing.
 const SEEDS = [
   {
     entity: "ultraspeed-digital",
@@ -30,7 +33,7 @@ const SEEDS = [
     type: "vat",
     title: "VAT return, quarter ended 30 June 2026",
     amountTotal: "18420.50",
-    drafterRole: "FM2",
+    drafterRole: "FM1",
     priority: "P1",
     reviews: [
       { at: "2026-07-30 11:20", role: "FM2", outcome: "Submitted",
@@ -108,7 +111,7 @@ const SEEDS = [
     type: "reconciliation",
     title: "Bank reconciliation at 31 July",
     amountTotal: null,
-    drafterRole: "FM2",
+    drafterRole: "FM1",
     priority: "P2",
     reviews: [
       { at: "2026-07-28 16:20", role: "FM2", outcome: "Submitted" },
