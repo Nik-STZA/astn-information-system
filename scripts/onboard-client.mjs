@@ -298,6 +298,31 @@ async function main() {
     const s = summary.rows[0];
     console.log(`\nDatabase: ${s.name} (${s.slug}), ${s.entities} entit(y|ies), capacity "${s.capacity}"`);
     console.log("Onboarding complete.");
+
+    // What onboarding cannot finish, said explicitly rather than left for
+    // someone to discover. The two scripts below need a mapped Xero
+    // organisation, which onboarding cannot create - the operator has to
+    // authorise it.
+    //
+    // Both were run by hand on the first real client and both found something
+    // on day one: a corporation tax payment coded to the wrong account, and a
+    // VAT threshold already at 48 per cent used. Neither would have surfaced
+    // until someone thought to look.
+    console.log("");
+    console.log("Next, in order:");
+    console.log("  1. Connect the accounting system on the client's Xero tab.");
+    console.log(`  2. node scripts/compose-matrix.mjs --client ${slug}`);
+    console.log("       Composes the balance sheet matrix from the real trial balance.");
+    console.log("       Lines appear because the client has them; anything it cannot place");
+    console.log("       with confidence is listed for a person rather than guessed.");
+    console.log(`  3. node scripts/vat-monitor.mjs --client ${slug}`);
+    console.log("       Baselines the registration threshold. Needs configs/monitors.json,");
+    console.log("       which is client-specific and not created by onboarding.");
+    console.log("  4. Have FC review the composed matrix and ask one question of it:");
+    console.log("       does anything here look wrong. That is the step that catches things.");
+    console.log("");
+    console.log(`  Then complete the placeholders in ${join(clientRoot, "CLAUDE.md")}`);
+    console.log("  and jurisdiction.md. Onboarding refuses to invent them.");
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;

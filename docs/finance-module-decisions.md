@@ -351,6 +351,102 @@ Two rules that would have caught all four:
    because the test count went up, when the tests were old ones passing against
    old code.
 
+## 18. Approval routing is derived, never declared
+
+Whether an item reaches the CFO individually or inside a batch is computed at
+import from the client's `configs/routing.json`, and a `wip.json` that carries a
+routing field is **refused** the same way one disagreeing with its own path is.
+
+The drafting agent writes `wip.json`. If it could also write the field deciding
+how closely its own work is read, the only approval gate in the system would have
+a self-service bypass. This is the same principle as posting tools being
+physically absent below the CFO rather than forbidden by instruction: make it
+impossible, do not rely on the instruction.
+
+Every path returning "mechanical" is written to be defensible alone. Unknown
+type, unstated amount, absent config and unusable config all return judgement, so
+**an absent config costs attention, never control**. Threshold comparison goes
+through BigInt, because a float rounding error at the boundary would decide
+whether a human reads the item.
+
+Onboarding writes the config with thresholds **unset**. Materiality is a
+judgement made at engagement start, and a default invented by a script becomes a
+real number nobody decided.
+
+## 19. The processing path is established before a run, and recorded on it
+
+Claude Code authenticates against either a consumer subscription or a commercial
+endpoint, and the difference is not a preference. The consumer terms say the
+service is not for business or professional purposes, carry no confidentiality
+clause, and no DPA applies — on that route the provider is a controller in its
+own right, so **there is no DPA to obtain**. A client ledger must not travel that
+way.
+
+The runner resolves the path once at startup and refuses without one. A
+half-configured commercial path is refused too, because that is the dangerous
+case: it looks deliberate and silently uses the subscription. Migration 008
+records the path on every run. It is the column a client, an insurer or a
+regulator asks about first and it cannot be reconstructed later.
+
+`STZA_ALLOW_UNGOVERNED_PATH` exists so the runner can be exercised on synthetic
+data, and it **refuses any client except the sandbox**. A convention saying so
+would have been worth less: the flag gets set for a reason one afternoon and is
+still set the morning someone runs a real close.
+
+## 20. Scripts compute, agents interpret
+
+Grouping a trial balance to matrix lines, or summing a rolling twelve months
+against a VAT threshold, is deterministic work. A script does it reproducibly,
+testably, for nothing, and identically every month. An agent doing that
+arithmetic would be slower, cost tokens, and could be wrong in ways nothing
+catches. Most agentic finance designs get this backwards.
+
+What the agent adds is on either side of the computation: whether a line is
+material, whether it needs a register, whether two balances that look odd
+actually are. That is the same principle the module already uses one level down —
+agents post from registers rather than memory — restated as **agents reason over
+computed facts rather than computing them**.
+
+This was not designed. It emerged from `vat-monitor.mjs` and
+`compose-matrix.mjs` being written to unblock work that had been parked behind a
+Vertex quota grant for no better reason than adjacency, after the CFO asked why.
+
+## 21. Refusing to guess and refusing to store are different things
+
+The Xero callback refused to map an organisation it could not identify, which
+was correct and was written after a near-miss that nearly mapped one client's
+entity to another's ledger. It also **discarded the refresh token**, and the
+organisation picker built to resolve exactly that ambiguity needs a stored token
+to list organisations.
+
+So the picker could never be reached, and no new client could be connected at
+all. Every new client hits it, because Xero returns no `authentication_event_id`
+for organisations the app has already seen.
+
+The lesson is not about Xero. **A control added in response to an incident is
+still a change, and still needs someone to ask what it broke.** The refusal
+closed the hole it was written for and removed the only recovery path, and
+nothing in the review process noticed for months.
+
+## 22. Build note: what the first day of the defect register showed
+
+Nine rows on the day it opened.
+
+Three came from review — a four-model round table across four position papers,
+all of them design errors in documents. Four came from **running the thing**, two
+within minutes of code being used and two found by the CFO on his first attempt
+to onboard a real client. Two were the analyst's own judgement errors on a real
+client's accounts, one caught by opening a source document and the other by the
+CFO pushing back.
+
+Every one of the last six had survived the round table, the settled list of
+controls, and every review to date.
+
+The practical conclusion, on one day's evidence: **more design review will not
+find the next one.** Using the system will. That is an argument against the
+instinct this project has followed for most of its life, and it is why the
+register moved to the front of the build order rather than the end.
+
 ## Open questions carried forward
 
 - Draft journals in Xero can be posted manually, bypassing the approval queue.

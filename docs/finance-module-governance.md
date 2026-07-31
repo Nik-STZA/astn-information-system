@@ -247,17 +247,26 @@ Moving execution to an always-on machine addresses the first and not the second.
 
 | # | Gap | Severity | Owner | Status |
 |---|---|---|---|---|
-| 1 | Anthropic not disclosed as sub-processor; no DPA | High | Practice | Open |
-| 2 | Inference data residency not established | High | Practice | Open |
-| 3 | Audit record implies segregation of duties that does not exist | High | Build | Part closed 30 Jul: identity columns and `has_independent_review()` in place and verified. Not yet populated by the importer, not yet stated on screen. |
-| 4 | Instruction given to an agent not captured in the record | Medium | Build | Part closed 30 Jul: `finance.agent_runs` requires an instruction and is immutable once finished. Nothing writes to it until the runner exists. |
-| 5 | No retention period or legal hold for transcripts | Medium | Both | Open |
+| # | Gap | Severity | Owner | Status |
+|---|---|---|---|---|
+| 1 | Model provider not disclosed as sub-processor; no DPA on the path in use | High | Practice | **Path resolved 31 Jul, not yet live.** Vertex AI in `europe-west1` under the Google Cloud DPA, which is automatically incorporated and names Google as processor. Quota requested for three models; awaiting grant. Two questions open with Google: whether partner models sit within Appendix 4, and whether they are GA or Pre-GA — the Service Specific Terms exclude Pre-GA offerings from the DPA entirely. |
+| 2 | Inference data residency not established | High | Practice | **Resolved in principle 31 Jul.** `europe-west1` regional quotas exist for every Anthropic model in the project, so EEA-pinned processing is available. An earlier reading that only the global endpoint was usable was wrong — the regional 404s were zero quota, not absence. |
+| 3 | Audit record implies segregation of duties that does not exist | High | Build | **Reframed 31 Jul.** The internal chain never provides segregation and no amount of build work will make it. Genuine segregation comes from the client's own staff performing steps the practice relies on, which is now a named clause in the engagement letter and a row type in the balance sheet matrix. `has_independent_review()` continues to report the internal position honestly. |
+| 4 | Instruction given to an agent not captured in the record | Medium | Build | Part closed 30 Jul. Runner now also records the **processing path** on every run (migration 008). Still nothing written until a run happens. |
+| 5 | No retention period or legal hold for transcripts | Medium | Both | **Position written 31 Jul** — `stza-finance-agents/engagement/retention-and-deletion.md`. Working papers seven years, transcripts twelve months, tokens destroyed on disengagement, legal hold overrides. **No automated deletion exists**, so this is a written position rather than an operating control. |
 | 6 | No non-production environment or release record | Medium | Build | Open, deferred until client-facing |
 | 7 | Execution depends on a single machine | Medium | Practice | Accepted for now |
 | 8 | No periodic access review | Low | Practice | Not yet applicable |
+| 9 | GL drill-down not authorised on any Xero connection | Medium | Build | **Opened 31 Jul.** `accounting.reports.read` and `accounting.journals.read` are absent from the requested scopes, so the AccountTransactions report returns 401 on all four connections. FM1 lists GL drill-down in its scope and cannot perform it. Manual journals and bank transactions remain readable. Widening the scopes requires reconnecting every entity. |
+| 10 | Professional indemnity cover not confirmed for AI-drafted work | High | Practice | **Opened 31 Jul.** In progress outside the build. The Usage Policy classifies finance as high risk and requires a qualified professional in the loop — satisfied structurally — and disclosure to end users, which the engagement letter clause now covers. Non-disclosure to an insurer is the larger risk than any loading or exclusion. |
 
-Items 1 and 2 gate further processing of client data through agents. Item 3 gates
-any use of the record to support a professional opinion.
+Items 1 and 10 gate processing any **third-party client** ledger. Neither gates
+STZA's own, where the practice is both controller and client and no third party
+carries the risk — which is why STZA is the first live engagement.
+
+Item 3 no longer gates use of the record, because the claim it was gating has
+been withdrawn rather than fixed: the practice does not assert internal
+segregation.
 
 ---
 
