@@ -550,20 +550,28 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
     ? connections.filter((c) => c.authEventId === authEventId)
     : connections;
 
-  // Refuse rather than guess. A wrong tenant here is a journal in the wrong
-  // company's books, which is worse than making the operator try again.
-  if (matched.length !== 1) {
-    console.error(
-      `Ambiguous Xero connection: ${matched.length} of ${connections.length} matched auth event ${authEventId}`
+  // Refuse to GUESS the organisation, but do not refuse to STORE the
+  // authorisation. Those are different things and conflating them broke the
+  // flow entirely.
+  //
+  // A wrong tenant here is a journal in the wrong company's books, so guessing
+  // stays forbidden. But an unmapped authorisation is harmless: `connected`
+  // requires BOTH a tenant id and a stored secret, so the entity reports as not
+  // connected and nothing can reach a ledger until a person chooses the
+  // organisation.
+  //
+  // Discarding the token instead made the organisation picker unreachable. The
+  // picker needs a stored token to list organisations, and the callback would
+  // not store one until the tenant was unambiguous. Every new client hits that,
+  // because the app is already connected to several organisations and Xero
+  // returns no authentication_event_id for organisations it has seen before.
+  const tenant = matched.length === 1 ? matched[0] : null;
+  if (!tenant) {
+    console.warn(
+      `Xero organisation not identified: ${matched.length} of ${connections.length} matched auth event ${authEventId}. ` +
+        `Storing the authorisation unmapped for selection.`
     );
-    return res.status(409).json({
-      error:
-        matched.length === 0
-          ? "Could not identify which Xero organisation was authorised. Please try connecting again."
-          : `${matched.length} organisations were authorised at once. Connect one organisation at a time.`,
-    });
   }
-  const tenant = matched[0];
 
   const secretName = refreshSecretName(req.params.slug, entity.slug);
   await storeSecret(secretName, tokens.refresh_token);
@@ -578,9 +586,11 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
        WHERE id = $1`,
       [
         entity.id,
+        // Only write the tenant when it was actually identified. Writing a
+        // guess, or writing null over a previously correct mapping, are both
+        // worse than leaving it unset for a person to choose.
         JSON.stringify({
-          tenant_id: tenant.tenantId,
-          tenant_name: tenant.tenantName,
+          ...(tenant ? { tenant_id: tenant.tenantId, tenant_name: tenant.tenantName } : {}),
           connected_at: now,
           last_refreshed_at: now,
           scopes: XERO_SCOPES.split(" "),
@@ -606,10 +616,15 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
         entity.slug,
         client.id,
         // Records what was connected and with what access. Never the tokens.
+        // An unmapped authorisation is recorded as such rather than left out of
+        // the log, because "authorised but pointing at nothing" is a state
+        // someone may later need to explain.
         JSON.stringify({
           entity: entity.slug,
-          tenantId: tenant.tenantId,
-          tenantName: tenant.tenantName,
+          tenantId: tenant ? tenant.tenantId : null,
+          tenantName: tenant ? tenant.tenantName : null,
+          organisationSelected: Boolean(tenant),
+          candidateOrganisations: connections.length,
           scopes: XERO_SCOPES.split(" "),
           secretName,
         }),
@@ -627,8 +642,12 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
   res.json({
     ok: true,
     entity: entity.slug,
-    tenantId: tenant.tenantId,
-    tenantName: tenant.tenantName,
+    tenantId: tenant ? tenant.tenantId : null,
+    tenantName: tenant ? tenant.tenantName : null,
+    // The entity is authorised but not yet pointed at an organisation. It will
+    // report as not connected until one is chosen, which is the honest state.
+    needsSelection: !tenant,
+    candidateOrganisations: connections.length,
   });
 }));
 
