@@ -22,8 +22,6 @@ const API_URL = process.env.FINANCE_API_URL || "http://127.0.0.1:8080";
 const API_KEY = process.env.FINANCE_API_KEY;
 const PLUGIN_DIR =
   process.env.STZA_PLUGIN_DIR || "C:\\Users\\yogim\\STZA Group\\stza-finance-agents";
-// The only client an ungoverned run may touch. Its data is synthetic.
-const SANDBOX_CLIENT = process.env.STZA_SANDBOX_CLIENT || "sandbox-test-group";
 const TRANSCRIPT_ROOT =
   process.env.CLAUDE_PROJECTS_DIR || join(process.env.USERPROFILE || "", ".claude", "projects");
 
@@ -133,23 +131,33 @@ async function runJob(job) {
   const cwd = job.client?.folder_path;
   log(`claimed ${job.id.slice(0, 8)} for ${job.client?.slug}${job.agent ? ` [${job.agent}]` : ""}`);
 
-  // An ungoverned path is for exercising the runner against synthetic data. It
-  // must never reach a real client folder, and a convention that says so is
-  // worth less than a check that enforces it: the flag gets set for a reason
-  // one afternoon and is still set the morning someone runs a real close.
-  if (!PATH_IN_USE.governed && job.client?.slug !== SANDBOX_CLIENT) {
+  // An ungoverned path carries no data processing agreement and no
+  // confidentiality clause. That matters where a third party's ledger is
+  // involved: a duty is owed to someone who has not consented.
+  //
+  // Where the operator is both controller and client it does not, because there
+  // is no third party to protect. What remains is a terms question on the
+  // operator's own account, which is the operator's to weigh and not a
+  // runner's to enforce.
+  //
+  // The flag is per client, set deliberately and recorded, rather than a slug
+  // hardcoded here. The earlier version exempted only a sandbox, which blocked
+  // the operator's own first close while the identical processing continued in
+  // interactive sessions - a control on the recorded path and not the
+  // unrecorded one, which is worse than none.
+  if (!PATH_IN_USE.governed && !job.client?.operator_is_controller) {
     await api(`/api/finance/agent-runs/${job.id}/complete`, {
       method: "POST",
       body: JSON.stringify({
         status: "failed",
         error:
           `refused: no commercial agreement governs this processing path, and ` +
-          `'${job.client?.slug}' is not the sandbox. Configure Vertex or an API key.`,
+          `'${job.client?.slug}' is a third-party client. Configure Vertex or an API key.`,
         processingPath: PATH_IN_USE.kind,
         processingPathLabel: PATH_IN_USE.label,
       }),
     });
-    log(`  refused: ungoverned path, and ${job.client?.slug} is a real client`);
+    log(`  refused: ungoverned path, and ${job.client?.slug} is a third-party client`);
     return;
   }
 

@@ -1012,8 +1012,15 @@ app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
       return res.status(204).end();
     }
     const job = rows[0];
+    // operatorIsController travels with the job because the runner decides
+    // whether an ungoverned processing path is permissible, and that turns on
+    // whose data it is rather than on anything the runner can see locally.
     const c = await conn.query(
-      "SELECT slug, name, folder_path FROM shared.clients WHERE id = $1",
+      `SELECT c.slug, c.name, c.folder_path,
+              COALESCE(cfc.operator_is_controller, false) AS operator_is_controller
+         FROM shared.clients c
+         LEFT JOIN finance.client_finance_config cfc ON cfc.client_id = c.id
+        WHERE c.id = $1`,
       [job.client_id]
     );
     await conn.query("COMMIT");
