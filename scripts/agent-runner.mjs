@@ -22,6 +22,8 @@ const API_URL = process.env.FINANCE_API_URL || "http://127.0.0.1:8080";
 const API_KEY = process.env.FINANCE_API_KEY;
 const PLUGIN_DIR =
   process.env.STZA_PLUGIN_DIR || "C:\\Users\\yogim\\STZA Group\\stza-finance-agents";
+// The only client an ungoverned run may touch. Its data is synthetic.
+const SANDBOX_CLIENT = process.env.STZA_SANDBOX_CLIENT || "sandbox-test-group";
 const TRANSCRIPT_ROOT =
   process.env.CLAUDE_PROJECTS_DIR || join(process.env.USERPROFILE || "", ".claude", "projects");
 
@@ -130,6 +132,26 @@ function runClaude(cwd, prompt, path) {
 async function runJob(job) {
   const cwd = job.client?.folder_path;
   log(`claimed ${job.id.slice(0, 8)} for ${job.client?.slug}${job.agent ? ` [${job.agent}]` : ""}`);
+
+  // An ungoverned path is for exercising the runner against synthetic data. It
+  // must never reach a real client folder, and a convention that says so is
+  // worth less than a check that enforces it: the flag gets set for a reason
+  // one afternoon and is still set the morning someone runs a real close.
+  if (!PATH_IN_USE.governed && job.client?.slug !== SANDBOX_CLIENT) {
+    await api(`/api/finance/agent-runs/${job.id}/complete`, {
+      method: "POST",
+      body: JSON.stringify({
+        status: "failed",
+        error:
+          `refused: no commercial agreement governs this processing path, and ` +
+          `'${job.client?.slug}' is not the sandbox. Configure Vertex or an API key.`,
+        processingPath: PATH_IN_USE.kind,
+        processingPathLabel: PATH_IN_USE.label,
+      }),
+    });
+    log(`  refused: ungoverned path, and ${job.client?.slug} is a real client`);
+    return;
+  }
 
   if (!cwd || !existsSync(cwd)) {
     await api(`/api/finance/agent-runs/${job.id}/complete`, {
