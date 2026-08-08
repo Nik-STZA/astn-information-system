@@ -1168,6 +1168,250 @@ app.post("/api/finance/clients/:slug/sync", route(async (req, res) => {
   }
 }));
 
+// ── Xero data ──────────────────────────────────────────────────────────────
+//
+// Live financial data endpoints. Each resolves the entity's Xero tenant
+// and refresh-token secret, gets a fresh access token (rotating the
+// refresh token in Secret Manager), then proxies a single Xero API call.
+//
+// Used by the agent runner and (eventually) by the Reports/CoA pages.
+
+const XERO_API = "https://api.xero.com/api.xro/2.0";
+
+async function xeroEntityContext(slug, entitySlug) {
+  const client = await clientIdFromSlug(slug);
+  if (!client) return null;
+
+  const { rows } = await pool.query(
+    `SELECT e.id, e.slug, e.name, e.accounting_system_config
+     FROM finance.entities e
+     WHERE e.client_id = $1 AND e.slug = $2`,
+    [client.id, entitySlug]
+  );
+  if (!rows.length) return null;
+
+  const entity = rows[0];
+  const tenantId = entity.accounting_system_config?.tenant_id;
+  if (!tenantId) return null;
+
+  const secretName = refreshSecretName(slug, entitySlug);
+  let accessToken;
+  try {
+    accessToken = await refreshAccessToken(secretName);
+  } catch (e) {
+    if (e instanceof ErpUnavailable) return { error: e.message };
+    throw e;
+  }
+
+  return { client, entity, tenantId, accessToken };
+}
+
+async function xeroGet(accessToken, tenantId, path, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${XERO_API}${path}${qs ? `?${qs}` : ""}`;
+  const r = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      Accept: "application/json",
+    },
+  });
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`Xero ${path} returned ${r.status}: ${body.slice(0, 300)}`);
+  }
+  return r.json();
+}
+
+// GET /api/finance/clients/:slug/xero/:entity/trial-balance
+app.get("/api/finance/clients/:slug/xero/:entity/trial-balance", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const params = {};
+  if (req.query.date) params.date = req.query.date;
+  if (req.query.paymentsOnly) params.paymentsOnly = req.query.paymentsOnly;
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", params);
+  res.json({ entity: ctx.entity.name, report: data.Reports?.[0] ?? data });
+}));
+
+// GET /api/finance/clients/:slug/xero/:entity/profit-and-loss
+app.get("/api/finance/clients/:slug/xero/:entity/profit-and-loss", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const params = {};
+  if (req.query.fromDate) params.fromDate = req.query.fromDate;
+  if (req.query.toDate) params.toDate = req.query.toDate;
+  if (req.query.periods) params.periods = req.query.periods;
+  if (req.query.timeframe) params.timeframe = req.query.timeframe;
+  if (req.query.trackingCategoryID) params.trackingCategoryID = req.query.trackingCategoryID;
+  if (req.query.trackingOptionID) params.trackingOptionID = req.query.trackingOptionID;
+  if (req.query.standardLayout) params.standardLayout = req.query.standardLayout;
+  if (req.query.paymentsOnly) params.paymentsOnly = req.query.paymentsOnly;
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/ProfitAndLoss", params);
+  res.json({ entity: ctx.entity.name, report: data.Reports?.[0] ?? data });
+}));
+
+// GET /api/finance/clients/:slug/xero/:entity/balance-sheet
+app.get("/api/finance/clients/:slug/xero/:entity/balance-sheet", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const params = {};
+  if (req.query.date) params.date = req.query.date;
+  if (req.query.periods) params.periods = req.query.periods;
+  if (req.query.timeframe) params.timeframe = req.query.timeframe;
+  if (req.query.trackingOptionID) params.trackingOptionID = req.query.trackingOptionID;
+  if (req.query.standardLayout) params.standardLayout = req.query.standardLayout;
+  if (req.query.paymentsOnly) params.paymentsOnly = req.query.paymentsOnly;
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/BalanceSheet", params);
+  res.json({ entity: ctx.entity.name, report: data.Reports?.[0] ?? data });
+}));
+
+// GET /api/finance/clients/:slug/xero/:entity/bank-summary
+app.get("/api/finance/clients/:slug/xero/:entity/bank-summary", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const params = {};
+  if (req.query.fromDate) params.fromDate = req.query.fromDate;
+  if (req.query.toDate) params.toDate = req.query.toDate;
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/BankSummary", params);
+  res.json({ entity: ctx.entity.name, report: data.Reports?.[0] ?? data });
+}));
+
+// GET /api/finance/clients/:slug/xero/:entity/aged-receivables
+// Uses the Invoices API (Type==ACCREC with outstanding amounts) instead of the
+// AgedReceivablesByContact report, which requires a contactId.
+app.get("/api/finance/clients/:slug/xero/:entity/aged-receivables", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const params = {
+    where: 'Type=="ACCREC" AND AmountDue>0',
+    order: "DueDate",
+  };
+  if (req.query.page) params.page = req.query.page;
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", params);
+  const asAtDate = req.query.date || new Date().toISOString().slice(0, 10);
+  const asAt = new Date(asAtDate);
+
+  // Bucket into ageing periods
+  const buckets = { current: 0, "30": 0, "60": 0, "90": 0, "90+": 0, total: 0 };
+  const lines = (data.Invoices || []).map((inv) => {
+    const due = new Date(inv.DueDateString || inv.DueDate);
+    const daysOverdue = Math.floor((asAt - due) / 86400000);
+    let bucket = "current";
+    if (daysOverdue > 90) bucket = "90+";
+    else if (daysOverdue > 60) bucket = "90";
+    else if (daysOverdue > 30) bucket = "60";
+    else if (daysOverdue > 0) bucket = "30";
+    buckets[bucket] += inv.AmountDue;
+    buckets.total += inv.AmountDue;
+    return {
+      invoiceNumber: inv.InvoiceNumber,
+      contact: inv.Contact?.Name,
+      dueDate: inv.DueDateString,
+      amountDue: inv.AmountDue,
+      currency: inv.CurrencyCode,
+      daysOverdue: Math.max(0, daysOverdue),
+      bucket,
+    };
+  });
+
+  res.json({ entity: ctx.entity.name, asAtDate, buckets, invoiceCount: lines.length, invoices: lines });
+}));
+
+// GET /api/finance/clients/:slug/xero/:entity/aged-payables
+// Uses the Invoices API (Type==ACCPAY with outstanding amounts) instead of the
+// AgedPayablesByContact report, which requires a contactId.
+app.get("/api/finance/clients/:slug/xero/:entity/aged-payables", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const params = {
+    where: 'Type=="ACCPAY" AND AmountDue>0',
+    order: "DueDate",
+  };
+  if (req.query.page) params.page = req.query.page;
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", params);
+  const asAtDate = req.query.date || new Date().toISOString().slice(0, 10);
+  const asAt = new Date(asAtDate);
+
+  const buckets = { current: 0, "30": 0, "60": 0, "90": 0, "90+": 0, total: 0 };
+  const lines = (data.Invoices || []).map((inv) => {
+    const due = new Date(inv.DueDateString || inv.DueDate);
+    const daysOverdue = Math.floor((asAt - due) / 86400000);
+    let bucket = "current";
+    if (daysOverdue > 90) bucket = "90+";
+    else if (daysOverdue > 60) bucket = "90";
+    else if (daysOverdue > 30) bucket = "60";
+    else if (daysOverdue > 0) bucket = "30";
+    buckets[bucket] += inv.AmountDue;
+    buckets.total += inv.AmountDue;
+    return {
+      invoiceNumber: inv.InvoiceNumber,
+      contact: inv.Contact?.Name,
+      dueDate: inv.DueDateString,
+      amountDue: inv.AmountDue,
+      currency: inv.CurrencyCode,
+      daysOverdue: Math.max(0, daysOverdue),
+      bucket,
+    };
+  });
+
+  res.json({ entity: ctx.entity.name, asAtDate, buckets, invoiceCount: lines.length, invoices: lines });
+}));
+
+// GET /api/finance/clients/:slug/xero/:entity/accounts  (chart of accounts)
+app.get("/api/finance/clients/:slug/xero/:entity/accounts", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return res.status(502).json({ error: ctx.error });
+
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts");
+  res.json({ entity: ctx.entity.name, count: data.Accounts?.length ?? 0, data: data.Accounts ?? [] });
+}));
+
+// GET /api/finance/clients/:slug/entities  — list connected entities for a client
+app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows } = await pool.query(
+    `SELECT slug, name, legal_name, accounting_system, accounting_system_config,
+            role, year_end
+     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+    [client.id]
+  );
+
+  res.json({
+    count: rows.length,
+    data: rows.map((e) => ({
+      slug: e.slug,
+      name: e.name,
+      legalName: e.legal_name,
+      accountingSystem: e.accounting_system,
+      connected: Boolean(e.accounting_system_config?.tenant_id),
+      role: e.role,
+      yearEnd: e.year_end,
+    })),
+  });
+}));
+
 // ── Start ───────────────────────────────────────────────────────────────────
 
 const port = parseInt(process.env.PORT || "8080", 10);

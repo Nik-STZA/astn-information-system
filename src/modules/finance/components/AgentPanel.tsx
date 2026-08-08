@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRunRow } from "@/modules/finance/lib/api";
+import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 
 const AGENTS = [
   { key: "", label: "No specific agent", hint: "General session in the client folder" },
@@ -17,6 +18,14 @@ const AGENTS = [
   { key: "fm2", label: "FM2", hint: "Review AP, AR and VAT work" },
   { key: "ap-clerk", label: "AP Clerk", hint: "AP posting, vendor setup, reconciliation" },
 ];
+
+// Agent identity for the output section — icon, full title, accent colour
+const AGENT_IDENTITY: Record<string, { icon: string; title: string; accent: string }> = {
+  fc:         { icon: "\u{1F4CB}", title: "Financial Controller",        accent: "#C5A059" },  // clipboard
+  fpa:        { icon: "\u{1F4C8}", title: "FP&A Analyst",               accent: "#5B8DEF" },  // chart increasing
+  fm2:        { icon: "\u{1F50D}", title: "Finance Manager — AP/AR/VAT", accent: "#7EC8A0" },  // magnifying glass
+  "ap-clerk": { icon: "\u{1F4C4}", title: "AP Clerk",                   accent: "#C4A0D9" },  // page facing up
+};
 
 const STATUS_COLOUR: Record<string, string> = {
   queued: "var(--sub)",
@@ -67,7 +76,21 @@ function Run({ run }: { run: AgentRunRow }) {
           {run.status}
         </span>
         {run.agent && (
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#C5A059" }}>{run.agent}</span>
+          <span
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: AGENT_IDENTITY[run.agent]?.accent ?? "#C5A059",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            {AGENT_IDENTITY[run.agent]?.icon && (
+              <span style={{ fontSize: 13 }}>{AGENT_IDENTITY[run.agent].icon}</span>
+            )}
+            {AGENTS.find((a) => a.key === run.agent)?.label ?? run.agent}
+          </span>
         )}
         <span style={{ fontSize: 12.5, color: "var(--tx)", flex: 1, minWidth: 180 }}>
           {run.instruction.length > 90 ? `${run.instruction.slice(0, 90)}…` : run.instruction}
@@ -92,9 +115,36 @@ function Run({ run }: { run: AgentRunRow }) {
 
           {run.output && (
             <>
-              <div style={{ color: "var(--sub)", fontSize: 11, marginBottom: 2 }}>Output</div>
-              <div style={{ color: "var(--tx)", whiteSpace: "pre-wrap", marginBottom: 10 }}>
-                {run.output}
+              {/* Agent identity banner */}
+              {run.agent && AGENT_IDENTITY[run.agent] && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 8,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    background: `${AGENT_IDENTITY[run.agent].accent}12`,
+                    border: `1px solid ${AGENT_IDENTITY[run.agent].accent}30`,
+                  }}
+                >
+                  <span style={{ fontSize: 18 }}>{AGENT_IDENTITY[run.agent].icon}</span>
+                  <span
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      color: AGENT_IDENTITY[run.agent].accent,
+                      letterSpacing: ".02em",
+                    }}
+                  >
+                    {AGENT_IDENTITY[run.agent].title}
+                  </span>
+                </div>
+              )}
+              <div style={{ color: "var(--sub)", fontSize: 11, marginBottom: 4 }}>Output</div>
+              <div style={{ marginBottom: 10 }}>
+                <MarkdownOutput text={run.output} />
               </div>
             </>
           )}
