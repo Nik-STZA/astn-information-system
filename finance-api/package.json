@@ -5,9 +5,11 @@
   "description": "Finance module API. Reads shared.* and finance.* only.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "runner": "node runner.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@google-cloud/secret-manager": "^6.3.0",
     "express": "^4.21.0",
     "pg": "^8.13.0"

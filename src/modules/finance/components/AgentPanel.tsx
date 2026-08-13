@@ -27,6 +27,13 @@ const AGENT_IDENTITY: Record<string, { icon: string; title: string; accent: stri
   "ap-clerk": { icon: "\u{1F4C4}", title: "AP Clerk",                   accent: "#C4A0D9" },  // page facing up
 };
 
+const DEFAULT_IDENTITY = { icon: "\u{1F4BC}", title: "Finance Team", accent: "#8E9196" };  // briefcase
+
+function agentIdentity(agent: string | null) {
+  if (agent && AGENT_IDENTITY[agent]) return AGENT_IDENTITY[agent];
+  return DEFAULT_IDENTITY;
+}
+
 const STATUS_COLOUR: Record<string, string> = {
   queued: "var(--sub)",
   running: "var(--status-blue)",
@@ -75,23 +82,21 @@ function Run({ run }: { run: AgentRunRow }) {
         >
           {run.status}
         </span>
-        {run.agent && (
-          <span
-            style={{
-              fontSize: 10.5,
-              fontWeight: 700,
-              color: AGENT_IDENTITY[run.agent]?.accent ?? "#C5A059",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            {AGENT_IDENTITY[run.agent]?.icon && (
-              <span style={{ fontSize: 13 }}>{AGENT_IDENTITY[run.agent].icon}</span>
-            )}
-            {AGENTS.find((a) => a.key === run.agent)?.label ?? run.agent}
-          </span>
-        )}
+        <span
+          style={{
+            fontSize: 10.5,
+            fontWeight: 700,
+            color: agentIdentity(run.agent).accent,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <span style={{ fontSize: 13 }}>{agentIdentity(run.agent).icon}</span>
+          {run.agent
+            ? (AGENTS.find((a) => a.key === run.agent)?.label ?? run.agent)
+            : "Team"}
+        </span>
         <span style={{ fontSize: 12.5, color: "var(--tx)", flex: 1, minWidth: 180 }}>
           {run.instruction.length > 90 ? `${run.instruction.slice(0, 90)}…` : run.instruction}
         </span>
@@ -113,41 +118,42 @@ function Run({ run }: { run: AgentRunRow }) {
             {run.instruction}
           </div>
 
-          {run.output && (
+          {run.output && (() => {
+            const identity = agentIdentity(run.agent);
+            return (
             <>
               {/* Agent identity banner */}
-              {run.agent && AGENT_IDENTITY[run.agent] && (
-                <div
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: `${identity.accent}12`,
+                  border: `1px solid ${identity.accent}30`,
+                }}
+              >
+                <span style={{ fontSize: 18 }}>{identity.icon}</span>
+                <span
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 8,
-                    padding: "6px 10px",
-                    borderRadius: 6,
-                    background: `${AGENT_IDENTITY[run.agent].accent}12`,
-                    border: `1px solid ${AGENT_IDENTITY[run.agent].accent}30`,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color: identity.accent,
+                    letterSpacing: ".02em",
                   }}
                 >
-                  <span style={{ fontSize: 18 }}>{AGENT_IDENTITY[run.agent].icon}</span>
-                  <span
-                    style={{
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      color: AGENT_IDENTITY[run.agent].accent,
-                      letterSpacing: ".02em",
-                    }}
-                  >
-                    {AGENT_IDENTITY[run.agent].title}
-                  </span>
-                </div>
-              )}
+                  {identity.title}
+                </span>
+              </div>
               <div style={{ color: "var(--sub)", fontSize: 11, marginBottom: 4 }}>Output</div>
               <div style={{ marginBottom: 10 }}>
                 <MarkdownOutput text={run.output} />
               </div>
             </>
-          )}
+            );
+          })()}
 
           {run.error && (
             <div style={{ color: "var(--alert-red)", whiteSpace: "pre-wrap", marginBottom: 10 }}>
