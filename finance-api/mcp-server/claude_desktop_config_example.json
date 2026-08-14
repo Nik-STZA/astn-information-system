@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "stza-finance": {
+      "command": "node",
+      "args": ["<REPO_ROOT>/finance-api/mcp-server/index.js"],
+      "env": {
+        "STZA_API_KEY": "<REPLACE_WITH_YOUR_FINANCE_API_KEY>",
+        "STZA_API_URL": "https://stza-finance-api-782190795609.europe-west1.run.app"
+      }
+    }
+  }
+}

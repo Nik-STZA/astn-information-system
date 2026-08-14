@@ -1,0 +1,426 @@
+# STZA Finance Platform — OpenAPI 3.1 Specification
+#
+# For ChatGPT (GPT Actions) and Gemini (Extensions) integration.
+# The MCP server handles Claude; this spec handles OpenAI and Google.
+#
+# v0.1: mirrors the 8 MCP tools as REST endpoints
+# Deploy behind an API gateway that validates STZA API keys.
+
+openapi: "3.1.0"
+info:
+  title: STZA Finance Platform
+  version: "0.1.0"
+  description: |
+    Live Xero accounting data for AI assistants. Connect your Claude, ChatGPT,
+    or Gemini to your books and interact conversationally — pull reports, review
+    aged debtors, compare P&L periods, and more.
+
+    Authentication: pass your STZA API key in the X-API-Key header.
+  contact:
+    name: STZA
+    url: https://stza.io
+    email: nik@stza.io
+
+servers:
+  - url: https://finance-api.stza.io/v1
+    description: Production
+
+security:
+  - apiKey: []
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Your STZA platform API key
+
+  schemas:
+    Entity:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: Unique identifier for the entity
+        name:
+          type: string
+        legalName:
+          type: string
+        accountingSystem:
+          type: string
+        connected:
+          type: boolean
+          description: Whether the entity has an active Xero connection
+        role:
+          type: string
+        yearEnd:
+          type: string
+          format: date
+
+    AgeingBuckets:
+      type: object
+      properties:
+        current:
+          type: number
+        "30":
+          type: number
+        "60":
+          type: number
+        "90":
+          type: number
+        "90+":
+          type: number
+        total:
+          type: number
+
+    Invoice:
+      type: object
+      properties:
+        invoiceNumber:
+          type: string
+        contact:
+          type: string
+        dueDate:
+          type: string
+        amountDue:
+          type: number
+        currency:
+          type: string
+        daysOverdue:
+          type: integer
+        bucket:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /entities:
+    get:
+      operationId: listEntities
+      summary: List connected Xero entities
+      description: |
+        Returns all entities (companies) the authenticated user can access.
+        Call this first to discover available entities and get slugs for other endpoints.
+      responses:
+        "200":
+          description: Entity list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Entity"
+
+  /entities/{entity}/trial-balance:
+    get:
+      operationId: getTrialBalance
+      summary: Get trial balance
+      description: |
+        Every account with its debit and credit balance at a point in time.
+        The foundation of all financial reporting.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Entity slug
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Report date (defaults to today)
+      responses:
+        "200":
+          description: Trial balance report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  report:
+                    type: object
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /entities/{entity}/profit-and-loss:
+    get:
+      operationId: getProfitAndLoss
+      summary: Get profit and loss report
+      description: |
+        Income statement showing revenue, cost of sales, gross profit, operating
+        expenses, and net profit. Supports comparative periods and tracking filters.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Period start (defaults to start of financial year)
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Period end (defaults to today)
+        - name: periods
+          in: query
+          schema:
+            type: integer
+          description: Number of comparison periods
+        - name: timeframe
+          in: query
+          schema:
+            type: string
+            enum: [MONTH, QUARTER, YEAR]
+          description: Comparison period length
+        - name: trackingCategoryID
+          in: query
+          schema:
+            type: string
+          description: Filter by tracking category (department)
+        - name: trackingOptionID
+          in: query
+          schema:
+            type: string
+        - name: standardLayout
+          in: query
+          schema:
+            type: boolean
+        - name: paymentsOnly
+          in: query
+          schema:
+            type: boolean
+          description: Cash basis (true) or accrual (false)
+      responses:
+        "200":
+          description: P&L report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  report:
+                    type: object
+
+  /entities/{entity}/balance-sheet:
+    get:
+      operationId: getBalanceSheet
+      summary: Get balance sheet
+      description: |
+        Statement of financial position — assets, liabilities, and equity
+        at a point in time. Supports comparative periods.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: periods
+          in: query
+          schema:
+            type: integer
+        - name: timeframe
+          in: query
+          schema:
+            type: string
+            enum: [MONTH, QUARTER, YEAR]
+        - name: trackingOptionID
+          in: query
+          schema:
+            type: string
+        - name: standardLayout
+          in: query
+          schema:
+            type: boolean
+        - name: paymentsOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Balance sheet report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  report:
+                    type: object
+
+  /entities/{entity}/bank-summary:
+    get:
+      operationId: getBankSummary
+      summary: Get bank account summary
+      description: |
+        Opening balance, cash received, cash spent, and closing balance
+        for every bank account over a period.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Bank summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  report:
+                    type: object
+
+  /entities/{entity}/aged-receivables:
+    get:
+      operationId: getAgedReceivables
+      summary: Get aged receivables
+      description: |
+        Outstanding sales invoices with customer name, amount, due date,
+        days overdue, and ageing bucket (current/30/60/90/90+).
+        Includes summary totals per bucket.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: As-at date for ageing (defaults to today)
+      responses:
+        "200":
+          description: Aged receivables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  asAtDate:
+                    type: string
+                  buckets:
+                    $ref: "#/components/schemas/AgeingBuckets"
+                  invoiceCount:
+                    type: integer
+                  invoices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invoice"
+
+  /entities/{entity}/aged-payables:
+    get:
+      operationId: getAgedPayables
+      summary: Get aged payables
+      description: |
+        Outstanding purchase invoices with supplier name, amount, due date,
+        days overdue, and ageing bucket. Includes summary totals.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Aged payables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  asAtDate:
+                    type: string
+                  buckets:
+                    $ref: "#/components/schemas/AgeingBuckets"
+                  invoiceCount:
+                    type: integer
+                  invoices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invoice"
+
+  /entities/{entity}/accounts:
+    get:
+      operationId: getAccounts
+      summary: Get chart of accounts
+      description: |
+        Every account with code, name, type (REVENUE, EXPENSE, ASSET,
+        LIABILITY, EQUITY), tax type, and status.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chart of accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity:
+                    type: string
+                  count:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      type: object

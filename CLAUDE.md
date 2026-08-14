@@ -98,6 +98,26 @@ and no Supabase client files in `src/` any more.
 - The four original modules (registry, compliance, publishing) still live in
   `src/app/(app)/` and have not been relocated.
 
+## MCP server (commercial product)
+
+The BYOAI (Bring Your Own AI) commercial product. Lives in `finance-api/mcp-server/`.
+
+- **What it is:** an MCP server that exposes Xero accounting tools so users can connect from Claude Desktop, ChatGPT (via GPT Actions), or Gemini and interact with their books conversationally.
+- **Architecture (v0.1):** wraps the finance REST API via HTTP. stdio transport for local Claude Desktop connections. Single-client mode with client slug in env.
+- **Architecture (v1.0, planned):** direct Xero access, per-user API keys, SSE transport for remote connections, tier-based tool access.
+- **Entry point:** `finance-api/mcp-server/index.js` (ESM, `"type": "module"`)
+- **Dependencies:** `@modelcontextprotocol/sdk`, `zod`
+- **OpenAPI spec:** `finance-api/mcp-server/openapi.yaml` (OpenAPI 3.1 for ChatGPT/Gemini)
+- **Tools (9):** `list_clients`, `list_entities`, `get_trial_balance`, `get_profit_and_loss`, `get_balance_sheet`, `get_bank_summary`, `get_aged_receivables`, `get_aged_payables`, `get_accounts`
+- **Config env vars:** `STZA_API_KEY`, `STZA_API_URL`, `STZA_CLIENT`
+- **Scoping memo:** `outputs/STZA_BYOAI_Architecture_Scoping_Memo_v2.docx`
+
+The MCP server is a separate package from the finance REST API. It has its own `package.json` and `node_modules`. It does NOT share a database connection with the REST API in v0.1 — it makes HTTP calls to the existing API endpoints.
+
+Recovered into version control on 14 August 2026. It had been running from an
+untracked directory in a second, stale checkout at `C:\Dev\astn-information-system`
+and existed nowhere else. Do not run it from there.
+
 ## Brand rules (STZA Brand Guidelines v1.0) — apply everywhere
 
 - **Font:** Manrope, set in `src/styles/globals.css`. (The brand guideline names Calibri; the app shipped with Manrope and has stayed there.)
