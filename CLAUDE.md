@@ -108,8 +108,9 @@ The BYOAI (Bring Your Own AI) commercial product. Lives in `finance-api/mcp-serv
 - **Entry point:** `finance-api/mcp-server/index.js` (ESM, `"type": "module"`)
 - **Dependencies:** `@modelcontextprotocol/sdk`, `zod`
 - **OpenAPI spec:** `finance-api/mcp-server/openapi.yaml` (OpenAPI 3.1 for ChatGPT/Gemini)
-- **Tools (9):** `list_clients`, `list_entities`, `get_trial_balance`, `get_profit_and_loss`, `get_balance_sheet`, `get_bank_summary`, `get_aged_receivables`, `get_aged_payables`, `get_accounts`
-- **Config env vars:** `STZA_API_KEY`, `STZA_API_URL`, `STZA_CLIENT`
+- **Tools (10):** `list_clients`, `list_entities`, `get_trial_balance`, `get_profit_and_loss`, `get_balance_sheet`, `get_bank_summary`, `get_aged_receivables`, `get_aged_payables`, `get_accounts`, and one write tool — `post_journal`.
+- **Config env vars:** `STZA_API_URL`, `STZA_ACTOR_EMAIL`, `STZA_CLIENT`. **No API key.** The key is read from Secret Manager (`finance-api-key`) via Application Default Credentials at startup; run `gcloud auth application-default login` once per machine. `STZA_API_KEY` survives as a deprecated fallback and warns when used — it must not be set in normal operation, because a plaintext key in `claude_desktop_config.json` is a second credential holder with write access to client ledgers.
+- **`post_journal` invariant:** `approval.presented_text` and `approval.agreed_text` are passed through from the caller verbatim. The tool must **never** compose them — it would be validating the payload against a description of itself. See the block comment above the tool definition and spec §5.
 - **Scoping memo:** `outputs/STZA_BYOAI_Architecture_Scoping_Memo_v2.docx`
 
 The MCP server is a separate package from the finance REST API. It has its own `package.json` and `node_modules`. It does NOT share a database connection with the REST API in v0.1 — it makes HTTP calls to the existing API endpoints.

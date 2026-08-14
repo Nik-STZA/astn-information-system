@@ -302,6 +302,33 @@ clicked; the payload records what they agreed to. Only the second survives the
 session it was created in, and only the second distinguishes approving *this*
 journal from approving *a* journal.
 
+### `presented_text` must be captured, never composed
+
+**The caller renders the journal, displays it, captures the reply, and passes
+both strings through verbatim. No component between the human and the audit
+record may generate either one.**
+
+This is a constraint on the MCP tool and on any future caller, and everything
+above depends on it. `APPROVAL_MISMATCH` compares the submitted journal against
+`presented_text`. If the tool built `presented_text` from the same arguments it
+was about to submit, it would be comparing the payload against a description of
+itself: every check passes, on every journal, including one no human ever saw.
+The audit record would state what the approver was shown and be wrong, and the
+control would validate perfectly while protecting nothing.
+
+The same applies to `agreed_text` — the person's actual words, not `"approved"`
+copied from the example above.
+
+If a caller omits `presented_text`, that is `MISSING_APPROVAL`. **Do not
+generate one.** A rejection is visible and recoverable; a fabricated approval
+record is neither, and it is indistinguishable from a real one after the fact.
+
+Worth stating explicitly because nothing enforces it and nothing would fail if
+it were broken. A later refactor that "tidies up" by building the string in the
+tool would leave every test passing, every journal validating, and the entire
+approval trail worthless. It is the one property of this design that has to be
+maintained by understanding rather than by a check.
+
 **What this record is, and is not.** It is the platform's immutable evidence of
 what the FD asserted at the moment of posting. It is **not** a guarantee that
 approval genuinely occurred — the platform cannot observe a Cowork
