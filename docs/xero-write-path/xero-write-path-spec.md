@@ -15,15 +15,25 @@ organisations (FGH, FSL, UDL):
 |---|---|---|
 | Location | Hosted (GCP) | Analyst laptop |
 | Credentials | Platform-owned, rotated | Copy in `configs\*.json`, plaintext |
-| Xero app | `8EA540A6…` | **Same app** |
+| Xero app | `8A909173…` | `8EA540A6…` — **different app** |
 | Capability | Read only | Read (duplicated) + **write** |
 | Audit trail | Platform | None |
 | Status 14 Aug 2026 | Working | Dead since ~12 July |
 
-Both hold refresh tokens for the same Xero app. Xero rotates the refresh
-token on **every** refresh and invalidates the old one after a short grace
-window. Two independent holders therefore cannot both stay valid: whichever
-refreshes second presents a token the first has already consumed.
+**Correction, verified 14 August 2026.** These are **different Xero apps** —
+platform `8A909173…`, plugin `8EA540A6…`, confirmed against Secret Manager.
+Different apps have independent refresh-token lineages, so the platform never
+consumed the plugin's tokens and could not have. The original premise here was
+wrong.
+
+What is still true, and still the reason to consolidate: the ~22 programs in
+XERO REPORTING all share **one** app and the same three config files. Xero
+rotates the refresh token on every refresh and invalidates the old one after a
+30-minute grace period, so those 22 do invalidate each other. The collision is
+real but entirely local to the plugin side. The last-saved timestamps
+(UDL 12:58:13, FSL 13:00:25, FGH 13:01:12) look like one sequential loop over
+the three entities, consistent with a local batch run rather than anything the
+platform did.
 
 Observed failure, 14 Aug 2026 — all three local configs:
 
@@ -215,6 +225,34 @@ of the record rather than a separate manual check.
 
 Retain for at least the statutory record-keeping period — six years for UK
 companies, so align with whatever the platform already does for client data.
+
+### Ordering constraint: get the token before opening the audit transaction
+
+**Acquire the Xero access token *before* opening the audit transaction, never
+inside it.**
+
+`refreshAccessToken()` checks out its own pooled connection to take
+`pg_advisory_xact_lock`. The audit record is written on a second checked-out
+connection. The obvious implementation — open the audit transaction, write the
+"before" row, then call Xero — therefore holds one connection while waiting for
+a second.
+
+`finance-api` runs with `pool.max = 5` and no `--concurrency` flag, so Cloud Run
+allows 80 concurrent requests per instance. Five simultaneous journal posts
+would each hold one connection and each wait for a second that cannot come:
+every connection is held by a request waiting for one. That is a self-deadlock,
+and it resolves only when `connectionTimeoutMillis` (10s) fires on all five.
+
+The order that works:
+
+```js
+const ctx = await xeroEntityContext(slug, entity);   // token acquired, connection released
+const conn = await pool.connect();                   // now open the audit transaction
+```
+
+No caller violates this today — the only two call sites reach
+`refreshAccessToken()` via `pool.query()`, which releases between statements.
+The journal endpoint is the first thing that will naturally get it wrong.
 
 ---
 
