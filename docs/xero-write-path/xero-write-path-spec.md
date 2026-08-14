@@ -178,11 +178,51 @@ not just the first.
 | `MATERIALITY` | Warn (never block) above the threshold, which is **£1** — see §8.3. In practice every journal warns, and that is the intent: the warning carries the amount into `presented_text` so the approver always sees the size of what they are agreeing to. |
 | `MISSING_APPROVAL` | `approval` absent, or missing any of `approved_by`, `approved_at`, `presented_text`, `agreed_text`. |
 | `APPROVAL_STALE` | `approved_at` is more than 30 minutes before the request, or in the future. An approval agreed hours earlier was agreed to a different set of numbers. |
-| `APPROVAL_MISMATCH` | `presented_text` does not contain the entity, date, net and every account code in `lines`. Catches a payload edited after it was shown to the human — the one failure the assertion model cannot otherwise detect. |
+| `APPROVAL_MISMATCH` | `presented_text` does not contain the entity, the date, every account code, **and every line amount**. Catches a payload edited after it was shown to the human — the one failure the assertion model cannot otherwise detect. See below. |
 
 `dry_run: true` runs every check and returns the would-be payload with
 `"action": "DRY RUN — validated, not posted"`. No Xero call, no audit record
 beyond a dry-run entry.
+
+### What `APPROVAL_MISMATCH` compares, and why amounts block
+
+Enforced: **entity, date, every account code, every line amount.** All four
+block. `net` is **not** checked — it is always `0.00` on a balanced journal, so
+requiring it in the text demands a format without carrying any information.
+
+Amounts block rather than warn, and that is the point of the whole check.
+Entity, date and account codes can all agree while the numbers have been
+changed: present `Dr 400 £50.00 / Cr 805 £50.00` to a human, submit
+`£50,000.00`, and every other field still matches. A warning there would leave
+the control not covering the single case `approval_payload` was designed to
+make impossible.
+
+Both sides are normalised before comparison, exactly as entity names are:
+
+| Written as | Compared as |
+|---|---|
+| `£50,000` | `50000` |
+| `50,000.00` | `50000` |
+| `50000.00` | `50000` |
+| `1234.56` | `1234.56` |
+
+Currency symbols and thousands separators are stripped; a trailing `.00` is
+dropped. Whitespace is **not** stripped — removing it would run adjacent
+numbers together, so `Dr 400 50000.00` would read as one token `40050000.00`
+and the real amount would look absent.
+
+Two accepted limits, both chosen so the check never rejects a correctly
+approved journal:
+
+- **One-directional.** Every line amount must appear in the text; a number in
+  the text need not correspond to a line. Requiring the reverse would trip over
+  dates, account codes and anything else a person writes. It costs little:
+  altering one line's amount unbalances the journal and `UNBALANCED` catches
+  it, and altering both to stay balanced changes the tokens, which this
+  catches.
+- **Coincidental matches.** Account codes and date parts are numbers too, so a
+  £400 line against account 400 can satisfy the check without the amount being
+  written out. Narrow, and the right direction to fail in.
 
 ---
 

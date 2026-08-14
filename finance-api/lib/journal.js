@@ -120,19 +120,65 @@ function checkApprovalText(presentedText, { entityNames = [], date, lines }) {
     if (code && !text.includes(code)) missing.push(`account code ${code}`);
   }
 
+  // Amounts block, and must. Entity, date and account codes can all match while
+  // the numbers have been changed: show a human "Dr 400 £50.00 / Cr 805 £50.00"
+  // and submit £50,000.00 and every other field still agrees. That single case
+  // is the reason approval_payload records what was presented rather than a
+  // boolean, so leaving it as a warning would have left the control not
+  // covering the thing it was built for.
+  const seen = amountTokens(text);
+  for (const l of lines) {
+    const c = canonicalAmount(l.amount);
+    if (c && !seen.has(c)) missing.push(`amount ${fromPence(Math.abs(toPence(l.amount)))}`);
+  }
+
   return missing;
 }
 
-/** Amounts are a warning, not a blocker. See checkApprovalText. */
-function approvalAmountWarnings(presentedText, lines) {
-  const flat = String(presentedText || "").replace(/,/g, "");
-  const unseen = [];
-  for (const l of lines) {
-    const p = toPence(l.amount);
-    if (p === null) continue;
-    if (!flat.includes(fromPence(Math.abs(p)))) unseen.push(fromPence(Math.abs(p)));
+/**
+ * Reduces an amount to one comparable token.
+ *
+ * Absolute value, two decimal places, then a trailing ".00" dropped, so
+ * "£50,000", "50,000.00", "50000.00" and 50000 all become "50000". Formatting
+ * variation is what would otherwise make this check reject genuinely approved
+ * journals, and a check people route around protects nothing.
+ */
+function canonicalAmount(value) {
+  const p = toPence(value);
+  if (p === null) return null;
+  const s = fromPence(Math.abs(p));
+  return s.endsWith(".00") ? s.slice(0, -3) : s;
+}
+
+/**
+ * Every number appearing in the approval text, canonicalised the same way.
+ *
+ * Currency symbols and thousands separators are stripped first, but NOT
+ * whitespace: removing it would run adjacent numbers together, so
+ * "Dr 400 50000.00" would read as the single token 40050000.00 and the real
+ * amount would appear absent.
+ *
+ * Account codes and date parts also become tokens, so an amount that happens to
+ * equal one (a £400 line against account 400) can satisfy the check without
+ * being written out. That is a narrow false accept and it is the right way for
+ * this to fail: the alternative risks rejecting a correctly approved journal,
+ * and this check earns its place by never doing that.
+ *
+ * The check is one-directional by design: every line amount must appear in the
+ * text, but a number in the text need not correspond to a line. Requiring the
+ * reverse would trip over dates, account codes, "Net 0.00" and anything else a
+ * person writes. It costs little, because altering a single line's amount
+ * unbalances the journal and UNBALANCED catches it; altering both to stay
+ * balanced changes the tokens and this catches it.
+ */
+function amountTokens(text) {
+  const flat = String(text || "").replace(/[£$€,]/g, "");
+  const out = new Set();
+  for (const m of flat.matchAll(/\d+(?:\.\d{1,2})?/g)) {
+    const c = canonicalAmount(m[0]);
+    if (c) out.add(c);
   }
-  return unseen;
+  return out;
 }
 
 /**
@@ -259,10 +305,6 @@ function validateJournal(body, { accounts, lockDates = {}, now, entitySlug, enti
       if (missing.length) {
         add("APPROVAL_MISMATCH", `presented_text does not mention: ${missing.join(", ")}. The text shown to the approver must describe the journal being posted.`);
       }
-      const unseen = approvalAmountWarnings(ap.presented_text, lines);
-      if (unseen.length) {
-        warnings.push(`APPROVAL_AMOUNTS: presented_text does not contain ${unseen.join(", ")} - check the approver saw these amounts`);
-      }
     }
   }
 
@@ -373,6 +415,8 @@ function balancesForCodes(byAccountId, accounts, codes) {
 module.exports = {
   toPence,
   fromPence,
+  canonicalAmount,
+  amountTokens,
   isValidIsoDate,
   checkApprovalText,
   validateJournal,

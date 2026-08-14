@@ -225,20 +225,87 @@ describe("validateJournal", () => {
     });
 
     // Formatting differences must not block a genuinely approved journal.
-    it("warns rather than blocks when amounts are formatted differently", () => {
+    it("accepts amounts however they are formatted", () => {
+      for (const form of ["£50,000", "50,000.00", "50000.00", "50000", "£50000.00"]) {
+        const r = validateJournal(
+          journal({ approval: { ...journal().approval, presented_text: `Feldspar Group Holdings 2026-08-31 Dr 400 ${form} Cr 805 ${form}` } }),
+          OPTS
+        );
+        expect(codes(r), `form ${form}`).not.toContain("APPROVAL_MISMATCH");
+      }
+    });
+
+    // The failure approval_payload exists to make impossible: everything else
+    // agrees - same entity, same date, same account codes - and only the
+    // numbers were changed between what the human saw and what was submitted.
+    it("BLOCKS a journal whose amounts are not the ones presented", () => {
       const r = validateJournal(
-        journal({ approval: { ...journal().approval, presented_text: "Feldspar Group Holdings 2026-08-31 Dr 400 £50,000 Cr 805 £50,000" } }),
+        journal({
+          lines: [
+            { account_code: "400", amount: 50000.0, description: "Marketing" },
+            { account_code: "805", amount: -50000.0, description: "Provision" },
+          ],
+          approval: {
+            ...journal().approval,
+            presented_text: "Post to Feldspar Group Holdings, 2026-08-31:\n Dr 400 Marketing £50.00\n Cr 805 Provision £50.00",
+          },
+        }),
         OPTS
       );
-      expect(codes(r)).not.toContain("APPROVAL_MISMATCH");
-      expect(r.issues).toEqual([]);
+      expect(codes(r)).toContain("APPROVAL_MISMATCH");
+      expect(r.issues.find((i) => i.code === "APPROVAL_MISMATCH").detail).toContain("50000.00");
+    });
+
+    it("blocks on a pence-level difference, not just an order of magnitude", () => {
+      const r = validateJournal(
+        journal({
+          lines: [
+            { account_code: "400", amount: 5000.5 },
+            { account_code: "805", amount: -5000.5 },
+          ],
+          approval: {
+            ...journal().approval,
+            presented_text: "Feldspar Group Holdings 2026-08-31 Dr 400 5000.00 Cr 805 5000.00",
+          },
+        }),
+        OPTS
+      );
+      expect(codes(r)).toContain("APPROVAL_MISMATCH");
+      expect(r.issues.find((i) => i.code === "APPROVAL_MISMATCH").detail).toContain("5000.50");
+    });
+
+    // A single altered line cannot slip through either: changing one amount
+    // makes the journal unbalanced, so UNBALANCED catches what the approval
+    // check would not have to.
+    it("catches a single altered line as unbalanced", () => {
+      const r = validateJournal(
+        journal({
+          lines: [
+            { account_code: "400", amount: 6000.0 },
+            { account_code: "805", amount: -5000.0 },
+          ],
+          approval: {
+            ...journal().approval,
+            presented_text: "Feldspar Group Holdings 2026-08-31 Dr 400 5000.00 Cr 805 5000.00",
+          },
+        }),
+        OPTS
+      );
+      expect(codes(r)).toContain("UNBALANCED");
+      expect(codes(r)).toContain("APPROVAL_MISMATCH");
     });
   });
 
   it("warns on materiality at £1 without ever blocking", () => {
-    const r = validateJournal(journal({ lines: [
-      { account_code: "400", amount: 1.0 }, { account_code: "805", amount: -1.0 },
-    ] }), OPTS);
+    const r = validateJournal(journal({
+      lines: [
+        { account_code: "400", amount: 1.0 }, { account_code: "805", amount: -1.0 },
+      ],
+      approval: {
+        ...journal().approval,
+        presented_text: "Feldspar Group Holdings 2026-08-31 Dr 400 1.00 Cr 805 1.00",
+      },
+    }), OPTS);
     expect(r.issues).toEqual([]);
     expect(r.warnings.join(" ")).toContain("MATERIALITY");
   });
