@@ -98,9 +98,42 @@ function shouldPersistRefreshToken(previous, response) {
   return response.refresh_token !== previous;
 }
 
+/**
+ * Decides whether a Xero 401 means the access token is bad, or merely that it
+ * was never granted the scope for this endpoint.
+ *
+ * These need different handling and look identical at the status code. A bad
+ * token should drop the cached one so the next call refreshes. A scope failure
+ * must not: the token is fine and will fail again for the same reason, so
+ * dropping the cache turns a script looping over an unauthorised resource into
+ * a token refresh on every iteration — and every refresh rotates the Xero
+ * refresh token. That is the exact failure this service exists to prevent, and
+ * six entries in the read passthrough allowlist (/Journals, /Payments,
+ * /CreditNotes, ExecutiveSummary, BudgetSummary, AccountTransactions) are
+ * unauthorised on every current connection, so the loop is reachable today.
+ *
+ * RFC 6750 distinguishes them in WWW-Authenticate: invalid_token against
+ * insufficient_scope. Xero also says AuthenticationUnsuccessful for a bad token
+ * and AuthorizationUnsuccessful for a missing scope, which is the fallback when
+ * the header is absent.
+ *
+ * Defaults to false. Failing to invalidate costs one stale cache window of at
+ * most thirty minutes; invalidating wrongly costs a rotation per request.
+ */
+function isTokenRejection(wwwAuthenticate, body) {
+  const header = String(wwwAuthenticate || "");
+  if (/insufficient_scope/i.test(header)) return false;
+  if (/invalid_token|expired/i.test(header)) return true;
+
+  const text = String(body || "");
+  if (/AuthorizationUnsuccessful/i.test(text)) return false;
+  return /AuthenticationUnsuccessful|TokenExpired/i.test(text);
+}
+
 module.exports = {
   selectTenant,
   readAuthEventId,
   normaliseIp,
   shouldPersistRefreshToken,
+  isTokenRejection,
 };

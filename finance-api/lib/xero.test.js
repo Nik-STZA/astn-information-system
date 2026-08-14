@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isTokenRejection,
   normaliseIp,
   readAuthEventId,
   selectTenant,
@@ -129,5 +130,42 @@ describe("shouldPersistRefreshToken", () => {
     expect(shouldPersistRefreshToken("old", {})).toBe(false);
     expect(shouldPersistRefreshToken("old", { refresh_token: "" })).toBe(false);
     expect(shouldPersistRefreshToken("old", null)).toBe(false);
+  });
+});
+
+describe("isTokenRejection", () => {
+  // The live 401 from /Journals on Feldspar Group Holdings, 14 Aug 2026. The
+  // scope was never granted, so the token is fine and always will be. Dropping
+  // the cache here makes a script that loops over this resource refresh - and
+  // therefore rotate the Xero refresh token - on every single call.
+  const SCOPE_401 =
+    '{"Type":null,"Title":"Unauthorized","Status":401,"Detail":"AuthorizationUnsuccessful"}';
+
+  it("does not treat a missing scope as a bad token", () => {
+    expect(isTokenRejection("", SCOPE_401)).toBe(false);
+  });
+
+  it("does not treat insufficient_scope as a bad token", () => {
+    expect(isTokenRejection('Bearer error="insufficient_scope"', SCOPE_401)).toBe(false);
+  });
+
+  it("treats invalid_token as a bad token", () => {
+    expect(isTokenRejection('Bearer error="invalid_token"', "")).toBe(true);
+  });
+
+  it("treats AuthenticationUnsuccessful as a bad token when no header is given", () => {
+    expect(isTokenRejection("", '{"Detail":"AuthenticationUnsuccessful"}')).toBe(true);
+  });
+
+  // The header wins: a scope failure that happens to mention expiry in its body
+  // must not be read as an expired token.
+  it("prefers the header over the body", () => {
+    expect(isTokenRejection('Bearer error="insufficient_scope"', "TokenExpired")).toBe(false);
+  });
+
+  it("defaults to false on anything unrecognised", () => {
+    expect(isTokenRejection("", "")).toBe(false);
+    expect(isTokenRejection(null, undefined)).toBe(false);
+    expect(isTokenRejection("", "some unrelated gateway error")).toBe(false);
   });
 });

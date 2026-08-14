@@ -29,6 +29,7 @@ const {
   selectTenant,
   readAuthEventId,
   normaliseIp,
+  isTokenRejection,
 } = require("./lib/xero");
 
 const app = express();
@@ -1363,7 +1364,13 @@ async function xeroGet(accessToken, tenantId, path, params = {}) {
   });
   if (!r.ok) {
     const body = await r.text().catch(() => "");
-    if (r.status === 401) invalidateAccessToken(accessToken);
+    // Only drop the cached token when Xero is rejecting the token itself. A 401
+    // for a scope that was never granted is permanent, so invalidating on it
+    // would refresh — and rotate — on every call of a loop that can never
+    // succeed. See isTokenRejection.
+    if (r.status === 401 && isTokenRejection(r.headers.get("www-authenticate"), body)) {
+      invalidateAccessToken(accessToken);
+    }
     const err = new Error(`Xero ${path} returned ${r.status}: ${body.slice(0, 300)}`);
     // Same reasoning as the token refresh: the caller is a server holding an
     // API key, and Xero's body is the difference between "it broke" and
