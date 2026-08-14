@@ -86,6 +86,13 @@ permission on the client.
   "dry_run": false,
   "idempotency_key": "fgh-2026-08-marketing-provision-v1",
   "reference": "WP-2026-08-014",        // optional: working paper / recon ref
+  "approval": {                         // REQUIRED - see §5
+    "approved_by": "nik@stza.io",
+    "approved_at": "2026-08-14T15:03:58Z",
+    "via": "cowork",
+    "presented_text": "Post to Feldspar Group Holdings, 31 Aug 2026:\n  Dr 400 Marketing provision - Aug 2026  50,000.00\n  Cr 805 Provision for marketing costs   50,000.00\nStatus: DRAFT. Net 0.00.",
+    "agreed_text": "approved"
+  },
   "lines": [
     { "account_code": "400", "amount":  50000.00, "description": "Marketing provision - Aug 2026", "tax_type": "NONE" },
     { "account_code": "805", "amount": -50000.00, "description": "Provision for marketing costs",  "tax_type": "NONE" }
@@ -100,6 +107,11 @@ keep working unchanged.
 **`status` defaults to `DRAFT`.** The current plugin defaults to `POSTED`;
 this inverts it. Posting straight to a client ledger should be the explicit
 choice, not the fallback.
+
+**`approval` is required, including on `dry_run`.** There is no default and no
+way to omit it. A caller that cannot supply one cannot post — which is the
+point: the field is the assertion, and the endpoint's job is to make asserting
+it unavoidable and permanent.
 
 #### Response — success
 
@@ -164,6 +176,9 @@ not just the first.
 | `FUTURE_PERIOD` | Warn (do not block) if `date` is in a future period. |
 | `DATE_FORMAT` | Strict `YYYY-MM-DD`. |
 | `MATERIALITY` | Warn (do not block) above a per-client threshold. Surfaces to the approver rather than failing. |
+| `MISSING_APPROVAL` | `approval` absent, or missing any of `approved_by`, `approved_at`, `presented_text`, `agreed_text`. |
+| `APPROVAL_STALE` | `approved_at` is more than 30 minutes before the request, or in the future. An approval agreed hours earlier was agreed to a different set of numbers. |
+| `APPROVAL_MISMATCH` | `presented_text` does not contain the entity, date, net and every account code in `lines`. Catches a payload edited after it was shown to the human — the one failure the assertion model cannot otherwise detect. |
 
 `dry_run: true` runs every check and returns the would-be payload with
 `"action": "DRY RUN — validated, not posted"`. No Xero call, no audit record
@@ -205,8 +220,13 @@ evidence.
   "client": "feldspar-sport-group",
   "entity": "feldspar-group-holdings",
   "actor": { "type": "user|agent", "id": "nik@stza.io", "via": "cowork|ui|api" },
-  "approved_by": "nik@stza.io",
-  "approved_at": "2026-08-14T15:03:58Z",
+  "approval_payload": {
+    "approved_by": "nik@stza.io",
+    "approved_at": "2026-08-14T15:03:58Z",
+    "via": "cowork",
+    "presented_text": "Post to Feldspar Group Holdings, 31 Aug 2026:\n  Dr 400 …  50,000.00\n  Cr 805 …  50,000.00\nStatus: DRAFT. Net 0.00.",
+    "agreed_text": "approved"
+  },
   "idempotency_key": "fgh-2026-08-marketing-provision-v1",
   "reference": "WP-2026-08-014",
   "request_payload": { /* exactly as received */ },
@@ -222,6 +242,40 @@ evidence.
 
 `balances_before` / `balances_after` make the skill's verify step a property
 of the record rather than a separate manual check.
+
+### Where approval lives — decided 14 August 2026
+
+**Approval is captured in Claude Cowork, transmitted with the write, and
+persisted here. The platform builds no approval UI.**
+
+The human sees the rendered journal in Cowork and agrees there. The MCP tool
+sends what was shown and what was said as `approval.presented_text` and
+`approval.agreed_text`, and the platform stores them verbatim in
+`approval_payload`.
+
+**Why the full payload rather than a boolean, or a bare `approved_by`.** Cowork
+sessions are ephemeral; `finance.audit_log` is not. The question three years
+from now is *who approved this £50,000 provision, and what exactly did they
+see when they did* — and "it was in a chat that no longer exists" is not an
+answer to an auditor, an insurer, or a client. A boolean records that someone
+clicked; the payload records what they agreed to. Only the second survives the
+session it was created in, and only the second distinguishes approving *this*
+journal from approving *a* journal.
+
+**What this record is, and is not.** It is the platform's immutable evidence of
+what the FD asserted at the moment of posting. It is **not** a guarantee that
+approval genuinely occurred — the platform cannot observe a Cowork
+conversation, and nothing in this design pretends otherwise. That is the
+correct liability position for a subscription product: STZA provides the
+instrument and the record; the practitioner carries the assertion. Anything
+stronger would be the platform vouching for a human interaction it never saw.
+
+`APPROVAL_MISMATCH` in §3 is what stops the assertion drifting from the
+instrument. Everything else here is trust; that check is not.
+
+**Consequence for retention:** `approval_payload` is the part of the record with
+evidential value, so it inherits the six-year retention below rather than any
+shorter operational log policy. Do not truncate `presented_text`.
 
 Retain for at least the statutory record-keeping period — six years for UK
 companies, so align with whatever the platform already does for client data.
@@ -325,8 +379,11 @@ what produced this whole incident.
    connected *before* `accounting.manualjournals` was added still holds the
    old grant and needs reconnecting. Audit that against the DB before the
    first write.
-2. **Where does approval live?** The `journal-posting` skill requires
-   explicit human approval before posting. Is that captured in the platform
-   UI, or asserted by the caller? The audit record assumes the latter for
-   now; the former is stronger.
-3. **Per-client materiality thresholds** — where configured?
+2. ~~**Where does approval live?**~~ **RESOLVED, 14 August 2026.** Captured in
+   Claude Cowork, transmitted with the write, persisted by the platform. No
+   platform approval UI. `approval` is a required request field and the audit
+   record stores the full `approval_payload`, not a boolean. See §5.
+3. **Per-client materiality thresholds** — where configured? Still open, and
+   now on the critical path: `MATERIALITY` is the warning that reaches the
+   approver, so until a threshold exists it warns on nothing and
+   `presented_text` carries no materiality context.
