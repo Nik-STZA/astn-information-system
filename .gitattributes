@@ -1,4 +1,4 @@
-﻿# Default: let git handle line endings based on user config.
+# Default: let git handle line endings based on user config.
 * text=auto
 
 # Force LF for files that run on Linux runners (Netlify builds, future scripts).
