@@ -6,7 +6,31 @@
 -- STZA is the operator's own company, so operator_is_controller = true.
 -- There is one Xero organisation: Sports Tech Africa Limited.
 --
--- Idempotent and re-runnable.
+-- Idempotent, but NOT CONVERGENT. Read this before trusting a replay.
+--
+-- This file was applied to production on or before 31 July 2026 by
+-- finance-api/run-migration.js, a one-off script that executes the SQL and does
+-- not write to shared.schema_migrations. It was therefore live but unrecorded
+-- until baselined on 14 August 2026, and it lived only in an untracked second
+-- checkout until the same date.
+--
+-- Two ways the live database does not match what this file describes:
+--
+--   1. finance.client_finance_config.materiality_thresholds for 'stza' is {} in
+--      production, not the values below. The INSERT uses ON CONFLICT DO NOTHING
+--      and a config row already existed, so that clause was a no-op. Re-running
+--      this file will NOT set those thresholds. Running it against a fresh
+--      database WILL. The two outcomes differ.
+--
+--   2. The entity created here, 'stza-ltd', is not the connected one. The live
+--      Xero connection belongs to a separate entity 'stza' created through the
+--      portal, with config_name, legal_name and role all null. 'stza-ltd' has
+--      never held a tenant_id. It is retained deliberately rather than deleted
+--      (deleting it would put the file and the database back out of step) and
+--      has been renamed to make it unselectable by mistake. Reconciling the two
+--      rows is separate, considered work and is tracked as an open issue.
+--
+-- Do not assume replay reproduces production. Verify against the database.
 
 BEGIN;
 
