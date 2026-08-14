@@ -41,6 +41,13 @@ const poolConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || "africastn_os",
   max: 5,
+  // Cloud Run runs this at concurrency 80 against a pool of 5, and the token
+  // refresh holds a connection across a call to Xero. Without a bound,
+  // pool.connect() queues forever and a slow upstream becomes a hung service
+  // rather than a failed request. Fail fast enough to stay inside the 60s
+  // Cloud Run request timeout.
+  connectionTimeoutMillis: 10_000,
+  idleTimeoutMillis: 30_000,
 };
 
 if (process.env.INSTANCE_CONNECTION_NAME) {
@@ -85,7 +92,13 @@ async function clientIdFromSlug(slug) {
 const route = (fn) => (req, res) =>
   fn(req, res).catch((err) => {
     console.error(`${req.method} ${req.path} failed:`, err.message);
-    res.status(500).json({ error: err.message });
+    // err.detail carries the upstream reason (e.g. Xero's error body). The
+    // caller is the Next.js server behind an API key, never a browser, so the
+    // real cause is safe to return and is the difference between a one-minute
+    // diagnosis and an afternoon.
+    const body = { error: err.message };
+    if (err.detail) body.detail = err.detail;
+    res.status(500).json(body);
   });
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -314,7 +327,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/secret", route(async (req, res
         actorEmail, action: `${action}_secret_missing`, targetType: "xero_secret",
         targetId: `${req.params.entity}:${field}`, clientId: client.id,
         payload: { field, entity: req.params.entity },
-        ip: req.get("X-Forwarded-For") || req.ip,
+        ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
       });
       return res.status(404).json({ error: "not connected" });
     }
@@ -326,7 +339,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/secret", route(async (req, res
       actorEmail, action: `${action}_secret`, targetType: "xero_secret",
       targetId: `${req.params.entity}:${field}`, clientId: client.id,
       payload: { field, entity: req.params.entity, secretName },
-      ip: req.get("X-Forwarded-For") || req.ip,
+      ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
     });
 
     res.json({ value });
@@ -396,6 +409,35 @@ app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
   res.json({ url });
 }));
 
+// Access tokens live 30 minutes. Cache them per instance so a burst of report
+// pulls does not refresh each time: every refresh rotates the Xero refresh
+// token, so refreshing needlessly is what made the rotation race likely.
+const accessTokenCache = new Map(); // secretName -> { token, expiresAt }
+const ACCESS_TOKEN_SKEW_MS = 120_000;
+
+function cachedAccessToken(secretName) {
+  const hit = accessTokenCache.get(secretName);
+  if (hit && hit.expiresAt - ACCESS_TOKEN_SKEW_MS > Date.now()) return hit.token;
+  return null;
+}
+
+// Caching introduces a failure the uncached code could not have: if an entity
+// is reconnected, Xero invalidates the access token we are still holding and
+// every read 401s until the cache expires. Drop the entry on 401 so the next
+// call refreshes instead of failing for up to half an hour.
+function invalidateAccessToken(token) {
+  for (const [name, hit] of accessTokenCache) {
+    if (hit.token === token) accessTokenCache.delete(name);
+  }
+}
+
+// Structured, alertable. Create a log-based alert in Cloud Logging on
+// jsonPayload.alert = "xero_connection_dead". A dead Xero connection went
+// unnoticed from 12 July to 14 August 2026 because nothing did this.
+function alertOps(event, detail) {
+  console.error(JSON.stringify({ severity: "ERROR", alert: event, ...detail }));
+}
+
 // Exchanges a stored refresh token for an access token, and persists the
 // rotated refresh token immediately.
 //
@@ -404,37 +446,127 @@ app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
 // anything else can fail, the connection is dead and only re-authorising
 // recovers it. So the write happens first, before the access token is
 // returned to the caller.
+//
+// The whole read-refresh-store sequence is serialised per entity. Without
+// that, two concurrent callers both read version N, both call Xero, and the
+// loser is left holding a token Xero has already consumed. That is exactly
+// how all three Feldspar connections died within three minutes of each other
+// on 12 July 2026.
 async function refreshAccessToken(secretName) {
-  const refreshToken = await readSecret(secretName);
-  const [clientId, clientSecret] = await Promise.all([
-    readSecret("xero-app-client-id"),
-    readSecret("xero-app-client-secret"),
-  ]);
+  const cached = cachedAccessToken(secretName);
+  if (cached) return cached;
 
-  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const r = await fetch(XERO_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basic}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
-  });
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
 
-  if (!r.ok) {
-    console.error(`Xero refresh failed for ${secretName}:`, r.status, (await r.text()).slice(0, 200));
-    throw new ErpUnavailable(
-      r.status === 400
-        ? "The Xero connection has expired. Reconnect this entity."
-        : `Xero refused the token refresh (${r.status})`
-    );
+    // Bound the wait. pg_advisory_xact_lock blocks indefinitely by default, so
+    // a holder stuck on a slow Xero call would park every other caller for this
+    // entity behind it with no upper limit — and each waiter burns one of the
+    // five pool connections while it waits. On timeout Postgres raises 55P03
+    // (lock_not_available), which we turn into a retryable error below.
+    await conn.query("SET LOCAL lock_timeout = '15s'");
+
+    // Transaction scoped: released on commit or rollback.
+    await conn.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `finance.xero_refresh:${secretName}`,
+    ]);
+
+    let accessToken = cachedAccessToken(secretName);
+
+    if (!accessToken) {
+      // Read inside the lock. A value read before waiting would be the token
+      // the previous holder has already rotated away.
+      const refreshToken = await readSecret(secretName);
+      const [clientId, clientSecret] = await Promise.all([
+        readSecret("xero-app-client-id"),
+        readSecret("xero-app-client-secret"),
+      ]);
+
+      const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+      let r;
+      try {
+        r = await fetch(XERO_TOKEN_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${basic}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
+          // Node's fetch has no default timeout. Without this a hung connection
+          // to Xero holds the advisory lock and a pool connection for as long as
+          // the socket stays open — Cloud Run's 60s request timeout returns 504
+          // to the caller but does not stop this handler.
+          signal: AbortSignal.timeout(20_000),
+        });
+      } catch (e) {
+        const err = new ErpUnavailable("Xero did not respond to the token refresh in time.");
+        err.detail = { stage: "token_refresh", reason: e.name === "TimeoutError" ? "timeout" : e.message };
+        throw err;
+      }
+
+      if (!r.ok) {
+        const body = await r.text();
+        let parsed;
+        try { parsed = JSON.parse(body); } catch { parsed = { raw: body.slice(0, 500) }; }
+
+        // Only a genuinely dead grant gets the alert that pages someone.
+        // invalid_grant means the refresh token is gone and no retry will fix
+        // it. A 429 or a 503 is Xero having a moment and resolves itself —
+        // alerting on those would train everyone to ignore the one alert that
+        // matters, which is how the 12 July outage stayed invisible for five
+        // weeks in the first place.
+        const dead = parsed.error === "invalid_grant";
+        alertOps(dead ? "xero_connection_dead" : "xero_refresh_failed", {
+          secretName,
+          status: r.status,
+          xeroError: parsed.error || null,
+          xeroErrorDescription: parsed.error_description || null,
+        });
+
+        // Pass the reason through. Discarding it is what turned
+        // "invalid_grant: refresh token has been consumed" into an opaque
+        // "400 Bad Request" and cost an afternoon of diagnosis.
+        const err = new ErpUnavailable(
+          dead
+            ? "The Xero connection has expired. Reconnect this entity."
+            : `Xero refused the token refresh (${r.status})`
+        );
+        err.detail = { stage: "token_refresh", status: r.status, xero: parsed };
+        throw err;
+      }
+
+      const tokens = await r.json();
+      if (tokens.refresh_token && tokens.refresh_token !== refreshToken) {
+        await storeSecret(secretName, tokens.refresh_token);
+      }
+      accessToken = tokens.access_token;
+      accessTokenCache.set(secretName, {
+        token: accessToken,
+        expiresAt: Date.now() + (Number(tokens.expires_in) || 1800) * 1000,
+      });
+    }
+
+    await conn.query("COMMIT");
+    return accessToken;
+  } catch (err) {
+    try { await conn.query("ROLLBACK"); } catch { /* connection already gone */ }
+
+    // 55P03: we waited 15s for the lock and someone else still holds it. If
+    // that holder finished a refresh on this instance the cache is now warm,
+    // so check before failing — the answer we were queuing for may have
+    // arrived while we were giving up.
+    if (err.code === "55P03") {
+      const warmed = cachedAccessToken(secretName);
+      if (warmed) return warmed;
+      const busy = new ErpUnavailable("Xero token refresh is busy for this entity. Retry shortly.");
+      busy.detail = { stage: "token_refresh", reason: "lock_timeout", secretName };
+      throw busy;
+    }
+    throw err;
+  } finally {
+    conn.release();
   }
-
-  const tokens = await r.json();
-  if (tokens.refresh_token && tokens.refresh_token !== refreshToken) {
-    await storeSecret(secretName, tokens.refresh_token);
-  }
-  return tokens.access_token;
 }
 
 class ErpUnavailable extends Error {}
@@ -761,7 +893,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/organisation", route(async (re
       targetId: entity.slug,
       clientId: client.id,
       payload: { entity: entity.slug, tenantId: chosen.tenantId, tenantName: chosen.tenantName },
-      ip: req.get("X-Forwarded-For") || req.ip,
+      ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
     });
     await conn.query("COMMIT");
   } catch (e) {
@@ -1199,11 +1331,24 @@ async function xeroEntityContext(slug, entitySlug) {
   try {
     accessToken = await refreshAccessToken(secretName);
   } catch (e) {
-    if (e instanceof ErpUnavailable) return { error: e.message };
+    // Carry the detail out with the message. Returning only e.message here is
+    // what made attaching err.detail pointless on every read route: the
+    // friendly string reached the caller and Xero's actual reason
+    // ("invalid_grant: refresh token has been consumed") was dropped one frame
+    // below the place it was needed.
+    if (e instanceof ErpUnavailable) return { error: e.message, detail: e.detail };
     throw e;
   }
 
   return { client, entity, tenantId, accessToken };
+}
+
+// Every read route ends with the same three lines. Keeping the shape identical
+// means the detail cannot be dropped from one of them by accident.
+function erpUnavailable(res, ctx) {
+  const body = { error: ctx.error };
+  if (ctx.detail) body.detail = ctx.detail;
+  return res.status(502).json(body);
 }
 
 async function xeroGet(accessToken, tenantId, path, params = {}) {
@@ -1218,16 +1363,93 @@ async function xeroGet(accessToken, tenantId, path, params = {}) {
   });
   if (!r.ok) {
     const body = await r.text().catch(() => "");
-    throw new Error(`Xero ${path} returned ${r.status}: ${body.slice(0, 300)}`);
+    if (r.status === 401) invalidateAccessToken(accessToken);
+    const err = new Error(`Xero ${path} returned ${r.status}: ${body.slice(0, 300)}`);
+    // Same reasoning as the token refresh: the caller is a server holding an
+    // API key, and Xero's body is the difference between "it broke" and
+    // knowing which account code it objected to.
+    err.detail = { stage: "xero_read", status: r.status, path, body: body.slice(0, 2000) };
+    throw err;
   }
   return r.json();
 }
+
+// Read passthrough.
+//
+// The typed endpoints below shape the reports the portal renders. The reporting
+// scripts need a wider surface than that — Invoices, Contacts, Payments,
+// BankTransactions, ExecutiveSummary, AccountTransactions — and until they have
+// it they each hold their own copy of the Xero credentials and refresh their own
+// tokens. Twenty-two separate holders is what killed all three Feldspar
+// connections on 12 July 2026.
+//
+// So: one allowlisted, read-only door. GET only, and never a mutating verb.
+// Writes stay on explicit, validated, audited endpoints — a blanket proxy would
+// hand every script the ability to post to a client ledger, which is the thing
+// this whole exercise exists to prevent.
+const XERO_READ_RESOURCES = {
+  accounts: "/Accounts",
+  invoices: "/Invoices",
+  contacts: "/Contacts",
+  payments: "/Payments",
+  "bank-transactions": "/BankTransactions",
+  "credit-notes": "/CreditNotes",
+  "manual-journals": "/ManualJournals",
+  journals: "/Journals",
+  "tax-rates": "/TaxRates",
+  "tracking-categories": "/TrackingCategories",
+};
+
+const XERO_READ_REPORTS = {
+  "trial-balance": "/Reports/TrialBalance",
+  "profit-and-loss": "/Reports/ProfitAndLoss",
+  "balance-sheet": "/Reports/BalanceSheet",
+  "bank-summary": "/Reports/BankSummary",
+  "executive-summary": "/Reports/ExecutiveSummary",
+  "aged-receivables": "/Reports/AgedReceivablesByContact",
+  "aged-payables": "/Reports/AgedPayablesByContact",
+  "account-transactions": "/Reports/AccountTransactions",
+  "budget-summary": "/Reports/BudgetSummary",
+};
+
+async function xeroReadPassthrough(req, res, xeroPath) {
+  if (!xeroPath) {
+    return res.status(404).json({
+      error: "unknown resource",
+      allowed: {
+        resources: Object.keys(XERO_READ_RESOURCES),
+        reports: Object.keys(XERO_READ_REPORTS),
+      },
+    });
+  }
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+
+  // Forward the caller's query string untouched: Xero's own filters (where,
+  // order, page, date, fromDate, toDate, periods, timeframe) differ per
+  // resource and re-implementing them here would just be a second place to be
+  // wrong.
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, xeroPath, req.query);
+  res.json({ entity: ctx.entity.name, resource: xeroPath, data });
+}
+
+// GET /api/finance/clients/:slug/xero/:entity/read/reports/:report
+// Registered before the :resource route so "reports" is never read as one.
+app.get("/api/finance/clients/:slug/xero/:entity/read/reports/:report", route(async (req, res) =>
+  xeroReadPassthrough(req, res, XERO_READ_REPORTS[req.params.report])
+));
+
+// GET /api/finance/clients/:slug/xero/:entity/read/:resource
+app.get("/api/finance/clients/:slug/xero/:entity/read/:resource", route(async (req, res) =>
+  xeroReadPassthrough(req, res, XERO_READ_RESOURCES[req.params.resource])
+));
 
 // GET /api/finance/clients/:slug/xero/:entity/trial-balance
 app.get("/api/finance/clients/:slug/xero/:entity/trial-balance", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const params = {};
   if (req.query.date) params.date = req.query.date;
@@ -1241,7 +1463,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/trial-balance", route(async (re
 app.get("/api/finance/clients/:slug/xero/:entity/profit-and-loss", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const params = {};
   if (req.query.fromDate) params.fromDate = req.query.fromDate;
@@ -1261,7 +1483,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/profit-and-loss", route(async (
 app.get("/api/finance/clients/:slug/xero/:entity/balance-sheet", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const params = {};
   if (req.query.date) params.date = req.query.date;
@@ -1279,7 +1501,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/balance-sheet", route(async (re
 app.get("/api/finance/clients/:slug/xero/:entity/bank-summary", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const params = {};
   if (req.query.fromDate) params.fromDate = req.query.fromDate;
@@ -1295,7 +1517,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/bank-summary", route(async (req
 app.get("/api/finance/clients/:slug/xero/:entity/aged-receivables", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const params = {
     where: 'Type=="ACCREC" AND AmountDue>0',
@@ -1339,7 +1561,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/aged-receivables", route(async 
 app.get("/api/finance/clients/:slug/xero/:entity/aged-payables", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const params = {
     where: 'Type=="ACCPAY" AND AmountDue>0',
@@ -1380,7 +1602,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/aged-payables", route(async (re
 app.get("/api/finance/clients/:slug/xero/:entity/accounts", route(async (req, res) => {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return res.status(502).json({ error: ctx.error });
+  if (ctx.error) return erpUnavailable(res, ctx);
 
   const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts");
   res.json({ entity: ctx.entity.name, count: data.Accounts?.length ?? 0, data: data.Accounts ?? [] });
