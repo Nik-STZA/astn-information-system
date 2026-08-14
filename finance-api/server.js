@@ -31,6 +31,14 @@ const {
   normaliseIp,
   isTokenRejection,
 } = require("./lib/xero");
+const {
+  balancesForCodes,
+  buildXeroPayload,
+  fromPence,
+  requestFingerprint,
+  trialBalanceByAccountId,
+  validateJournal,
+} = require("./lib/journal");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -242,13 +250,17 @@ async function readSecret(name) {
 }
 
 // Writes an audit row. Never receives or stores an unmasked value.
+// Returns the row id, which the journal endpoint reports back to the caller so
+// a posted journal can be traced to its record without a second lookup.
 async function audit(conn, { actorEmail, actorRole, action, targetType, targetId, clientId, payload, ip }) {
-  await conn.query(
+  const { rows } = await conn.query(
     `INSERT INTO finance.audit_log
        (actor_email, actor_role, action, target_type, target_id, client_id, payload, ip_address)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING id`,
     [actorEmail, actorRole || null, action, targetType, targetId, clientId, payload || {}, normaliseIp(ip)]
   );
+  return rows[0].id;
 }
 
 app.get("/api/finance/clients/:slug/xero", route(async (req, res) => {
@@ -1320,7 +1332,7 @@ async function xeroEntityContext(slug, entitySlug) {
   if (!client) return null;
 
   const { rows } = await pool.query(
-    `SELECT e.id, e.slug, e.name, e.accounting_system_config
+    `SELECT e.id, e.slug, e.name, e.legal_name, e.accounting_system_config
      FROM finance.entities e
      WHERE e.client_id = $1 AND e.slug = $2`,
     [client.id, entitySlug]
@@ -1651,6 +1663,386 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
       yearEnd: e.year_end,
     })),
   });
+}));
+
+// ── Journal posting (the write path) ────────────────────────────────────────
+//
+// POST /api/finance/clients/:slug/xero/:entity/journals
+//
+// The only way to write to a client ledger through this platform. Everything
+// else here is read-only by design, and the three other ways this practice
+// could post a journal (the stza-xero plugin, xero_push_journal.py,
+// post_approved_accruals.py) are being removed rather than joined.
+//
+// Built to docs/xero-write-path/xero-write-path-spec.md. The parts that are
+// easy to get wrong, and why they are the way they are:
+//
+//   * The access token is acquired BEFORE any pooled connection is checked out.
+//     refreshAccessToken() takes its own connection for the advisory lock, so
+//     opening the audit transaction first would hold one connection while
+//     waiting for a second. At pool.max = 5 and Cloud Run concurrency 80, five
+//     simultaneous posts would deadlock until connectionTimeoutMillis fired.
+//     See spec section 5, "Ordering constraint".
+//
+//   * The audit trail is two SHORT transactions, not one long one spanning the
+//     Xero call. Holding a transaction open across the network would reintroduce
+//     the same pool exhaustion by a different route.
+//
+//   * The idempotency key is claimed BEFORE the Xero call, as 'pending'. A key
+//     claimed only afterwards leaves a window where two concurrent requests
+//     both post and only one is recorded.
+//
+//   * Validation runs entirely before anything is sent to Xero, and reports
+//     every failure at once.
+
+const JOURNAL_TARGET_TYPE = "xero_journal";
+
+// Reads the organisation's lock dates. A journal dated into a locked period is
+// rejected here rather than by Xero, so the caller gets a reason rather than a
+// 400.
+async function xeroLockDates(ctx) {
+  try {
+    const org = await xeroGet(ctx.accessToken, ctx.tenantId, "/Organisation", {});
+    const o = org?.Organisations?.[0] ?? {};
+    return { periodLockDate: o.PeriodLockDate ?? null, endOfYearLockDate: o.EndOfYearLockDate ?? null };
+  } catch (e) {
+    // Not fatal on its own: Xero enforces the lock regardless, and refusing to
+    // post because we could not read the lock date would make an unrelated
+    // outage look like a period problem. The warning records that the check
+    // did not run.
+    console.warn(`could not read lock dates for ${ctx.entity.slug}: ${e.message}`);
+    return { unavailable: true };
+  }
+}
+
+app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, res) => {
+  const body = req.body || {};
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  const ip = req.get("X-Forwarded-For") || req.ip;
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+
+  // The path is authoritative for client and entity. The spec's example body
+  // also carries them; if both are present and disagree, that is a caller bug
+  // worth surfacing rather than silently resolving in favour of either.
+  if (body.client && body.client !== req.params.slug) {
+    return res.status(400).json({
+      ok: false, stage: "validation",
+      issues: [{ code: "CLIENT_MISMATCH", detail: `body.client ${body.client} does not match the path ${req.params.slug}` }],
+    });
+  }
+  if (body.entity && body.entity !== req.params.entity) {
+    return res.status(400).json({
+      ok: false, stage: "validation",
+      issues: [{ code: "ENTITY_MISMATCH", detail: `body.entity ${body.entity} does not match the path ${req.params.entity}` }],
+    });
+  }
+
+  // ── token first, before any pooled connection ─────────────────────────────
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+
+  const { rows: cfgRows } = await pool.query(
+    `SELECT COALESCE((cfc.materiality_thresholds->>'journal_materiality_gbp')::numeric, 1) AS journal_materiality_gbp
+     FROM finance.client_finance_config cfc WHERE cfc.client_id = $1`,
+    [ctx.client.id]
+  );
+  const materialityGbp = Number(cfgRows[0]?.journal_materiality_gbp ?? 1);
+
+  const key = body.idempotency_key ? String(body.idempotency_key).trim() : null;
+  const fingerprint = requestFingerprint(body);
+  const isDryRun = body.dry_run === true;
+
+  // ── idempotency: has this key already been used? ──────────────────────────
+  if (key && !isDryRun) {
+    const { rows } = await pool.query(
+      `SELECT outcome, request_fingerprint, response_body, journal_id, created_at
+       FROM finance.journal_posts
+       WHERE client_id = $1 AND entity_id = $2 AND idempotency_key = $3`,
+      [ctx.client.id, ctx.entity.id, key]
+    );
+    const prior = rows[0];
+    if (prior) {
+      if (prior.outcome === "pending") {
+        return res.status(409).json({
+          ok: false, stage: "idempotency",
+          error: "A journal with this idempotency key is already in flight. If this persists, check Xero before retrying - the earlier attempt may have posted.",
+          idempotency_key: key,
+        });
+      }
+      if (prior.request_fingerprint !== fingerprint) {
+        return res.status(409).json({
+          ok: false, stage: "idempotency",
+          error: "This idempotency key was already used for a different journal.",
+          idempotency_key: key,
+          original: prior.response_body,
+          submitted_fingerprint: fingerprint,
+          original_fingerprint: prior.request_fingerprint,
+        });
+      }
+      // Same key, same journal: replay the original answer verbatim.
+      return res.json({ ...prior.response_body, idempotent_replay: true });
+    }
+  }
+
+  // ── validation, entirely before Xero is asked to do anything ──────────────
+  const [accountsRes, lockDates] = await Promise.all([
+    xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts", {}),
+    xeroLockDates(ctx),
+  ]);
+  const accounts = accountsRes?.Accounts ?? [];
+
+  const now = Date.now();
+  // Every name this entity legitimately answers to. The approval text is
+  // written for a human, so it may use any of them.
+  const entityNames = [
+    ctx.entity.slug,
+    ctx.entity.name,
+    ctx.entity.legal_name,
+    ctx.entity.accounting_system_config?.tenant_name,
+  ].filter(Boolean);
+
+  const { issues, warnings, net } = validateJournal(body, {
+    accounts,
+    lockDates,
+    now,
+    entitySlug: ctx.entity.slug,
+    entityName: ctx.entity.name,
+    entityNames,
+    materialityGbp,
+  });
+  if (lockDates.unavailable) {
+    warnings.push("PERIOD_LOCK_UNCHECKED: the organisation's lock dates could not be read; Xero will still enforce them");
+  }
+
+  const auditBase = {
+    actorEmail,
+    action: "",
+    targetType: JOURNAL_TARGET_TYPE,
+    targetId: key || `nokey:${fingerprint}`,
+    clientId: ctx.client.id,
+    ip,
+  };
+  const requestForAudit = { ...body, client: req.params.slug, entity: req.params.entity };
+
+  if (issues.length) {
+    // An attempt to write to a client ledger that was refused is worth keeping.
+    const conn = await pool.connect();
+    try {
+      await audit(conn, {
+        ...auditBase,
+        action: "journal_rejected",
+        payload: {
+          stage: "validation", issues, warnings,
+          request_payload: requestForAudit,
+          entity: ctx.entity.slug,
+        },
+      });
+    } finally {
+      conn.release();
+    }
+    return res.status(422).json({ ok: false, stage: "validation", issues, warnings });
+  }
+
+  const xeroPayload = buildXeroPayload(body);
+  const codes = (body.lines || []).map((l) => String(l.account_code));
+
+  // ── dry run: everything above, nothing below ──────────────────────────────
+  //
+  // Deliberately does NOT claim the idempotency key. A dry run that consumed
+  // the key would make the real post that follows it look like a replay and
+  // return the dry run's result instead of posting.
+  if (isDryRun) {
+    const conn = await pool.connect();
+    let auditId;
+    try {
+      auditId = await audit(conn, {
+        ...auditBase,
+        action: "journal_dry_run",
+        payload: {
+          outcome: "dry_run", validation: { passed: true, warnings },
+          approval_payload: body.approval ?? null,
+          request_payload: requestForAudit, xero_request: xeroPayload,
+          entity: ctx.entity.slug,
+        },
+      });
+    } finally {
+      conn.release();
+    }
+    return res.json({
+      ok: true, action: "DRY RUN — validated, not posted",
+      status: xeroPayload.Status, net: Number(fromPence(net)),
+      warnings, audit_id: auditId, xero_request: xeroPayload,
+      idempotent_replay: false,
+    });
+  }
+
+  // ── claim the key before going anywhere near Xero ─────────────────────────
+  if (key) {
+    const claim = await pool.query(
+      `INSERT INTO finance.journal_posts
+         (client_id, entity_id, idempotency_key, request_fingerprint, outcome, response_body, actor_email)
+       VALUES ($1,$2,$3,$4,'pending','{}'::jsonb,$5)
+       ON CONFLICT (client_id, entity_id, idempotency_key) DO NOTHING
+       RETURNING id`,
+      [ctx.client.id, ctx.entity.id, key, fingerprint, actorEmail]
+    );
+    if (!claim.rows.length) {
+      // Someone claimed it between our lookup and here.
+      return res.status(409).json({
+        ok: false, stage: "idempotency",
+        error: "A journal with this idempotency key was claimed concurrently. Check Xero before retrying.",
+        idempotency_key: key,
+      });
+    }
+  }
+
+  // Balances before, for the audit record. Best effort: failing to read a
+  // trial balance is not a reason to refuse a validated, approved journal.
+  let balancesBefore = null;
+  try {
+    const tb = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date: body.date });
+    balancesBefore = balancesForCodes(trialBalanceByAccountId(tb?.Reports?.[0] ?? tb), accounts, codes);
+  } catch (e) {
+    console.warn(`could not read balances before posting for ${ctx.entity.slug}: ${e.message}`);
+  }
+
+  // ── audit row opened before the call, committed so a crash leaves evidence ─
+  const conn = await pool.connect();
+  let auditId;
+  try {
+    auditId = await audit(conn, {
+      ...auditBase,
+      action: "journal_post_started",
+      payload: {
+        outcome: "started",
+        entity: ctx.entity.slug, tenant_id: ctx.tenantId,
+        approval_payload: body.approval,
+        idempotency_key: key, reference: body.reference ?? null,
+        validation: { passed: true, warnings },
+        request_payload: requestForAudit,
+        xero_request: xeroPayload,
+        balances_before: balancesBefore,
+      },
+    });
+  } finally {
+    conn.release();
+  }
+
+  // ── the write ─────────────────────────────────────────────────────────────
+  let xeroStatus = 0;
+  let xeroBody = null;
+  try {
+    const r = await fetch(`${XERO_API}/ManualJournals`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ctx.accessToken}`,
+        "Xero-Tenant-Id": ctx.tenantId,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ManualJournals: [xeroPayload] }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    xeroStatus = r.status;
+    const text = await r.text();
+    try { xeroBody = JSON.parse(text); } catch { xeroBody = { raw: text.slice(0, 2000) }; }
+  } catch (e) {
+    xeroStatus = 0;
+    xeroBody = { error: e.name === "TimeoutError" ? "timeout" : e.message };
+  }
+
+  const ok = xeroStatus === 200 || xeroStatus === 201;
+  const mj = ok ? xeroBody?.ManualJournals?.[0] ?? {} : {};
+  const outcome = ok ? (mj.Status === "POSTED" ? "posted" : "draft") : "failed";
+
+  // Balances after, only when the ledger actually moved. A DRAFT journal does
+  // not affect balances, so re-reading them would spend a Xero call to return
+  // the same numbers and imply a change that did not happen.
+  let balancesAfter = null;
+  let balancesAfterNote = null;
+  if (ok && mj.Status === "POSTED") {
+    try {
+      const tb = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date: body.date });
+      balancesAfter = balancesForCodes(trialBalanceByAccountId(tb?.Reports?.[0] ?? tb), accounts, codes);
+    } catch (e) {
+      balancesAfterNote = `could not be read: ${e.message}`;
+    }
+  } else if (ok) {
+    balancesAfterNote = "unchanged - a DRAFT journal does not affect ledger balances until it is posted";
+  }
+
+  const responseBody = ok
+    ? {
+        ok: true,
+        journal_id: mj.ManualJournalID ?? null,
+        journal_number: mj.JournalNumber ?? null,
+        status: mj.Status ?? xeroPayload.Status,
+        audit_id: auditId,
+        net: Number(fromPence(net)),
+        warnings,
+        idempotent_replay: false,
+      }
+    : {
+        ok: false,
+        stage: "xero",
+        http_status: xeroStatus,
+        xero_error: xeroBody,
+        audit_id: auditId,
+      };
+
+  // ── close the audit record, and resolve the idempotency claim ─────────────
+  const conn2 = await pool.connect();
+  try {
+    await conn2.query("BEGIN");
+    await audit(conn2, {
+      ...auditBase,
+      action: ok ? "journal_posted" : "journal_failed",
+      payload: {
+        outcome,
+        entity: ctx.entity.slug,
+        audit_opened_id: auditId,
+        approval_payload: body.approval,
+        idempotency_key: key, reference: body.reference ?? null,
+        xero_request: xeroPayload,
+        xero_response: xeroBody,
+        http_status: xeroStatus,
+        journal_id: mj.ManualJournalID ?? null,
+        balances_before: balancesBefore,
+        balances_after: balancesAfter,
+        balances_after_note: balancesAfterNote,
+      },
+    });
+    if (key) {
+      await conn2.query(
+        `UPDATE finance.journal_posts
+            SET outcome = $4, journal_id = $5, journal_number = $6, xero_status = $7,
+                response_body = $8, audit_id = $9
+          WHERE client_id = $1 AND entity_id = $2 AND idempotency_key = $3`,
+        [
+          ctx.client.id, ctx.entity.id, key, outcome,
+          mj.ManualJournalID ?? null, mj.JournalNumber ?? null, mj.Status ?? null,
+          JSON.stringify(responseBody), auditId,
+        ]
+      );
+    }
+    await conn2.query("COMMIT");
+  } catch (e) {
+    try { await conn2.query("ROLLBACK"); } catch { /* already gone */ }
+    throw e;
+  } finally {
+    conn2.release();
+  }
+
+  if (!ok) {
+    alertOps("xero_journal_failed", {
+      client: req.params.slug, entity: ctx.entity.slug,
+      status: xeroStatus, idempotencyKey: key, auditId,
+    });
+    // Xero's body, verbatim. The whole point.
+    return res.status(502).json(responseBody);
+  }
+  res.status(201).json(responseBody);
 }));
 
 // ── Start ───────────────────────────────────────────────────────────────────
