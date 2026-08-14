@@ -99,7 +99,11 @@ const route = (fn) => (req, res) =>
     // diagnosis and an afternoon.
     const body = { error: err.message };
     if (err.detail) body.detail = err.detail;
-    res.status(500).json(body);
+    // An upstream refusal is a bad gateway, not a fault in this service.
+    // Reporting a Xero scope failure as 500 sends the reader looking for a bug
+    // here, which is the same disguising-the-real-cause problem as swallowing
+    // the error body.
+    res.status(err.httpStatus || 500).json(body);
   });
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -1376,6 +1380,7 @@ async function xeroGet(accessToken, tenantId, path, params = {}) {
     // API key, and Xero's body is the difference between "it broke" and
     // knowing which account code it objected to.
     err.detail = { stage: "xero_read", status: r.status, path, body: body.slice(0, 2000) };
+    err.httpStatus = 502;
     throw err;
   }
   return r.json();
@@ -1394,13 +1399,22 @@ async function xeroGet(accessToken, tenantId, path, params = {}) {
 // Writes stay on explicit, validated, audited endpoints — a blanket proxy would
 // hand every script the ability to post to a client ledger, which is the thing
 // this whole exercise exists to prevent.
+// Every entry is backed by an actual caller in the migrating scripts. Three
+// speculative entries were removed on 14 August 2026 after checking them
+// against the inventory: /CreditNotes and /Reports/BudgetSummary had no caller
+// anywhere, and /Reports/AccountTransactions is not a Xero endpoint at all —
+// xero-server.py:590 records that account-level transactions come from
+// /Journals, which is why that one stays.
+//
+// An allowlist that promises more than the grant can deliver is worse than a
+// short one: the caller gets a 401 from Xero instead of an honest 404 listing
+// what is actually available.
 const XERO_READ_RESOURCES = {
   accounts: "/Accounts",
   invoices: "/Invoices",
   contacts: "/Contacts",
   payments: "/Payments",
   "bank-transactions": "/BankTransactions",
-  "credit-notes": "/CreditNotes",
   "manual-journals": "/ManualJournals",
   journals: "/Journals",
   "tax-rates": "/TaxRates",
@@ -1415,8 +1429,6 @@ const XERO_READ_REPORTS = {
   "executive-summary": "/Reports/ExecutiveSummary",
   "aged-receivables": "/Reports/AgedReceivablesByContact",
   "aged-payables": "/Reports/AgedPayablesByContact",
-  "account-transactions": "/Reports/AccountTransactions",
-  "budget-summary": "/Reports/BudgetSummary",
 };
 
 async function xeroReadPassthrough(req, res, xeroPath) {

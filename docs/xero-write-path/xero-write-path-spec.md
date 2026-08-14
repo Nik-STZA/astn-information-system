@@ -175,7 +175,7 @@ not just the first.
 | `PERIOD_LOCKED` | Reject if `date` falls on or before the entity's lock date. |
 | `FUTURE_PERIOD` | Warn (do not block) if `date` is in a future period. |
 | `DATE_FORMAT` | Strict `YYYY-MM-DD`. |
-| `MATERIALITY` | Warn (do not block) above a per-client threshold. Surfaces to the approver rather than failing. |
+| `MATERIALITY` | Warn (never block) above the threshold, which is **£1** — see §8.3. In practice every journal warns, and that is the intent: the warning carries the amount into `presented_text` so the approver always sees the size of what they are agreeing to. |
 | `MISSING_APPROVAL` | `approval` absent, or missing any of `approved_by`, `approved_at`, `presented_text`, `agreed_text`. |
 | `APPROVAL_STALE` | `approved_at` is more than 30 minutes before the request, or in the future. An approval agreed hours earlier was agreed to a different set of numbers. |
 | `APPROVAL_MISMATCH` | `presented_text` does not contain the entity, date, net and every account code in `lines`. Catches a payload edited after it was shown to the human — the one failure the assertion model cannot otherwise detect. |
@@ -230,7 +230,7 @@ evidence.
   "idempotency_key": "fgh-2026-08-marketing-provision-v1",
   "reference": "WP-2026-08-014",
   "request_payload": { /* exactly as received */ },
-  "validation": { "passed": true, "warnings": ["MATERIALITY: 50000.00 exceeds 25000.00 threshold"] },
+  "validation": { "passed": true, "warnings": ["MATERIALITY: 50000.00 exceeds 1.00 threshold"] },
   "xero_request": { /* exactly as sent */ },
   "xero_response": { /* exactly as received, success or failure */ },
   "journal_id": "b1f2…",
@@ -374,16 +374,70 @@ what produced this whole incident.
    and bank transactions for no reason and force re-consent across every
    connected entity.
 
-   The remaining live question is per-entity, not per-app: scopes are
-   recorded at connect time in `accounting_system_config.scopes`. Any entity
-   connected *before* `accounting.manualjournals` was added still holds the
-   old grant and needs reconnecting. Audit that against the DB before the
-   first write.
+   The remaining per-entity question is also now **RESOLVED**. Audited against
+   the live database, 14 August 2026: all four connected entities
+   (`feldspar-group-holdings`, `feldspar-ltd`, `ultraspeed-digital`, `stza`)
+   hold `accounting.manualjournals`. None was connected before it was added,
+   and **none needs reconnecting to post**. The only scope difference between
+   them is `openid`, absent from the two 30 July connections — not an
+   accounting scope, but the reason those two returned no `id_token` and so no
+   `authentication_event_id` for `selectTenant` to match on.
+
+   **Separately, three read scopes are missing** and gate the script migration
+   rather than the write path. See §9.
 2. ~~**Where does approval live?**~~ **RESOLVED, 14 August 2026.** Captured in
    Claude Cowork, transmitted with the write, persisted by the platform. No
    platform approval UI. `approval` is a required request field and the audit
    record stores the full `approval_payload`, not a boolean. See §5.
-3. **Per-client materiality thresholds** — where configured? Still open, and
-   now on the critical path: `MATERIALITY` is the warning that reaches the
-   approver, so until a threshold exists it warns on nothing and
-   `presented_text` carries no materiality context.
+3. ~~**Per-client materiality thresholds**~~ **DECIDED, 14 August 2026: £1.**
+
+   Not a per-client figure and not an audit-materiality judgement. **£1 means
+   every journal carries materiality context into `presented_text`**, so the
+   approver always sees the size of what they are agreeing to, stated the same
+   way every time.
+
+   It is a rule rather than a threshold, and deliberately so while the write
+   path is new: a threshold that silences most journals would mean the first
+   journal to trip it is also the first one anyone reads carefully. Uniform
+   output is what makes an unusual number visible. Revisit once the system has
+   earned trust — the value is one constant, and raising it later costs
+   nothing. Lowering it after a miss costs a great deal more.
+
+   `MATERIALITY` therefore warns on effectively every journal and must never
+   block. Do not treat a universal warning as noise to be suppressed; it is the
+   context line, not an exception report.
+
+---
+
+## 9. Read scopes gating the script migration
+
+Not required for the write path — `accounting.manualjournals` is already held
+everywhere (§8.1). These gate migrating the 21 reporting scripts off their own
+credentials, which is the other half of removing the second credential holder.
+
+Verified against the live grants and the endpoint inventory, 14 August 2026:
+
+| Passthrough entry | Xero endpoint | Scope required | Callers in migrating scripts |
+|---|---|---|---|
+| `payments` | `/Payments` | `accounting.payments.read` | `xero_payments_to_sheets.py` |
+| `executive-summary` | `/Reports/ExecutiveSummary` | `accounting.reports.executivesummary.read` | `append_xero_livecheck.py` |
+| `journals` | `/Journals` | `accounting.journals.read` | `append_category_supplier_tabs.py`, `monthly_close.py` |
+
+**One reconnection per entity covers all three.** Scopes are granted per
+authorisation, not per scope, so adding all three to `XERO_SCOPES` and
+reconnecting each of the four entities once grants the lot. Four consent
+screens total, not twelve — and it is the same reconnection, so do it once and
+add anything else wanted at the same time rather than in a second pass.
+
+Two cautions before scheduling it:
+
+- **`accounting.journals.read` may carry a Xero plan requirement.** Third-party
+  scope documentation notes it as needing an Advanced tier. Unverified against
+  Xero's own docs, and it decides whether `/Journals` is reachable at all for a
+  given client — check before promising the two scripts that depend on it.
+- **`accounting.reports.read` is discontinued** under the granular model, so
+  there is no umbrella that grants all reports. Each report needs its own
+  scope, and any report without a granular equivalent has no path at all. That
+  is what removed `/Reports/BudgetSummary` and `/Reports/AccountTransactions`
+  from the allowlist — the latter is not a Xero endpoint in any case
+  (`xero-server.py:590`).
