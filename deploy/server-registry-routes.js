@@ -389,8 +389,13 @@ app.post("/api/news/items/:id/review", async (req, res) => {
 
     await client.query("BEGIN");
 
-    const sets = ["status = $1"];
+    // Stamp the editorial review alongside the status. Without reviewed_at /
+    // reviewed_by there is no record that a human made this call, and the row
+    // is indistinguishable from one the classifier set. Matches the pattern in
+    // server-content-routes.js (PATCH|PUT /api/content/items/:id).
+    const sets = ["status = $1", "reviewed_at = now()", "updated_at = now()"];
     const vals = [status];
+    vals.push(reviewed_by ?? "nik@stza.io"); sets.push(`reviewed_by = $${vals.length}`);
     if (edited_title) { vals.push(edited_title); sets.push(`title = $${vals.length}`); }
     if (edited_summary) { vals.push(edited_summary); sets.push(`summary = $${vals.length}`); }
     if (edited_category) { vals.push(edited_category); sets.push(`category = $${vals.length}`); }

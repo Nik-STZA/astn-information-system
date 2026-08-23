@@ -184,7 +184,15 @@ function DetailPanel({
     onDone(item.id);
   }
 
-  const articleText = detail?.content || detail?.snippet || detail?.translated_text || null;
+  // The original article text, in whatever language it was published in.
+  // translated_text is deliberately NOT part of this fallback chain: an English
+  // translation is a companion to the source text, not a substitute for it, and
+  // folding it in here meant it only ever surfaced when the original was missing.
+  const articleText = detail?.content || detail?.snippet || null;
+
+  const originalLanguage = (detail?.original_language || item.original_language || "").toLowerCase();
+  const isForeignLanguage = originalLanguage !== "" && !originalLanguage.startsWith("en");
+  const translatedText = detail?.translated_text || null;
 
   return (
     <div
@@ -230,7 +238,7 @@ function DetailPanel({
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
-              Article
+              {isForeignLanguage ? `Article (${originalLanguage})` : "Article"}
             </span>
             <a href={item.url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none" }}>
               Open original ↗
@@ -252,6 +260,34 @@ function DetailPanel({
           >
             {loading ? "Loading article…" : articleText ?? "No stored article text — use Open original."}
           </div>
+
+          {/* English translation, shown alongside the source text rather than
+              replacing it, so the reviewer can always check the wording back
+              against the original. */}
+          {isForeignLanguage && !loading && (
+            <>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+                English translation
+              </span>
+              <div
+                style={{
+                  maxHeight: 260,
+                  overflowY: "auto",
+                  fontSize: 12.5,
+                  lineHeight: 1.55,
+                  color: translatedText ? "var(--label-text)" : "var(--sub)",
+                  fontStyle: translatedText ? "normal" : "italic",
+                  background: "var(--pnl)",
+                  border: "1px solid var(--bd)",
+                  borderRadius: 6,
+                  padding: "10px 12px",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {translatedText ?? "Not translated yet — review against the original."}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
