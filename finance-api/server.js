@@ -2052,7 +2052,11 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
 
 // ── Start ───────────────────────────────────────────────────────────────────
 
-const port = parseInt(process.env.PORT || "8080", 10);
-app.listen(port, () => {
-  console.log(`stza-finance-api listening on ${port}`);
-});
+if (require.main === module) {
+  const port = parseInt(process.env.PORT || "8080", 10);
+  app.listen(port, () => {
+    console.log(`stza-finance-api listening on ${port}`);
+  });
+}
+
+module.exports = { app, pool };

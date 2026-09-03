@@ -6,7 +6,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "runner": "node runner.js"
+    "runner": "node runner.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -16,5 +18,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }
