@@ -367,6 +367,8 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
     toolsUsed,
     durationMs: Date.now() - startMs,
     costUsd,
+    processingPath: "anthropic-api",
+    processingPathLabel: `Anthropic Messages API (${MODEL})`,
   };
 }
 

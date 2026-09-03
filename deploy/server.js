@@ -22,7 +22,7 @@ app.use(express.json({ limit: "5mb" }));
 // ─── CORS ──────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = [
-  "https://astn-information-system.netlify.app",
+  "https://os.stza.io",
   "http://localhost:3000",
   "http://localhost:3001",
 ];
@@ -54,7 +54,10 @@ app.use("/api", (req, res, next) => {
   // happened in production: `echo key | gcloud secrets create` bakes in CRLF,
   // making every comparison fail with a 401).
   const apiKey = process.env.API_KEY && process.env.API_KEY.trim();
-  if (!apiKey) return next(); // No key configured = open (dev only)
+  if (!apiKey) {
+    console.error("FATAL: API_KEY is not configured — rejecting all requests");
+    return res.status(500).json({ error: "Server misconfiguration — API key not set" });
+  }
 
   const provided = req.headers["x-api-key"];
   if (!provided || provided.trim() !== apiKey) {

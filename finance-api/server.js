@@ -1190,6 +1190,7 @@ app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
 app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
   const {
     status, sessionId, output, error, toolsUsed, filesTouched, durationMs, costUsd, wipRef,
+    processingPath, processingPathLabel,
   } = req.body || {};
 
   if (!["succeeded", "failed", "cancelled"].includes(status)) {
@@ -1202,7 +1203,10 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
      SET status = $2, session_id = $3, output = $4, error = $5,
          tools_used = COALESCE($6::jsonb, '[]'::jsonb),
          files_touched = COALESCE($7::jsonb, '[]'::jsonb),
-         duration_ms = $8, cost_usd = $9, wip_ref = $10, finished_at = now()
+         duration_ms = $8, cost_usd = $9, wip_ref = $10,
+         processing_path = COALESCE($11, processing_path),
+         processing_path_label = COALESCE($12, processing_path_label),
+         finished_at = now()
      WHERE id = $1 AND finished_at IS NULL
      RETURNING id, status, finished_at`,
     [
@@ -1210,6 +1214,7 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
       toolsUsed ? JSON.stringify(toolsUsed) : null,
       filesTouched ? JSON.stringify(filesTouched) : null,
       durationMs || null, costUsd || null, wipRef || null,
+      processingPath || null, processingPathLabel || null,
     ]
   );
 

@@ -813,6 +813,7 @@ app.get("/api/summary", async (_req, res) => {
       { key: "clients", sql: `SELECT count(*) AS c FROM compliance_clients` },
       { key: "pipeline_opportunities", sql: `SELECT count(*) AS c FROM bd_pipeline` },
       { key: "content_editions", sql: `SELECT count(*) AS c FROM content_editions` },
+      { key: "classified_items", sql: `SELECT count(*) AS c FROM classified_items` },
     ];
 
     for (const q of queries) {

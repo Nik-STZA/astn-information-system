@@ -1,13 +1,11 @@
 {
-  "_comment": "No API key here. The server reads it from Secret Manager using Application Default Credentials — run 'gcloud auth application-default login' once. A plaintext key in this file would be a second credential holder with write access to client ledgers.",
   "mcpServers": {
     "stza-finance": {
       "command": "node",
-      "args": ["<REPO_ROOT>/finance-api/mcp-server/index.js"],
+      "args": ["C:/Dev/astn-information-system/finance-api/mcp-server/index.js"],
       "env": {
-        "STZA_API_URL": "https://stza-finance-api-782190795609.europe-west1.run.app",
-        "STZA_ACTOR_EMAIL": "you@example.com",
-        "STZA_CLIENT": "stza"
+        "STZA_API_KEY": "<REPLACE_WITH_YOUR_FINANCE_API_KEY>",
+        "STZA_API_URL": "https://stza-finance-api-782190795609.europe-west1.run.app"
       }
     }
   }

@@ -233,6 +233,12 @@ The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `d
 - No frontend UI for uploading documents directly (e.g., PAIA manuals). The API supports it via `POST /api/compliance/clients/:clientId/documents/ingest` with a `documents` array parameter, but the frontend only sends `urls`.
 - Content hash deduplication means re-ingesting identical content is silently skipped — re-running an assessment without new content produces no changes.
 
+### STZA Finance Platform — MCP server (August 2026)
+
+**v0.1 (current):** `finance-api/mcp-server/index.js` — 8 read-only Xero tools wrapping the finance REST API. stdio transport. Tested with `@modelcontextprotocol/sdk` v1.x. OpenAPI 3.1 spec at `finance-api/mcp-server/openapi.yaml` for ChatGPT/Gemini integration.
+
+**v1.0 (planned):** Direct Xero access (bypass REST API), per-user API keys, SSE transport, tier-based access, journal posting.
+
 ## Pending work and known issues
 
 ### Immediate (blocking)
@@ -246,6 +252,8 @@ The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `d
 - **Prospect-to-client conversion** — UX improvement to bridge or combine Compliance Services and Clients sections, reducing clicks.
 - **Registry assistant** — Claude-powered natural language query over the organisation registry.
 - **Narrative reports** — AI-generated country profile reports.
+- **MCP server v1.0** — direct Xero access (remove REST API dependency), per-user API key auth, SSE transport, `post_journal` tool, `get_invoices`/`get_contacts` tools, tier-based access control.
+- **MCP server deploy** — Cloud Run service for the MCP server (SSE transport), API gateway for OpenAPI endpoints.
 
 ## Reference documents (in the STZA shared drive, not the repo)
 
