@@ -325,7 +325,11 @@ app.post("/api/content/ingest", async (req, res) => {
                 item.summary,
                 hash,
                 source.category,
-                0.5,
+                // This ingester does no classification — it cannot judge relevance,
+                // so it must not assert one. 0.0 keeps unscored items below the
+                // review queue's 0.4 candidate threshold until something that
+                // actually reads the article scores it.
+                0.0,
                 source.languages ? source.languages.split(",")[0].trim() : "en",
                 source.region_focus,
                 item.publishedAt ? new Date(item.publishedAt) : null,
