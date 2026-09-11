@@ -173,6 +173,87 @@ export interface AgentRunRow {
   finished_at: string | null;
 }
 
+export interface FinanceEntity {
+  slug: string;
+  name: string;
+  legalName: string | null;
+  connected: boolean;
+  role: string | null;
+  yearEnd: string | null;
+}
+
+export async function fetchEntities(slug: string): Promise<FinanceEntity[]> {
+  const r = await get<{ data: FinanceEntity[] }>(
+    `/api/finance/clients/${encodeURIComponent(slug)}/entities`
+  );
+  return r.data;
+}
+
+export type AgeBucket = "current" | "1-30" | "31-60" | "61-90" | "90+";
+export type BucketAmounts = Record<AgeBucket | "total", number>;
+
+export interface AgedInvoiceRow {
+  entity: string;
+  entityName: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  reference: string | null;
+  contact: string;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  currency: string;
+  amountDue: number;
+  daysOverdue: number;
+  bucket: AgeBucket;
+  intercompany: boolean;
+}
+
+export interface AgedSupplierRow {
+  contact: string;
+  entity: string;
+  entityName: string;
+  currency: string;
+  intercompany: boolean;
+  invoiceCount: number;
+  buckets: BucketAmounts;
+  total: number;
+}
+
+export interface AgedEntityStatus {
+  slug: string;
+  name: string;
+  legalName: string | null;
+  status: "ok" | "error" | "not_connected";
+  error?: string;
+  invoiceCount?: number;
+  truncated?: boolean;
+}
+
+export interface AgedPayablesReport {
+  client: { slug: string; name: string };
+  asAt: string;
+  scope: string;
+  complete: boolean;
+  truncated: boolean;
+  entities: AgedEntityStatus[];
+  currencies: Record<
+    string,
+    { buckets: BucketAmounts; intercompany: BucketAmounts; invoiceCount: number }
+  >;
+  suppliers: AgedSupplierRow[];
+  invoices: AgedInvoiceRow[];
+}
+
+/** AP ageing as at today, for one entity slug or "all". */
+export async function fetchAgedPayables(
+  slug: string,
+  entity: string
+): Promise<AgedPayablesReport> {
+  return get<AgedPayablesReport>(
+    `/api/finance/clients/${encodeURIComponent(slug)}/reports/aged-payables?entity=${encodeURIComponent(entity)}`
+  );
+}
+
 export async function fetchAgentRuns(slug: string): Promise<AgentRunRow[]> {
   const r = await get<{ data: AgentRunRow[] }>(
     `/api/finance/clients/${encodeURIComponent(slug)}/agent-runs`
