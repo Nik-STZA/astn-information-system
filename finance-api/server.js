@@ -1432,12 +1432,24 @@ app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
 // entries before the pack goes out. The reasoning, and the blind spot, are in
 // lib/ledger-changes.js.
 
-const { LEDGER_DOCUMENTS, documentsFrom, summariseChanges } = require("./lib/ledger-changes");
+const {
+  LEDGER_DOCUMENTS,
+  documentsFrom,
+  neverPosted,
+  needsHistoryCheck,
+  historyShowsLedgerChange,
+  summariseChanges,
+} = require("./lib/ledger-changes");
 
 // 2,000 changed documents of one type since the last build is not a month's
 // activity for these clients; past that, re-pull everything rather than trust a
 // partial scan.
 const CHANGE_SCAN_PAGES = 20;
+
+// History is read one document at a time, against Xero's 60 calls a minute per
+// organisation. Past this many candidates, count them all rather than spend the
+// limit: over-counting only costs a longer build.
+const HISTORY_CHECK_LIMIT = 40;
 
 async function entityChanges(slug, entity, since, reportingYear) {
   const ctx = await xeroEntityContext(slug, entity.slug);
@@ -1472,7 +1484,35 @@ async function entityChanges(slug, entity, since, reportingYear) {
         if (!spec.paged || batch.length < 100) break;
       }
     }
-    return { entity: entity.slug, status: "ok", ...summariseChanges(docs, { since, reportingYear, lockDates }) };
+
+    // Drafts never posted. A document that could move an old or locked period
+    // has its history read, and counts only if something other than a payment
+    // or an attachment happened since the watermark. lib/ledger-changes.js has
+    // the 11 Sep 2026 case that made this necessary.
+    const posted = docs.filter((d) => !neverPosted(d));
+    const candidates = posted.filter((d) => needsHistoryCheck(d, { reportingYear, lockDates }));
+    const setAside = new Set();
+    let historyNote = null;
+    if (candidates.length > HISTORY_CHECK_LIMIT) {
+      historyNote =
+        `${candidates.length} documents in old or locked periods changed: too many to check one by one, so all are counted.`;
+    } else {
+      for (const d of candidates) {
+        const h = await xeroGet(ctx.accessToken, ctx.tenantId, `${d.resource}/${d.id}/History`);
+        if (!historyShowsLedgerChange(h?.HistoryRecords, since)) setAside.add(d);
+      }
+    }
+
+    const summary = summariseChanges(
+      posted.filter((d) => !setAside.has(d)),
+      { since, reportingYear, lockDates }
+    );
+    summary.ignored = {
+      neverPosted: docs.length - posted.length,
+      paymentOrAttachmentOnly: setAside.size,
+    };
+    if (historyNote) summary.flags.push(historyNote);
+    return { entity: entity.slug, status: "ok", ...summary };
   } catch (e) {
     // A 401 or 403 here almost always means the connection predates a scope the
     // check needs (accounting.payments.read was added on 11 Sep 2026).

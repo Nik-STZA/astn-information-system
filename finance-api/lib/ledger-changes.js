@@ -11,21 +11,53 @@
 // reported, or on or before the lock date, is something a controller wants to
 // see before the pack goes out.
 //
+// "Modified" is broader than "posted to its period": paying a June bill in
+// September touches the bill but posts nothing to June (the payment posts on its
+// own date and is counted from /Payments). On 11 Sep 2026 that made 9 of FGH's
+// 11 lock-date flags noise. So drafts that never posted are dropped, and a
+// document that could move an old or locked period has its history read: it
+// counts only if something other than a payment or an attachment happened to it
+// since the watermark.
+//
 // Blind spot, stated rather than hidden: entries Xero creates with no document
 // behind them (fixed-asset depreciation, FX revaluation, conversion balances)
 // do not appear here. The lock dates narrow it: a locked period cannot change
 // without someone moving the lock.
 
-// Xero resource -> the collection key in its response, whether it pages, and a
-// label for people.
+// Xero resource -> the collection key in its response, the id field, whether it
+// pages, a label for people, and the statuses that mean it never posted.
 const LEDGER_DOCUMENTS = {
-  "/Invoices": { key: "Invoices", paged: true, label: "invoices and bills" },
-  "/CreditNotes": { key: "CreditNotes", paged: true, label: "credit notes" },
-  "/BankTransactions": { key: "BankTransactions", paged: true, label: "bank transactions" },
-  "/ManualJournals": { key: "ManualJournals", paged: true, label: "manual journals" },
-  "/Payments": { key: "Payments", paged: true, label: "payments" },
-  "/BankTransfers": { key: "BankTransfers", paged: false, label: "bank transfers" },
+  "/Invoices": {
+    key: "Invoices", idKey: "InvoiceID", paged: true, label: "invoices and bills",
+    neverPosted: ["DRAFT", "SUBMITTED", "DELETED"],
+  },
+  "/CreditNotes": {
+    key: "CreditNotes", idKey: "CreditNoteID", paged: true, label: "credit notes",
+    neverPosted: ["DRAFT", "SUBMITTED", "DELETED"],
+  },
+  "/BankTransactions": {
+    key: "BankTransactions", idKey: "BankTransactionID", paged: true, label: "bank transactions",
+    neverPosted: [],
+  },
+  "/ManualJournals": {
+    key: "ManualJournals", idKey: "ManualJournalID", paged: true, label: "manual journals",
+    neverPosted: ["DRAFT", "DELETED"],
+  },
+  "/Payments": {
+    key: "Payments", idKey: "PaymentID", paged: true, label: "payments",
+    neverPosted: [],
+  },
+  // History is not read for transfers: any change to one is counted.
+  "/BankTransfers": {
+    key: "BankTransfers", idKey: "BankTransferID", paged: false, label: "bank transfers",
+    neverPosted: [], noHistory: true,
+  },
 };
+
+// History labels that post nothing to the document's own period. Anything else,
+// including a label not seen before, counts as a change. Labels seen on 11 Sep
+// 2026: Created, Approved, Attached a file, Edited, Paid, Posted.
+const BENIGN_HISTORY = new Set(["Paid", "Attached a file"]);
 
 // Xero JSON dates look like "/Date(1788134400000+0000)/". Some fields come as a
 // plain "2026-08-31T00:00:00" instead: that is a calendar day in the
@@ -42,15 +74,44 @@ function xeroDate(v) {
 
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
-// One Xero response -> the changed documents in it, as { label, date, status }.
+// One Xero response -> the changed documents in it.
 function documentsFrom(resource, payload) {
   const spec = LEDGER_DOCUMENTS[resource];
   if (!spec) return [];
   return (payload?.[spec.key] ?? []).map((d) => ({
+    resource,
+    id: d[spec.idKey] ?? null,
     label: spec.label,
     date: d.Date ?? d.DateString ?? null,
     status: d.Status ?? null,
   }));
+}
+
+function neverPosted(doc) {
+  const spec = LEDGER_DOCUMENTS[doc.resource];
+  return Boolean(spec) && spec.neverPosted.includes(String(doc.status || "").toUpperCase());
+}
+
+// Only a document dated on or before the lock date, or into a year before the
+// reporting year, can make this check say something beyond "re-pull the
+// reporting year", so only those are worth a history call.
+function needsHistoryCheck(doc, { reportingYear, lockDates = {} } = {}) {
+  const spec = LEDGER_DOCUMENTS[doc.resource];
+  if (!spec || spec.noHistory || !doc.id) return false;
+  const d = xeroDate(doc.date);
+  if (!d) return false;
+  const lock = xeroDate(lockDates.periodLockDate);
+  return Boolean((lock && isoDay(d) <= isoDay(lock)) || (reportingYear && d.getUTCFullYear() < Number(reportingYear)));
+}
+
+function historyShowsLedgerChange(records = [], since) {
+  const from = Date.parse(since);
+  // Without a usable watermark there is nothing to compare against: count it.
+  if (!Number.isFinite(from)) return true;
+  return (records ?? []).some((h) => {
+    const when = xeroDate(h.DateUTC ?? h.DateUTCString);
+    return when && when.getTime() >= from && !BENIGN_HISTORY.has(String(h.Changes || "").trim());
+  });
 }
 
 function summariseChanges(docs, { since = null, reportingYear, lockDates = {} } = {}) {
@@ -106,4 +167,13 @@ function summariseChanges(docs, { since = null, reportingYear, lockDates = {} } 
   };
 }
 
-module.exports = { LEDGER_DOCUMENTS, xeroDate, documentsFrom, summariseChanges };
+module.exports = {
+  LEDGER_DOCUMENTS,
+  BENIGN_HISTORY,
+  xeroDate,
+  documentsFrom,
+  neverPosted,
+  needsHistoryCheck,
+  historyShowsLedgerChange,
+  summariseChanges,
+};
