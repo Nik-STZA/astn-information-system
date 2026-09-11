@@ -52,6 +52,24 @@ async function apiCall(method, path, body) {
   return r.json();
 }
 
+// Like apiCall, but returns the status and body instead of throwing, so a
+// validation refusal from finance-api can be handed back to the agent intact.
+async function apiRequest(method, path, body, headers = {}) {
+  const r = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { "X-API-Key": API_KEY, "Content-Type": "application/json", ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await r.text().catch(() => "");
+  let parsed = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = { raw: text.slice(0, 500) };
+  }
+  return { ok: r.ok, status: r.status, body: parsed };
+}
+
 async function claimJob() {
   return apiCall("POST", "/api/finance/agent-runs/claim");
 }
@@ -174,6 +192,36 @@ function buildTools(clientSlug, entities) {
         required: ["entity"],
       },
     },
+    {
+      name: "create_draft_journal",
+      description:
+        "Create a manual journal in Xero as a DRAFT, for a person to review and post in Xero. It never posts to the ledger. " +
+        "It only works in a follow-up where the user has plainly approved a journal you proposed in your previous answer: the " +
+        "platform checks the entity, the date, every account code and every amount against that answer, word for word, and " +
+        "rejects anything that differs. Use exactly the lines you proposed.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", enum: entityEnum, description: "Entity slug" },
+          date: { type: "string", description: "Journal date (YYYY-MM-DD), as shown in the proposal" },
+          narration: { type: "string", description: "Journal narration, as shown in the proposal" },
+          lines: {
+            type: "array",
+            minItems: 2,
+            items: {
+              type: "object",
+              properties: {
+                account_code: { type: "string", description: "Account code, as shown in the proposal" },
+                description: { type: "string" },
+                amount: { type: "number", description: "Debit positive, credit negative, two decimals" },
+              },
+              required: ["account_code", "amount"],
+            },
+          },
+        },
+        required: ["entity", "date", "narration", "lines"],
+      },
+    },
   ];
 }
 
@@ -200,6 +248,61 @@ async function clientCurrency(slug) {
   return clients?.data?.find((c) => c.slug === slug)?.reporting_currency ?? null;
 }
 
+// ── Draft journals ───────────────────────────────────────────────────────────
+//
+// The agent may create a journal in Xero only as a DRAFT, and only through the
+// governed endpoint, which validates it against what the approver saw. The
+// approval comes from the stored conversation, never from the agent: see
+// lib/draft-approval.js.
+
+const { approvalFromThread } = require("./lib/draft-approval");
+
+async function createDraftJournal(job, input) {
+  const slug = encodeURIComponent(job.client.slug);
+  const runs = (await apiCall("GET", `/api/finance/clients/${slug}/agent-runs`))?.data ?? [];
+  const current = runs.find((r) => r.id === job.id);
+  const parent = job.parentRunId ? runs.find((r) => r.id === job.parentRunId) : null;
+
+  const a = approvalFromThread({ current, parent });
+  if (a.error) return { error: a.error };
+
+  const body = {
+    entity: input.entity,
+    date: input.date,
+    narration: input.narration,
+    lines: input.lines,
+    status: "DRAFT", // never POSTED from here: a person posts it in Xero
+    approval: a.approval,
+  };
+  const path = `/api/finance/clients/${slug}/xero/${encodeURIComponent(input.entity)}/journals`;
+  const headers = { "X-Actor-Email": current.requested_by_email };
+
+  // Dry run first, so a mismatch with the approved text comes back without
+  // anything reaching Xero.
+  const dry = await apiRequest("POST", path, { ...body, dry_run: true }, headers);
+  if (!dry.ok) {
+    return {
+      error: "The platform refused the journal before it reached Xero. Nothing was created.",
+      status: dry.status,
+      detail: dry.body,
+    };
+  }
+
+  const res = await apiRequest("POST", path, { ...body, idempotency_key: `agent-run-${job.id}` }, headers);
+  if (!res.ok) {
+    return { error: "Xero or the platform refused the draft. Nothing was created.", status: res.status, detail: res.body };
+  }
+  return {
+    created: true,
+    status: res.body?.status ?? "DRAFT",
+    journal_number: res.body?.journal_number,
+    journal_id: res.body?.journal_id,
+    audit_id: res.body?.audit_id,
+    warnings: res.body?.warnings,
+    note: "Created in Xero as a DRAFT. Nothing is posted to the ledger until a person reviews and posts it in Xero. Tell the user that.",
+  };
+}
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS. You have access to live Xero accounting data via tools. You are acting on behalf of a qualified Chartered Accountant (CA(SA)) with Big 4 experience.
@@ -213,7 +316,13 @@ Key rules:
 - If data looks unusual or inconsistent, flag it. Auditor mindset.
 - Do not make up numbers. If a tool returns an error, say so.
 - Keep your response concise and professional. No waffle.
-- State your conclusion or recommendation clearly at the end.`;
+- State your conclusion or recommendation clearly at the end.
+
+Journals:
+- You can create a manual journal in Xero only as a DRAFT, and only after the user approves it. You can never post one.
+- First, check the chart of accounts, then reply with a proposal headed "Proposed journal (draft)". It must name the entity, give the date in YYYY-MM-DD form (for example 2026-08-31), give the narration, and list each line with ONE account code, a description and the amount. If you are unsure which account to use, ask; do not list alternatives. End by asking the user to reply "approved" to create it as a draft in Xero.
+- Only when the user's follow-up plainly approves that proposal, call create_draft_journal with exactly the proposed entity, date, narration, codes and amounts (debits positive, credits negative). If they ask for a change, make it and propose again.
+- After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.`;
 
 const AGENT_PROMPTS = {
   fc: `${SYSTEM_BASE}
@@ -355,6 +464,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
       try {
         if (tu.name === "list_entities") {
           result = { entities: connectedEntities };
+        } else if (tu.name === "create_draft_journal") {
+          result = await createDraftJournal(job, tu.input);
+          console.log(`    Draft journal: ${result.created ? `created ${result.journal_number ?? ""}` : `refused (${result.status ?? "no approval"})`}`);
         } else if (TOOL_TO_ENDPOINT[tu.name]) {
           const endpoint = TOOL_TO_ENDPOINT[tu.name];
           const { entity, ...input } = tu.input;
