@@ -1279,6 +1279,122 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// ── Report runs ─────────────────────────────────────────────────────────────
+//
+// Generated reports, starting with the management pack (migration 015). Same
+// shape as agent runs: the portal queues, a runner on the operator's machine
+// builds (scripts/report-runner.mjs), and the row records what was asked for
+// and where the output went. Paths only, never contents.
+
+const REPORTS = new Set(["management_pack"]);
+
+app.post("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { report, period } = req.body || {};
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!REPORTS.has(report)) return res.status(400).json({ error: "unknown report" });
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(period || ""))) {
+    return res.status(400).json({ error: "period must be YYYY-MM" });
+  }
+  // A month that has not started has nothing to report.
+  if (String(period) > new Date().toISOString().slice(0, 7)) {
+    return res.status(400).json({ error: "that month has not started yet" });
+  }
+
+  const role = await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [
+    client.id, actorEmail,
+  ]);
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO finance.report_runs
+         (client_id, report, period, requested_by_email, requested_by_role)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, report, period, status, queued_at`,
+      [client.id, report, period, actorEmail, role.rows[0].role]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    // The partial unique index allows one queued or running build per period.
+    if (e.code === "23505") {
+      return res.status(409).json({ error: "a build for that month is already queued or running" });
+    }
+    throw e;
+  }
+}));
+
+app.get("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows } = await pool.query(
+    `SELECT id, report, period, status, output_files, log_tail, error, duration_ms,
+            requested_by_email, requested_by_role, queued_at, started_at, finished_at
+       FROM finance.report_runs
+      WHERE client_id = $1 AND ($2::text IS NULL OR report = $2)
+      ORDER BY queued_at DESC
+      LIMIT 50`,
+    [client.id, req.query.report ? String(req.query.report) : null]
+  );
+  res.json({ count: rows.length, data: rows });
+}));
+
+// One build at a time per runner; SKIP LOCKED keeps a second runner off it.
+app.post("/api/finance/report-runs/claim", route(async (_req, res) => {
+  const { rows } = await pool.query(
+    `WITH next AS (
+       SELECT id FROM finance.report_runs
+        WHERE status = 'queued'
+        ORDER BY queued_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+     )
+     UPDATE finance.report_runs r
+        SET status = 'running', started_at = now()
+       FROM next WHERE r.id = next.id
+     RETURNING r.id, r.report, r.period, r.client_id`
+  );
+  if (!rows.length) return res.status(204).end();
+
+  const job = rows[0];
+  const c = await pool.query("SELECT slug, name FROM shared.clients WHERE id = $1", [job.client_id]);
+  res.json({ id: job.id, report: job.report, period: job.period, client: c.rows[0] });
+}));
+
+app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
+  const { status, outputFiles, logTail, error, durationMs } = req.body || {};
+  if (!["succeeded", "failed", "cancelled"].includes(status)) {
+    return res.status(400).json({ error: "status must be succeeded, failed or cancelled" });
+  }
+
+  // finished_at is set here, which is what makes the row immutable afterwards.
+  const { rows } = await pool.query(
+    `UPDATE finance.report_runs
+        SET status = $2,
+            output_files = COALESCE($3::jsonb, '[]'::jsonb),
+            log_tail = $4, error = $5, duration_ms = $6,
+            finished_at = now()
+      WHERE id = $1 AND finished_at IS NULL
+      RETURNING id, status, finished_at`,
+    [
+      req.params.id, status,
+      outputFiles ? JSON.stringify(outputFiles) : null,
+      logTail ? String(logTail).slice(-8000) : null,
+      error ? String(error).slice(0, 2000) : null,
+      durationMs || null,
+    ]
+  );
+
+  if (!rows.length) {
+    return res.status(409).json({ error: "run not found, or already finished and therefore immutable" });
+  }
+  res.json(rows[0]);
+}));
+
 // ── Sync ────────────────────────────────────────────────────────────────────
 //
 // The file watcher parses locally and posts the result here, so the write

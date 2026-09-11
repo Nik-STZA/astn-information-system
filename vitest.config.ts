@@ -15,6 +15,8 @@ export default defineConfig({
     // finance-api is a separate Node service with its own package.json, so
     // its logic was outside the suite entirely. The Xero decisions live
     // there, and those are the ones that can post to the wrong ledger.
-    include: ["src/**/*.test.ts", "finance-api/**/*.test.js"],
+    // scripts/ holds the local runners; their pure planning helpers are tested
+    // here, the parts that spawn processes are not.
+    include: ["src/**/*.test.ts", "finance-api/**/*.test.js", "scripts/**/*.test.mjs"],
   },
 });
