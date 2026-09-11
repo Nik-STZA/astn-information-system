@@ -99,7 +99,7 @@ function buildTools(clientSlug, entities) {
     },
     {
       name: "get_profit_and_loss",
-      description: "Get the profit and loss report from Xero. Supports date range and comparative periods.",
+      description: "Get the profit and loss report from Xero. For a month-by-month view pass the full range as fromDate/toDate with timeframe MONTH: the runner converts it so each column is a single month, newest first. Without timeframe, returns one column for the whole range.",
       input_schema: {
         type: "object",
         properties: {
@@ -188,6 +188,29 @@ const TOOL_TO_ENDPOINT = {
   get_chart_of_accounts: "accounts",
 };
 
+// Xero's P&L treats fromDate..toDate as ONE period and returns `periods` more of
+// the same length, each shifted back by `timeframe`. Asked for Jan-Aug with
+// periods=8 it returns eight overlapping 8-month windows, which read like
+// cumulative months and sum to nonsense. On 11 Sep 2026 an agent labelled
+// exactly that as "monthly, non-cumulative". So a multi-period range is sent as
+// the last period plus N-1 prior periods, and the agent is not trusted to know.
+const TIMEFRAME_MONTHS = { MONTH: 1, QUARTER: 3, YEAR: 12 };
+
+function normaliseProfitAndLossParams(params) {
+  const span = TIMEFRAME_MONTHS[params.timeframe];
+  if (!span || !params.fromDate || !params.toDate) return params;
+  const [fy, fm] = params.fromDate.split("-").map(Number);
+  const [ty, tm] = params.toDate.split("-").map(Number);
+  const months = (ty - fy) * 12 + (tm - fm) + 1;
+  if (months <= span) return params;
+  const lastPeriodStart = new Date(Date.UTC(ty, tm - span, 1));
+  return {
+    ...params,
+    fromDate: lastPeriodStart.toISOString().slice(0, 10),
+    periods: Math.min(Math.ceil(months / span) - 1, 11), // Xero caps periods at 11
+  };
+}
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS. You have access to live Xero accounting data via tools. You are acting on behalf of a qualified Chartered Accountant (CA(SA)) with Big 4 experience.
@@ -243,6 +266,13 @@ You are the AP Clerk agent. Your focus is:
 - Maintaining clean supplier records`,
 };
 
+// ── Follow-ups ───────────────────────────────────────────────────────────────
+//
+// A follow-up arrives with the earlier turns of its conversation, replayed as
+// plain question and answer. See lib/thread.js.
+
+const { threadToMessages } = require("./lib/thread");
+
 // ── Execute one job ──────────────────────────────────────────────────────────
 
 async function executeJob(job) {
@@ -293,6 +323,7 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
 
   // 3. Agentic loop
   let messages = [
+    ...threadToMessages(job.thread),
     { role: "user", content: job.instruction },
   ];
 
@@ -333,8 +364,15 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = { entities: connectedEntities };
         } else if (TOOL_TO_ENDPOINT[tu.name]) {
           const endpoint = TOOL_TO_ENDPOINT[tu.name];
-          const { entity, ...params } = tu.input;
+          const { entity, ...input } = tu.input;
+          const params = tu.name === "get_profit_and_loss" ? normaliseProfitAndLossParams(input) : input;
           result = await xeroCall(job.client.slug, entity, endpoint, params);
+          if (params !== input) {
+            result = {
+              note: `Request normalised to fromDate=${params.fromDate}, periods=${params.periods}. Each column is ONE ${params.timeframe.toLowerCase()}, newest first. Sum the columns for the range total.`,
+              ...result,
+            };
+          }
         } else {
           result = { error: `Unknown tool: ${tu.name}` };
         }

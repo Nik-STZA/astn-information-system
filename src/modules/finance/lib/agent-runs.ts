@@ -10,6 +10,7 @@ export async function queueAgentRun(opts: {
   actorEmail: string;
   agent?: string | null;
   instruction: string;
+  parentRunId?: string | null;
   ip?: string;
 }): Promise<{ ok: boolean; data?: unknown; error?: string; status: number }> {
   const key = process.env.FINANCE_API_KEY;
@@ -25,7 +26,11 @@ export async function queueAgentRun(opts: {
         "X-Actor-Email": opts.actorEmail,
         ...(opts.ip ? { "X-Forwarded-For": opts.ip } : {}),
       },
-      body: JSON.stringify({ agent: opts.agent || null, instruction: opts.instruction }),
+      body: JSON.stringify({
+        agent: opts.agent || null,
+        instruction: opts.instruction,
+        ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
+      }),
       cache: "no-store",
     }
   );
