@@ -260,3 +260,28 @@ export async function fetchAgentRuns(slug: string): Promise<AgentRunRow[]> {
   );
   return r.data;
 }
+
+export interface ReportRunRow {
+  id: string;
+  report: "management_pack";
+  /** YYYY-MM */
+  period: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  /** Where the runner saved each draft. Paths only. */
+  output_files: Array<{ name: string; path: string }>;
+  log_tail: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  requested_by_email: string;
+  requested_by_role: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export async function fetchReportRuns(slug: string, report: string): Promise<ReportRunRow[]> {
+  const r = await get<{ data: ReportRunRow[] }>(
+    `/api/finance/clients/${encodeURIComponent(slug)}/report-runs?report=${encodeURIComponent(report)}`
+  );
+  return r.data;
+}
