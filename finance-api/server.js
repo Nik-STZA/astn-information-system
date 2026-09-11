@@ -1778,6 +1778,10 @@ const XERO_READ_RESOURCES = {
   payments: "/Payments",
   "bank-transactions": "/BankTransactions",
   "manual-journals": "/ManualJournals",
+  // Restored 11 Sep 2026: removed on 14 Aug for having no caller, it now has
+  // one. The management pack's supplier tabs, rebuilt from documents because
+  // /Journals cannot be granted, need supplier credits to reconcile to the P&L.
+  "credit-notes": "/CreditNotes",
   journals: "/Journals",
   "tax-rates": "/TaxRates",
   "tracking-categories": "/TrackingCategories",
@@ -1820,6 +1824,31 @@ async function xeroReadPassthrough(req, res, xeroPath) {
 app.get("/api/finance/clients/:slug/xero/:entity/read/reports/:report", route(async (req, res) =>
   xeroReadPassthrough(req, res, XERO_READ_REPORTS[req.params.report])
 ));
+
+// GET /api/finance/clients/:slug/xero/:entity/read/:resource/:id/history
+// One document's change history: what changed, when, and by whom. Read-only
+// like the rest of the passthrough. Callers: the pack-changes check, which must
+// tell a bill that was merely paid (nothing posts to its period) from one whose
+// lines were edited, and the stza-xero plugin's get_history.
+const XERO_HISTORY_RESOURCES = new Set([
+  "invoices", "credit-notes", "manual-journals", "bank-transactions", "payments",
+]);
+
+app.get("/api/finance/clients/:slug/xero/:entity/read/:resource/:id/history", route(async (req, res) => {
+  const { resource, id } = req.params;
+  if (!XERO_HISTORY_RESOURCES.has(resource)) {
+    return res.status(404).json({ error: "history is not available for this resource", allowed: [...XERO_HISTORY_RESOURCES] });
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: "id must be a Xero GUID" });
+
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+
+  const path = `${XERO_READ_RESOURCES[resource]}/${id}/History`;
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, path);
+  res.json({ entity: ctx.entity.name, resource: path, data });
+}));
 
 // GET /api/finance/clients/:slug/xero/:entity/read/:resource
 app.get("/api/finance/clients/:slug/xero/:entity/read/:resource", route(async (req, res) =>
