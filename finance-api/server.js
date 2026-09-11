@@ -39,6 +39,13 @@ const {
   trialBalanceByAccountId,
   validateJournal,
 } = require("./lib/journal");
+const {
+  ageInvoices,
+  fetchAllInvoices,
+  legacyShape,
+  outstandingWhere,
+  summarise,
+} = require("./lib/ageing");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -1595,92 +1602,82 @@ app.get("/api/finance/clients/:slug/xero/:entity/bank-summary", route(async (req
   res.json({ entity: ctx.entity.name, report: data.Reports?.[0] ?? data });
 }));
 
-// GET /api/finance/clients/:slug/xero/:entity/aged-receivables
-// Uses the Invoices API (Type==ACCREC with outstanding amounts) instead of the
-// AgedReceivablesByContact report, which requires a contactId.
-app.get("/api/finance/clients/:slug/xero/:entity/aged-receivables", route(async (req, res) => {
+// ── Ageing (AP and AR) ──────────────────────────────────────────────────────
+//
+// Both use the Invoices API (outstanding AUTHORISED invoices of one type)
+// rather than the Aged…ByContact reports, which require a contactId. The
+// deciding happens in lib/ageing.js; this is only fetching.
+
+// Every page of one entity's outstanding invoices of `type`.
+async function fetchOutstandingInvoices(ctx, type) {
+  return fetchAllInvoices(async (page) => {
+    const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", {
+      where: outstandingWhere(type),
+      order: "DueDate",
+      page: String(page),
+    });
+    return data.Invoices || [];
+  });
+}
+
+// All entities of a client, connected or not. Used both to choose what to
+// fetch and as the name list for spotting intercompany balances.
+async function clientEntities(clientId) {
+  const { rows } = await pool.query(
+    `SELECT slug, name, legal_name, accounting_system_config
+     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+    [clientId]
+  );
+  return rows;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// The per-entity endpoints the agent runner calls. Response shape and bucket
+// keys are unchanged; what changed is that drafts and bills awaiting approval
+// no longer count, and every page is read rather than the first 100. A caller
+// that sends `page` still gets exactly that page.
+//
+// `date` is kept for compatibility, but note what it means: today's AmountDue
+// aged against that date. It is not a historical ageing.
+async function perEntityAgeing(req, res, type) {
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
   if (ctx.error) return erpUnavailable(res, ctx);
 
-  const params = {
-    where: 'Type=="ACCREC" AND AmountDue>0',
-    order: "DueDate",
-  };
-  if (req.query.page) params.page = req.query.page;
-
-  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", params);
   const asAtDate = req.query.date || new Date().toISOString().slice(0, 10);
-  const asAt = new Date(asAtDate);
+  if (!ISO_DATE.test(asAtDate)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
 
-  // Bucket into ageing periods
-  const buckets = { current: 0, "30": 0, "60": 0, "90": 0, "90+": 0, total: 0 };
-  const lines = (data.Invoices || []).map((inv) => {
-    const due = new Date(inv.DueDateString || inv.DueDate);
-    const daysOverdue = Math.floor((asAt - due) / 86400000);
-    let bucket = "current";
-    if (daysOverdue > 90) bucket = "90+";
-    else if (daysOverdue > 60) bucket = "90";
-    else if (daysOverdue > 30) bucket = "60";
-    else if (daysOverdue > 0) bucket = "30";
-    buckets[bucket] += inv.AmountDue;
-    buckets.total += inv.AmountDue;
-    return {
-      invoiceNumber: inv.InvoiceNumber,
-      contact: inv.Contact?.Name,
-      dueDate: inv.DueDateString,
-      amountDue: inv.AmountDue,
-      currency: inv.CurrencyCode,
-      daysOverdue: Math.max(0, daysOverdue),
-      bucket,
-    };
+  let invoices;
+  let truncated = false;
+  if (req.query.page) {
+    const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", {
+      where: outstandingWhere(type),
+      order: "DueDate",
+      page: String(req.query.page),
+    });
+    invoices = data.Invoices || [];
+  } else {
+    ({ invoices, truncated } = await fetchOutstandingInvoices(ctx, type));
+  }
+
+  const rows = ageInvoices(invoices, {
+    asAt: asAtDate,
+    entity: ctx.entity,
+    groupEntities: await clientEntities(ctx.client.id),
   });
+  res.json({ entity: ctx.entity.name, asAtDate, ...legacyShape(rows), truncated });
+}
 
-  res.json({ entity: ctx.entity.name, asAtDate, buckets, invoiceCount: lines.length, invoices: lines });
-}));
+// GET /api/finance/clients/:slug/xero/:entity/aged-receivables
+app.get("/api/finance/clients/:slug/xero/:entity/aged-receivables", route(async (req, res) =>
+  perEntityAgeing(req, res, "ACCREC")
+));
 
 // GET /api/finance/clients/:slug/xero/:entity/aged-payables
-// Uses the Invoices API (Type==ACCPAY with outstanding amounts) instead of the
-// AgedPayablesByContact report, which requires a contactId.
-app.get("/api/finance/clients/:slug/xero/:entity/aged-payables", route(async (req, res) => {
-  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
-  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return erpUnavailable(res, ctx);
-
-  const params = {
-    where: 'Type=="ACCPAY" AND AmountDue>0',
-    order: "DueDate",
-  };
-  if (req.query.page) params.page = req.query.page;
-
-  const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", params);
-  const asAtDate = req.query.date || new Date().toISOString().slice(0, 10);
-  const asAt = new Date(asAtDate);
-
-  const buckets = { current: 0, "30": 0, "60": 0, "90": 0, "90+": 0, total: 0 };
-  const lines = (data.Invoices || []).map((inv) => {
-    const due = new Date(inv.DueDateString || inv.DueDate);
-    const daysOverdue = Math.floor((asAt - due) / 86400000);
-    let bucket = "current";
-    if (daysOverdue > 90) bucket = "90+";
-    else if (daysOverdue > 60) bucket = "90";
-    else if (daysOverdue > 30) bucket = "60";
-    else if (daysOverdue > 0) bucket = "30";
-    buckets[bucket] += inv.AmountDue;
-    buckets.total += inv.AmountDue;
-    return {
-      invoiceNumber: inv.InvoiceNumber,
-      contact: inv.Contact?.Name,
-      dueDate: inv.DueDateString,
-      amountDue: inv.AmountDue,
-      currency: inv.CurrencyCode,
-      daysOverdue: Math.max(0, daysOverdue),
-      bucket,
-    };
-  });
-
-  res.json({ entity: ctx.entity.name, asAtDate, buckets, invoiceCount: lines.length, invoices: lines });
-}));
+app.get("/api/finance/clients/:slug/xero/:entity/aged-payables", route(async (req, res) =>
+  perEntityAgeing(req, res, "ACCPAY")
+));
 
 // GET /api/finance/clients/:slug/xero/:entity/accounts  (chart of accounts)
 app.get("/api/finance/clients/:slug/xero/:entity/accounts", route(async (req, res) => {
@@ -1715,6 +1712,69 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
       role: e.role,
       yearEnd: e.year_end,
     })),
+  });
+}));
+
+// GET /api/finance/clients/:slug/reports/aged-payables?entity=<entity-slug>|all
+//
+// The portal's AP ageing report, for one entity or the whole group.
+//
+// As at today only. AmountDue is what is owed now; ageing it against a past
+// date would show today's balances under an old date, so there is no date
+// parameter to invite that.
+//
+// One entity failing (a dead Xero connection, say) does not fail the report.
+// It comes back marked, and `complete` is false, so a partial group total is
+// never mistaken for the whole.
+app.get("/api/finance/clients/:slug/reports/aged-payables", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const all = await clientEntities(client.id);
+  const scope = String(req.query.entity || "all");
+  const targets = scope === "all" ? all : all.filter((e) => e.slug === scope);
+  if (!targets.length) {
+    return res.status(404).json({ error: `entity ${scope} not found for ${req.params.slug}` });
+  }
+
+  const asAt = new Date().toISOString().slice(0, 10);
+
+  // Different tenants, different refresh-token secrets: safe to run together.
+  const results = await Promise.all(targets.map(async (e) => {
+    const base = { slug: e.slug, name: e.name, legalName: e.legal_name };
+    if (!e.accounting_system_config?.tenant_id) return { ...base, status: "not_connected", rows: [] };
+    try {
+      const ctx = await xeroEntityContext(req.params.slug, e.slug);
+      if (!ctx) return { ...base, status: "not_connected", rows: [] };
+      if (ctx.error) return { ...base, status: "error", error: ctx.error, rows: [] };
+      const { invoices, truncated } = await fetchOutstandingInvoices(ctx, "ACCPAY");
+      const rows = ageInvoices(invoices, {
+        asAt,
+        entity: { slug: e.slug, name: e.name },
+        groupEntities: all,
+      });
+      return { ...base, status: "ok", invoiceCount: rows.length, truncated, rows };
+    } catch (err) {
+      console.error(`aged-payables ${req.params.slug}/${e.slug} failed:`, err.message);
+      return { ...base, status: "error", error: err.message, rows: [] };
+    }
+  }));
+
+  const invoices = results.flatMap((r) => r.rows);
+  const { currencies, suppliers } = summarise(invoices);
+
+  res.json({
+    client: { slug: client.slug, name: client.name },
+    asAt,
+    scope,
+    // Not connected is a known state, not a failure; only an error makes the
+    // report incomplete.
+    complete: results.every((r) => r.status !== "error"),
+    truncated: results.some((r) => r.truncated),
+    entities: results.map(({ rows, ...e }) => e),
+    currencies,
+    suppliers,
+    invoices,
   });
 }));
 
