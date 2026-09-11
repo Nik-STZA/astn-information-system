@@ -99,7 +99,7 @@ function buildTools(clientSlug, entities) {
     },
     {
       name: "get_profit_and_loss",
-      description: "Get the profit and loss report from Xero. For a month-by-month view pass the full range as fromDate/toDate with timeframe MONTH: the runner converts it so each column is a single month, newest first. Without timeframe, returns one column for the whole range.",
+      description: "Get the profit and loss report from Xero. For a month-by-month (or quarterly) view, pass the full range as fromDate/toDate with timeframe MONTH (or QUARTER): the platform fetches each whole period separately and returns one column per period, oldest first, with totals already computed. Without timeframe, returns one column for the whole range.",
       input_schema: {
         type: "object",
         properties: {
@@ -188,9 +188,17 @@ const TOOL_TO_ENDPOINT = {
   get_chart_of_accounts: "accounts",
 };
 
-// P&L comparative periods are normalised before the call. lib/pnl-periods.js
-// records the two ways Xero's period rules misled an agent on 11 Sep 2026.
-const { normaliseProfitAndLossParams, columnsCover } = require("./lib/pnl-periods");
+// A P&L across several periods is built from one Xero call per whole period,
+// with the totals computed in code. lib/pnl-periods.js records the three ways
+// Xero's own comparatives misled an agent on 11 Sep 2026.
+const { planPnl, mergeReports } = require("./lib/pnl-periods");
+
+// The client's reporting currency, so the agent labels money correctly. Without
+// it, "CA(SA)" in the prompt led an agent to show a GBP ledger in rand.
+async function clientCurrency(slug) {
+  const clients = await apiCall("GET", "/api/finance/clients");
+  return clients?.data?.find((c) => c.slug === slug)?.reporting_currency ?? null;
+}
 
 // ── System prompts per agent role ────────────────────────────────────────────
 
@@ -198,6 +206,8 @@ const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS.
 
 Key rules:
 - Be precise with numbers. Use commas as thousand separators, two decimal places for money.
+- Show money in the client's reporting currency, given below. Never use any other currency symbol.
+- When a tool gives you totals, quote them. Do not add figures up yourself; if you must, say the figure is your own addition.
 - Dates should be formatted as "27 May 2026" (no ordinals).
 - When presenting financial data, use tables where appropriate.
 - If data looks unusual or inconsistent, flag it. Auditor mindset.
@@ -298,7 +308,9 @@ async function executeJob(job) {
   // 2. Build tools and system prompt
   const tools = buildTools(job.client.slug, connectedEntities);
   const systemPrompt = AGENT_PROMPTS[job.agent] || SYSTEM_BASE;
+  const currency = await clientCurrency(job.client.slug).catch(() => null);
   const clientContext = `You are working on client: ${job.client.name} (slug: ${job.client.slug}).
+Reporting currency: ${currency ?? "not recorded; label every amount with the currency code Xero returns"}.
 Connected entities: ${connectedEntities.map((e) => `${e.name} (${e.slug}, year-end: ${e.yearEnd || "not set"})`).join("; ")}.
 Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`;
 
@@ -346,23 +358,35 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
         } else if (TOOL_TO_ENDPOINT[tu.name]) {
           const endpoint = TOOL_TO_ENDPOINT[tu.name];
           const { entity, ...input } = tu.input;
-          const params = tu.name === "get_profit_and_loss" ? normaliseProfitAndLossParams(input) : input;
-          result = await xeroCall(job.client.slug, entity, endpoint, params);
-          if (params !== input) {
-            const cover = columnsCover(params);
-            const missing =
-              input.fromDate < cover.from
-                ? `You asked from ${input.fromDate}, but Xero returns at most 12 columns, so nothing before ` +
-                  `${cover.from} is included. Say so in your answer, or request the earlier months separately. `
-                : "";
+          const plan = tu.name === "get_profit_and_loss" ? planPnl(input) : null;
+          if (plan && plan.ranges.length > 1) {
+            // One call per whole period, one at a time: Xero allows five
+            // concurrent calls per organisation and the runner is not the only caller.
+            const { fromDate, toDate, periods, timeframe, ...rest } = input;
+            const reports = [];
+            for (const r of plan.ranges) {
+              const res = await xeroCall(job.client.slug, entity, endpoint, {
+                ...rest, fromDate: r.fromDate, toDate: r.toDate,
+              });
+              reports.push(res?.report);
+            }
+            const period = String(timeframe).toLowerCase();
+            const last = plan.ranges[plan.ranges.length - 1];
             result = {
               note:
-                `Columns cover ${cover.from} to ${cover.to}, each ONE whole ${params.timeframe.toLowerCase()}, newest first. ` +
-                `If the range ends in the current month, the newest column is month to date, not a full month. ` +
-                missing +
-                `Sum the columns for a range total.`,
-              ...result,
+                `Built by the platform from one Xero call per ${period}. Each column is one whole ${period}, oldest first. ` +
+                `Totals are computed by the platform: quote them and do not add figures up yourself. ` +
+                (plan.partialLast
+                  ? `The last column (${last.label}) is still in progress: to date, not a full ${period}. `
+                  : "") +
+                (plan.truncated
+                  ? `More than 12 columns were asked for; only the 12 most recent are included, from ${plan.ranges[0].label}. Say so in your answer. `
+                  : ""),
+              entity,
+              ...mergeReports(plan.ranges, reports),
             };
+          } else {
+            result = await xeroCall(job.client.slug, entity, endpoint, input);
           }
         } else {
           result = { error: `Unknown tool: ${tu.name}` };
