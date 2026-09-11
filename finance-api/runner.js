@@ -188,28 +188,9 @@ const TOOL_TO_ENDPOINT = {
   get_chart_of_accounts: "accounts",
 };
 
-// Xero's P&L treats fromDate..toDate as ONE period and returns `periods` more of
-// the same length, each shifted back by `timeframe`. Asked for Jan-Aug with
-// periods=8 it returns eight overlapping 8-month windows, which read like
-// cumulative months and sum to nonsense. On 11 Sep 2026 an agent labelled
-// exactly that as "monthly, non-cumulative". So a multi-period range is sent as
-// the last period plus N-1 prior periods, and the agent is not trusted to know.
-const TIMEFRAME_MONTHS = { MONTH: 1, QUARTER: 3, YEAR: 12 };
-
-function normaliseProfitAndLossParams(params) {
-  const span = TIMEFRAME_MONTHS[params.timeframe];
-  if (!span || !params.fromDate || !params.toDate) return params;
-  const [fy, fm] = params.fromDate.split("-").map(Number);
-  const [ty, tm] = params.toDate.split("-").map(Number);
-  const months = (ty - fy) * 12 + (tm - fm) + 1;
-  if (months <= span) return params;
-  const lastPeriodStart = new Date(Date.UTC(ty, tm - span, 1));
-  return {
-    ...params,
-    fromDate: lastPeriodStart.toISOString().slice(0, 10),
-    periods: Math.min(Math.ceil(months / span) - 1, 11), // Xero caps periods at 11
-  };
-}
+// P&L comparative periods are normalised before the call. lib/pnl-periods.js
+// records the two ways Xero's period rules misled an agent on 11 Sep 2026.
+const { normaliseProfitAndLossParams } = require("./lib/pnl-periods");
 
 // ── System prompts per agent role ────────────────────────────────────────────
 
@@ -369,7 +350,10 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = await xeroCall(job.client.slug, entity, endpoint, params);
           if (params !== input) {
             result = {
-              note: `Request normalised to fromDate=${params.fromDate}, periods=${params.periods}. Each column is ONE ${params.timeframe.toLowerCase()}, newest first. Sum the columns for the range total.`,
+              note:
+                `Request normalised to ${params.fromDate}..${params.toDate} plus ${params.periods} prior periods. ` +
+                `Each column is ONE whole ${params.timeframe.toLowerCase()}, newest first. If the range ends in the ` +
+                `current month, the newest column is month to date, not a full month. Sum the columns for a range total.`,
               ...result,
             };
           }
