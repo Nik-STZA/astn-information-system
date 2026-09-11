@@ -29,6 +29,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # finance-api is a separate package with its own lockfile. Its
+      # integration tests run under the root vitest and require its deps.
+      - name: Install finance-api dependencies
+        run: npm ci --prefix finance-api
+
       # Module isolation gate. Fails the build if src/modules/finance imports
       # from another module or from the legacy AfricanSTN code in src/app,
       # src/lib or src/components. Rule lives in .eslintrc.json.
