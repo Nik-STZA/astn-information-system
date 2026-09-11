@@ -414,6 +414,17 @@ const XERO_SCOPES = [
   "accounting.reports.profitandloss.read",
   "accounting.reports.banksummary.read",
   "accounting.reports.aged.read",
+  // Added 11 Sep 2026. Payments feed the pack-changes check (what moved since
+  // the last pack) and, with the executive summary, were gating the
+  // reporting-script migration. Existing connections keep their old grant until
+  // each entity reconnects.
+  //
+  // accounting.journals.read is deliberately absent: Xero answers invalid_scope
+  // for it on this app (granular scopes), and one invalid scope makes Xero reject
+  // the whole authorisation, so adding it would break every connection. Test any
+  // change here against the authorize URL before deploying.
+  "accounting.payments.read",
+  "accounting.reports.executivesummary.read",
 ].join(" ");
 
 app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
@@ -1333,7 +1344,8 @@ app.get("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
 
   const { rows } = await pool.query(
     `SELECT id, report, period, status, output_files, log_tail, error, duration_ms,
-            requested_by_email, requested_by_role, queued_at, started_at, finished_at
+            requested_by_email, requested_by_role, queued_at, started_at, finished_at,
+            watermarks
        FROM finance.report_runs
       WHERE client_id = $1 AND ($2::text IS NULL OR report = $2)
       ORDER BY queued_at DESC
@@ -1366,10 +1378,19 @@ app.post("/api/finance/report-runs/claim", route(async (_req, res) => {
 }));
 
 app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
-  const { status, outputFiles, logTail, error, durationMs } = req.body || {};
+  const { status, outputFiles, logTail, error, durationMs, watermarks } = req.body || {};
   if (!["succeeded", "failed", "cancelled"].includes(status)) {
     return res.status(400).json({ error: "status must be succeeded, failed or cancelled" });
   }
+
+  // Where the build's change check started from (migration 016): entity slug to
+  // an ISO timestamp, nothing else, because the next build asks Xero for
+  // everything modified since then to decide which years it can skip.
+  const marks =
+    watermarks && typeof watermarks === "object" && !Array.isArray(watermarks) &&
+    Object.values(watermarks).every((v) => typeof v === "string" && !Number.isNaN(Date.parse(v)))
+      ? watermarks
+      : null;
 
   // finished_at is set here, which is what makes the row immutable afterwards.
   const { rows } = await pool.query(
@@ -1377,6 +1398,7 @@ app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
         SET status = $2,
             output_files = COALESCE($3::jsonb, '[]'::jsonb),
             log_tail = $4, error = $5, duration_ms = $6,
+            watermarks = $7::jsonb,
             finished_at = now()
       WHERE id = $1 AND finished_at IS NULL
       RETURNING id, status, finished_at`,
@@ -1386,6 +1408,7 @@ app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
       logTail ? String(logTail).slice(-8000) : null,
       error ? String(error).slice(0, 2000) : null,
       durationMs || null,
+      marks ? JSON.stringify(marks) : null,
     ]
   );
 
@@ -1393,6 +1416,136 @@ app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
     return res.status(409).json({ error: "run not found, or already finished and therefore immutable" });
   }
   res.json(rows[0]);
+}));
+
+// ── Pack changes ────────────────────────────────────────────────────────────
+//
+// What moved in each entity's ledger since the last successful pack build, so
+// a build re-pulls only the years that changed and a person sees back-dated
+// entries before the pack goes out. The reasoning, and the blind spot, are in
+// lib/ledger-changes.js.
+
+const { LEDGER_DOCUMENTS, documentsFrom, summariseChanges } = require("./lib/ledger-changes");
+
+// 2,000 changed documents of one type since the last build is not a month's
+// activity for these clients; past that, re-pull everything rather than trust a
+// partial scan.
+const CHANGE_SCAN_PAGES = 20;
+
+async function entityChanges(slug, entity, since, reportingYear) {
+  const ctx = await xeroEntityContext(slug, entity.slug);
+  if (!ctx) return { entity: entity.slug, status: "not_connected" };
+  if (ctx.error) return { entity: entity.slug, status: "error", error: ctx.error };
+
+  if (!since) {
+    return {
+      entity: entity.slug,
+      status: "baseline",
+      note: "No earlier build to compare with: this build pulls every year and records when it started.",
+    };
+  }
+
+  try {
+    const lockDates = await xeroLockDates(ctx);
+    // Xero documents If-Modified-Since as a UTC timestamp without a zone.
+    const headers = { "If-Modified-Since": new Date(since).toISOString().slice(0, 19) };
+    const docs = [];
+    for (const [resource, spec] of Object.entries(LEDGER_DOCUMENTS)) {
+      for (let page = 1; ; page++) {
+        if (page > CHANGE_SCAN_PAGES) {
+          return {
+            entity: entity.slug,
+            status: "too_many",
+            note: `More than ${CHANGE_SCAN_PAGES * 100} ${spec.label} changed since the last build: pulling every year.`,
+          };
+        }
+        const params = spec.paged ? { page: String(page) } : {};
+        const batch = documentsFrom(resource, await xeroGet(ctx.accessToken, ctx.tenantId, resource, params, headers));
+        docs.push(...batch);
+        if (!spec.paged || batch.length < 100) break;
+      }
+    }
+    return { entity: entity.slug, status: "ok", ...summariseChanges(docs, { since, reportingYear, lockDates }) };
+  } catch (e) {
+    // A 401 or 403 here almost always means the connection predates a scope the
+    // check needs (accounting.payments.read was added on 11 Sep 2026).
+    const refused = e.detail?.status === 401 || e.detail?.status === 403;
+    return {
+      entity: entity.slug,
+      status: "error",
+      error: refused
+        ? `Xero refused ${e.detail?.path ?? "a read"}. Reconnect this entity on the Xero tab so the connection includes the newer permissions.`
+        : e.message,
+    };
+  }
+}
+
+// GET /api/finance/clients/:slug/pack-changes?report=management_pack&period=YYYY-MM
+app.get("/api/finance/clients/:slug/pack-changes", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const report = String(req.query.report || "management_pack");
+  const period = String(req.query.period || "");
+  if (!REPORTS.has(report)) return res.status(400).json({ error: "unknown report" });
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: "period must be YYYY-MM" });
+  const reportingYear = Number(period.slice(0, 4));
+
+  const last = await pool.query(
+    `SELECT id, period, finished_at, watermarks
+       FROM finance.report_runs
+      WHERE client_id = $1 AND report = $2 AND status = 'succeeded' AND watermarks IS NOT NULL
+      ORDER BY finished_at DESC
+      LIMIT 1`,
+    [client.id, report]
+  );
+  const previous = last.rows[0] ?? null;
+
+  const ents = await pool.query(
+    `SELECT slug, name FROM finance.entities
+      WHERE client_id = $1 AND accounting_system_config->>'tenant_id' IS NOT NULL
+      ORDER BY slug`,
+    [client.id]
+  );
+
+  // ?since= asks "what has changed since then" regardless of the last build:
+  // useful on its own, and the only way to see the check work before a build
+  // has recorded a watermark.
+  const since = String(req.query.since || "");
+  const override = since && !Number.isNaN(Date.parse(since)) ? new Date(since).toISOString() : null;
+
+  // Taken before the scans, so a change made while they run is caught next time
+  // rather than missed.
+  const checkedAt = new Date().toISOString();
+
+  // Separate organisations, so separate Xero rate limits: safe to run together.
+  const entities = await Promise.all(
+    ents.rows.map(async (e) => ({
+      name: e.name,
+      ...(await entityChanges(req.params.slug, e, override ?? previous?.watermarks?.[e.slug] ?? null, reportingYear)),
+    }))
+  );
+
+  // Anything short of a clean answer for every entity means pulling every
+  // year: a year wrongly skipped gives a pack with stale comparatives and no error.
+  const clean = entities.length > 0 && entities.every((x) => x.status === "ok");
+  const yearsToRepull = clean
+    ? [...new Set(entities.flatMap((x) => x.yearsToRepull))].sort((a, b) => a - b)
+    : null;
+  // A build that starts now and succeeds leaves every entity fresh as of now:
+  // a clean check re-pulls what changed, anything else re-pulls every year.
+  const watermarks = Object.fromEntries(entities.map((x) => [x.entity, checkedAt]));
+
+  res.json({
+    client: req.params.slug,
+    report,
+    period,
+    previousBuild: previous ? { id: previous.id, period: previous.period, finishedAt: previous.finished_at } : null,
+    entities,
+    pullAllYears: !clean,
+    yearsToRepull,
+    watermarks,
+  });
 }));
 
 // ── Sync ────────────────────────────────────────────────────────────────────
@@ -1544,11 +1697,14 @@ function erpUnavailable(res, ctx) {
   return res.status(502).json(body);
 }
 
-async function xeroGet(accessToken, tenantId, path, params = {}) {
+// extraHeaders is for internal callers only (the pack change check sends
+// If-Modified-Since). The read passthrough never forwards a caller's headers.
+async function xeroGet(accessToken, tenantId, path, params = {}, extraHeaders = {}) {
   const qs = new URLSearchParams(params).toString();
   const url = `${XERO_API}${path}${qs ? `?${qs}` : ""}`;
   const r = await fetch(url, {
     headers: {
+      ...extraHeaders,
       Authorization: `Bearer ${accessToken}`,
       "Xero-Tenant-Id": tenantId,
       Accept: "application/json",
