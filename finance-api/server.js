@@ -1097,12 +1097,30 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
   if (!client) return res.status(404).json({ error: "client not found" });
 
-  const { agent, instruction } = req.body || {};
+  const { agent, instruction, parentRunId } = req.body || {};
   const actorEmail = (req.get("X-Actor-Email") || "").trim();
 
   if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
   if (!instruction || !String(instruction).trim()) {
     return res.status(400).json({ error: "instruction is required" });
+  }
+
+  // A follow-up is a new run naming the one it replies to (migration 014). The
+  // parent must be this client's, or a reply could pull another client's
+  // answers into this conversation, and it must be finished, because an answer
+  // still being written is not something to reply to.
+  let parent = null;
+  if (parentRunId) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(parentRunId))) {
+      return res.status(400).json({ error: "parentRunId is not a run id" });
+    }
+    const p = await pool.query(
+      "SELECT id, agent, finished_at FROM finance.agent_runs WHERE id = $1 AND client_id = $2",
+      [parentRunId, client.id]
+    );
+    parent = p.rows[0];
+    if (!parent) return res.status(404).json({ error: "the run being followed up was not found for this client" });
+    if (!parent.finished_at) return res.status(409).json({ error: "that run has not finished yet" });
   }
 
   const role = await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [
@@ -1111,10 +1129,13 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
 
   const { rows } = await pool.query(
     `INSERT INTO finance.agent_runs
-       (client_id, requested_by_email, requested_by_role, agent, instruction, status)
-     VALUES ($1,$2,$3,$4,$5,'queued')
-     RETURNING id, agent, instruction, status, queued_at`,
-    [client.id, actorEmail, role.rows[0].role, agent || null, String(instruction).trim()]
+       (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id)
+     VALUES ($1,$2,$3,$4,$5,'queued',$6)
+     RETURNING id, agent, instruction, status, queued_at, parent_run_id`,
+    [
+      client.id, actorEmail, role.rows[0].role,
+      agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null,
+    ]
   );
   res.status(201).json(rows[0]);
 }));
@@ -1124,7 +1145,7 @@ app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   if (!client) return res.status(404).json({ error: "client not found" });
 
   const { rows } = await pool.query(
-    `SELECT id, agent, instruction, status, session_id, output, error,
+    `SELECT id, parent_run_id, agent, instruction, status, session_id, output, error,
             tools_used, files_touched, duration_ms, cost_usd, wip_ref,
             requested_by_email, requested_by_role,
             queued_at, started_at, finished_at
@@ -1154,13 +1175,37 @@ app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
        UPDATE finance.agent_runs r
        SET status = 'running', started_at = now()
        FROM next WHERE r.id = next.id
-       RETURNING r.id, r.agent, r.instruction, r.client_id`
+       RETURNING r.id, r.agent, r.instruction, r.client_id, r.parent_run_id`
     );
     if (!rows.length) {
       await conn.query("COMMIT");
       return res.status(204).end();
     }
     const job = rows[0];
+
+    // A follow-up travels with the conversation so far, oldest turn first and
+    // at most the 20 most recent turns. Question and answer only (migration
+    // 014). The direct parent's session id lets a Claude Code runner resume
+    // that session where it holds the transcript locally.
+    let thread = [];
+    let parentSessionId = null;
+    if (job.parent_run_id) {
+      const t = await conn.query(
+        `WITH RECURSIVE chain AS (
+           SELECT id, parent_run_id, instruction, output, error, session_id, 1 AS depth
+             FROM finance.agent_runs WHERE id = $1
+           UNION ALL
+           SELECT r.id, r.parent_run_id, r.instruction, r.output, r.error, r.session_id, chain.depth + 1
+             FROM finance.agent_runs r JOIN chain ON r.id = chain.parent_run_id
+            WHERE chain.depth < 20
+         )
+         SELECT instruction, output, error, session_id, depth FROM chain ORDER BY depth DESC`,
+        [job.parent_run_id]
+      );
+      thread = t.rows.map(({ instruction, output, error }) => ({ instruction, output, error }));
+      parentSessionId = t.rows.find((r) => r.depth === 1)?.session_id ?? null;
+    }
+
     // operatorIsController travels with the job because the runner decides
     // whether an ungoverned processing path is permissible, and that turns on
     // whose data it is rather than on anything the runner can see locally.
@@ -1178,6 +1223,9 @@ app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
       agent: job.agent,
       instruction: job.instruction,
       client: c.rows[0],
+      parentRunId: job.parent_run_id,
+      thread,
+      parentSessionId,
     });
   } catch (e) {
     await conn.query("ROLLBACK").catch(() => {});

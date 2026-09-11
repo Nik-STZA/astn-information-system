@@ -103,9 +103,19 @@ function extractFromTranscript(cwd, sessionId) {
   };
 }
 
-function runClaude(cwd, prompt, path) {
+// Earlier turns of a follow-up, for when the parent's session cannot be
+// resumed on this machine.
+function threadAsText(thread) {
+  const turns = thread.map((t, i) => {
+    const answer = t.output || (t.error ? `[failed: ${t.error}]` : "[no answer recorded]");
+    return `Question ${i + 1}: ${t.instruction}\n\nAnswer ${i + 1}: ${answer}`;
+  });
+  return `Earlier in this conversation:\n\n${turns.join("\n\n")}`;
+}
+
+function runClaude(cwd, prompt, path, extraArgs = []) {
   return new Promise((resolve) => {
-    const args = ["-p", prompt, "--output-format", "json", "--plugin-dir", PLUGIN_DIR];
+    const args = ["-p", prompt, ...extraArgs, "--output-format", "json", "--plugin-dir", PLUGIN_DIR];
     // shell:true because claude is a .cmd shim on Windows, which Node will not
     // spawn directly.
     const child = spawn(`claude ${args.map((a) => `"${String(a).replace(/"/g, '\\"')}"`).join(" ")}`, {
@@ -172,10 +182,23 @@ async function runJob(job) {
 
   // Naming the agent is a request, not a guarantee. The record stores what was
   // asked for; the transcript shows what actually ran.
-  const prompt = job.agent ? `Use the ${job.agent} agent. ${job.instruction}` : job.instruction;
+  let prompt = job.agent ? `Use the ${job.agent} agent. ${job.instruction}` : job.instruction;
+
+  // A follow-up resumes the parent's session where this machine holds its
+  // transcript, which gives the agent everything it saw last time. Where the
+  // parent ran elsewhere (the API runner keeps no session), the earlier turns
+  // go in as plain question and answer instead.
+  const extraArgs = [];
+  if (job.parentRunId) {
+    const held =
+      job.parentSessionId &&
+      existsSync(join(TRANSCRIPT_ROOT, encodeCwd(cwd), `${job.parentSessionId}.jsonl`));
+    if (held) extraArgs.push("--resume", job.parentSessionId);
+    else if (job.thread?.length) prompt = `${threadAsText(job.thread)}\n\nFollow-up: ${prompt}`;
+  }
 
   const started = Date.now();
-  const { code, stdout, stderr } = await runClaude(cwd, prompt, PATH_IN_USE);
+  const { code, stdout, stderr } = await runClaude(cwd, prompt, PATH_IN_USE, extraArgs);
   const durationMs = Date.now() - started;
 
   let parsed = null;

@@ -99,7 +99,7 @@ function buildTools(clientSlug, entities) {
     },
     {
       name: "get_profit_and_loss",
-      description: "Get the profit and loss report from Xero. Supports date range and comparative periods.",
+      description: "Get the profit and loss report from Xero. For a month-by-month view pass the full range as fromDate/toDate with timeframe MONTH: the runner converts it so each column is a single month, newest first. Without timeframe, returns one column for the whole range.",
       input_schema: {
         type: "object",
         properties: {
@@ -188,6 +188,10 @@ const TOOL_TO_ENDPOINT = {
   get_chart_of_accounts: "accounts",
 };
 
+// P&L comparative periods are normalised before the call. lib/pnl-periods.js
+// records the two ways Xero's period rules misled an agent on 11 Sep 2026.
+const { normaliseProfitAndLossParams, columnsCover } = require("./lib/pnl-periods");
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS. You have access to live Xero accounting data via tools. You are acting on behalf of a qualified Chartered Accountant (CA(SA)) with Big 4 experience.
@@ -243,6 +247,13 @@ You are the AP Clerk agent. Your focus is:
 - Maintaining clean supplier records`,
 };
 
+// ── Follow-ups ───────────────────────────────────────────────────────────────
+//
+// A follow-up arrives with the earlier turns of its conversation, replayed as
+// plain question and answer. See lib/thread.js.
+
+const { threadToMessages } = require("./lib/thread");
+
 // ── Execute one job ──────────────────────────────────────────────────────────
 
 async function executeJob(job) {
@@ -293,6 +304,7 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
 
   // 3. Agentic loop
   let messages = [
+    ...threadToMessages(job.thread),
     { role: "user", content: job.instruction },
   ];
 
@@ -333,8 +345,25 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = { entities: connectedEntities };
         } else if (TOOL_TO_ENDPOINT[tu.name]) {
           const endpoint = TOOL_TO_ENDPOINT[tu.name];
-          const { entity, ...params } = tu.input;
+          const { entity, ...input } = tu.input;
+          const params = tu.name === "get_profit_and_loss" ? normaliseProfitAndLossParams(input) : input;
           result = await xeroCall(job.client.slug, entity, endpoint, params);
+          if (params !== input) {
+            const cover = columnsCover(params);
+            const missing =
+              input.fromDate < cover.from
+                ? `You asked from ${input.fromDate}, but Xero returns at most 12 columns, so nothing before ` +
+                  `${cover.from} is included. Say so in your answer, or request the earlier months separately. `
+                : "";
+            result = {
+              note:
+                `Columns cover ${cover.from} to ${cover.to}, each ONE whole ${params.timeframe.toLowerCase()}, newest first. ` +
+                `If the range ends in the current month, the newest column is month to date, not a full month. ` +
+                missing +
+                `Sum the columns for a range total.`,
+              ...result,
+            };
+          }
         } else {
           result = { error: `Unknown tool: ${tu.name}` };
         }

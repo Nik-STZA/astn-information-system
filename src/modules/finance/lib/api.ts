@@ -155,6 +155,8 @@ export async function fetchWipItems(slug: string): Promise<WipItemRow[]> {
 
 export interface AgentRunRow {
   id: string;
+  /** The run this one follows up; null for a new conversation. */
+  parent_run_id: string | null;
   agent: string | null;
   instruction: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";

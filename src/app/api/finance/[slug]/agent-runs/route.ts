@@ -18,7 +18,11 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const { agent, instruction } = body as { agent?: string; instruction?: string };
+  const { agent, instruction, parentRunId } = body as {
+    agent?: string;
+    instruction?: string;
+    parentRunId?: string;
+  };
   if (!instruction || !instruction.trim()) {
     return NextResponse.json({ error: "instruction is required" }, { status: 400 });
   }
@@ -28,6 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     actorEmail,
     agent,
     instruction,
+    parentRunId,
     ip: clientIpFrom(req.headers.get("x-forwarded-for")) ?? undefined,
   });
 
