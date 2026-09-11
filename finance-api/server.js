@@ -579,6 +579,7 @@ async function refreshAccessToken(secretName) {
       accessTokenCache.set(secretName, {
         token: accessToken,
         expiresAt: Date.now() + (Number(tokens.expires_in) || 1800) * 1000,
+        mintedAt: Date.now(),
       });
     }
 
@@ -636,6 +637,12 @@ async function storeSecret(name, value) {
     parent: secretPath(name),
     payload: { data: Buffer.from(value, "utf8") },
   });
+  // A new refresh token means any access token cached from the old one is from
+  // a different grant: after a reconnect it lacks the scopes the reconnect
+  // added. On 11 Sep 2026 that kept /Payments refused for half an hour after all
+  // four entities had reconnected. Refresh itself stores then re-caches, so this
+  // never discards a fresh token.
+  accessTokenCache.delete(name);
 }
 
 app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, res) => {
@@ -1673,6 +1680,17 @@ async function xeroEntityContext(slug, entitySlug) {
   if (!tenantId) return null;
 
   const secretName = refreshSecretName(slug, entitySlug);
+
+  // storeSecret clears the cache only on the instance that handled the
+  // reconnect; others would keep a token from the old grant for up to 30
+  // minutes. connected_at is written on every reconnect and this row is read on
+  // every call, so a cached token minted before it is dropped everywhere.
+  const reconnectedAt = Date.parse(entity.accounting_system_config?.connected_at ?? "");
+  const cached = accessTokenCache.get(secretName);
+  if (cached && Number.isFinite(reconnectedAt) && (cached.mintedAt ?? 0) < reconnectedAt) {
+    accessTokenCache.delete(secretName);
+  }
+
   let accessToken;
   try {
     accessToken = await refreshAccessToken(secretName);
