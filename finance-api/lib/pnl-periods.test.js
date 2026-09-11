@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { normaliseProfitAndLossParams as norm } from "./pnl-periods.js";
+import { columnsCover, normaliseProfitAndLossParams as norm } from "./pnl-periods.js";
+
+describe("columnsCover", () => {
+  // 11 Sep 2026: asked from April 2025, twelve columns reach back only to October.
+  it("reports the earliest month the columns reach", () => {
+    const p = norm({ fromDate: "2025-04-01", toDate: "2026-09-11", timeframe: "MONTH" });
+    expect(columnsCover(p)).toEqual({ from: "2025-10-01", to: "2026-09-30" });
+  });
+
+  it("works in quarters", () => {
+    expect(columnsCover({ toDate: "2026-08-31", timeframe: "QUARTER", periods: 2 })).toEqual({
+      from: "2025-12-01",
+      to: "2026-08-31",
+    });
+  });
+});
 
 describe("normaliseProfitAndLossParams", () => {
   it("turns a multi-month range into the last month plus prior months", () => {

@@ -190,7 +190,7 @@ const TOOL_TO_ENDPOINT = {
 
 // P&L comparative periods are normalised before the call. lib/pnl-periods.js
 // records the two ways Xero's period rules misled an agent on 11 Sep 2026.
-const { normaliseProfitAndLossParams } = require("./lib/pnl-periods");
+const { normaliseProfitAndLossParams, columnsCover } = require("./lib/pnl-periods");
 
 // ── System prompts per agent role ────────────────────────────────────────────
 
@@ -349,11 +349,18 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           const params = tu.name === "get_profit_and_loss" ? normaliseProfitAndLossParams(input) : input;
           result = await xeroCall(job.client.slug, entity, endpoint, params);
           if (params !== input) {
+            const cover = columnsCover(params);
+            const missing =
+              input.fromDate < cover.from
+                ? `You asked from ${input.fromDate}, but Xero returns at most 12 columns, so nothing before ` +
+                  `${cover.from} is included. Say so in your answer, or request the earlier months separately. `
+                : "";
             result = {
               note:
-                `Request normalised to ${params.fromDate}..${params.toDate} plus ${params.periods} prior periods. ` +
-                `Each column is ONE whole ${params.timeframe.toLowerCase()}, newest first. If the range ends in the ` +
-                `current month, the newest column is month to date, not a full month. Sum the columns for a range total.`,
+                `Columns cover ${cover.from} to ${cover.to}, each ONE whole ${params.timeframe.toLowerCase()}, newest first. ` +
+                `If the range ends in the current month, the newest column is month to date, not a full month. ` +
+                missing +
+                `Sum the columns for a range total.`,
               ...result,
             };
           }

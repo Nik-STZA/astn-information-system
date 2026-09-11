@@ -46,4 +46,16 @@ function normaliseProfitAndLossParams(params) {
   return unchanged ? params : next;
 }
 
-module.exports = { normaliseProfitAndLossParams };
+// The dates a normalised request's columns actually cover, so the agent can say
+// what is missing. Xero allows 11 comparatives, so at most 12 columns come back:
+// a request for 18 months silently loses the first 6 unless the agent is told.
+function columnsCover(params) {
+  const span = TIMEFRAME_MONTHS[params.timeframe];
+  const [ty, tm] = params.toDate.split("-").map(Number);
+  return {
+    from: iso(new Date(Date.UTC(ty, tm - span * (Number(params.periods) + 1), 1))),
+    to: params.toDate,
+  };
+}
+
+module.exports = { normaliseProfitAndLossParams, columnsCover };
