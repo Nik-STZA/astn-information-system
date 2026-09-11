@@ -52,20 +52,14 @@ export default function ReportsPage({ params }: { params: { slug: string } }) {
           </p>
         </Link>
 
-        <div
-          style={{
-            ...CARD,
-            border: "1px dashed var(--empty-border)",
-            background: "var(--empty-bg)",
-          }}
-        >
-          <div style={{ ...LABEL, color: "var(--sub)" }}>Not built yet</div>
+        <Link href={`${base}/management-pack`} style={CARD}>
+          <div style={{ ...LABEL, color: "#C5A059" }}>Live</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Management pack</div>
           <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--sub)", margin: 0 }}>
-            Generate the month-end management pack for a chosen period and save it to the
-            Finance shared drive, with the past packs listed here.
+            Build the month-end management pack and board pack for a chosen month. Saved as a
+            draft to the Finance shared drive, with past builds listed here.
           </p>
-        </div>
+        </Link>
       </div>
     </div>
   );
