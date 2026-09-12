@@ -1,13 +1,19 @@
 // Management pack for one client: queue a build for a month and see past builds.
 //
-// The build runs on the operator's machine (scripts/report-runner.mjs), which
-// runs the client's pack pipeline and saves a draft to the Finance shared drive.
+// The build runs either on the operator's machine (scripts/report-runner.mjs)
+// or as a Cloud Run Job, depending on the client; finance-api says which, and
+// either way a draft is saved to the Finance shared drive.
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
 import ClientTabs from "@/modules/finance/components/ClientTabs";
 import ManagementPackPanel from "@/modules/finance/components/ManagementPackPanel";
-import { FinanceApiError, fetchReportRuns, type ReportRunRow } from "@/modules/finance/lib/api";
+import {
+  FinanceApiError,
+  fetchReportRuns,
+  type PackExecutor,
+  type ReportRunRow,
+} from "@/modules/finance/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +21,10 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
   const { slug } = params;
 
   let runs: ReportRunRow[] = [];
+  let executor: PackExecutor = "local";
   let error: string | null = null;
   try {
-    runs = await fetchReportRuns(slug, "management_pack");
+    ({ runs, executor } = await fetchReportRuns(slug, "management_pack"));
   } catch (e) {
     error =
       e instanceof FinanceApiError && e.status === 404 && /Cannot GET/i.test(e.message)
@@ -75,7 +82,7 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
           {error}
         </div>
       ) : (
-        <ManagementPackPanel slug={slug} initialRuns={runs} />
+        <ManagementPackPanel slug={slug} initialRuns={runs} executor={executor} />
       )}
     </div>
   );

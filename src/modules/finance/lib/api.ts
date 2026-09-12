@@ -281,9 +281,16 @@ export interface ReportRunRow {
   finished_at: string | null;
 }
 
-export async function fetchReportRuns(slug: string, report: string): Promise<ReportRunRow[]> {
-  const r = await get<{ data: ReportRunRow[] }>(
+/** Where a client's packs build: on the operator's laptop, or as a Cloud Run Job. */
+export type PackExecutor = "local" | "cloud";
+
+export async function fetchReportRuns(
+  slug: string,
+  report: string
+): Promise<{ runs: ReportRunRow[]; executor: PackExecutor }> {
+  const r = await get<{ data: ReportRunRow[]; executor?: PackExecutor }>(
     `/api/finance/clients/${encodeURIComponent(slug)}/report-runs?report=${encodeURIComponent(report)}`
   );
-  return r.data;
+  // An older finance-api does not say, and everything built on the laptop then.
+  return { runs: r.data, executor: r.executor ?? "local" };
 }

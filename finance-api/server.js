@@ -1304,6 +1304,8 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
 // builds (scripts/report-runner.mjs), and the row records what was asked for
 // and where the output went. Paths only, never contents.
 
+const { executorFor, initialRun, startPackJob, STALE_RUNNING_MINUTES } = require("./lib/pack-job");
+
 const REPORTS = new Set(["management_pack"]);
 
 app.post("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
@@ -1327,15 +1329,62 @@ app.post("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
     client.id, actorEmail,
   ]);
 
+  // A cloud build that never reported back still holds the month's only slot
+  // (migration 015 allows one queued or running build per period). Past the
+  // job's own limit it is treated as failed, so the month can be built again.
+  await pool.query(
+    `UPDATE finance.report_runs
+        SET status = 'failed', finished_at = now(),
+            error = COALESCE(error, 'the build never reported back; treated as failed')
+      WHERE client_id = $1 AND report = $2 AND period = $3 AND status = 'running'
+        AND started_at < now() - make_interval(mins => $4)`,
+    [client.id, report, period, STALE_RUNNING_MINUTES]
+  );
+
+  // A cloud client's run is never offered to the laptop runner: it is created
+  // already running, because /report-runs/claim only takes queued rows and the
+  // Cloud Run Job is handed its run id directly rather than claiming one.
+  const executor = executorFor(req.params.slug);
+  const opening = initialRun(executor);
+
   try {
     const { rows } = await pool.query(
       `INSERT INTO finance.report_runs
-         (client_id, report, period, requested_by_email, requested_by_role)
-       VALUES ($1,$2,$3,$4,$5)
+         (client_id, report, period, requested_by_email, requested_by_role, status, started_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING id, report, period, status, queued_at`,
-      [client.id, report, period, actorEmail, role.rows[0].role]
+      [client.id, report, period, actorEmail, role.rows[0].role, opening.status, opening.startedAt]
     );
-    res.status(201).json(rows[0]);
+    const run = rows[0];
+
+    if (executor === "cloud") {
+      try {
+        const started = await startPackJob({
+          project: process.env.GCP_PROJECT,
+          region: process.env.PACK_JOB_REGION,
+          job: process.env.PACK_JOB_NAME,
+          runId: run.id,
+          clientSlug: req.params.slug,
+          period,
+        });
+        await pool.query(
+          "UPDATE finance.report_runs SET log_tail = $2 WHERE id = $1",
+          [run.id, `Cloud build started: ${started.execution || started.operation || "job accepted"}`]
+        );
+      } catch (e) {
+        // The run exists and is running, so nothing else can build this month
+        // until it is closed. Record why it never started.
+        await pool.query(
+          `UPDATE finance.report_runs
+              SET status = 'failed', finished_at = now(), error = $2
+            WHERE id = $1`,
+          [run.id, String(e.message).slice(0, 500)]
+        );
+        return res.status(502).json({ error: "the cloud build could not be started", detail: e.message });
+      }
+    }
+
+    res.status(201).json({ ...run, executor });
   } catch (e) {
     // The partial unique index allows one queued or running build per period.
     if (e.code === "23505") {
@@ -1359,7 +1408,9 @@ app.get("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
       LIMIT 50`,
     [client.id, req.query.report ? String(req.query.report) : null]
   );
-  res.json({ count: rows.length, data: rows });
+  // Where this client's packs build, so the page can say what a person has to
+  // do: start the laptop runner, or nothing at all.
+  res.json({ count: rows.length, data: rows, executor: executorFor(req.params.slug) });
 }));
 
 // One build at a time per runner; SKIP LOCKED keeps a second runner off it.
