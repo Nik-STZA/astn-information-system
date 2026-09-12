@@ -53,6 +53,10 @@ jobs:
             DB_USER=africastn_app
             SECRET_PROJECT=africanstn-research
             INSTANCE_CONNECTION_NAME=africanstn-research:europe-west1:africastn-db
+            GCP_PROJECT=africanstn-research
+            PACK_JOB_REGION=europe-west1
+            PACK_JOB_NAME=mgmt-pack-feldspar
+            PACK_JOB_CLIENTS=none
           secrets: |
             DB_PASSWORD=db-password:latest
             FINANCE_API_KEY=finance-api-key:latest

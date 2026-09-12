@@ -2,13 +2,14 @@
 
 // Queue a management pack build and follow it.
 //
-// The build runs on the operator's machine, so a run sits at "queued" until the
-// report runner picks it up, and the page says so. Output paths are shown with
+// A laptop build sits at "queued" until the report runner picks it up, and the
+// page says so; a cloud build is already running when it appears, because
+// finance-api starts the job itself. Output paths are shown with
 // a copy button rather than as links: the files are on the Finance shared
 // drive, which a browser cannot open by path.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReportRunRow } from "@/modules/finance/lib/api";
+import type { PackExecutor, ReportRunRow } from "@/modules/finance/lib/api";
 
 const STATUS_COLOUR: Record<string, string> = {
   queued: "var(--sub)",
@@ -161,9 +162,11 @@ function RunRow({ run }: { run: ReportRunRow }) {
 export default function ManagementPackPanel({
   slug,
   initialRuns,
+  executor,
 }: {
   slug: string;
   initialRuns: ReportRunRow[];
+  executor: PackExecutor;
 }) {
   const months = recentMonths();
   const [period, setPeriod] = useState(months[1]);
@@ -260,10 +263,12 @@ export default function ManagementPackPanel({
           </button>
         </div>
         <div style={{ fontSize: 10.5, color: "var(--sub)", marginTop: 9, lineHeight: 1.6 }}>
-          Runs on your machine: start the report runner and keep the laptop awake. The month&apos;s
-          highlights and dashboard commentary files must exist first. The result is a draft, so check
-          Balance Control (7 or fewer flagged items) and the cash-flow variance (£14 or less) before
-          sign-off.
+          {executor === "cloud"
+            ? "Runs in Google Cloud: nothing to start, and the laptop can be closed. "
+            : "Runs on your machine: start the report runner and keep the laptop awake. "}
+          The month&apos;s highlights and dashboard commentary files must exist first. The result is
+          a draft, so check Balance Control (7 or fewer flagged items) and the cash-flow variance
+          (£14 or less) before sign-off.
         </div>
         {error && (
           <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--warning-amber)" }}>{error}</div>
