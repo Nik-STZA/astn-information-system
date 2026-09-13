@@ -56,7 +56,7 @@ jobs:
             GCP_PROJECT=africanstn-research
             PACK_JOB_REGION=europe-west1
             PACK_JOB_NAME=mgmt-pack-feldspar
-            PACK_JOB_CLIENTS=none
+            PACK_JOB_CLIENTS=feldspar-sport-group
           secrets: |
             DB_PASSWORD=db-password:latest
             FINANCE_API_KEY=finance-api-key:latest
