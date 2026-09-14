@@ -74,8 +74,8 @@ def test_a_rule_that_crosses_statements_is_refused():
 @pytest.fixture
 def profile(monkeypatch):
     p = {"client": "demo", "label": "DEMO", "legal_name": "Demo Ltd", "entity": "demo",
-         "year_end_month": 3, "framework": "FRS 102 Section 1A", "currency": "GBP",
-         "branding": {"tab_colours": None}}
+         "year_end_month": 3, "first_year_end": "2026-03-31", "framework": "FRS 102 Section 1A",
+         "currency": "GBP", "branding": {"tab_colours": None}}
     monkeypatch.setattr(build_mod, "load_profile", lambda client: p)
     return p
 
@@ -103,15 +103,17 @@ def test_statement_lines_point_at_the_source_tab(tmp_path, profile):
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
     ws = openpyxl.load_workbook(res.path)["Profit and loss"]
     sales = next(r for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value).strip() == "200 - Sales")
-    assert ws.cell(sales, 7).value.startswith("=-'Source - Trial balance'!")     # April, credit shown positive
-    assert ws.cell(sales, 4).value == f"=SUM(G{sales}:H{sales})"                  # YTD to May
-    assert ws.cell(sales, 9).value is None                                        # June not reported yet
+    # C = the year to 31 Mar 2026, D = year to date, E spacer, F onwards the months
+    assert ws.cell(sales, 3).value.startswith("=-'Source - Trial balance'!")     # prior full year
+    assert ws.cell(sales, 6).value.startswith("=-'Source - Trial balance'!")     # April, credit shown positive
+    assert ws.cell(sales, 4).value == f"=SUM(F{sales}:G{sales})"                  # YTD to May
+    assert ws.cell(sales, 8).value is None                                        # June not reported yet
 
 
 def test_a_mismatch_with_xero_fails_and_says_so_in_the_file_name(tmp_path, profile):
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(xero_net_profit_offset=1.0), now=NOW)
     assert "FAILED CONTROLS" in res.path.name
-    assert {c.key for c in res.failed} >= {"xero.pnl.month", "xero.pnl.ytd", "xero.pnl.prior"}
+    assert {c.key for c in res.failed} >= {"xero.pnl.month", "xero.pnl.ytd", "xero.pnl.year.2026-03-31"}
 
 
 def test_an_unmapped_account_with_activity_fails(tmp_path, profile, monkeypatch):
@@ -147,18 +149,36 @@ def test_cash_flow_year_to_date_check_compares_with_this_month_end(tmp_path, pro
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
     ws = openpyxl.load_workbook(res.path)["Cash flow"]
     chk = next(r for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value).startswith("Check:"))
-    assert "'Balance sheet'!C" in ws.cell(chk, 4).value      # YTD against the month end, not the prior month
-    assert "'Balance sheet'!C" in ws.cell(chk, 3).value
-    assert "'Balance sheet'!E" in ws.cell(chk, 5).value
+    assert "'Balance sheet'!D" in ws.cell(chk, 4).value      # YTD against this month end (BS column D)
+    assert "'Balance sheet'!C" in ws.cell(chk, 3).value      # the prior year against its year end
 
 
 def test_statements_freeze_at_g5_and_group_account_rows(tmp_path, profile):
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
     wb = openpyxl.load_workbook(res.path)
     for name in ("Profit and loss", "Balance sheet", "Cash flow"):
-        assert wb[name].freeze_panes == "G5"
+        assert wb[name].freeze_panes == "F5"
     ws = wb["Profit and loss"]
     sales = next(r for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value).strip() == "200 - Sales")
     assert ws.row_dimensions[sales].outlineLevel == 1 and ws.row_dimensions[sales].hidden
-    assert [ws.cell(3, c).value for c in (3, 4, 5, 7)] == ["Month", "Year to date", "Prior year", "Month"]
-    assert [ws.cell(4, c).value for c in (3, 4, 5, 7)] == ["May 2026", "May 2026", "Mar 2026", "Apr 2026"]
+    assert [ws.cell(3, c).value for c in (3, 4, 6)] == ["Full year", "Year to date", "Month"]
+    assert [ws.cell(4, c).value for c in (3, 4, 6)] == ["Mar 2026", "May 2026", "Apr 2026"]
+
+
+def test_a_column_is_added_for_each_year_since_the_first(tmp_path, profile):
+    profile["first_year_end"] = "2025-03-31"          # pretend the company is a year older
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
+    assert res.failed == []
+    ws = openpyxl.load_workbook(res.path)["Profit and loss"]
+    assert [ws.cell(3, c).value for c in (3, 4, 5)] == ["Full year", "Full year", "Year to date"]
+    assert [ws.cell(4, c).value for c in (3, 4, 5)] == ["Mar 2025", "Mar 2026", "May 2026"]
+    assert ws.freeze_panes == "G5"
+    assert {c.key for c in res.controls} >= {"xero.pnl.year.2025-03-31", "xero.pnl.year.2026-03-31"}
+
+
+def test_no_comparative_columns_in_the_first_year(tmp_path, profile):
+    profile["first_year_end"] = "2027-03-31"          # the year in progress is the first
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
+    ws = openpyxl.load_workbook(res.path)["Profit and loss"]
+    assert ws.cell(3, 3).value == "Year to date"
+

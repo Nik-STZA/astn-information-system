@@ -4,10 +4,11 @@
   "legal_name": "Sports Tech Africa Ltd",
   "entity": "stza",
   "year_end_month": 3,
+  "first_year_end": "2026-03-31",
   "framework": "FRS 102 Section 1A",
   "currency": "GBP",
   "branding": {
     "tab_colours": null
   },
-  "notes": "Pilot client for the pack engine (decided 14 Sep 2026). tab_colours null means the STZA standard. Framework and year end mirror shared.clients; the design moves profiles into finance.pack_profiles."
+  "notes": "Pilot client for the pack engine (decided 14 Sep 2026). first_year_end is the end of STZA's first accounting period (12 Nov 2025 - 31 Mar 2026): the pack shows one full-year column per year since, adding one each year. tab_colours null means the STZA standard. Framework and year end mirror shared.clients; the design moves profiles into finance.pack_profiles."
 }

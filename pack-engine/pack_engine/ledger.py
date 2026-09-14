@@ -109,10 +109,13 @@ class Ledger:
     accounts: dict[str, Account]
     months: list[date]                      # month-ends of the FY to date
     fy_months: list[date]                   # all 12 month-ends of the FY
-    prior_year_end: date
+    prior_year_end: date                    # the year end just before this financial year
     trial_balances: dict[date, TrialBalance]
-    # The year end before last: opening balances for the prior-year cash flow.
-    prior_prior_year_end: date | None = None
+    # Headline comparative years, oldest first: each prior year end since the
+    # client's first. A new column is added each time a year ends.
+    prior_year_ends: list[date] = field(default_factory=list)
+    # The year end before the oldest comparative: opening balances for its cash flow.
+    opening_year_end: date | None = None
 
     def movement(self, account_id: str, month: date) -> float:
         tb = self.trial_balances.get(month)
@@ -138,13 +141,29 @@ class Ledger:
         return sorted(i for i in ids if i not in self.accounts)
 
 
-def fetch_ledger(api, client: str, entity: str, cal, period: str) -> Ledger:
+def comparative_year_ends(prior_year_end: date, first_year_end: date | None) -> list[date]:
+    """Every year end from the client's first up to the prior year end, oldest first.
+    Without a first year end, just the prior year. In the first year itself, none."""
+    if first_year_end is None:
+        return [prior_year_end]
+    out, y = [], first_year_end.year
+    while y <= prior_year_end.year:
+        out.append(month_end(y, prior_year_end.month))
+        y += 1
+    return out
+
+
+def fetch_ledger(api, client: str, entity: str, cal, period: str,
+                 first_year_end: date | None = None) -> Ledger:
     accounts = {a.id: a for a in map(account_from_xero, api.accounts(client, entity))}
     months = cal.months_to_date(period)
     pye = cal.prior_year_end(period)
-    ppye = month_end(pye.year - 1, pye.month)
+    priors = comparative_year_ends(pye, first_year_end)
+    oldest = priors[0] if priors else pye
+    opening = month_end(oldest.year - 1, oldest.month)
     tbs = {}
-    for d in [ppye, pye, *months]:
+    for d in sorted({opening, *priors, pye, *months}):
         tbs[d] = parse_trial_balance(api.trial_balance(client, entity, d), d)
     return Ledger(accounts=accounts, months=months, fy_months=cal.fy_months(period),
-                  prior_year_end=pye, trial_balances=tbs, prior_prior_year_end=ppye)
+                  prior_year_end=pye, trial_balances=tbs, prior_year_ends=priors,
+                  opening_year_end=opening)

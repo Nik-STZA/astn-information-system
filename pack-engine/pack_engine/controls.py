@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
-from .fiscal import date_label, month_label
+from .fiscal import date_label, month_end, month_label
 from .ledger import Ledger, report_rows
 from .model import Model
 
@@ -100,39 +100,35 @@ def ledger_controls(ledger: Ledger) -> list[Control]:
 
 def xero_tie_controls(api, client: str, entity: str, cal, period: str, model: Model) -> list[Control]:
     pm = model.months[-1]
-    month_start = date(pm.year, pm.month, 1)
-    fy_start = cal.fy_start(period)
-    pye = model.prior_year_end
-    prior_start = date(pye.year - 1, pye.month, pye.day) + timedelta(days=1)
     out = []
-    pl_m = api.profit_and_loss(client, entity, month_start, pm)
-    pl_y = api.profit_and_loss(client, entity, fy_start, pm)
-    pl_p = api.profit_and_loss(client, entity, prior_start, pye)
+    pl_m = api.profit_and_loss(client, entity, date(pm.year, pm.month, 1), pm)
+    pl_y = api.profit_and_loss(client, entity, cal.fy_start(period), pm)
     out.append(_tie("xero.pnl.month", f"Net profit for {month_label(pm)} ties to Xero",
                     report_total(pl_m, "Net Profit"), model.net_profit(pm)))
     out.append(_tie("xero.pnl.ytd", "Net profit for the year to date ties to Xero",
                     report_total(pl_y, "Net Profit"), model.net_profit_ytd(pm)))
-    out.append(_tie("xero.pnl.prior", "Net profit for the prior year ties to Xero",
-                    report_total(pl_p, "Net Profit"), model.prior_net_profit()))
-    for when, as_at in ((pm, pm), (None, pye)):
+    # Every comparative year shown in the pack, not just the latest.
+    for ye in model.prior_year_ends:
+        start = month_end(ye.year - 1, ye.month) + timedelta(days=1)
+        pl = api.profit_and_loss(client, entity, start, ye)
+        out.append(_tie(f"xero.pnl.year.{ye}", f"Net profit for the year to {date_label(ye)} ties to Xero",
+                        report_total(pl, "Net Profit"), model.net_profit(ye)))
+    for as_at in (*model.prior_year_ends, pm):
         bs = api.balance_sheet(client, entity, as_at)
         lbl = date_label(as_at)
         out.append(_tie(f"xero.bs.assets.{as_at}", f"Total assets at {lbl} tie to Xero",
-                        report_total(bs, "Total Assets"), model.assets(when)))
+                        report_total(bs, "Total Assets"), model.assets(as_at)))
         out.append(_tie(f"xero.bs.liabilities.{as_at}", f"Total liabilities at {lbl} tie to Xero",
-                        report_total(bs, "Total Liabilities"), model.liabilities(when)))
+                        report_total(bs, "Total Liabilities"), model.liabilities(as_at)))
         out.append(_tie(f"xero.bs.equity.{as_at}", f"Total equity at {lbl} ties to Xero",
-                        report_total(bs, "Total Equity"), model.equity(when)))
+                        report_total(bs, "Total Equity"), model.equity(as_at)))
     return out
 
 
 def balance_controls(model: Model) -> list[Control]:
-    out = []
-    for when in (*model.months, None):
-        lbl = date_label(when or model.prior_year_end)
-        out.append(_tie(f"bs.balances.{when or model.prior_year_end}",
-                        f"Net assets equal total equity at {lbl}", model.equity(when), model.net_assets(when)))
-    return out
+    return [_tie(f"bs.balances.{d}", f"Net assets equal total equity at {date_label(d)}",
+                 model.equity(d), model.net_assets(d))
+            for d in (*model.prior_year_ends, *model.months)]
 
 
 def formula_controls(rendered) -> list[Control]:

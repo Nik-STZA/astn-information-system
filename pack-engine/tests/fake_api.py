@@ -106,7 +106,9 @@ class FakeApi:
 
     def profit_and_loss(self, client, entity, start, end):
         self.calls.append(("pl", start, end))
-        if end <= PRIOR_YEAR_END:
+        if end < PRIOR_YEAR_END:
+            net = 0.0                      # before the company's first year end
+        elif end == PRIOR_YEAR_END:
             net = -sum(v for k, v in PRIOR_YEAR.items() if k in PNL_IDS)
         else:
             net = -sum(v for d, mv in MONTHS.items() if start <= d <= end
