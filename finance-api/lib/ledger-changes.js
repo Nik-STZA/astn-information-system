@@ -24,6 +24,8 @@
 // do not appear here. The lock dates narrow it: a locked period cannot change
 // without someone moving the lock.
 
+const { fiscalYear } = require("./fiscal");
+
 // Xero resource -> the collection key in its response, the id field, whether it
 // pages, a label for people, and the statuses that mean it never posted.
 const LEDGER_DOCUMENTS = {
@@ -95,13 +97,13 @@ function neverPosted(doc) {
 // Only a document dated on or before the lock date, or into a year before the
 // reporting year, can make this check say something beyond "re-pull the
 // reporting year", so only those are worth a history call.
-function needsHistoryCheck(doc, { reportingYear, lockDates = {} } = {}) {
+function needsHistoryCheck(doc, { reportingYear, lockDates = {}, yearEndMonth = 12 } = {}) {
   const spec = LEDGER_DOCUMENTS[doc.resource];
   if (!spec || spec.noHistory || !doc.id) return false;
   const d = xeroDate(doc.date);
   if (!d) return false;
   const lock = xeroDate(lockDates.periodLockDate);
-  return Boolean((lock && isoDay(d) <= isoDay(lock)) || (reportingYear && d.getUTCFullYear() < Number(reportingYear)));
+  return Boolean((lock && isoDay(d) <= isoDay(lock)) || (reportingYear && fiscalYear(d, yearEndMonth) < Number(reportingYear)));
 }
 
 function historyShowsLedgerChange(records = [], since) {
@@ -114,7 +116,9 @@ function historyShowsLedgerChange(records = [], since) {
   });
 }
 
-function summariseChanges(docs, { since = null, reportingYear, lockDates = {} } = {}) {
+// reportingYear and every year returned are financial years, named by the calendar
+// year they end in (lib/fiscal.js). For a December year end that is the calendar year.
+function summariseChanges(docs, { since = null, reportingYear, lockDates = {}, yearEndMonth = 12 } = {}) {
   const year = Number(reportingYear);
   const periods = new Map();
   const years = new Set(year ? [year] : []);
@@ -139,13 +143,13 @@ function summariseChanges(docs, { since = null, reportingYear, lockDates = {} } 
 
     // A pack reports the reporting year and the years before it; an entry dated
     // after the reporting year cannot change this pack.
-    const y = d.getUTCFullYear();
+    const y = fiscalYear(d, yearEndMonth);
     if (!year || y <= year) years.add(y);
     if (lockDay && day <= lockDay) onOrBeforeLock += 1;
   }
 
   const flags = [];
-  const priorYears = [...new Set([...periods.keys()].map((p) => Number(p.slice(0, 4))))]
+  const priorYears = [...new Set([...periods.keys()].map((p) => fiscalYear(`${p}-01T00:00:00Z`, yearEndMonth)))]
     .filter((y) => year && y < year)
     .sort((a, b) => a - b);
   if (priorYears.length) flags.push(`entries dated into year(s) already reported: ${priorYears.join(", ")}`);

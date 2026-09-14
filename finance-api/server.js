@@ -1483,6 +1483,7 @@ app.post("/api/finance/report-runs/:id/complete", route(async (req, res) => {
 // entries before the pack goes out. The reasoning, and the blind spot, are in
 // lib/ledger-changes.js.
 
+const fiscal = require("./lib/fiscal");
 const {
   LEDGER_DOCUMENTS,
   documentsFrom,
@@ -1502,7 +1503,7 @@ const CHANGE_SCAN_PAGES = 20;
 // limit: over-counting only costs a longer build.
 const HISTORY_CHECK_LIMIT = 40;
 
-async function entityChanges(slug, entity, since, reportingYear) {
+async function entityChanges(slug, entity, since, reportingYear, yearEndMonth) {
   const ctx = await xeroEntityContext(slug, entity.slug);
   if (!ctx) return { entity: entity.slug, status: "not_connected" };
   if (ctx.error) return { entity: entity.slug, status: "error", error: ctx.error };
@@ -1541,7 +1542,7 @@ async function entityChanges(slug, entity, since, reportingYear) {
     // or an attachment happened since the watermark. lib/ledger-changes.js has
     // the 11 Sep 2026 case that made this necessary.
     const posted = docs.filter((d) => !neverPosted(d));
-    const candidates = posted.filter((d) => needsHistoryCheck(d, { reportingYear, lockDates }));
+    const candidates = posted.filter((d) => needsHistoryCheck(d, { reportingYear, lockDates, yearEndMonth }));
     const setAside = new Set();
     let historyNote = null;
     if (candidates.length > HISTORY_CHECK_LIMIT) {
@@ -1556,7 +1557,7 @@ async function entityChanges(slug, entity, since, reportingYear) {
 
     const summary = summariseChanges(
       posted.filter((d) => !setAside.has(d)),
-      { since, reportingYear, lockDates }
+      { since, reportingYear, lockDates, yearEndMonth }
     );
     summary.ignored = {
       neverPosted: docs.length - posted.length,
@@ -1587,7 +1588,12 @@ app.get("/api/finance/clients/:slug/pack-changes", route(async (req, res) => {
   const period = String(req.query.period || "");
   if (!REPORTS.has(report)) return res.status(400).json({ error: "unknown report" });
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: "period must be YYYY-MM" });
-  const reportingYear = Number(period.slice(0, 4));
+  // Years are financial years, named by the calendar year they end in: STZA's
+  // August 2026 is in 2027 (April 2026 to March 2027). A December year end, like
+  // Feldspar's, gives the calendar year, as before.
+  const ye = await pool.query("SELECT year_end FROM shared.clients WHERE id = $1", [client.id]);
+  const yearEndMonth = fiscal.yearEndMonth(ye.rows[0]?.year_end);
+  const reportingYear = fiscal.fiscalYearOfPeriod(period, yearEndMonth);
 
   const last = await pool.query(
     `SELECT id, period, finished_at, watermarks
@@ -1620,7 +1626,7 @@ app.get("/api/finance/clients/:slug/pack-changes", route(async (req, res) => {
   const entities = await Promise.all(
     ents.rows.map(async (e) => ({
       name: e.name,
-      ...(await entityChanges(req.params.slug, e, override ?? previous?.watermarks?.[e.slug] ?? null, reportingYear)),
+      ...(await entityChanges(req.params.slug, e, override ?? previous?.watermarks?.[e.slug] ?? null, reportingYear, yearEndMonth)),
     }))
   );
 
@@ -1640,6 +1646,10 @@ app.get("/api/finance/clients/:slug/pack-changes", route(async (req, res) => {
     period,
     previousBuild: previous ? { id: previous.id, period: previous.period, finishedAt: previous.finished_at } : null,
     entities,
+    // yearsToRepull and reportingYear are financial years named by the calendar
+    // year they end in; yearEndMonth says which month that is.
+    reportingYear,
+    yearEndMonth,
     pullAllYears: !clean,
     yearsToRepull,
     watermarks,

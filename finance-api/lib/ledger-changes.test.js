@@ -144,3 +144,26 @@ describe("summariseChanges", () => {
     expect(out.flags).toContain("1 changed document(s) had no date and could not be placed in a period");
   });
 });
+
+describe("a March year end (STZA)", () => {
+  // Reporting August 2026 is the year April 2026 to March 2027, named 2027.
+  const march = { reportingYear: 2027, yearEndMonth: 3 };
+
+  it("treats a change in January 2026 as the year already reported, not the current one", () => {
+    const out = summariseChanges([doc("2026-01-15", "manual journals")], march);
+    expect(out.yearsToRepull).toEqual([2026, 2027]);
+    expect(out.flags[0]).toMatch(/already reported: 2026/);
+  });
+
+  it("treats a change in May 2026 as the current year, which calendar years got wrong", () => {
+    const out = summariseChanges([doc("2026-05-10")], march);
+    expect(out.yearsToRepull).toEqual([2027]);
+    expect(out.flags).toEqual([]);
+  });
+
+  it("reads history for a document dated before the year began in April", () => {
+    expect(needsHistoryCheck({ resource: "/Invoices", id: "i", date: ms("2026-03-31") }, march)).toBe(true);
+    expect(needsHistoryCheck({ resource: "/Invoices", id: "i", date: ms("2026-04-01") }, march)).toBe(false);
+  });
+});
+
