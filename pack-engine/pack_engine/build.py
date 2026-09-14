@@ -23,7 +23,7 @@ from . import ENGINE_VERSION, controls as ctl, style
 from .api import FinanceApi
 from .fiscal import FiscalCalendar, date_label, month_end, parse_period
 from .ledger import fetch_ledger
-from .mapping import BY_KEY, resolve_mapping
+from .mapping import categories_from_api, resolve_mapping
 from .model import build_model
 from .render import BS, CF, PNL, SRC, render_statements
 
@@ -71,36 +71,43 @@ def _controls_sheet(wb, controls):
         ws.column_dimensions[letter].width = width
 
 
+STATUS_LABELS = {"approved": "Approved", "proposed": "Not approved", "rule": "Rule only"}
+
+
 def _mapping_sheet(wb, model, mapping):
     ws = wb.create_sheet("Mapping")
     ws["A1"] = "Account mapping"
-    ws["A2"] = "Proposed by rule from Xero's account types and reporting codes. Not yet approved."
+    ws["A2"] = ("Approved in the portal's Chart of accounts tab. An account with nothing saved is mapped by rule "
+                "from Xero's account type and reporting code, and marked Rule only.")
     ws["A1"].font = style.ROW_STYLES["title"]["font"]
     ws["A2"].font = style.ROW_STYLES["note"]["font"]
-    head = ["Code", "Account", "Xero class", "Xero type", "Reporting code", "Statement", "Category", "Why"]
+    head = ["Code", "Account", "Xero class", "Xero type", "Reporting code", "Statement", "Category",
+            "Cash flow", "Status", "Why"]
     for i, h in enumerate(head, 1):
         ws.cell(4, i, h)
-    style.apply_row(ws, 4, "header", 1, len(head), text_cols=range(1, 9))
+    style.apply_row(ws, 4, "header", 1, len(head), text_cols=range(1, len(head) + 1))
     r = 5
     for block in [*model.pnl, *model.bs]:
         for line in block.lines:
             a, m = line.account, mapping[line.account.id]
-            cat = BY_KEY[m.category]
+            cat = model.categories[m.category]
             for i, v in enumerate([a.code, a.name, a.klass, a.type, a.reporting_code,
                                    "Profit and loss" if cat.statement == "pnl" else "Balance sheet",
-                                   cat.label, m.reason], 1):
-                ws.cell(r, i, v).font = style.font(9)
+                                   cat.label, (line.cash_flow or "").replace("_", " "),
+                                   STATUS_LABELS.get(m.status, m.status), m.reason], 1):
+                ws.cell(r, i, v).font = style.font(9, bold=(i == 9 and m.status != "approved"))
             r += 1
     for g in model.gaps:
         a = g.account
-        for i, v in enumerate([a.code, a.name, a.klass, a.type, a.reporting_code, "", "UNMAPPED", g.reason], 1):
+        for i, v in enumerate([a.code, a.name, a.klass, a.type, a.reporting_code, "", "UNMAPPED", "",
+                               STATUS_LABELS.get(g.status, g.status), g.reason], 1):
             ws.cell(r, i, v).font = style.font(9, bold=True, color=style.NEGATIVE_RED)
         r += 1
-    for letter, width in zip("ABCDEFGH", (8, 38, 11, 12, 18, 15, 44, 80)):
+    for letter, width in zip("ABCDEFGHIJ", (8, 38, 11, 12, 18, 15, 44, 16, 13, 80)):
         ws.column_dimensions[letter].width = width
 
 
-def _contents_sheet(wb, profile, period, fy, controls, stamp):
+def _contents_sheet(wb, profile, period, fy, controls, stamp, mapping_note):
     ws = wb["Contents"]
     y, m = parse_period(period)
     fails = ctl.failed(controls)
@@ -119,7 +126,7 @@ def _contents_sheet(wb, profile, period, fy, controls, stamp):
         (f"Framework {profile['framework']}; currency {profile['currency']}; financial year ends "
          f"{month_end(2001, profile['year_end_month']).strftime('%d %B').lstrip('0')}.", "note"),
         (f"Built {stamp} by pack engine {ENGINE_VERSION} from Xero via stza-finance-api.", "note"),
-        ("Account mapping proposed by rule, not yet approved.", "note"),
+        (mapping_note, "note"),
         ("", None),
         (summary, "subtitle"),
         ("", None),
@@ -154,11 +161,15 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     first = profile.get("first_year_end")
     ledger = fetch_ledger(api, client, profile["entity"], cal, period,
                           first_year_end=date.fromisoformat(first) if first else None)
-    mapping = resolve_mapping(ledger.active_accounts())
-    model = build_model(ledger, mapping)
+    saved = api.account_mapping(client, profile["entity"]) if hasattr(api, "account_mapping") else None
+    categories = categories_from_api((saved or {}).get("categories"))
+    by_account = {m["accountId"]: m for m in (saved or {}).get("mappings", [])}
+    mapping = resolve_mapping(ledger.active_accounts(), categories, by_account)
+    model = build_model(ledger, mapping, categories)
     rendered = render_statements(model, ledger, client_label=profile["legal_name"], period_month=month_end(y, m))
 
-    controls = [*ctl.mapping_controls(ledger, model), *ctl.ledger_controls(ledger),
+    controls = [*ctl.mapping_controls(ledger, model, mapping, saved_available=saved is not None),
+                *ctl.ledger_controls(ledger),
                 *ctl.balance_controls(model),
                 *ctl.xero_tie_controls(api, client, profile["entity"], cal, period, model),
                 *ctl.formula_controls(rendered)]
@@ -167,7 +178,10 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     _controls_sheet(wb, controls)
     _mapping_sheet(wb, model, mapping)
     wb.move_sheet(SRC, offset=len(wb.sheetnames))
-    _contents_sheet(wb, profile, period, fy, controls, stamp)
+    approval = next(c for c in controls if c.key == "mapping.approved")
+    mapping_note = ("Account mapping approved in the portal." if approval.status == "pass"
+                    else "Account mapping not fully approved: see Controls and the Mapping tab.")
+    _contents_sheet(wb, profile, period, fy, controls, stamp, mapping_note)
 
     tab_colours = (profile.get("branding") or {}).get("tab_colours") or style.STZA_TAB_COLOURS
     for ws in wb.worksheets:

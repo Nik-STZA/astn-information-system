@@ -31,7 +31,6 @@ from openpyxl.workbook.defined_name import DefinedName
 
 from . import style
 from .fiscal import date_label, month_label
-from .mapping import BY_KEY
 from .model import CREDIT_SECTIONS, Model
 
 SRC = "Source - Trial balance"
@@ -130,7 +129,7 @@ def _source_sheet(out: Rendered, model: Model, ledger):
         for line in b.lines:
             a = line.account
             for i, v in enumerate([a.code, a.name, a.klass, a.type, a.reporting_code,
-                                   BY_KEY[b.category].label, a.id], start=1):
+                                   b.label, a.id], start=1):
                 ws.cell(r, i, v)
             for d in model.months:
                 ws[f"{sc['movement'][d]}{r}"] = ledger.movement(a.id, d)
@@ -240,10 +239,11 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
 
     by_section = {}
     for b in model.pnl:
-        by_section.setdefault(BY_KEY[b.category].section, []).append(b)
-    for b in by_section.get("turnover", []) + by_section.get("cost_of_sales", []):
+        by_section.setdefault(model.section_of(b.category), []).append(b)
+    trading = by_section.get("turnover", []) + by_section.get("cost_of_sales", [])
+    for b in trading:
         block(b)
-    gp = total("Gross profit", ["turnover", "cost_of_sales"], "section_total", "gross_profit")
+    gp = total("Gross profit", [b.category for b in trading], "section_total", "gross_profit")
     overheads = by_section.get("overheads", [])
     for b in overheads:
         block(b)
@@ -253,9 +253,10 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
     for b in finance:
         block(b)
     pbt = total("Profit before taxation", [op, *[b.category for b in finance]], "section_total", "profit_before_tax")
-    for b in by_section.get("taxation", []):
+    taxation = by_section.get("taxation", [])
+    for b in taxation:
         block(b)
-    total("Profit for the financial period", [pbt, "taxation"], "grand_total", "net_profit")
+    total("Profit for the financial period", [pbt, *[b.category for b in taxation]], "grand_total", "net_profit")
     _negatives_red(ws, cols, w.r)
 
 
@@ -271,7 +272,7 @@ def _bs_sheet(out: Rendered, model: Model, client_label: str, period_month: date
     np_row = out.anchors["pnl.net_profit"]
 
     def block(b):
-        sign = "-" if BY_KEY[b.category].section in CREDIT_SECTIONS else ""
+        sign = "-" if model.section_of(b.category) in CREDIT_SECTIONS else ""
         top = w.r
         first, last = top + 1, top + len(b.lines)
         w.row(b.label, "subtotal", {c: f"=SUM({c}{first}:{c}{last})" for c in vcols}, formula_required=True)
@@ -300,29 +301,26 @@ def _bs_sheet(out: Rendered, model: Model, client_label: str, period_month: date
 
     by_section = {}
     for b in model.bs:
-        by_section.setdefault(BY_KEY[b.category].section, []).append(b)
+        by_section.setdefault(model.section_of(b.category), []).append(b)
     rows = out.bs_category_rows
-    plus = lambda keys: [(rows[k], "+") for k in keys if k in rows]
 
-    for b in by_section.get("fixed_assets", []):
-        block(b)
-    fa = total("Total fixed assets", plus(["intangible_assets", "tangible_assets", "investments"]), "subtotal", "fixed_assets")
-    for b in by_section.get("current_assets", []):
-        block(b)
-    ca = total("Total current assets", plus(["stock", "debtors", "cash"]), "subtotal", "current_assets")
-    for b in by_section.get("creditors_lt1y", []):
-        block(b)
-    cl = [(rows["creditors_lt1y"], "-")] if "creditors_lt1y" in rows else []
+    def blocks_of(section, op="+"):
+        """Write every category in a section; return their rows as terms of a total."""
+        found = by_section.get(section, [])
+        for b in found:
+            block(b)
+        return [(rows[b.category], op) for b in found]
+
+    fa = total("Total fixed assets", blocks_of("fixed_assets"), "subtotal", "fixed_assets")
+    ca = total("Total current assets", blocks_of("current_assets"), "subtotal", "current_assets")
+    cl = blocks_of("creditors_lt1y", "-")
     nca = total("Net current assets (liabilities)", [(ca, "+"), *cl], "section_total", "net_current_assets")
     talcl = total("Total assets less current liabilities", [(fa, "+"), (nca, "+")], "section_total", "talcl", before=False)
-    for b in by_section.get("creditors_gt1y", []) + by_section.get("provisions", []):
-        block(b)
-    na = total("Net assets", [(talcl, "+"), *[(rows[k], "-") for k in ("creditors_gt1y", "provisions") if k in rows]],
-               "grand_total", "net_assets", before=bool(by_section.get("creditors_gt1y") or by_section.get("provisions")))
+    long_term = blocks_of("creditors_gt1y", "-") + blocks_of("provisions", "-")
+    na = total("Net assets", [(talcl, "+"), *long_term], "grand_total", "net_assets", before=bool(long_term))
 
     w.row("Capital and reserves", "section", {})
-    for b in by_section.get("equity", []):
-        block(b)
+    equity = blocks_of("equity")
     # Current year earnings: this year's profit to each month end; at a year end, that year's profit.
     r = w.r
     cye = {cols.months[d]: f"=SUM({_q(PNL)}!${cols.first_month}${np_row}:{cols.months[d]}{np_row})" for d in model.months}
@@ -331,7 +329,7 @@ def _bs_sheet(out: Rendered, model: Model, client_label: str, period_month: date
     cye[cols.ytd] = f"={pcol}{r}"
     cye_row = w.row("Current year earnings", "subtotal", cye, formula_required=True)
     out.anchors["bs.current_year_earnings"] = cye_row
-    eq = total("Total equity", [*plus(["share_capital", "retained_earnings", "other_reserves"]), (cye_row, "+")],
+    eq = total("Total equity", [*equity, (cye_row, "+")],
                "grand_total", "total_equity")
     total("Check: net assets less total equity (should be nil)", [(na, "+"), (eq, "-")], "check", "check", before=False)
     _negatives_red(ws, cols, w.r)
@@ -364,8 +362,10 @@ def _cf_sheet(out: Rendered, model: Model, client_label: str, period_month: date
     cye_row = out.anchors["bs.current_year_earnings"]
     re_row = out.bs_category_rows.get("retained_earnings")
     cash_row = out.bs_category_rows.get("cash")
-    da_row = out.pnl_category_rows.get("depreciation")
-    tax_row = out.pnl_category_rows.get("taxation")
+    # Non-cash charges (depreciation, amortisation) and the tax charge, by category.
+    da_rows = [out.pnl_category_rows[b.category] for b in model.pnl
+               if model.categories[b.category].cash_flow == "non_cash"]
+    tax_rows = [out.pnl_category_rows[b.category] for b in model.pnl if model.section_of(b.category) == "taxation"]
     year_end_cols = _src_cols(model)["year_end"]
 
     # Flow columns open from the column to their left (or, for the first one, from a
@@ -390,7 +390,7 @@ def _cf_sheet(out: Rendered, model: Model, client_label: str, period_month: date
 
     lines_by_class: dict[str, list] = {}
     for b in model.bs:
-        credit = BY_KEY[b.category].section in CREDIT_SECTIONS
+        credit = model.section_of(b.category) in CREDIT_SECTIONS
         for line in b.lines:
             lines_by_class.setdefault(line.cash_flow, []).append((line, credit))
 
@@ -401,12 +401,13 @@ def _cf_sheet(out: Rendered, model: Model, client_label: str, period_month: date
         oc = opens_from_col[c]
         return f"{bsq}!{oc}{r}" if oc else src_year_end(c, account_id, credit)
 
-    def movement_terms(c, cls, categories=None):
+    def movement_terms(c, cls, keep=None):
         """Signed movement of every account in a class: liabilities and equity as
-        increases, assets as decreases, because an increase in an asset uses cash."""
+        increases, assets as decreases, because an increase in an asset uses cash.
+        `keep(line, credit)` narrows the class to some of its lines."""
         terms = []
         for line, credit in lines_by_class.get(cls, []):
-            if categories and line.category not in categories:
+            if keep and not keep(line, credit):
                 continue
             r = out.bs_account_rows[line.account.id]
             terms.append(("+" if credit else "-") + f"({bsq}!{c}{r}-{bs_open(c, r, line.account.id, credit)})")
@@ -459,22 +460,25 @@ def _cf_sheet(out: Rendered, model: Model, client_label: str, period_month: date
 
     w.row("Cash flows from operating activities", "section", {})
     flow("Profit for the financial period", "operating", lambda c: [f"+{pl(c, np_row)}"], "profit")
-    if da_row:
-        flow("Depreciation and amortisation", "operating", lambda c: [f"-{pl(c, da_row)}"], "depreciation")
-    if tax_row:
-        flow("Taxation charge", "operating", lambda c: [f"-{pl(c, tax_row)}"], "tax_charge")
-    flow("(Increase)/decrease in stock", "operating", lambda c: movement_terms(c, "working_capital", {"stock"}), "stock")
-    flow("(Increase)/decrease in debtors", "operating", lambda c: movement_terms(c, "working_capital", {"debtors"}), "debtors")
+    if da_rows:
+        flow("Depreciation and amortisation", "operating", lambda c: [f"-{pl(c, r)}" for r in da_rows], "depreciation")
+    if tax_rows:
+        flow("Taxation charge", "operating", lambda c: [f"-{pl(c, r)}" for r in tax_rows], "tax_charge")
+    # Working capital: stock, then every other asset, then every liability, so each line lands once.
+    flow("(Increase)/decrease in stock", "operating",
+         lambda c: movement_terms(c, "working_capital", lambda l, cr: l.category == "stock"), "stock")
+    flow("(Increase)/decrease in debtors", "operating",
+         lambda c: movement_terms(c, "working_capital", lambda l, cr: not cr and l.category != "stock"), "debtors")
     flow("Increase/(decrease) in creditors", "operating",
-         lambda c: movement_terms(c, "working_capital", {"creditors_lt1y", "creditors_gt1y"}), "creditors")
+         lambda c: movement_terms(c, "working_capital", lambda l, cr: cr), "creditors")
     flow("Increase/(decrease) in provisions", "operating", lambda c: movement_terms(c, "provisions"), "provisions")
     flow("Taxation paid", "operating",
-         lambda c: ([f"+{pl(c, tax_row)}"] if tax_row else []) + movement_terms(c, "tax"), "tax_paid")
+         lambda c: [f"+{pl(c, r)}" for r in tax_rows] + movement_terms(c, "tax"), "tax_paid")
     op = section_total("Net cash from operating activities", "operating", "operating")
 
     w.row("Cash flows from investing activities", "section", {})
     flow("Purchase of fixed assets", "investing",
-         lambda c: movement_terms(c, "capex") + ([f"+{pl(c, da_row)}"] if da_row else []), "capex")
+         lambda c: movement_terms(c, "capex") + [f"+{pl(c, r)}" for r in da_rows], "capex")
     flow("Purchase of investments", "investing", lambda c: movement_terms(c, "investments"), "investments")
     inv = section_total("Net cash from investing activities", "investing", "investing")
 

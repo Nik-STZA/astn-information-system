@@ -47,6 +47,17 @@ const {
   summarise,
 } = require("./lib/ageing");
 
+const {
+  ACCOUNT_CASH_FLOWS,
+  BS_CASH_FLOWS,
+  BS_SECTIONS,
+  PNL_SECTIONS,
+  accountRows,
+  effectiveCategories,
+  planMappingChanges,
+  validateCategory,
+} = require("./lib/coa-mapping");
+
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
@@ -2147,6 +2158,331 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
       connected: Boolean(e.accounting_system_config?.tenant_id),
       role: e.role,
       yearEnd: e.year_end,
+    })),
+  });
+}));
+
+// ── Chart of accounts mapping ───────────────────────────────────────────────
+//
+// Which reporting category each Xero account belongs to, per entity, approved
+// by a person in the portal (migration 017, lib/coa-mapping.js). The pack
+// engine reads the result from /entities/:entity/account-mapping.
+
+async function loadCategories(db, clientId) {
+  const { rows } = await db.query(
+    `SELECT client_id, key, label, statement, section, sort_order, cash_flow, active
+     FROM finance.reporting_categories
+     WHERE client_id IS NULL OR client_id = $1`,
+    [clientId]
+  );
+  return effectiveCategories(rows);
+}
+
+async function loadStoredMappings(db, entityId) {
+  const { rows } = await db.query(
+    `SELECT xero_account_id, account_code, account_name, account_class, category_key, cash_flow,
+            status, source, reason, proposed_by_email, proposed_at, approved_by_email,
+            approved_role, approved_at, updated_at
+     FROM finance.account_mappings WHERE entity_id = $1`,
+    [entityId]
+  );
+  return new Map(rows.map((r) => [r.xero_account_id, r]));
+}
+
+const categoryList = (cats) => [...cats.values()];
+
+app.get("/api/finance/clients/:slug/reporting-categories", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const cats = await loadCategories(pool, client.id);
+  const { rows: used } = await pool.query(
+    "SELECT category_key, COUNT(*)::int AS n FROM finance.account_mappings WHERE client_id = $1 GROUP BY 1",
+    [client.id]
+  );
+  const inUse = Object.fromEntries(used.map((u) => [u.category_key, u.n]));
+  res.json({
+    data: categoryList(cats).map((c) => ({ ...c, accounts: inUse[c.key] ?? 0 })),
+    sections: { pnl: PNL_SECTIONS, bs: BS_SECTIONS },
+    cashFlows: { category: BS_CASH_FLOWS, account: ACCOUNT_CASH_FLOWS },
+  });
+}));
+
+// Create a client-only category, or override a standard one for this client.
+app.put("/api/finance/clients/:slug/reporting-categories/:key", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+
+  const { key } = req.params;
+  const { rows: std } = await pool.query(
+    `SELECT client_id, key, label, statement, section, sort_order, cash_flow, active
+     FROM finance.reporting_categories WHERE client_id IS NULL AND key = $1`,
+    [key]
+  );
+  const standard = std.length ? effectiveCategories(std).get(key) : null;
+  const current = (await loadCategories(pool, client.id)).get(key) || null;
+  const { rows: used } = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM finance.account_mappings WHERE client_id = $1 AND category_key = $2",
+    [client.id, key]
+  );
+  const { errors, value } = validateCategory(key, req.body || {}, { current, standard, inUse: used[0].n });
+  if (errors.length) return res.status(422).json({ error: errors.join("; "), errors });
+
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const { rows } = await conn.query(
+      `INSERT INTO finance.reporting_categories
+         (client_id, key, label, statement, section, sort_order, cash_flow, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (client_id, key) WHERE client_id IS NOT NULL DO UPDATE SET
+         label = EXCLUDED.label, statement = EXCLUDED.statement, section = EXCLUDED.section,
+         sort_order = EXCLUDED.sort_order, cash_flow = EXCLUDED.cash_flow, active = EXCLUDED.active
+       RETURNING client_id, key, label, statement, section, sort_order, cash_flow, active`,
+      [client.id, key, value.label, value.statement, value.section, value.sortOrder, value.cashFlow, value.active]
+    );
+    const role = await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail]);
+    await audit(conn, {
+      actorEmail,
+      actorRole: role.rows[0].role,
+      action: "set_reporting_category",
+      targetType: "reporting_category",
+      targetId: key,
+      clientId: client.id,
+      payload: { key, before: current, after: value, standard: Boolean(standard) },
+      ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
+    });
+    await conn.query("COMMIT");
+    res.json(effectiveCategories([...std, rows[0]]).get(key));
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+}));
+
+// Back to the standard line (an override), or remove a client-only category
+// no account uses.
+app.delete("/api/finance/clients/:slug/reporting-categories/:key", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+
+  const { key } = req.params;
+  const { rows: own } = await pool.query(
+    "SELECT * FROM finance.reporting_categories WHERE client_id = $1 AND key = $2",
+    [client.id, key]
+  );
+  if (!own.length) return res.status(404).json({ error: "this client has no category of its own with that key" });
+  const { rows: std } = await pool.query(
+    "SELECT key, active FROM finance.reporting_categories WHERE client_id IS NULL AND key = $1",
+    [key]
+  );
+  const { rows: used } = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM finance.account_mappings WHERE client_id = $1 AND category_key = $2",
+    [client.id, key]
+  );
+  if (!std.length && used[0].n) {
+    return res.status(409).json({ error: `${used[0].n} account(s) are mapped to ${key}; remap them first` });
+  }
+
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    await conn.query("DELETE FROM finance.reporting_categories WHERE client_id = $1 AND key = $2", [client.id, key]);
+    const role = await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail]);
+    await audit(conn, {
+      actorEmail,
+      actorRole: role.rows[0].role,
+      action: std.length ? "reset_reporting_category" : "remove_reporting_category",
+      targetType: "reporting_category",
+      targetId: key,
+      clientId: client.id,
+      payload: { key, before: own[0] },
+      ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
+    });
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+  res.json({ ok: true, key, reset: Boolean(std.length) });
+}));
+
+// The Chart of accounts tab: every Xero account for one entity, what is saved,
+// and a rule proposal for the rest.
+app.get("/api/finance/clients/:slug/coa-mapping", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+
+  const { rows: entities } = await pool.query(
+    `SELECT id, slug, name, accounting_system_config->>'tenant_id' AS tenant_id
+     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+    [client.id]
+  );
+  const list = entities.map((e) => ({ slug: e.slug, name: e.name, connected: Boolean(e.tenant_id) }));
+  const wanted = String(req.query.entity || "");
+  const entity = entities.find((e) => e.slug === wanted) || entities.find((e) => e.tenant_id) || entities[0];
+  const categories = await loadCategories(pool, client.id);
+  const base = { entities: list, categories: categoryList(categories), cashFlows: { account: ACCOUNT_CASH_FLOWS } };
+  if (!entity) return res.json({ ...base, entity: null, rows: [], orphans: [] });
+
+  const stored = await loadStoredMappings(pool, entity.id);
+  const ctx = await xeroEntityContext(req.params.slug, entity.slug);
+  let accounts = null;
+  let xeroError = null;
+  if (!ctx) xeroError = "This entity is not connected to Xero.";
+  else if (ctx.error) xeroError = ctx.error;
+  else {
+    try {
+      accounts = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts")).Accounts ?? [];
+    } catch (e) {
+      xeroError = e.message;
+    }
+  }
+  if (!accounts) {
+    // Without Xero, still show what is saved, so the page is never blank.
+    accounts = [...stored.values()].map((s) => ({
+      AccountID: s.xero_account_id, Code: s.account_code, Name: s.account_name, Class: s.account_class,
+    }));
+  }
+  const { rows, orphans } = accountRows({ accounts, stored, categories });
+  res.json({ ...base, entity: { slug: entity.slug, name: entity.name }, xeroError, rows, orphans: xeroError ? [] : orphans });
+}));
+
+// Save, change or approve mappings for one entity. All or nothing.
+//   body: { changes: [{ accountId, category?, cashFlow?, approve? }], source?: manual|upload|rule, note? }
+app.post("/api/finance/clients/:slug/coa-mapping/:entity", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const { changes, source = "manual", note = null } = req.body || {};
+  if (source === "agent") return res.status(400).json({ error: "agents propose through their own route, not this one" });
+
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  const { client, entity } = ctx;
+  // Validated against Xero as it is now, so a mapping can only name a real account.
+  const accounts = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts")).Accounts ?? [];
+
+  const categories = await loadCategories(pool, client.id);
+  const stored = await loadStoredMappings(pool, entity.id);
+  const noteText = note ? String(note).slice(0, 200) : null;
+  const { errors, writes } = planMappingChanges({ changes, accounts, categories, stored, source, note: noteText });
+  if (errors.length) {
+    return res.status(422).json({ error: `Nothing was saved: ${errors.length} problem(s)`, errors });
+  }
+
+  const changed = writes.filter((w) => {
+    const s = stored.get(w.accountId);
+    return !s || s.category_key !== w.category || s.status !== w.status || (s.cash_flow ?? null) !== w.cashFlow
+      || (s.account_code ?? null) !== w.code || s.account_name !== w.name;
+  });
+
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+    for (const w of changed) {
+      const approved = w.status === "approved";
+      await conn.query(
+        `INSERT INTO finance.account_mappings AS m
+           (client_id, entity_id, xero_account_id, account_code, account_name, account_class,
+            category_key, cash_flow, status, source, reason, proposed_by_email,
+            approved_by_email, approved_role, approved_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CASE WHEN $9 = 'approved' THEN now() END)
+         ON CONFLICT (entity_id, xero_account_id) DO UPDATE SET
+           account_code = EXCLUDED.account_code,
+           account_name = EXCLUDED.account_name,
+           account_class = EXCLUDED.account_class,
+           proposed_by_email = CASE WHEN m.category_key IS DISTINCT FROM EXCLUDED.category_key
+                                      OR m.cash_flow IS DISTINCT FROM EXCLUDED.cash_flow
+                                    THEN EXCLUDED.proposed_by_email ELSE m.proposed_by_email END,
+           proposed_at = CASE WHEN m.category_key IS DISTINCT FROM EXCLUDED.category_key
+                                OR m.cash_flow IS DISTINCT FROM EXCLUDED.cash_flow
+                              THEN now() ELSE m.proposed_at END,
+           category_key = EXCLUDED.category_key,
+           cash_flow = EXCLUDED.cash_flow,
+           status = EXCLUDED.status,
+           source = EXCLUDED.source,
+           reason = EXCLUDED.reason,
+           approved_by_email = EXCLUDED.approved_by_email,
+           approved_role = EXCLUDED.approved_role,
+           approved_at = EXCLUDED.approved_at`,
+        [
+          client.id, entity.id, w.accountId, w.code, w.name, w.klass,
+          w.category, w.cashFlow, w.status, w.source, w.reason, actorEmail,
+          approved ? actorEmail : null, approved ? role : null,
+        ]
+      );
+    }
+    if (changed.length) {
+      await audit(conn, {
+        actorEmail,
+        actorRole: role,
+        action: "map_accounts",
+        targetType: "account_mapping",
+        targetId: entity.slug,
+        clientId: client.id,
+        payload: {
+          entity: entity.slug,
+          source,
+          note: noteText,
+          changes: changed.map((w) => ({
+            accountId: w.accountId, code: w.code, name: w.name, before: w.before,
+            after: { category: w.category, status: w.status, cashFlow: w.cashFlow },
+          })),
+        },
+        ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
+      });
+    }
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  res.json({
+    ok: true,
+    saved: changed.length,
+    unchanged: writes.length - changed.length,
+    approved: changed.filter((w) => w.status === "approved").length,
+  });
+}));
+
+// For the pack engine: the categories and every saved mapping for one entity.
+// No Xero call; the engine already has the chart of accounts.
+app.get("/api/finance/clients/:slug/entities/:entity/account-mapping", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const { rows: ent } = await pool.query(
+    "SELECT id, slug FROM finance.entities WHERE client_id = $1 AND slug = $2",
+    [client.id, req.params.entity]
+  );
+  if (!ent.length) return res.status(404).json({ error: "entity not found" });
+  const categories = await loadCategories(pool, client.id);
+  const stored = await loadStoredMappings(pool, ent[0].id);
+  res.json({
+    categories: categoryList(categories),
+    mappings: [...stored.values()].map((s) => ({
+      accountId: s.xero_account_id,
+      code: s.account_code,
+      name: s.account_name,
+      class: s.account_class,
+      category: s.category_key,
+      cashFlow: s.cash_flow,
+      status: s.status,
+      source: s.source,
+      reason: s.reason,
+      approvedBy: s.approved_by_email,
+      approvedAt: s.approved_at,
     })),
   });
 }));

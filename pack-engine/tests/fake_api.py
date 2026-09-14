@@ -51,8 +51,11 @@ def _cells(label, acct_id, *vals):
 
 
 class FakeApi:
-    def __init__(self, xero_net_profit_offset=0.0, extra_account=None):
+    def __init__(self, xero_net_profit_offset=0.0, extra_account=None, saved_mapping=None):
+        """saved_mapping: what finance-api's account-mapping endpoint returns, or
+        None for a finance-api that predates it."""
         self.offset = xero_net_profit_offset
+        self.saved_mapping = saved_mapping
         self.accounts_list = list(ACCOUNTS) + ([extra_account] if extra_account else [])
         self.calls = []
 
@@ -77,6 +80,10 @@ class FakeApi:
         return month, closing
 
     # -- API surface -----------------------------------------------------------
+    def account_mapping(self, client, entity):
+        self.calls.append(("account_mapping",))
+        return self.saved_mapping
+
     def accounts(self, client, entity):
         self.calls.append(("accounts",))
         return self.accounts_list

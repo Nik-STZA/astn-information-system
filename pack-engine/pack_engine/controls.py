@@ -57,7 +57,8 @@ def report_total(report: dict, label: str) -> float | None:
     return None
 
 
-def mapping_controls(ledger: Ledger, model: Model) -> list[Control]:
+def mapping_controls(ledger: Ledger, model: Model, mapping: dict | None = None,
+                     saved_available: bool = True) -> list[Control]:
     out = []
     if model.gaps:
         names = "; ".join(g.account.label for g in model.gaps)
@@ -69,10 +70,31 @@ def mapping_controls(ledger: Ledger, model: Model) -> list[Control]:
     unknown = ledger.unknown_account_ids()
     out.append(Control("mapping.known_accounts", "Every trial balance account is in Xero's chart of accounts",
                        "fail" if unknown else "pass", detail=", ".join(unknown)))
-    out.append(Control("mapping.approved", "Account mapping approved", "warn",
-                       detail="Proposed by rule from Xero's account types and reporting codes; "
-                              "not yet approved. See the Mapping tab."))
+    out.append(approval_control(ledger, mapping or {}, saved_available))
     return out
+
+
+def approval_control(ledger: Ledger, mapping: dict, saved_available: bool) -> Control:
+    label = "Account mapping approved"
+    if not saved_available:
+        return Control("mapping.approved", label, "warn",
+                       detail="finance-api has no saved mappings to read, so every account was mapped by rule. "
+                              "See the Mapping tab.")
+    active = ledger.active_accounts()
+    waiting = [a for a in active if a.id not in mapping or mapping[a.id].status != "approved"]
+    if not waiting:
+        return Control("mapping.approved", label, "pass", detail=f"All {len(active)} accounts with activity approved")
+    proposed = [a for a in waiting if a.id in mapping and mapping[a.id].status == "proposed"]
+    by_rule = [a for a in waiting if a not in proposed]
+    parts = []
+    if proposed:
+        parts.append(f"{len(proposed)} saved but not approved")
+    if by_rule:
+        parts.append(f"{len(by_rule)} mapped by rule only")
+    names = "; ".join(a.label for a in waiting[:12]) + ("; ..." if len(waiting) > 12 else "")
+    return Control("mapping.approved", label, "warn",
+                   detail=f"{len(active) - len(waiting)} of {len(active)} approved; {', '.join(parts)}. "
+                          f"Approve in the portal's Chart of accounts tab: {names}")
 
 
 def ledger_controls(ledger: Ledger) -> list[Control]:
