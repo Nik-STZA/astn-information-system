@@ -9,7 +9,7 @@
 // drive, which a browser cannot open by path.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PackExecutor, ReportRunRow } from "@/modules/finance/lib/api";
+import type { PackExecutor, PackPipeline, ReportRunRow } from "@/modules/finance/lib/api";
 
 const STATUS_COLOUR: Record<string, string> = {
   queued: "var(--sub)",
@@ -163,10 +163,12 @@ export default function ManagementPackPanel({
   slug,
   initialRuns,
   executor,
+  pipeline,
 }: {
   slug: string;
   initialRuns: ReportRunRow[];
   executor: PackExecutor;
+  pipeline: PackPipeline;
 }) {
   const months = recentMonths();
   const [period, setPeriod] = useState(months[1]);
@@ -253,22 +255,34 @@ export default function ManagementPackPanel({
           <button
             type="button"
             onClick={build}
-            disabled={busy}
+            disabled={busy || executor === "none"}
             style={{
               fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 6, border: "none",
-              background: "#C5A059", color: "#141414", cursor: busy ? "default" : "pointer",
+              background: "#C5A059", color: "#141414",
+              cursor: busy || executor === "none" ? "default" : "pointer",
+              opacity: executor === "none" ? 0.5 : 1,
             }}
           >
             {busy ? "Queueing…" : "Build management pack"}
           </button>
         </div>
         <div style={{ fontSize: 10.5, color: "var(--sub)", marginTop: 9, lineHeight: 1.6 }}>
-          {executor === "cloud"
-            ? "Runs in Google Cloud: nothing to start, and the laptop can be closed. "
-            : "Runs on your machine: start the report runner and keep the laptop awake. "}
-          The month&apos;s highlights and dashboard commentary files must exist first. The result is
-          a draft, so check Balance Control (7 or fewer flagged items) and the cash-flow variance
-          (£14 or less) before sign-off.
+          {executor === "none" ? (
+            "No management pack pipeline is set up for this client yet, so there is nothing to build with."
+          ) : pipeline === "engine" ? (
+            "Runs in Google Cloud on the pack engine, straight from Xero: nothing to start. The result is a " +
+            "draft with its checks on the Controls tab; a pack that fails them is still saved, with FAILED " +
+            "CONTROLS in its name."
+          ) : (
+            <>
+              {executor === "cloud"
+                ? "Runs in Google Cloud: nothing to start, and the laptop can be closed. "
+                : "Runs on your machine: start the report runner and keep the laptop awake. "}
+              The month&apos;s highlights and dashboard commentary files must exist first. The result is
+              a draft, so check Balance Control (7 or fewer flagged items) and the cash-flow variance
+              (£14 or less) before sign-off.
+            </>
+          )}
         </div>
         {error && (
           <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--warning-amber)" }}>{error}</div>

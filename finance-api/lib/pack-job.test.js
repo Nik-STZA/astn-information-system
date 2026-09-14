@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cloudClients, executorFor, initialRun, jobRunRequest, startPackJob } from "./pack-job.js";
+import { cloudClients, executorFor, initialRun, jobRunRequest, packRouting, startPackJob } from "./pack-job.js";
 
 const cfg = {
   project: "africanstn-research",
@@ -18,9 +18,35 @@ describe("which clients build in the cloud", () => {
   });
 
   it("needs a job name as well as the client", () => {
-    expect(executorFor("feldspar-sport-group", { PACK_JOB_CLIENTS: "feldspar-sport-group" })).toBe("local");
+    const local = { LOCAL_PACK_CLIENTS: "feldspar-sport-group" };
+    expect(executorFor("feldspar-sport-group", { ...local, PACK_JOB_CLIENTS: "feldspar-sport-group" })).toBe("local");
     expect(executorFor("feldspar-sport-group", { PACK_JOB_CLIENTS: "feldspar-sport-group", PACK_JOB_NAME: "j" })).toBe("cloud");
-    expect(executorFor("stza", { PACK_JOB_CLIENTS: "feldspar-sport-group", PACK_JOB_NAME: "j" })).toBe("local");
+  });
+});
+
+describe("where each client's pack is built", () => {
+  const env = {
+    PACK_ENGINE_CLIENTS: "stza",
+    PACK_ENGINE_JOB: "pack-engine",
+    PACK_JOB_CLIENTS: "feldspar-sport-group",
+    PACK_JOB_NAME: "mgmt-pack-feldspar",
+    LOCAL_PACK_CLIENTS: "feldspar-sport-group",
+  };
+
+  it("sends an engine client to the engine job and Feldspar to its own", () => {
+    expect(packRouting("stza", env)).toEqual({ executor: "cloud", job: "pack-engine", pipeline: "engine" });
+    expect(packRouting("feldspar-sport-group", env)).toEqual({ executor: "cloud", job: "mgmt-pack-feldspar", pipeline: "legacy" });
+  });
+
+  it("falls back to the laptop only for clients the laptop runner can build", () => {
+    const off = { ...env, PACK_JOB_CLIENTS: "none" };
+    expect(packRouting("feldspar-sport-group", off).executor).toBe("local");
+    expect(packRouting("stza", { ...env, PACK_ENGINE_CLIENTS: "none" }).executor).toBe("none");
+  });
+
+  it("gives a client with no pipeline nowhere to queue, so its build is refused instead of stuck", () => {
+    expect(packRouting("new-client", env)).toEqual({ executor: "none", job: null, pipeline: null });
+    expect(packRouting("stza", {})).toMatchObject({ executor: "none" });
   });
 });
 

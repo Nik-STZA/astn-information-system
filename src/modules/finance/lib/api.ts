@@ -281,16 +281,18 @@ export interface ReportRunRow {
   finished_at: string | null;
 }
 
-/** Where a client's packs build: on the operator's laptop, or as a Cloud Run Job. */
-export type PackExecutor = "local" | "cloud";
+/** Where a client's packs build: on the operator's laptop, in Google Cloud, or nowhere yet. */
+export type PackExecutor = "local" | "cloud" | "none";
+/** What builds them: the client-neutral pack engine, or the legacy Feldspar pipeline. */
+export type PackPipeline = "engine" | "legacy" | null;
 
 export async function fetchReportRuns(
   slug: string,
   report: string
-): Promise<{ runs: ReportRunRow[]; executor: PackExecutor }> {
-  const r = await get<{ data: ReportRunRow[]; executor?: PackExecutor }>(
+): Promise<{ runs: ReportRunRow[]; executor: PackExecutor; pipeline: PackPipeline }> {
+  const r = await get<{ data: ReportRunRow[]; executor?: PackExecutor; pipeline?: PackPipeline }>(
     `/api/finance/clients/${encodeURIComponent(slug)}/report-runs?report=${encodeURIComponent(report)}`
   );
   // An older finance-api does not say, and everything built on the laptop then.
-  return { runs: r.data, executor: r.executor ?? "local" };
+  return { runs: r.data, executor: r.executor ?? "local", pipeline: r.pipeline ?? "legacy" };
 }
