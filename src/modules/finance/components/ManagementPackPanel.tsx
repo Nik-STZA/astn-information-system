@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PackExecutor, PackPipeline, ReportRunRow } from "@/modules/finance/lib/api";
+import { outputLinks } from "@/modules/finance/lib/drive-links";
 
 const STATUS_COLOUR: Record<string, string> = {
   queued: "var(--sub)",
@@ -46,6 +47,27 @@ function when(iso: string | null): string {
   return new Date(iso).toLocaleString("en-GB", {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
   });
+}
+
+function FileLink({ href, label, primary = false }: { href: string; label: string; primary?: boolean }) {
+  // Opens in a new tab: Drive serves the download (or the preview) under the
+  // viewer's own Google sign-in, so access follows the shared drive's membership.
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        fontSize: 10.5, padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap", textDecoration: "none",
+        border: "1px solid var(--bd)",
+        background: primary ? "var(--tx)" : "transparent",
+        color: primary ? "var(--pg)" : "var(--sub)",
+        fontWeight: primary ? 700 : 400,
+      }}
+    >
+      {label}
+    </a>
+  );
 }
 
 function CopyPath({ path }: { path: string }) {
@@ -119,21 +141,31 @@ function RunRow({ run }: { run: ReportRunRow }) {
 
       {run.output_files?.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: "var(--sub)", marginBottom: 4 }}>
-            Saved as drafts to the Finance shared drive
-          </div>
-          {run.output_files.map((f) => (
-            <div
-              key={f.path}
-              style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4, flexWrap: "wrap" }}
-            >
-              <span style={{ fontWeight: 600, color: "var(--tx)" }}>{f.name}</span>
-              <span style={{ fontSize: 11, color: "var(--sub)", overflowWrap: "anywhere", flex: 1, minWidth: 200 }}>
-                {f.path}
-              </span>
-              <CopyPath path={f.path} />
-            </div>
-          ))}
+          <div style={{ fontSize: 11, color: "var(--sub)", marginBottom: 4 }}>Saved as drafts</div>
+          {run.output_files.map((f) => {
+            const links = outputLinks(f.path);
+            return (
+              <div
+                key={f.path}
+                style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4, flexWrap: "wrap" }}
+              >
+                <span style={{ fontWeight: 600, color: "var(--tx)", flex: 1, minWidth: 200, overflowWrap: "anywhere" }}>
+                  {f.name}
+                </span>
+                {links.kind === "drive" ? (
+                  <>
+                    <FileLink href={links.download} label="Download" primary />
+                    <FileLink href={links.open} label="Open in Drive" />
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 11, color: "var(--sub)", overflowWrap: "anywhere" }}>{links.path}</span>
+                    <CopyPath path={links.path} />
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
