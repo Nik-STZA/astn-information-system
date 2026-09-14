@@ -59,6 +59,8 @@ class FakeApi:
     # -- helpers ----------------------------------------------------------------
     def _balances(self, as_at: date):
         """(month movement, ytd-or-closing) per account at a month-end."""
+        if as_at < PRIOR_YEAR_END:
+            return {}, {}          # the company had no transactions before its first year end
         month = MONTHS.get(as_at, PRIOR_YEAR if as_at == PRIOR_YEAR_END else {})
         closing = {}
         for aid, v in PRIOR_YEAR.items():
@@ -104,7 +106,9 @@ class FakeApi:
 
     def profit_and_loss(self, client, entity, start, end):
         self.calls.append(("pl", start, end))
-        if end <= PRIOR_YEAR_END:
+        if end < PRIOR_YEAR_END:
+            net = 0.0                      # before the company's first year end
+        elif end == PRIOR_YEAR_END:
             net = -sum(v for k, v in PRIOR_YEAR.items() if k in PNL_IDS)
         else:
             net = -sum(v for d, mv in MONTHS.items() if start <= d <= end

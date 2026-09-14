@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl.styles import Alignment, Font
@@ -24,11 +24,11 @@ from .fiscal import FiscalCalendar, date_label, month_end, parse_period
 from .ledger import fetch_ledger
 from .mapping import BY_KEY, resolve_mapping
 from .model import build_model
-from .render import BS, PNL, SRC, render_statements
+from .render import BS, CF, PNL, SRC, render_statements
 
 PROFILES = Path(__file__).resolve().parent.parent / "profiles"
 
-TAB_ROLES = {"Contents": "summary", PNL: "summary", BS: "summary",
+TAB_ROLES = {"Contents": "summary", PNL: "summary", BS: "summary", CF: "summary",
              "Controls": "control", "Mapping": "control", SRC: "detail"}
 
 
@@ -147,11 +147,12 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     stamp_dt = now or datetime.now()
     stamp = stamp_dt.strftime("%d %b %Y %H:%M").lstrip("0")
 
-    ledger = fetch_ledger(api, client, profile["entity"], cal, period)
+    first = profile.get("first_year_end")
+    ledger = fetch_ledger(api, client, profile["entity"], cal, period,
+                          first_year_end=date.fromisoformat(first) if first else None)
     mapping = resolve_mapping(ledger.active_accounts())
     model = build_model(ledger, mapping)
-    rendered = render_statements(model, ledger, client_label=profile["legal_name"], fy=fy,
-                                 prior_fy=prior_fy, period_month=month_end(y, m))
+    rendered = render_statements(model, ledger, client_label=profile["legal_name"], period_month=month_end(y, m))
 
     controls = [*ctl.mapping_controls(ledger, model), *ctl.ledger_controls(ledger),
                 *ctl.balance_controls(model),
