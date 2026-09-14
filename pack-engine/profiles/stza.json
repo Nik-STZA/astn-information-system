@@ -1,0 +1,13 @@
+{
+  "client": "stza",
+  "label": "STZA",
+  "legal_name": "Sports Tech Africa Ltd",
+  "entity": "stza",
+  "year_end_month": 3,
+  "framework": "FRS 102 Section 1A",
+  "currency": "GBP",
+  "branding": {
+    "tab_colours": null
+  },
+  "notes": "Pilot client for the pack engine (decided 14 Sep 2026). tab_colours null means the STZA standard. Framework and year end mirror shared.clients; the design moves profiles into finance.pack_profiles."
+}
