@@ -108,3 +108,18 @@ def test_any_error_is_reported_so_the_run_never_hangs(env, monkeypatch):
     assert job.run(drive=FakeDrive()) == 1
     _, body = env[-1]
     assert body["status"] == "failed" and "PERIOD" in body["error"]
+
+
+def test_draft_names_use_uk_time_not_the_containers_utc(monkeypatch, tmp_path):
+    from datetime import timezone
+    import pack_engine.build as b
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            utc = datetime(2026, 9, 14, 16, 5, tzinfo=timezone.utc)      # 17:05 in London (BST)
+            return utc.astimezone(tz) if tz else utc.replace(tzinfo=None)
+    monkeypatch.setattr(b, "datetime", Clock)
+    monkeypatch.setattr(b, "load_profile", lambda c: PROFILE)
+    res = b.build("demo", "2026-05", tmp_path, api=FakeApi())
+    assert "draft 2026-09-14 1705" in res.path.name
+

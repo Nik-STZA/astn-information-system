@@ -14,6 +14,7 @@ import json
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from openpyxl.styles import Alignment, Font
@@ -27,6 +28,9 @@ from .model import build_model
 from .render import BS, CF, PNL, SRC, render_statements
 
 PROFILES = Path(__file__).resolve().parent.parent / "profiles"
+# Draft names and the build stamp are in UK time: Cloud Run runs on UTC, and a
+# file stamped an hour off in summer is confusing next to the portal's times.
+LOCAL_TZ = ZoneInfo("Europe/London")
 
 TAB_ROLES = {"Contents": "summary", PNL: "summary", BS: "summary", CF: "summary",
              "Controls": "control", "Mapping": "control", SRC: "detail"}
@@ -144,7 +148,7 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     cal = FiscalCalendar(profile["year_end_month"])
     fy, prior_fy = cal.label(period), cal.prior_label(period)
     y, m = parse_period(period)
-    stamp_dt = now or datetime.now()
+    stamp_dt = now or datetime.now(LOCAL_TZ)
     stamp = stamp_dt.strftime("%d %b %Y %H:%M").lstrip("0")
 
     first = profile.get("first_year_end")
