@@ -10,5 +10,15 @@
   "branding": {
     "tab_colours": null
   },
-  "notes": "Pilot client for the pack engine (decided 14 Sep 2026). first_year_end is the end of STZA's first accounting period (12 Nov 2025 - 31 Mar 2026): the pack shows one full-year column per year since, adding one each year. tab_colours null means the STZA standard. Framework and year end mirror shared.clients; the design moves profiles into finance.pack_profiles."
+  "output": {
+    "drive_id": "0ADru76IvVG-0Uk9PVA",
+    "drive_name": "Finance",
+    "folder_path": [
+      "Management accounts",
+      "{fy}",
+      "{yymm}",
+      "Drafts"
+    ]
+  },
+  "notes": "Pilot client for the pack engine (decided 14 Sep 2026). first_year_end is the end of STZA's first accounting period (12 Nov 2025 - 31 Mar 2026): the pack shows one full-year column per year since, adding one each year. tab_colours null means the STZA standard. Framework and year end mirror shared.clients; the design moves profiles into finance.pack_profiles. Output: STZA's own packs go to the Finance shared drive (Nik, 14 Sep 2026); other clients' packs go to their folder on the Clients drive."
 }

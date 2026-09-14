@@ -1,20 +1,45 @@
-// Starting a management pack build as a Cloud Run Job.
+// Where a client's management pack is built, and starting it as a Cloud Run Job.
 //
 // The portal's Build button creates a report_runs row. For a client whose packs
 // build in Google Cloud, finance-api starts the job straight away with the run's
 // id, client and month, and the job reports back through
-// /report-runs/:id/complete exactly as the laptop runner does. Which clients
-// build in the cloud is configuration (PACK_JOB_CLIENTS), so a client moves only
-// when someone decides it should, and the laptop runner stays the fallback.
+// /report-runs/:id/complete exactly as the laptop runner does.
+//
+// Which clients build where is configuration, so a client moves only when
+// someone decides it should:
+//   PACK_ENGINE_CLIENTS + PACK_ENGINE_JOB  the client-neutral pack engine (pack-engine/)
+//   PACK_JOB_CLIENTS    + PACK_JOB_NAME    the legacy Feldspar pipeline in Cloud Run
+//   LOCAL_PACK_CLIENTS                     the laptop runner (scripts/report-runner.mjs)
+// A client in none of these has no pipeline, and a build for it is refused
+// rather than queued: a queued row that nothing can run sits there for ever and
+// blocks every later build of that month (STZA, 13 Sep 2026).
 
+function clientSet(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s.toLowerCase() === "none") return new Set();
+  return new Set(s.split(/[\s,]+/).filter(Boolean));
+}
+
+// Kept for callers that only ask about the legacy cloud list.
 function cloudClients(env = process.env) {
-  const raw = String(env.PACK_JOB_CLIENTS || "").trim();
-  if (!raw || raw.toLowerCase() === "none") return new Set();
-  return new Set(raw.split(/[\s,]+/).filter(Boolean));
+  return clientSet(env.PACK_JOB_CLIENTS);
+}
+
+function packRouting(slug, env = process.env) {
+  if (clientSet(env.PACK_ENGINE_CLIENTS).has(slug) && env.PACK_ENGINE_JOB) {
+    return { executor: "cloud", job: env.PACK_ENGINE_JOB, pipeline: "engine" };
+  }
+  if (clientSet(env.PACK_JOB_CLIENTS).has(slug) && env.PACK_JOB_NAME) {
+    return { executor: "cloud", job: env.PACK_JOB_NAME, pipeline: "legacy" };
+  }
+  if (clientSet(env.LOCAL_PACK_CLIENTS).has(slug)) {
+    return { executor: "local", job: null, pipeline: "legacy" };
+  }
+  return { executor: "none", job: null, pipeline: null };
 }
 
 function executorFor(slug, env = process.env) {
-  return cloudClients(env).has(slug) && env.PACK_JOB_NAME ? "cloud" : "local";
+  return packRouting(slug, env).executor;
 }
 
 // A cloud client's run is created already running: /report-runs/claim only
@@ -28,7 +53,7 @@ function initialRun(executor, now = new Date()) {
 
 function jobRunRequest({ project, region, job, runId, clientSlug, period }) {
   if (!project || !region || !job) {
-    throw new Error("the pack job is not configured: GCP_PROJECT, PACK_JOB_REGION and PACK_JOB_NAME are all needed");
+    throw new Error("the pack job is not configured: GCP_PROJECT, PACK_JOB_REGION and a job name are all needed");
   }
   return {
     url: `https://run.googleapis.com/v2/projects/${project}/locations/${region}/jobs/${job}:run`,
@@ -82,4 +107,22 @@ async function startPackJob(opts, { fetchImpl = fetch, token } = {}) {
 // runner's 60-minute limit.
 const STALE_RUNNING_MINUTES = 75;
 
-module.exports = { cloudClients, executorFor, initialRun, jobRunRequest, startPackJob, STALE_RUNNING_MINUTES };
+// A queued build nobody picked up. The laptop runner claims within a minute when
+// it is running, so half a day means it was not, and the row should stop
+// blocking the month.
+const STALE_QUEUED_HOURS = 12;
+
+const NO_PIPELINE_MESSAGE =
+  "No management pack pipeline is set up for this client yet, so a build would never run.";
+
+module.exports = {
+  cloudClients,
+  packRouting,
+  executorFor,
+  initialRun,
+  jobRunRequest,
+  startPackJob,
+  STALE_RUNNING_MINUTES,
+  STALE_QUEUED_HOURS,
+  NO_PIPELINE_MESSAGE,
+};

@@ -12,6 +12,7 @@ import {
   FinanceApiError,
   fetchReportRuns,
   type PackExecutor,
+  type PackPipeline,
   type ReportRunRow,
 } from "@/modules/finance/lib/api";
 
@@ -22,9 +23,10 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
 
   let runs: ReportRunRow[] = [];
   let executor: PackExecutor = "local";
+  let pipeline: PackPipeline = "legacy";
   let error: string | null = null;
   try {
-    ({ runs, executor } = await fetchReportRuns(slug, "management_pack"));
+    ({ runs, executor, pipeline } = await fetchReportRuns(slug, "management_pack"));
   } catch (e) {
     error =
       e instanceof FinanceApiError && e.status === 404 && /Cannot GET/i.test(e.message)
@@ -82,7 +84,7 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
           {error}
         </div>
       ) : (
-        <ManagementPackPanel slug={slug} initialRuns={runs} executor={executor} />
+        <ManagementPackPanel slug={slug} initialRuns={runs} executor={executor} pipeline={pipeline} />
       )}
     </div>
   );
