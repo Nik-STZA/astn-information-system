@@ -24,11 +24,11 @@ from .fiscal import FiscalCalendar, date_label, month_end, parse_period
 from .ledger import fetch_ledger
 from .mapping import BY_KEY, resolve_mapping
 from .model import build_model
-from .render import BS, PNL, SRC, render_statements
+from .render import BS, CF, PNL, SRC, render_statements
 
 PROFILES = Path(__file__).resolve().parent.parent / "profiles"
 
-TAB_ROLES = {"Contents": "summary", PNL: "summary", BS: "summary",
+TAB_ROLES = {"Contents": "summary", PNL: "summary", BS: "summary", CF: "summary",
              "Controls": "control", "Mapping": "control", SRC: "detail"}
 
 

@@ -85,15 +85,15 @@ def test_a_clean_build_passes_every_control_and_ties_to_xero(tmp_path, profile):
     assert [c.label for c in res.failed] == []
     assert res.path.name == "DEMO - Management Pack - May2026 - draft 2026-06-10 0930.xlsx"
     wb = openpyxl.load_workbook(res.path)
-    assert wb.sheetnames == ["Contents", "Profit and loss", "Balance sheet", "Controls", "Mapping",
-                             "Source - Trial balance"]
+    assert wb.sheetnames == ["Contents", "Profit and loss", "Balance sheet", "Cash flow", "Controls",
+                             "Mapping", "Source - Trial balance"]
     assert (tmp_path / (res.path.stem + " - controls.json")).exists()
 
 
 def test_statements_hold_no_typed_numbers(tmp_path, profile):
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
     wb = openpyxl.load_workbook(res.path)
-    for name in ("Profit and loss", "Balance sheet"):
+    for name in ("Profit and loss", "Balance sheet", "Cash flow"):
         typed = [c.coordinate for row in wb[name].iter_rows(min_row=5) for c in row
                  if isinstance(c.value, (int, float))]
         assert typed == [], f"{name} has typed numbers at {typed[:5]}"
@@ -141,3 +141,24 @@ def test_contents_counts_warnings_separately_from_passes(tmp_path, profile):
     summary = next(ws.cell(r, 1).value for r in range(1, 20) if str(ws.cell(r, 1).value).startswith("Controls:"))
     warns = sum(1 for c in res.controls if c.status == "warn")
     assert summary == f"Controls: {len(res.controls) - warns} passed, {warns} warning"
+
+
+def test_cash_flow_year_to_date_check_compares_with_this_month_end(tmp_path, profile):
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
+    ws = openpyxl.load_workbook(res.path)["Cash flow"]
+    chk = next(r for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value).startswith("Check:"))
+    assert "'Balance sheet'!C" in ws.cell(chk, 4).value      # YTD against the month end, not the prior month
+    assert "'Balance sheet'!C" in ws.cell(chk, 3).value
+    assert "'Balance sheet'!E" in ws.cell(chk, 5).value
+
+
+def test_statements_freeze_at_g5_and_group_account_rows(tmp_path, profile):
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(), now=NOW)
+    wb = openpyxl.load_workbook(res.path)
+    for name in ("Profit and loss", "Balance sheet", "Cash flow"):
+        assert wb[name].freeze_panes == "G5"
+    ws = wb["Profit and loss"]
+    sales = next(r for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value).strip() == "200 - Sales")
+    assert ws.row_dimensions[sales].outlineLevel == 1 and ws.row_dimensions[sales].hidden
+    assert [ws.cell(3, c).value for c in (3, 4, 5, 7)] == ["Month", "Year to date", "Prior year", "Month"]
+    assert [ws.cell(4, c).value for c in (3, 4, 5, 7)] == ["May 2026", "May 2026", "Mar 2026", "Apr 2026"]

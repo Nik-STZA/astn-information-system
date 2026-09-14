@@ -59,6 +59,8 @@ class FakeApi:
     # -- helpers ----------------------------------------------------------------
     def _balances(self, as_at: date):
         """(month movement, ytd-or-closing) per account at a month-end."""
+        if as_at < PRIOR_YEAR_END:
+            return {}, {}          # the company had no transactions before its first year end
         month = MONTHS.get(as_at, PRIOR_YEAR if as_at == PRIOR_YEAR_END else {})
         closing = {}
         for aid, v in PRIOR_YEAR.items():

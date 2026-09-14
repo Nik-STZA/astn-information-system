@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from .fiscal import month_end
+
 PNL_CLASSES = {"REVENUE", "EXPENSE"}
 
 
@@ -109,6 +111,8 @@ class Ledger:
     fy_months: list[date]                   # all 12 month-ends of the FY
     prior_year_end: date
     trial_balances: dict[date, TrialBalance]
+    # The year end before last: opening balances for the prior-year cash flow.
+    prior_prior_year_end: date | None = None
 
     def movement(self, account_id: str, month: date) -> float:
         tb = self.trial_balances.get(month)
@@ -138,8 +142,9 @@ def fetch_ledger(api, client: str, entity: str, cal, period: str) -> Ledger:
     accounts = {a.id: a for a in map(account_from_xero, api.accounts(client, entity))}
     months = cal.months_to_date(period)
     pye = cal.prior_year_end(period)
+    ppye = month_end(pye.year - 1, pye.month)
     tbs = {}
-    for d in [pye, *months]:
+    for d in [ppye, pye, *months]:
         tbs[d] = parse_trial_balance(api.trial_balance(client, entity, d), d)
     return Ledger(accounts=accounts, months=months, fy_months=cal.fy_months(period),
-                  prior_year_end=pye, trial_balances=tbs)
+                  prior_year_end=pye, trial_balances=tbs, prior_prior_year_end=ppye)

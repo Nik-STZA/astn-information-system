@@ -160,3 +160,31 @@ def resolve_mapping(accounts: list[Account]) -> dict[str, Mapping]:
             m = Mapping(a, None, f"{m.reason} puts a {a.klass} account on the wrong statement")
         out[a.id] = m
     return out
+
+
+# --- Cash flow ------------------------------------------------------------------
+# Each balance sheet account's movement lands in one place on the indirect cash
+# flow. Most follow their category, but creditors and debtors mix working
+# capital with tax, dividends and loans, which belong in different sections.
+CASH_FLOW_CLASSES = ("cash", "working_capital", "provisions", "tax", "capex",
+                     "investments", "loans", "equity", "dividends", "retained_earnings")
+
+_CATEGORY_CASH_FLOW = {
+    "cash": "cash", "stock": "working_capital", "debtors": "working_capital",
+    "creditors_lt1y": "working_capital", "creditors_gt1y": "loans", "provisions": "provisions",
+    "intangible_assets": "capex", "tangible_assets": "capex", "investments": "investments",
+    "share_capital": "equity", "other_reserves": "equity", "retained_earnings": "retained_earnings",
+}
+
+
+def cash_flow_class(account: Account, category: str) -> str:
+    rc = (account.reporting_code or "").upper()
+    name = account.name.lower()
+    if category in ("creditors_lt1y", "creditors_gt1y", "debtors"):
+        if rc.startswith(("LIA.CUR.TAX.COR", "LIA.NCL.TAX.COR", "ASS.CUR.REC.TAX.COR")) or "corporation tax" in name:
+            return "tax"
+        if "dividend" in name or rc.startswith("LIA.CUR.DIV"):
+            return "dividends"
+        if rc.startswith(("LIA.CUR.LOA", "LIA.NCL.LOA")) or "loan" in name:
+            return "loans"
+    return _CATEGORY_CASH_FLOW[category]

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .ledger import Account, Ledger
-from .mapping import BY_KEY, CATEGORIES, Mapping
+from .mapping import BY_KEY, CATEGORIES, Mapping, cash_flow_class
 
 
 @dataclass
@@ -24,6 +24,8 @@ class Line:
     category: str
     values: dict[date, float]                 # presentation sign
     prior: float = 0.0                        # P&L: prior FY total; BS: prior year-end balance
+    prior2: float = 0.0                       # P&L: the FY before that; BS: balance at the year end before last
+    cash_flow: str | None = None              # balance sheet lines: where the movement goes on the cash flow
 
 
 @dataclass
@@ -110,12 +112,15 @@ def build_model(ledger: Ledger, mapping: dict[str, Mapping]) -> Model:
             # Credit positive; monthly movement; prior = prior FY to date at its year end.
             values = {d: round(-ledger.movement(a.id, d), 2) for d in ledger.months}
             prior = round(-ledger.closing(a.id, ledger.prior_year_end), 2)
-            pnl_blocks.setdefault(cat.key, Block(cat.key)).lines.append(Line(a, cat.key, values, prior))
+            prior2 = round(-ledger.closing(a.id, ledger.prior_prior_year_end), 2) if ledger.prior_prior_year_end else 0.0
+            pnl_blocks.setdefault(cat.key, Block(cat.key)).lines.append(Line(a, cat.key, values, prior, prior2))
         else:
             sign = -1 if cat.section in CREDIT_SECTIONS else 1
             values = {d: round(sign * ledger.closing(a.id, d), 2) for d in ledger.months}
             prior = round(sign * ledger.closing(a.id, ledger.prior_year_end), 2)
-            bs_blocks.setdefault(cat.key, Block(cat.key)).lines.append(Line(a, cat.key, values, prior))
+            prior2 = round(sign * ledger.closing(a.id, ledger.prior_prior_year_end), 2) if ledger.prior_prior_year_end else 0.0
+            bs_blocks.setdefault(cat.key, Block(cat.key)).lines.append(
+                Line(a, cat.key, values, prior, prior2, cash_flow_class(a, cat.key)))
 
     order = {c.key: c.order for c in CATEGORIES}
     sort_lines = lambda b: sorted(b.lines, key=lambda l: (l.account.code or "zzz", l.account.name))
