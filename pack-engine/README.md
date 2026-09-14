@@ -49,9 +49,27 @@ python -m pytest tests/ -q
 
 The tests use a fake finance-api serving a made-up company in Xero's report shapes. No real client figures are committed.
 
+## Account mapping
+
+Each account's reporting category is approved in the portal (client > Chart of
+accounts) and read from finance-api at build time
+(`GET /api/finance/clients/:slug/entities/:entity/account-mapping`, migration 017).
+Categories are the standard set in `pack_engine/mapping.py`, which a client can
+rename, reorder or switch off, plus categories only that client has. Accounts with
+nothing saved fall back to the rules, and the "Account mapping approved" control
+warns until every account with activity is approved. finance-api ports the rules
+for the portal's suggestions; `tests/mapping_rule_cases.json` is shared by both test
+suites so they cannot drift.
+
+## Deploy
+
+The Cloud Run Job is deployed by hand from this directory:
+
+```
+gcloud run jobs deploy pack-engine --source . --region europe-west1 --project africanstn-research
+```
+
 ## Not built yet
 
-From the 11 September 2026 design: dashboard, cash flow, ageing, commentary, the
-statutory-format P&L, mapping approval in the portal, Cloud Run deployment and
-the portal Build button for engine clients, and a LibreOffice recalculation test
-in CI.
+From the 11 September 2026 design: dashboard, ageing, commentary, the
+statutory-format P&L, and a LibreOffice recalculation test in CI.

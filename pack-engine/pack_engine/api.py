@@ -31,17 +31,25 @@ class FinanceApi:
         self.session = session or requests.Session()
         self.sleep = sleep
 
-    def get(self, path: str, params: dict | None = None) -> dict:
+    def get(self, path: str, params: dict | None = None, *, missing_ok: bool = False) -> dict | None:
         url = f"{self.base_url}{path}"
         for attempt, pause in enumerate((*RETRY_SLEEPS, None)):
             r = self.session.get(url, params=params, timeout=120,
                                  headers={"X-API-Key": self.api_key})
             if r.status_code < 400:
                 return r.json()
+            if r.status_code == 404 and missing_ok:
+                return None
             if r.status_code not in RETRY_STATUS or pause is None:
                 raise FinanceApiError(f"GET {path} failed {r.status_code}: {r.text[:300]}")
             self.sleep(pause)
         raise FinanceApiError(f"GET {path} failed after retries")  # pragma: no cover
+
+    # --- Platform data ------------------------------------------------------------
+    def account_mapping(self, client: str, entity: str) -> dict | None:
+        """{categories, mappings} saved in the portal, or None from a finance-api
+        that predates migration 017."""
+        return self.get(f"/api/finance/clients/{client}/entities/{entity}/account-mapping", missing_ok=True)
 
     # --- Xero reads, per entity -------------------------------------------------
     def _x(self, client: str, entity: str, what: str) -> str:

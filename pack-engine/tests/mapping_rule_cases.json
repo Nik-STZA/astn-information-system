@@ -1,0 +1,17 @@
+{
+  "_about": "Shared by pack-engine (mapping.propose) and finance-api (lib/coa-mapping.js proposeCategory), so the rules the portal suggests and the rules the engine falls back on cannot drift apart. expected null means no rule applies.",
+  "cases": [
+    {"note": "type BANK beats a bare reporting code", "account": {"Code": "600", "Name": "Natwest", "Class": "ASSET", "Type": "BANK", "ReportingCode": "ASS"}, "expected": "cash"},
+    {"note": "UK payroll range", "account": {"Code": "481", "Name": "Pension", "Class": "EXPENSE", "Type": "OVERHEADS", "ReportingCode": "EXP"}, "expected": "staff_costs"},
+    {"note": "bare REV falls to the type", "account": {"Code": "201", "Name": "Fees", "Class": "REVENUE", "Type": "REVENUE", "ReportingCode": "REV"}, "expected": "turnover"},
+    {"note": "interest income", "account": {"Code": "270", "Name": "Interest", "Class": "REVENUE", "Type": "REVENUE", "ReportingCode": "REV.INV.INT"}, "expected": "other_income"},
+    {"note": "foreign exchange", "account": {"Code": "498", "Name": "FX", "Class": "EXPENSE", "Type": "EXPENSE", "ReportingCode": "EXP.ADM.FOR.UGL"}, "expected": "fx"},
+    {"note": "legal fees", "account": {"Code": "441", "Name": "Legal", "Class": "EXPENSE", "Type": "OVERHEADS", "ReportingCode": "EXP.ADM.FEE"}, "expected": "professional_fees"},
+    {"note": "current liability", "account": {"Code": "839", "Name": "Dividends payable", "Class": "LIABILITY", "Type": "CURRLIAB", "ReportingCode": "LIA.CUR"}, "expected": "creditors_lt1y"},
+    {"note": "non-current asset named as an investment", "account": {"Code": "772", "Name": "Investment in X", "Class": "ASSET", "Type": "NONCURRENT", "ReportingCode": "ASS.NCA"}, "expected": "investments"},
+    {"note": "longest reporting code prefix", "account": {"Code": "477", "Name": "Wages", "Class": "EXPENSE", "Type": "OVERHEADS", "ReportingCode": "EXP.STF.WAG"}, "expected": "staff_costs"},
+    {"note": "equity reporting code", "account": {"Code": "960", "Name": "Retained earnings", "Class": "EQUITY", "Type": "EQUITY", "ReportingCode": "EQU.RET"}, "expected": "retained_earnings"},
+    {"note": "no rule is a gap, not a guess", "account": {"Code": "999", "Name": "Odd", "Class": "ASSET", "Type": "MYSTERY", "ReportingCode": ""}, "expected": null},
+    {"note": "a rule that crosses statements is refused", "account": {"Code": "998", "Name": "Odd", "Class": "LIABILITY", "Type": "CURRLIAB", "ReportingCode": "EXP.ADM"}, "expected": null}
+  ]
+}
