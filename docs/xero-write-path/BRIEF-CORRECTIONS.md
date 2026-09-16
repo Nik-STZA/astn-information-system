@@ -167,13 +167,26 @@ credentials. They should never be persisted.
 
 ---
 
-## 6. Still unverified
+## 6. Resolved
 
-Whether the plugin app and the platform app are the same Xero app — needs
-`xero-app-client-id` from Secret Manager. Plugin client_id starts `8EA540A6`.
-If they match, the mechanism is confirmed: reconnecting an already-connected
-tenant under the same app revokes the prior refresh token, which is what
-killed all three configs on 12 July within a three-minute window.
+Whether the plugin app and the platform app are the same Xero app. **They are
+not.** Confirmed in the developer portal on 16 September 2026:
 
-If they *don't* match, the cause is different and worth understanding before
-we assume consolidation fixes it.
+| App | Client id | Holder |
+|---|---|---|
+| STZA Finance | `8A909173…` | os.stza.io / finance-api |
+| Feldspar_API | `8EA540A6…` | the local plugin's five connections |
+
+Different apps have independent refresh-token lineages, so the platform never
+consumed the plugin's tokens and could not have. The revocation mechanism
+described above is not what killed the three configs on 12 July; see
+`xero-write-path-spec.md` §1, which carried the same correction on
+14 August 2026, and `REMEDIATION-PLAN.md` §2.1.
+
+What did kill them is local to the plugin: ~22 programs in XERO REPORTING
+share one app and the same three config files, and Xero rotates the refresh
+token on every refresh.
+
+Since 16 September 2026 the five plugin connections run on the STZA Finance
+app, and one live check found `accounting.journals.read` is not assigned to
+it — so `/Journals` is unreachable from the platform's app.
