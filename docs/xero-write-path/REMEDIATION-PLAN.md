@@ -87,16 +87,26 @@ a bad audit value once destroyed the Xero connection it was recording.
 
 ## P2 — The architecture
 
-### 2.1 Two credential holders for one Xero app
+### 2.1 Two credential holders, two different Xero apps — RESOLVED
 os.stza.io (Secret Manager, versioned, rotating) and the local plugin
-(JSON files, stale since 12 July). If both use the same Xero app —
-**still unverified**, needs `xero-app-client-id` from Secret Manager; plugin
-client_id begins `8EA540A6` — then reconnecting a tenant revokes the other
-holder's token. That fits the evidence exactly: all three configs died within
-a three-minute window.
+(JSON files, stale since 12 July).
 
-**Resolve this first.** If the apps differ, the cause is something else and
-consolidation may not fix it.
+**Resolved 16 September 2026, read off the developer portal:** these are
+different apps — platform `8A909173…` (STZA Finance), plugin `8EA540A6…`
+(Feldspar_API). Refresh-token lineages are independent, so neither holder
+could ever revoke the other's token. The paragraph that stood here assumed
+they were the same app and that reconnecting a tenant explained the three
+configs dying in a three-minute window. That premise was wrong;
+`xero-write-path-spec.md` §1 corrected it on 14 August 2026.
+
+The real cause is local to the plugin side: ~22 programs in XERO REPORTING
+shared one app and the same three config files, and Xero rotates the refresh
+token on every refresh.
+
+**Superseded by events.** On 16 September 2026 all five plugin connections
+were migrated onto the STZA Finance app, so there is now one app with
+independent grants per holder — confirmed live, the platform's tokens were
+unaffected by five consecutive consents.
 
 ### 2.2 Build the write path on the platform
 `POST /api/finance/xero/journals` in `finance-api`, per
