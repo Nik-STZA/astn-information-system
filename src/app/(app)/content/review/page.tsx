@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
  * Approve/reject classified items; approved items form the weekly brief.
  */
 export default async function ReviewPage() {
-  // Default view replicates the old Notion candidate list: last 7 days,
-  // relevance >= 0.4 (the brief generator's floor), best first.
+  // Default to "all pending" (no score filter) because items from the RSS
+  // ingester arrive with score 0.0 — the classifier runs separately.
+  // Once classification is running reliably, switch back to 0.4 / 7 / relevance.
   const [queueRes, statsRes] = await Promise.all([
-    fetchReviewQueue("pending_review", 25, 0, 0.4, 7, "relevance"),
+    fetchReviewQueue("pending_review", 50, 0, 0, 0, "newest"),
     fetchReviewStats(),
   ]);
 

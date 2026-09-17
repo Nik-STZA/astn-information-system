@@ -71,6 +71,73 @@ function GenerateBriefButton() {
   );
 }
 
+// "Classify items" — dispatches the research agent's fetch-classify workflow
+// (digest.yml) which uses Gemini to score items with relevance + category.
+function ClassifyItemsButton({ onComplete }: { onComplete: () => void }) {
+  const [state, setState] = useState<"idle" | "dispatching" | "running" | "done" | "failed" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  async function poll() {
+    const res = await workflowStatus("fetch-classify");
+    if (res.error || !res.data) return;
+    if (res.data.status === "completed") {
+      if (pollRef.current) clearInterval(pollRef.current);
+      setState(res.data.conclusion === "success" ? "done" : "failed");
+      setMessage(res.data.conclusion === "success"
+        ? "Classification complete — reload to see scored items."
+        : "Classification failed — see the run in GitHub.");
+      if (res.data.conclusion === "success") onComplete();
+    }
+  }
+
+  async function run() {
+    setState("dispatching");
+    setMessage(null);
+    const res = await triggerWorkflow("fetch-classify");
+    if (res.error) {
+      setState("error");
+      setMessage(res.error.includes("not configured")
+        ? "Not connected yet — GitHub dispatch token pending."
+        : res.error);
+      return;
+    }
+    setState("running");
+    setMessage("Running classifier — this takes a few minutes…");
+    pollRef.current = setInterval(poll, 15000);
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      {message && (
+        <span style={{ fontSize: 11.5, color: state === "failed" || state === "error" ? "var(--alert-red)" : "var(--sub)" }}>
+          {message}
+        </span>
+      )}
+      <button
+        onClick={run}
+        disabled={state === "dispatching" || state === "running"}
+        style={{
+          fontWeight: 700,
+          fontSize: 12,
+          padding: "8px 18px",
+          borderRadius: 6,
+          border: "1px solid var(--bd)",
+          background: "var(--pnl)",
+          color: "var(--success-green)",
+          cursor: "pointer",
+          opacity: state === "dispatching" || state === "running" ? 0.6 : 1,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {state === "dispatching" ? "Starting…" : state === "running" ? "Classifying…" : "Classify items"}
+      </button>
+    </div>
+  );
+}
+
 // "Fetch sources" — triggers the RSS ingestion pipeline and shows results.
 function FetchSourcesButton({ onComplete }: { onComplete: () => void }) {
   const [state, setState] = useState<"idle" | "fetching" | "done" | "error">("idle");
@@ -327,7 +394,10 @@ export default function ReviewClient({
   const [busyId, setBusyId] = useState<string | null>(null);
   // "candidates" replicates the old Notion view (last 7 days, score >= 0.4,
   // best first); "all" is the raw pending table.
-  const [view, setView] = useState<"candidates" | "all">("candidates");
+  // Default to "all" because the RSS ingester writes items with score 0.0
+  // (classification runs separately) — "candidates" shows nothing until
+  // the classifier has scored items.
+  const [view, setView] = useState<"candidates" | "all">("all");
   const viewParams = (v: "candidates" | "all") =>
     v === "candidates"
       ? { minScore: 0.4, days: 7, sort: "relevance" as const }
@@ -387,6 +457,7 @@ export default function ReviewClient({
             {view === "candidates" ? "Show all pending" : "Show brief candidates"}
           </button>
           <FetchSourcesButton onComplete={() => switchView(view)} />
+          <ClassifyItemsButton onComplete={() => switchView(view)} />
           <GenerateBriefButton />
         </div>
       </div>
