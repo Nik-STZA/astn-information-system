@@ -12,6 +12,8 @@
  * bare brand-domain reference is allowed.
  */
 
+import { auditPost } from "./brief-audit";
+
 export type Check = {
   label: string;
   pass: boolean;
@@ -70,6 +72,9 @@ export function validateLinkedInPost(text: string): Validation {
   const bodyLink = /(https?:\/\/|www\.|\.pdf)/i.test(t);
   const hypeHit = HYPE.filter((w) => t.toLowerCase().includes(w));
   const drivesAdoption = /drives?\s+adoption/i.test(t);
+  // Observation, never advice, hedging or prediction (shared with the brief
+  // audit). A guide, not a gate: a fact can legitimately quote "opportunities".
+  const discipline = auditPost(t).warnings;
 
   const checks: Check[] = [
     // ── Hard gates ──
@@ -128,6 +133,14 @@ export function validateLinkedInPost(text: string): Validation {
       hard: true,
     },
     // ── Guides ──
+    {
+      label: "Observation, not advice, hedging or prediction",
+      pass: discipline.length === 0,
+      detail: discipline.length
+        ? discipline.slice(0, 3).map((w) => `${w.problem}: "${w.text.slice(0, 70)}"`).join(" · ") + (discipline.length > 3 ? ` · +${discipline.length - 3} more` : "")
+        : "clean",
+      hard: false,
+    },
     {
       label: "1,800–2,900 chars (sweet spot 2,400–2,700)",
       pass: charCount >= 1800 && charCount <= 2900,

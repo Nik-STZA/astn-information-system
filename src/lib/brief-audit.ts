@@ -1,26 +1,36 @@
 /**
  * Weekly brief fact-discipline audit - TypeScript mirror of
  * Nik-STZA/africanstn-research-agent src/briefAudit.js. Keep the two in sync:
- * the agent runs it after generation, the OS runs it live in the brief editor.
- * Pure function; never blocks publishing.
+ * the agent runs it after generation, the OS runs it live in the brief and
+ * LinkedIn editors. Pure functions; never block publishing.
  */
 
 export type AuditWarning = { where: string; problem: string; text: string };
 export type BriefAudit = { stories: number; warnings: AuditWarning[] };
 
-const SPECULATIVE = /\b(could|potential(ly)?|foundation for|future|such as|may|might|likely|poised|paves? the way|implies|prerequisite|lays? the groundwork)\b/i;
-const HEDGE = /\b(suggests?|highlights?|indicates?|underscores?|demonstrates?|signals?|reflects?|signifies|positions? [^.]{0,40}\bas)\b/i;
+const SPECULATIVE = /\b(could|would|potential(ly)?|foundation for|future|such as|may|might|likely|poised|paves? the way|implies|prerequisite|lays? the groundwork|crucial|cutting-edge|strategic intent)\b/i;
+// All forms, British and American: signals/signalling/signaled, indicating...
+const HEDGE = /\b(suggest(s|ing|ed)?|highlight(s|ing|ed)?|indicat(es?|ing|ed)|underscor(es?|ing|ed)|demonstrat(es?|ing|ed)|signal(s|l?ing|l?ed)?|reflect(s|ing|ed)?|signif(ies|ying)|reinforc(es?|ing|ed)|represents? (a )?(significant|major|clear|strategic)|leverag(es?|ing)|exemplif(y|ies|ying)|positions? [^.]{0,40}\bas)\b/i;
 const FOUNDATION = /\b(foundation (for|of)|lays? the groundwork|paves? the way|underpins?|poised to|unlock(s|ing)?)\b/i;
-// "such as", or a run of three or more items ("A, B, and C" / "A, B, C or D").
-const LIST = /\bsuch as\b|[^,.]+,[^,.]+,[^,.]*\b(and|or)\b/i;
-const ADVISORY = /\b(look for|invest(ing)? in|partner(ing)? with|approach|target|back(ing)?|acquir(e|ing)|engage with|work with|consider)\b/i;
+// Advice, opportunities and ideas - the paid work, never the free brief.
+// Descriptive verbs ("operators are investing in", "partnering with") are
+// facts, not advice, so they are not here. "opportunity" is only flagged in
+// The Week in Context and the post - a story may quote a source's own aim.
+const ADVICE = /\b(should|ought to|could (build|sell|offer|use|target|create|develop)|consider(ing)?|look for|worth (looking|watching|putting)|pay(ing)? attention|benchmark(ing)? against|can (enable|help|drive|create|leverage|unlock)|creates? (a )?(market|demand|openings?)|blueprint for|model for others)\b/i;
+const OPPORTUNITY = /\bopportunit(y|ies)\b/i;
+const CONTEXT = /Week in Context|Emerging Trends|Strategic Implications/i;
+const PREDICTION = /\b(would|will (accelerate|drive|transform|establish|shape)|is set to|is expected to)\b/i;
+const COMMON_HEADLINE_WORDS = new Set(['african', 'africa', 'launches', 'launch', 'partners', 'partner', 'announces',
+  'expands', 'unveils', 'refurbishes', 'supports', 'releases', 'establish', 'develop', 'programme', 'program',
+  'company', 'companies', 'network', 'digital', 'technology', 'sports', 'countries', 'continent', 'participate',
+  'integration', 'innovation', 'convention', 'conference', 'million', 'billion', 'courts']);
 
 // Capitalised words that are not company names: sentence furniture, places,
 // generic tech terms and currencies.
 const NOT_ENTITIES = new Set(`
 the a an and or but for of with by from to in on at as this that these those it its their his her
 what happened opportunity horizon sports-tech relevance wider tech ecosystem key developments funding deals
-insights trends strategic implications emerging african africa continent sub-saharan
+insights trends strategic implications emerging week context african africa continent sub-saharan
 south north east west central southern northern eastern western kenya nigeria ghana egypt morocco rwanda
 senegal tanzania uganda zambia zimbabwe ethiopia angola cameroon tunisia algeria namibia botswana mozambique
 malawi mauritius ivory côte d’ivoire d'ivoire democratic republic congo dr drc lagos abuja nairobi accra
@@ -31,7 +41,7 @@ january february march april may june july august september october november dec
 federations investors founders rights holders event organisers infrastructure developers
 olympic olympics games world cup league
 twelve ten these there while following after despite according under during both each all one two three
-english french arabic portuguese swahili
+english french arabic portuguese swahili telecoms
 `.trim().split(/\s+/));
 
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
@@ -48,7 +58,7 @@ const BRANDLIKE = /^(\p{Lu}[\p{Lu}\p{N}&+-]+|\p{Lu}\p{Ll}+\p{Lu}[\p{L}\p{N}]*|[\
 // Named entities from fact text: runs of consecutive capitalised words
 // ("Nyayo National Stadium", "Old Mutual Private Equity", "MoreCorp"), plus
 // brand-like single tokens from inside them. Matching whole names avoids
-// flagging generic words such as "digital" or "stadium" in analysis lines.
+// treating generic words such as "digital" or "stadium" as names.
 export function factEntities(text: string): Set<string> {
   const out = new Set<string>();
   for (const s of sentences(text)) {
@@ -97,60 +107,79 @@ export function auditBrief(markdown: string): BriefAudit {
     return { title: (nl < 0 ? sec : sec.slice(0, nl)).trim(), body: nl < 0 ? '' : sec.slice(nl + 1) };
   });
 
-  // Pass 1: stories, and the entities their facts name.
-  const stories: { headline: string; fact: string | null; angle: string | null; hasAngle: boolean }[] = [];
+  // Stories: every ### outside the context section; body runs to the next
+  // heading.
+  const stories: { headline: string; body: string; terms?: Set<string> }[] = [];
   for (const sec of sections) {
-    if (/Emerging Trends|Strategic Implications/i.test(sec.title)) continue;
+    if (CONTEXT.test(sec.title)) continue;
     for (const chunk of sec.body.split(/^### /m).slice(1)) {
-      const headline = chunk.split('\n', 1)[0].trim();
-      const fact = chunk.match(/\*\*What happened:\*\*([\s\S]*?)(?=\n\s*\*\*|$)/);
-      const angle = chunk.match(/\*\*(Opportunity|Sports-tech relevance) \(Horizon: [^)]+\):\*\*([\s\S]*?)(?=\n\s*\*\*|\n#|$)/);
-      stories.push({ headline, fact: fact ? fact[1] : null, angle: angle ? angle[2] : null, hasAngle: !!angle });
+      const nl = chunk.indexOf('\n');
+      stories.push({
+        headline: (nl < 0 ? chunk : chunk.slice(0, nl)).trim(),
+        body: nl < 0 ? '' : chunk.slice(nl + 1).trim(),
+      });
     }
   }
-  const entities = new Set<string>();
-  for (const st of stories) if (st.fact) for (const e of factEntities(st.fact)) entities.add(e);
-
-  // Pass 2: per-story rules.
+  // What lets a context bullet "cite" a story: its named entities plus the
+  // distinctive words of its headline (place-only stories such as an Olympic
+  // bid have no company names).
   for (const st of stories) {
-    const where = st.headline;
-    if (!st.fact) add(where, 'No "What happened" paragraph', st.headline);
-    if (!st.hasAngle) add(where, 'No Opportunity / relevance line with a horizon tag', st.headline);
-    if (st.fact) {
-      for (const s of sentences(st.fact)) {
-        const m = s.match(SPECULATIVE) || s.match(HEDGE);
-        if (m) add(where, `Speculative wording in What happened ("${m[0]}")`, s);
-      }
+    const terms = factEntities(`${st.headline}. ${st.body}`);
+    for (const w of st.headline.toLowerCase().match(/[\p{L}\p{N}]{6,}/gu) || []) {
+      if (!COMMON_HEADLINE_WORDS.has(w)) terms.add(w);
     }
-    if (st.angle) {
-      for (const s of sentences(st.angle)) {
-        const named = mentions(s, entities);
-        if (named.length) add(where, `Opportunity names a company (${named.join(', ')})`, s);
-        const h = s.match(HEDGE) || s.match(FOUNDATION);
-        if (h) add(where, `Hedge / "foundation" wording in Opportunity ("${h[0]}")`, s);
-        if (LIST.test(s)) add(where, 'Capability list in Opportunity - give one concrete idea', s);
+    st.terms = terms;
+  }
+  const storiesCited = (text: string) => stories.filter(st => mentions(text, st.terms ?? new Set<string>()).length > 0).length;
+
+  for (const st of stories) {
+    if (!st.body) add(st.headline, 'Story has no text', st.headline);
+    const label = st.body.match(/\*\*(Opportunity|Sports-tech relevance)[^\n]*/i);
+    if (label) add(st.headline, 'Opportunity line - remove (ideas are paid work)', label[0]);
+    const plain = st.body.replace(/\*\*[^*\n]+:\*\*/g, '');
+    for (const s of sentences(plain)) {
+      const adv = s.match(ADVICE);
+      if (adv) {
+        add(st.headline, `Advice / idea in a story ("${adv[0]}")`, s);
+        continue;
       }
+      const m = s.match(SPECULATIVE) || s.match(HEDGE) || s.match(FOUNDATION);
+      if (m) add(st.headline, `Speculative wording ("${m[0]}")`, s);
     }
   }
 
-  // Pass 3: synthesis sections.
   for (const sec of sections) {
-    const trends = /Emerging Trends/i.test(sec.title);
-    const impl = /Strategic Implications/i.test(sec.title);
-    if (!trends && !impl) continue;
-    const where = trends ? 'Emerging Trends' : 'Strategic Implications';
-    for (const s of sentences(sec.body.replace(/^\s*[-*]\s+/gm, ''))) {
-      const h = s.match(HEDGE) || s.match(FOUNDATION);
-      if (h) add(where, `Hedge / "foundation" wording ("${h[0]}")`, s);
-      if (/\bsuch as\b/i.test(s) && !impl) add(where, 'Capability list ("such as")', s);
-      if (impl && ADVISORY.test(s)) {
-        const named = mentions(s, entities);
-        if (named.length) add(where, `Advice tied to a named company (${named.join(', ')})`, s);
-      }
+    if (!CONTEXT.test(sec.title)) continue;
+    const where = sec.title.replace(/^\d+\.\s*/, '');
+    const bullets = sec.body
+      .split(/\n(?=\s*[-*]\s)/)
+      .map(b => b.replace(/^\s*[-*]\s+/, '').trim())
+      .filter(Boolean);
+    for (const b of bullets) {
+      const adv = b.match(ADVICE) || b.match(OPPORTUNITY);
+      if (adv) add(where, `Advice / idea ("${adv[0]}") - observations only`, b);
+      const h = b.match(HEDGE) || b.match(FOUNDATION) || b.match(PREDICTION);
+      if (h) add(where, `Hedge / prediction wording ("${h[0]}")`, b);
+      if (/\bsuch as\b/i.test(b)) add(where, 'Capability list ("such as")', b);
+      if (storiesCited(b) < 2) add(where, "Pattern cites fewer than two of this week's stories", b);
     }
   }
 
   return { stories: stories.length, warnings };
+}
+
+// Same discipline for the weekly LinkedIn post: observation, never advice,
+// hedging or prediction. Hashtags and the fixed footer are ignored.
+export function auditPost(text: string): { warnings: AuditWarning[] } {
+  const warnings: AuditWarning[] = [];
+  const body = text.split('\n').filter(l => !/^#\w/.test(l.trim()) && !/full brief is available/i.test(l)).join('\n');
+  for (const s of sentences(body.replace(/▪\s*/g, ''))) {
+    const adv = s.match(ADVICE) || s.match(OPPORTUNITY);
+    if (adv) warnings.push({ where: 'LinkedIn post', problem: `Advice / idea ("${adv[0]}")`, text: clip(s) });
+    const h = s.match(HEDGE) || s.match(FOUNDATION) || s.match(PREDICTION) || s.match(/\b(crucial|cutting-edge|strategic intent|exemplif(y|ies))\b/i);
+    if (h) warnings.push({ where: 'LinkedIn post', problem: `Hedge / prediction wording ("${h[0]}")`, text: clip(s) });
+  }
+  return { warnings };
 }
 
 export function formatWarning(w: AuditWarning): string {

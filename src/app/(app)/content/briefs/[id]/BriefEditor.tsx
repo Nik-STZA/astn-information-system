@@ -123,7 +123,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
         </div>
         {audit.warnings.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--sub)" }}>
-            Every story has What happened and a horizon-tagged Opportunity; no speculation, hedging, capability lists or named-company advice found.
+            Stories are facts only and The Week in Context is observation only - no speculation, hedging, advice or ideas found.
           </span>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "70vh", overflowY: "auto" }}>
@@ -137,7 +137,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
           </div>
         )}
         <p style={{ fontSize: 10.5, color: "var(--empty-text)", margin: 0, lineHeight: 1.4 }}>
-          Flags, not blocks. What happened must be supported by the source; Opportunity names categories, not companies, with one concrete idea and an honest horizon.
+          Flags, not blocks. Stories state only what the source says. No advice, opportunities or product ideas anywhere - that is STZA&apos;s paid work. Each context bullet links two or more of this week&apos;s stories.
         </p>
       </div>
     </div>
