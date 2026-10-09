@@ -9,7 +9,8 @@ export type AuditWarning = { where: string; problem: string; text: string };
 export type BriefAudit = { stories: number; warnings: AuditWarning[] };
 
 const SPECULATIVE = /\b(could|would|potential(ly)?|foundation for|future|such as|may|might|likely|poised|paves? the way|implies|prerequisite|lays? the groundwork|crucial|cutting-edge|strategic intent)\b/i;
-const HEDGE = /\b(suggests?|highlights?|indicates?|underscores?|demonstrates?|signals?|reflects?|signifies|positions? [^.]{0,40}\bas)\b/i;
+// All forms, British and American: signals/signalling/signaled, indicating...
+const HEDGE = /\b(suggest(s|ing|ed)?|highlight(s|ing|ed)?|indicat(es?|ing|ed)|underscor(es?|ing|ed)|demonstrat(es?|ing|ed)|signal(s|l?ing|l?ed)?|reflect(s|ing|ed)?|signif(ies|ying)|reinforc(es?|ing|ed)|represents? (a )?(significant|major|clear|strategic)|leverag(es?|ing)|exemplif(y|ies|ying)|positions? [^.]{0,40}\bas)\b/i;
 const FOUNDATION = /\b(foundation (for|of)|lays? the groundwork|paves? the way|underpins?|poised to|unlock(s|ing)?)\b/i;
 // Advice, opportunities and ideas - the paid work, never the free brief.
 // Descriptive verbs ("operators are investing in", "partnering with") are
