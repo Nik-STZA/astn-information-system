@@ -211,7 +211,7 @@ export default function LinkedInClient({ initialDrafts }: { initialDrafts: Linke
         <div style={{ padding: "48px 20px", textAlign: "center", border: "1.5px dashed var(--empty-border)", borderRadius: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: "var(--sub)", marginBottom: 4 }}>No LinkedIn drafts yet</div>
           <div style={{ fontWeight: 500, fontSize: 12.5, color: "var(--empty-text)" }}>
-            Generate this week's draft edition above.
+            Generate this week&apos;s draft edition above.
           </div>
         </div>
       ) : (
