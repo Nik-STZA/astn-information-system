@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchBrief } from "@/lib/data/content";
 import { markdownToHtml } from "@/lib/markdown";
+import BriefEditor from "./BriefEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -16,24 +17,31 @@ export default async function BriefDetailPage({
   const brief = res.data;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 820 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: brief.status === "draft" ? 1280 : 820 }}>
       <div>
         <Link href="/content/briefs" style={{ fontSize: 12, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none" }}>
           ← All briefs
         </Link>
         <h1 style={{ fontWeight: 800, fontSize: 24, lineHeight: 1.2, color: "var(--tx)", margin: "10px 0 0" }}>
-          Weekly brief —{" "}
-          {new Date(brief.created_at).toLocaleDateString("en-GB", {
+          Weekly brief — w/e{" "}
+          {new Date(brief.week_ending ?? brief.created_at).toLocaleDateString("en-GB", {
             day: "numeric",
             month: "long",
             year: "numeric",
+            timeZone: "UTC",
           })}
         </h1>
         <p style={{ fontSize: 12.5, color: "var(--sub)", marginTop: 4 }}>
-          {brief.item_count} items
+          {brief.item_count} items ·{" "}
+          <span style={{ fontWeight: 700, color: brief.status === "draft" ? "var(--warning-amber)" : "var(--success-green)" }}>
+            {brief.status === "draft" ? "Draft — editable until its LinkedIn post is approved" : "Published — locked"}
+          </span>
         </p>
       </div>
 
+      {brief.status === "draft" ? (
+        <BriefEditor id={brief.id} initialMarkdown={brief.report_markdown} />
+      ) : (
       <article
         className="brief-prose"
         style={{
@@ -47,6 +55,7 @@ export default async function BriefDetailPage({
         }}
         dangerouslySetInnerHTML={{ __html: markdownToHtml(brief.report_markdown) }}
       />
+      )}
       <style>{`
         .brief-prose h1 { font-size: 20px; font-weight: 800; margin: 18px 0 10px; }
         .brief-prose h2 { font-size: 17px; font-weight: 800; margin: 18px 0 8px; }
