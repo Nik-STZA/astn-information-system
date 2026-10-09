@@ -6,6 +6,16 @@ import type { LinkedInDraft } from "@/lib/data/content";
 import { validateLinkedInPost } from "@/lib/linkedin-spec";
 import { loadDrafts, saveDraft, publishDraft, generateEdition, editionStatus } from "./actions";
 
+// week_ending arrives as an ISO timestamp ("2026-10-08T00:00:00.000Z");
+// show it as "8 October 2026". UTC so it never slips a day.
+function weekLabel(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? String(iso)
+    : d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
 function GenerateButton({ onGenerated }: { onGenerated: () => void }) {
   const [state, setState] = useState<"idle" | "running" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
@@ -74,7 +84,7 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
 
   async function approve() {
     if (publishes && !window.confirm(
-      `Approve this post and publish the w/e ${draft.week_ending ?? ""} brief to africanstn.com? The week is then locked.`,
+      `Approve this post and publish the w/e ${weekLabel(draft.week_ending)} brief to africanstn.com? The week is then locked.`,
     )) return;
     setBusy("approve");
     setOutcome(null);
@@ -93,7 +103,7 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
     setOutcome({
       ok: r.site_rebuild === "triggered" || r.site_rebuild === "not_needed",
       text: r.published
-        ? `Published w/e ${r.week_ending ?? ""} · ${r.items_reported} items marked used · ${site}`
+        ? `Published w/e ${weekLabel(r.week_ending)} · ${r.items_reported} items marked used · ${site}`
         : "Post approved (brief was already published).",
     });
     onSaved();
@@ -105,7 +115,7 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
-            Post {draft.week_ending ? `— w/e ${draft.week_ending}` : ""}
+            Post {draft.week_ending ? `— w/e ${weekLabel(draft.week_ending)}` : ""}
           </span>
           <span style={{ fontSize: 11.5, color: v.charCount <= 3000 ? "var(--sub)" : "var(--alert-red)", fontVariantNumeric: "tabular-nums" }}>
             {v.charCount} chars · {v.wordCount} words
@@ -197,7 +207,7 @@ export default function LinkedInClient({ initialDrafts }: { initialDrafts: Linke
 
   function fmtWeek(d: LinkedInDraft) {
     return d.week_ending
-      ? new Date(d.week_ending).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+      ? weekLabel(d.week_ending)
       : new Date(d.created_at).toLocaleDateString("en-GB");
   }
 
