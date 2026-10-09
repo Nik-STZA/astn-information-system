@@ -166,7 +166,14 @@ export async function fetchBriefs() {
 }
 
 export async function fetchBrief(id: string) {
-  return cloudRunFetch<BriefDetail>(`/api/content/briefs/${id}`);
+  return cloudRunFetch<BriefDetail>(`/api/content/briefs/${id}`, { cache: "no-store" });
+}
+
+// Draft editions only; the API returns 409 for a published (locked) brief.
+export async function updateBriefMarkdown(id: string, reportMarkdown: string) {
+  return cloudRunMutate<BriefDetail>(`/api/content/briefs/${id}`, "PUT", {
+    report_markdown: reportMarkdown,
+  });
 }
 
 // ─── LinkedIn drafts ────────────────────────────────────────────────────────

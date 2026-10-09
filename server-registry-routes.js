@@ -467,6 +467,32 @@ app.get("/api/content/briefs/:id", async (req, res) => {
   }
 });
 
+// Edit a DRAFT brief's markdown before publishing (OS brief editor). A
+// published edition is the public record and is locked.
+app.put("/api/content/briefs/:id", async (req, res) => {
+  try {
+    const md = req.body && req.body.report_markdown;
+    if (typeof md !== "string" || md.trim().length === 0) {
+      return res.status(400).json({ error: "report_markdown (non-empty string) required" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE weekly_reports SET report_markdown = $2
+        WHERE id = $1 AND status = 'draft'
+        RETURNING id, item_count, created_at, week_ending, status, published_at, report_markdown`,
+      [req.params.id, md]
+    );
+    if (rows.length === 0) {
+      const { rows: found } = await pool.query(`SELECT status FROM weekly_reports WHERE id = $1`, [req.params.id]);
+      if (found.length === 0) return res.status(404).json({ error: "Not found" });
+      return res.status(409).json({ error: "Published editions are locked" });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("PUT /api/content/briefs/:id error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── LinkedIn drafts (linkedin_drafts table, migration 017) ────────────────
 
 app.get("/api/content/linkedin-drafts", async (_req, res) => {
