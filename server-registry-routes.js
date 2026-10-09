@@ -437,8 +437,8 @@ app.get("/api/content/briefs", async (req, res) => {
     const full = req.query.full === "1" || req.query.full === "true";
     const bodyCol = full ? "report_markdown" : "LEFT(report_markdown, 400) AS preview";
     const { rows } = await pool.query(
-      `SELECT id, item_count, created_at, ${bodyCol}
-       FROM weekly_reports ORDER BY created_at DESC`
+      `SELECT id, item_count, created_at, week_ending, ${bodyCol}
+       FROM weekly_reports ORDER BY week_ending DESC NULLS LAST, created_at DESC`
     );
     res.json({ count: rows.length, data: rows });
   } catch (err) {
@@ -450,7 +450,7 @@ app.get("/api/content/briefs", async (req, res) => {
 app.get("/api/content/briefs/:id", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, item_count, created_at, report_markdown
+      `SELECT id, item_count, created_at, week_ending, report_markdown
        FROM weekly_reports WHERE id = $1`,
       [req.params.id]
     );
