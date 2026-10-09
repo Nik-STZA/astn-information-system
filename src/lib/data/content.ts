@@ -136,10 +136,15 @@ export async function triggerIngest() {
 
 // ─── Weekly briefs ──────────────────────────────────────────────────────────
 
+export type BriefStatus = "draft" | "published";
+
 export type BriefSummary = {
   id: string;
   item_count: number;
   created_at: string;
+  week_ending: string | null;
+  status: BriefStatus;
+  published_at: string | null;
   preview: string;
 };
 
@@ -147,6 +152,9 @@ export type BriefDetail = {
   id: string;
   item_count: number;
   created_at: string;
+  week_ending: string | null;
+  status: BriefStatus;
+  published_at: string | null;
   report_markdown: string;
 };
 
@@ -174,6 +182,8 @@ export type LinkedInDraft = {
   status: "draft" | "approved" | "posted";
   created_at: string;
   updated_at: string;
+  brief_status: BriefStatus | null;
+  brief_item_count: number | null;
 };
 
 export async function fetchLinkedInDrafts() {
@@ -187,12 +197,30 @@ export async function fetchLinkedInDrafts() {
 
 export async function updateLinkedInDraft(
   id: string,
-  payload: { edited_text?: string; status?: "draft" | "approved" | "posted" },
+  payload: { edited_text?: string; status?: "draft" | "posted" },
 ) {
   return cloudRunMutate<LinkedInDraft>(
     `/api/content/linkedin-drafts/${id}`,
     "PUT",
     payload,
+  );
+}
+
+export type PublishResult = {
+  draft: LinkedInDraft;
+  published: boolean;
+  items_reported: number;
+  week_ending: string | null;
+  site_rebuild: "triggered" | "not_needed" | "not_configured" | string;
+};
+
+// Approve & publish: approves this post and, if the week's brief is still a
+// draft, publishes it to africanstn.com in the same step.
+export async function publishLinkedInDraft(id: string, editedText: string) {
+  return cloudRunMutate<PublishResult>(
+    `/api/content/linkedin-drafts/${id}/publish`,
+    "POST",
+    { edited_text: editedText },
   );
 }
 
