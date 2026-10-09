@@ -1,19 +1,28 @@
 /**
  * Weekly brief fact-discipline audit - TypeScript mirror of
  * Nik-STZA/africanstn-research-agent src/briefAudit.js. Keep the two in sync:
- * the agent runs it after generation, the OS runs it live in the brief editor.
- * Pure function; never blocks publishing.
+ * the agent runs it after generation, the OS runs it live in the brief and
+ * LinkedIn editors. Pure functions; never block publishing.
  */
 
 export type AuditWarning = { where: string; problem: string; text: string };
 export type BriefAudit = { stories: number; warnings: AuditWarning[] };
 
-const SPECULATIVE = /\b(could|potential(ly)?|foundation for|future|such as|may|might|likely|poised|paves? the way|implies|prerequisite|lays? the groundwork)\b/i;
+const SPECULATIVE = /\b(could|would|potential(ly)?|foundation for|future|such as|may|might|likely|poised|paves? the way|implies|prerequisite|lays? the groundwork|crucial|cutting-edge|strategic intent)\b/i;
 const HEDGE = /\b(suggests?|highlights?|indicates?|underscores?|demonstrates?|signals?|reflects?|signifies|positions? [^.]{0,40}\bas)\b/i;
 const FOUNDATION = /\b(foundation (for|of)|lays? the groundwork|paves? the way|underpins?|poised to|unlock(s|ing)?)\b/i;
 // Advice, opportunities and ideas - the paid work, never the free brief.
-const ADVICE = /\b(should|ought to|could (build|sell|offer|use|target|create|develop)|opportunit(y|ies)|consider(ing)?|look for|invest(ing)? in|partner(ing)? with|can (enable|help|drive|create|leverage|unlock)|creates? (a )?(market|demand|openings?)|blueprint for|model for others)\b/i;
+// Descriptive verbs ("operators are investing in", "partnering with") are
+// facts, not advice, so they are not here. "opportunity" is only flagged in
+// The Week in Context and the post - a story may quote a source's own aim.
+const ADVICE = /\b(should|ought to|could (build|sell|offer|use|target|create|develop)|consider(ing)?|look for|worth (looking|watching|putting)|pay(ing)? attention|benchmark(ing)? against|can (enable|help|drive|create|leverage|unlock)|creates? (a )?(market|demand|openings?)|blueprint for|model for others)\b/i;
+const OPPORTUNITY = /\bopportunit(y|ies)\b/i;
 const CONTEXT = /Week in Context|Emerging Trends|Strategic Implications/i;
+const PREDICTION = /\b(would|will (accelerate|drive|transform|establish|shape)|is set to|is expected to)\b/i;
+const COMMON_HEADLINE_WORDS = new Set(['african', 'africa', 'launches', 'launch', 'partners', 'partner', 'announces',
+  'expands', 'unveils', 'refurbishes', 'supports', 'releases', 'establish', 'develop', 'programme', 'program',
+  'company', 'companies', 'network', 'digital', 'technology', 'sports', 'countries', 'continent', 'participate',
+  'integration', 'innovation', 'convention', 'conference', 'million', 'billion', 'courts']);
 
 // Capitalised words that are not company names: sentence furniture, places,
 // generic tech terms and currencies.
@@ -99,7 +108,7 @@ export function auditBrief(markdown: string): BriefAudit {
 
   // Stories: every ### outside the context section; body runs to the next
   // heading.
-  const stories: { headline: string; body: string }[] = [];
+  const stories: { headline: string; body: string; terms?: Set<string> }[] = [];
   for (const sec of sections) {
     if (CONTEXT.test(sec.title)) continue;
     for (const chunk of sec.body.split(/^### /m).slice(1)) {
@@ -110,8 +119,17 @@ export function auditBrief(markdown: string): BriefAudit {
       });
     }
   }
-  const entities = new Set<string>();
-  for (const st of stories) for (const e of factEntities(`${st.headline}. ${st.body}`)) entities.add(e);
+  // What lets a context bullet "cite" a story: its named entities plus the
+  // distinctive words of its headline (place-only stories such as an Olympic
+  // bid have no company names).
+  for (const st of stories) {
+    const terms = factEntities(`${st.headline}. ${st.body}`);
+    for (const w of st.headline.toLowerCase().match(/[\p{L}\p{N}]{6,}/gu) || []) {
+      if (!COMMON_HEADLINE_WORDS.has(w)) terms.add(w);
+    }
+    st.terms = terms;
+  }
+  const storiesCited = (text: string) => stories.filter(st => mentions(text, st.terms ?? new Set<string>()).length > 0).length;
 
   for (const st of stories) {
     if (!st.body) add(st.headline, 'Story has no text', st.headline);
@@ -137,16 +155,30 @@ export function auditBrief(markdown: string): BriefAudit {
       .map(b => b.replace(/^\s*[-*]\s+/, '').trim())
       .filter(Boolean);
     for (const b of bullets) {
-      const adv = b.match(ADVICE);
+      const adv = b.match(ADVICE) || b.match(OPPORTUNITY);
       if (adv) add(where, `Advice / idea ("${adv[0]}") - observations only`, b);
-      const h = b.match(HEDGE) || b.match(FOUNDATION);
-      if (h) add(where, `Hedge / "foundation" wording ("${h[0]}")`, b);
+      const h = b.match(HEDGE) || b.match(FOUNDATION) || b.match(PREDICTION);
+      if (h) add(where, `Hedge / prediction wording ("${h[0]}")`, b);
       if (/\bsuch as\b/i.test(b)) add(where, 'Capability list ("such as")', b);
-      if (mentions(b, entities).length < 2) add(where, "Pattern cites fewer than two of this week's stories", b);
+      if (storiesCited(b) < 2) add(where, "Pattern cites fewer than two of this week's stories", b);
     }
   }
 
   return { stories: stories.length, warnings };
+}
+
+// Same discipline for the weekly LinkedIn post: observation, never advice,
+// hedging or prediction. Hashtags and the fixed footer are ignored.
+export function auditPost(text: string): { warnings: AuditWarning[] } {
+  const warnings: AuditWarning[] = [];
+  const body = text.split('\n').filter(l => !/^#\w/.test(l.trim()) && !/full brief is available/i.test(l)).join('\n');
+  for (const s of sentences(body.replace(/▪\s*/g, ''))) {
+    const adv = s.match(ADVICE) || s.match(OPPORTUNITY);
+    if (adv) warnings.push({ where: 'LinkedIn post', problem: `Advice / idea ("${adv[0]}")`, text: clip(s) });
+    const h = s.match(HEDGE) || s.match(FOUNDATION) || s.match(PREDICTION) || s.match(/\b(crucial|cutting-edge|strategic intent|exemplif(y|ies))\b/i);
+    if (h) warnings.push({ where: 'LinkedIn post', problem: `Hedge / prediction wording ("${h[0]}")`, text: clip(s) });
+  }
+  return { warnings };
 }
 
 export function formatWarning(w: AuditWarning): string {
