@@ -1,31 +1,37 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { LinkedInDraft } from "@/lib/data/content";
 import { validateLinkedInPost } from "@/lib/linkedin-spec";
-import { loadDrafts, saveDraft, generateLinkedIn, linkedinStatus } from "./actions";
+import { loadDrafts, saveDraft, publishDraft, generateEdition, editionStatus } from "./actions";
 
 function GenerateButton({ onGenerated }: { onGenerated: () => void }) {
   const [state, setState] = useState<"idle" | "running" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
+  const [runUrl, setRunUrl] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   async function run() {
     setState("running");
-    setMsg("Generating from the latest brief…");
-    const res = await generateLinkedIn();
+    setRunUrl(null);
+    setMsg("Building this week's draft brief and post…");
+    const res = await generateEdition();
     if (res.error) {
       setState("error");
       setMsg(res.error.includes("not configured") ? "GitHub dispatch token pending." : res.error);
       return;
     }
     pollRef.current = setInterval(async () => {
-      const s = await linkedinStatus();
+      const s = await editionStatus();
       if (s.data?.status === "completed") {
         if (pollRef.current) clearInterval(pollRef.current);
         setState("idle");
-        setMsg(s.data.conclusion === "success" ? "Draft ready below." : "Generation failed — see GitHub.");
+        setRunUrl(s.data.html_url ?? null);
+        setMsg(s.data.conclusion === "success"
+          ? "Draft ready below."
+          : "No draft produced — held (already published, or nothing approved) or failed.");
         if (s.data.conclusion === "success") onGenerated();
       }
     }, 15000);
@@ -34,12 +40,13 @@ function GenerateButton({ onGenerated }: { onGenerated: () => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       {msg && <span style={{ fontSize: 11.5, color: state === "error" ? "var(--alert-red)" : "var(--sub)" }}>{msg}</span>}
+      {runUrl && <a href={runUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: "var(--gold-dark)" }}>Run log</a>}
       <button
         onClick={run}
         disabled={state === "running"}
         style={{ fontWeight: 700, fontSize: 12, padding: "8px 18px", borderRadius: 6, border: "none", background: "#C5A059", color: "#141414", cursor: "pointer", opacity: state === "running" ? 0.6 : 1 }}
       >
-        {state === "running" ? "Generating…" : "Generate LinkedIn post"}
+        {state === "running" ? "Generating…" : "Generate draft edition"}
       </button>
     </div>
   );
@@ -49,17 +56,47 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
   const [text, setText] = useState(draft.edited_text ?? draft.post_text);
   const [busy, setBusy] = useState<"save" | "approve" | null>(null);
   const [saved, setSaved] = useState(false);
+  const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
   const v = validateLinkedInPost(text);
+  // Approving the post is the week's single sign-off: while the brief is a
+  // draft, it also publishes the brief to africanstn.com.
+  const publishes = draft.brief_status === "draft";
 
-  async function persist(status?: "approved") {
-    setBusy(status ? "approve" : "save");
-    const res = await saveDraft(draft.id, { edited_text: text, ...(status ? { status } : {}) });
+  async function persist() {
+    setBusy("save");
+    const res = await saveDraft(draft.id, { edited_text: text });
     setBusy(null);
     if (!res.error) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-      if (status) onSaved();
     }
+  }
+
+  async function approve() {
+    if (publishes && !window.confirm(
+      `Approve this post and publish the w/e ${draft.week_ending ?? ""} brief to africanstn.com? The week is then locked.`,
+    )) return;
+    setBusy("approve");
+    setOutcome(null);
+    const res = await publishDraft(draft.id, text);
+    setBusy(null);
+    if (res.error || !res.data) {
+      setOutcome({ ok: false, text: res.error ?? "Approval failed" });
+      return;
+    }
+    const r = res.data;
+    const site =
+      r.site_rebuild === "triggered" ? "site rebuild started"
+      : r.site_rebuild === "not_configured" ? "site rebuild NOT configured — trigger a Netlify deploy by hand"
+      : r.site_rebuild === "not_needed" ? ""
+      : `site rebuild ${r.site_rebuild} — trigger a Netlify deploy by hand`;
+    setOutcome({
+      ok: r.site_rebuild === "triggered" || r.site_rebuild === "not_needed",
+      text: r.published
+        ? `Published w/e ${r.week_ending ?? ""} · ${r.items_reported} items marked used · ${site}`
+        : "Post approved (brief was already published).",
+    });
+    onSaved();
   }
 
   return (
@@ -89,12 +126,12 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
             {busy === "save" ? "Saving…" : "Save edits"}
           </button>
           <button
-            onClick={() => persist("approved")}
-            disabled={busy !== null || !v.ready}
-            title={v.ready ? "Approve for posting" : "Fix the hard checks first"}
+            onClick={approve}
+            disabled={busy !== null || !v.ready || draft.status === "approved"}
+            title={!v.ready ? "Fix the hard checks first" : publishes ? "Approve the post and publish the brief to the site" : "Approve for posting"}
             style={{ fontWeight: 700, fontSize: 12, padding: "7px 18px", borderRadius: 6, border: "none", background: v.ready ? "var(--success-green)" : "var(--bd)", color: v.ready ? "#fff" : "var(--sub)", cursor: v.ready ? "pointer" : "not-allowed" }}
           >
-            {busy === "approve" ? "Approving…" : draft.status === "approved" ? "Approved ✓" : "Approve"}
+            {busy === "approve" ? "Publishing…" : draft.status === "approved" ? "Approved ✓" : publishes ? "Approve & publish" : "Approve"}
           </button>
           <button
             onClick={() => { navigator.clipboard.writeText(text); }}
@@ -104,6 +141,17 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
           </button>
           {saved && <span style={{ fontSize: 11.5, color: "var(--success-green)" }}>Saved</span>}
         </div>
+        <div style={{ fontSize: 11.5, color: "var(--sub)" }}>
+          Brief:{" "}
+          <span style={{ fontWeight: 600, color: draft.brief_status === "published" ? "var(--success-green)" : "var(--warning-amber)" }}>
+            {draft.brief_status === "published" ? "Published" : draft.brief_status === "draft" ? "Draft — not on the site yet" : "Not linked"}
+          </span>
+          {draft.brief_item_count != null && <> · {draft.brief_item_count} items</>}
+          {draft.brief_id && <> · <Link href={`/content/briefs/${draft.brief_id}`} style={{ color: "var(--gold-dark)" }}>View brief</Link></>}
+        </div>
+        {outcome && (
+          <div style={{ fontSize: 12, color: outcome.ok ? "var(--success-green)" : "var(--alert-red)" }}>{outcome.text}</div>
+        )}
       </div>
 
       {/* Live spec validation */}
@@ -163,7 +211,7 @@ export default function LinkedInClient({ initialDrafts }: { initialDrafts: Linke
         <div style={{ padding: "48px 20px", textAlign: "center", border: "1.5px dashed var(--empty-border)", borderRadius: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: "var(--sub)", marginBottom: 4 }}>No LinkedIn drafts yet</div>
           <div style={{ fontWeight: 500, fontSize: 12.5, color: "var(--empty-text)" }}>
-            Generate one from the latest weekly brief above.
+            Generate this week's draft edition above.
           </div>
         </div>
       ) : (

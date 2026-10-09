@@ -49,13 +49,22 @@ export default async function BriefsPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 700, fontSize: 14, color: "var(--tx)" }}>
                   Week ending{" "}
-                  {new Date(b.created_at).toLocaleDateString("en-GB", {
+                  {new Date(b.week_ending ?? b.created_at).toLocaleDateString("en-GB", {
                     day: "numeric",
                     month: "long",
                     year: "numeric",
+                    timeZone: "UTC",
                   })}
                 </span>
                 <span style={{ fontSize: 11.5, color: "var(--sub)" }}>
+                  {b.status === "draft" && (
+                    <span style={{ fontWeight: 700, color: "var(--warning-amber)", marginRight: 8 }}>
+                      Draft — publishes when its LinkedIn post is approved
+                    </span>
+                  )}
+                  {!b.week_ending && b.status !== "draft" && (
+                    <span style={{ marginRight: 8 }}>Superseded re-run</span>
+                  )}
                   {b.item_count} items
                 </span>
               </div>

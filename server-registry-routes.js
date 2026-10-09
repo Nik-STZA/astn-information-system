@@ -434,11 +434,16 @@ app.get("/api/content/briefs", async (req, res) => {
   try {
     // ?full=1 returns full report_markdown (used by the africanstn.com build);
     // default returns a 400-char preview (used by the OS list view).
+    // The full feed is the public one, so it never includes drafts (migration
+    // 027): an edition only reaches the site once its LinkedIn post is
+    // approved via POST /api/content/linkedin-drafts/:id/publish.
     const full = req.query.full === "1" || req.query.full === "true";
     const bodyCol = full ? "report_markdown" : "LEFT(report_markdown, 400) AS preview";
     const { rows } = await pool.query(
-      `SELECT id, item_count, created_at, week_ending, ${bodyCol}
-       FROM weekly_reports ORDER BY week_ending DESC NULLS LAST, created_at DESC`
+      `SELECT id, item_count, created_at, week_ending, status, published_at, ${bodyCol}
+       FROM weekly_reports
+       ${full ? "WHERE status = 'published'" : ""}
+       ORDER BY week_ending DESC NULLS LAST, created_at DESC`
     );
     res.json({ count: rows.length, data: rows });
   } catch (err) {
@@ -450,7 +455,7 @@ app.get("/api/content/briefs", async (req, res) => {
 app.get("/api/content/briefs/:id", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, item_count, created_at, week_ending, report_markdown
+      `SELECT id, item_count, created_at, week_ending, status, published_at, report_markdown
        FROM weekly_reports WHERE id = $1`,
       [req.params.id]
     );
@@ -466,10 +471,15 @@ app.get("/api/content/briefs/:id", async (req, res) => {
 
 app.get("/api/content/linkedin-drafts", async (_req, res) => {
   try {
+    // Superseded drafts (replaced by a same-week re-run) are hidden.
     const { rows } = await pool.query(
-      `SELECT id, brief_id, week_ending, post_text, edited_text, char_count,
-              word_count, status, created_at, updated_at
-       FROM linkedin_drafts ORDER BY created_at DESC LIMIT 50`
+      `SELECT d.id, d.brief_id, d.week_ending, d.post_text, d.edited_text, d.char_count,
+              d.word_count, d.status, d.created_at, d.updated_at,
+              w.status AS brief_status, w.item_count AS brief_item_count
+       FROM linkedin_drafts d
+       LEFT JOIN weekly_reports w ON w.id = d.brief_id
+       WHERE d.status <> 'superseded'
+       ORDER BY d.created_at DESC LIMIT 50`
     );
     res.json({ count: rows.length, data: rows });
   } catch (err) {
@@ -503,6 +513,10 @@ app.put("/api/content/linkedin-drafts/:id", async (req, res) => {
     if (setClauses.length === 0) {
       return res.status(400).json({ error: "No editable fields provided" });
     }
+    // Approval publishes the edition too, so it has its own route.
+    if (req.body.status === "approved") {
+      return res.status(400).json({ error: "Approve via POST /api/content/linkedin-drafts/:id/publish" });
+    }
     values.push(req.params.id);
     const { rows } = await pool.query(
       `UPDATE linkedin_drafts SET ${setClauses.join(", ")}, updated_at = NOW()
@@ -515,6 +529,103 @@ app.put("/api/content/linkedin-drafts/:id", async (req, res) => {
     console.error("PUT /api/content/linkedin-drafts/:id error:", err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Approve & publish: the single editorial sign-off for a week (migration 027).
+// One transaction stores the final post text, approves this draft, supersedes
+// any other open draft for the same brief, flips the brief from 'draft' to
+// 'published' and marks the classified_items it used as 'reported'. After
+// commit, a Netlify build hook puts the edition on africanstn.com. Approving
+// a post for an already-published edition just stores the post (no re-publish).
+app.post("/api/content/linkedin-drafts/:id/publish", async (req, res) => {
+  const client = await pool.connect();
+  let result;
+  try {
+    await client.query("BEGIN");
+    const { rows: found } = await client.query(
+      `SELECT d.id, d.status, d.brief_id, w.status AS brief_status, w.item_ids, w.week_ending
+         FROM linkedin_drafts d
+         LEFT JOIN weekly_reports w ON w.id = d.brief_id
+        WHERE d.id = $1
+        FOR UPDATE OF d`,
+      [req.params.id]
+    );
+    const draft = found[0];
+    if (!draft) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (!draft.brief_id || !draft.brief_status) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This post is not linked to a brief edition" });
+    }
+    if (draft.status === "superseded") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "A newer draft replaced this one - approve the latest draft" });
+    }
+
+    const text = typeof req.body.edited_text === "string" ? req.body.edited_text : null;
+    const { rows: approved } = await client.query(
+      `UPDATE linkedin_drafts
+          SET edited_text = COALESCE($2, edited_text),
+              char_count = COALESCE(char_length($2), char_count),
+              word_count = COALESCE($3, word_count),
+              status = 'approved', updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [draft.id, text, text === null ? null : text.trim().split(/\s+/).filter(Boolean).length]
+    );
+    await client.query(
+      `UPDATE linkedin_drafts SET status = 'superseded', updated_at = NOW()
+        WHERE brief_id = $1 AND id <> $2 AND status = 'draft'`,
+      [draft.brief_id, draft.id]
+    );
+
+    let published = false;
+    let itemsReported = 0;
+    if (draft.brief_status === "draft") {
+      // Lock the brief and re-check: a concurrent publish wins once.
+      const { rowCount } = await client.query(
+        `UPDATE weekly_reports SET status = 'published', published_at = NOW()
+          WHERE id = $1 AND status = 'draft'`,
+        [draft.brief_id]
+      );
+      published = rowCount === 1;
+      if (published && Array.isArray(draft.item_ids) && draft.item_ids.length > 0) {
+        const r = await client.query(
+          `UPDATE classified_items SET status = 'reported'
+            WHERE id = ANY($1::uuid[]) AND status = 'approved'`,
+          [draft.item_ids]
+        );
+        itemsReported = r.rowCount;
+      }
+    }
+    await client.query("COMMIT");
+    result = { draft: approved[0], published, items_reported: itemsReported, week_ending: draft.week_ending };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("POST /api/content/linkedin-drafts/:id/publish error:", err.message);
+    return res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+
+  // The edition is committed as published whatever happens here; a failed
+  // rebuild is reported so the operator can trigger a Netlify deploy by hand.
+  result.site_rebuild = "not_needed";
+  if (result.published) {
+    const hook = (process.env.NETLIFY_BUILD_HOOK || "").trim();
+    if (!hook || hook === "unset") {
+      result.site_rebuild = "not_configured";
+    } else {
+      try {
+        const r = await fetch(hook, { method: "POST", body: "{}" });
+        result.site_rebuild = r.ok ? "triggered" : `failed (${r.status})`;
+      } catch (e) {
+        result.site_rebuild = `failed (${e.message})`;
+      }
+    }
+  }
+  res.json(result);
 });
 
 // ─── Content pipeline triggers (research-agent workflows via GitHub API) ───

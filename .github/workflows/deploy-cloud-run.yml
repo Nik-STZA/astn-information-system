@@ -43,6 +43,7 @@ jobs:
             DB_PASSWORD=db-password:latest
             API_KEY=api-key:latest
             GH_DISPATCH_TOKEN=github-dispatch-token:latest
+            NETLIFY_BUILD_HOOK=netlify-build-hook:latest
             GEMINI_API_KEY=gemini-api-key:latest
             ANTHROPIC_API_KEY=anthropic-api-key:latest
           flags: >-
