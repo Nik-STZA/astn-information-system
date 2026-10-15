@@ -246,11 +246,19 @@ export type WorkflowStatus = {
   html_url?: string;
 };
 
-export async function runAgentWorkflow(workflow: AgentWorkflow) {
+export type TonePreset = {
+  audience?: "executive" | "technical" | "general";
+  formality?: "formal" | "conversational";
+};
+
+export async function runAgentWorkflow(
+  workflow: AgentWorkflow,
+  params?: TonePreset,
+) {
   return cloudRunMutate<{ dispatched: boolean; workflow: string }>(
     "/api/content/run-workflow",
     "POST",
-    { workflow },
+    { workflow, ...params },
   );
 }
 

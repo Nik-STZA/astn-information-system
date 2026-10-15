@@ -686,9 +686,17 @@ app.post("/api/content/run-workflow", async (req, res) => {
     if (!file) {
       return res.status(400).json({ error: `workflow must be one of: ${Object.keys(AGENT_WORKFLOWS).join(", ")}` });
     }
+    // Pass optional workflow inputs (tone presets, since date) from the request body.
+    const inputs = {};
+    if (req.body.audience) inputs.audience = String(req.body.audience);
+    if (req.body.formality) inputs.formality = String(req.body.formality);
+    if (req.body.since) inputs.since = String(req.body.since);
+    const dispatchBody = Object.keys(inputs).length > 0
+      ? { ref: "main", inputs }
+      : { ref: "main" };
     const r = await fetch(
       `https://api.github.com/repos/${AGENT_REPO}/actions/workflows/${file}/dispatches`,
-      { method: "POST", headers: ghHeaders(), body: JSON.stringify({ ref: "main" }) }
+      { method: "POST", headers: ghHeaders(), body: JSON.stringify(dispatchBody) }
     );
     if (r.status !== 204) {
       const body = await r.text();

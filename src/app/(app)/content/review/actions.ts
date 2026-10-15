@@ -9,6 +9,7 @@ import {
   fetchWorkflowStatus,
   triggerIngest,
   type AgentWorkflow,
+  type TonePreset,
 } from "@/lib/data/content";
 import { getAuthEmail } from "@/lib/auth";
 
@@ -30,8 +31,8 @@ export async function loadItemDetail(id: string) {
   return fetchNewsItemDetail(id);
 }
 
-export async function triggerWorkflow(workflow: AgentWorkflow) {
-  return runAgentWorkflow(workflow);
+export async function triggerWorkflow(workflow: AgentWorkflow, tone?: TonePreset) {
+  return runAgentWorkflow(workflow, tone);
 }
 
 export async function workflowStatus(workflow: AgentWorkflow) {
