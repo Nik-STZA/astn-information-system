@@ -6,9 +6,13 @@ import { loadReviewQueue, loadItemDetail, submitReview, triggerWorkflow, workflo
 
 // "Generate weekly brief" — dispatches the agent's generate-report workflow
 // and polls its status so GitHub stays invisible.
+// Tone presets control audience depth and formality of the generated brief.
 function GenerateBriefButton() {
   const [state, setState] = useState<"idle" | "dispatching" | "running" | "done" | "failed" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [audience, setAudience] = useState<"executive" | "technical" | "general">("executive");
+  const [formality, setFormality] = useState<"formal" | "conversational">("formal");
+  const [showTone, setShowTone] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -20,7 +24,7 @@ function GenerateBriefButton() {
       if (pollRef.current) clearInterval(pollRef.current);
       setState(res.data.conclusion === "success" ? "done" : "failed");
       setMessage(res.data.conclusion === "success"
-        ? "Brief generated — check Notion / Beehiiv."
+        ? "Brief generated — review it on the Briefs page."
         : "Generation failed — see the run in GitHub.");
     }
   }
@@ -28,7 +32,10 @@ function GenerateBriefButton() {
   async function run() {
     setState("dispatching");
     setMessage(null);
-    const res = await triggerWorkflow("generate-report");
+    const tone = (audience !== "executive" || formality !== "formal")
+      ? { audience, formality }
+      : undefined;
+    const res = await triggerWorkflow("generate-report", tone);
     if (res.error) {
       setState("error");
       setMessage(res.error.includes("not configured")
@@ -37,36 +44,90 @@ function GenerateBriefButton() {
       return;
     }
     setState("running");
-    setMessage("Generating the weekly brief from your approvals…");
-    // First status read can lag the dispatch; poll gently.
+    setMessage(`Generating the weekly brief (${audience}, ${formality}) from your approvals…`);
     pollRef.current = setInterval(poll, 15000);
   }
 
+  const chipStyle = (active: boolean) => ({
+    fontWeight: active ? 700 : 500,
+    fontSize: 11,
+    padding: "4px 10px",
+    borderRadius: 4,
+    border: active ? "1.5px solid var(--gold-dark)" : "1px solid var(--bd)",
+    background: active ? "var(--table-header)" : "transparent",
+    color: active ? "var(--tx)" : "var(--sub)",
+    cursor: "pointer",
+    whiteSpace: "nowrap" as const,
+  });
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-      {message && (
-        <span style={{ fontSize: 11.5, color: state === "failed" || state === "error" ? "var(--alert-red)" : "var(--sub)" }}>
-          {message}
-        </span>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {message && (
+          <span style={{ fontSize: 11.5, color: state === "failed" || state === "error" ? "var(--alert-red)" : "var(--sub)" }}>
+            {message}
+          </span>
+        )}
+        <button
+          onClick={() => setShowTone(!showTone)}
+          disabled={state === "dispatching" || state === "running"}
+          style={{
+            fontWeight: 600,
+            fontSize: 11,
+            padding: "6px 12px",
+            borderRadius: 6,
+            border: "1px solid var(--bd)",
+            background: "transparent",
+            color: "var(--sub)",
+            cursor: "pointer",
+          }}
+        >
+          Tone: {audience} / {formality} {showTone ? "▲" : "▼"}
+        </button>
+        <button
+          onClick={run}
+          disabled={state === "dispatching" || state === "running"}
+          style={{
+            fontWeight: 700,
+            fontSize: 12,
+            padding: "8px 18px",
+            borderRadius: 6,
+            border: "none",
+            background: "#C5A059",
+            color: "#141414",
+            cursor: "pointer",
+            opacity: state === "dispatching" || state === "running" ? 0.6 : 1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {state === "dispatching" ? "Starting…" : state === "running" ? "Generating…" : "Generate weekly brief"}
+        </button>
+      </div>
+
+      {showTone && (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", padding: "8px 0" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>Audience</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {(["executive", "technical", "general"] as const).map((a) => (
+                <button key={a} onClick={() => setAudience(a)} style={chipStyle(audience === a)}>
+                  {a.charAt(0).toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>Register</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {(["formal", "conversational"] as const).map((f) => (
+                <button key={f} onClick={() => setFormality(f)} style={chipStyle(formality === f)}>
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
-      <button
-        onClick={run}
-        disabled={state === "dispatching" || state === "running"}
-        style={{
-          fontWeight: 700,
-          fontSize: 12,
-          padding: "8px 18px",
-          borderRadius: 6,
-          border: "none",
-          background: "#C5A059",
-          color: "#141414",
-          cursor: "pointer",
-          opacity: state === "dispatching" || state === "running" ? 0.6 : 1,
-          whiteSpace: "nowrap",
-        }}
-      >
-        {state === "dispatching" ? "Starting…" : state === "running" ? "Generating…" : "Generate weekly brief"}
-      </button>
     </div>
   );
 }
