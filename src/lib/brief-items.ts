@@ -14,11 +14,14 @@
  *   [Bullets — not story-level items]
  */
 
+export type StoryTone = "lead" | "brief" | "technical" | "conversational" | null;
+
 export type BriefStory = {
   id: string;            // stable key: "s1-i0", "s2-i1" etc.
   headline: string;      // raw ### heading text
   body: string;          // everything between this ### and the next ### or ##
   included: boolean;     // user toggle
+  tone: StoryTone;       // editorial tag — null means use brief-level default
 };
 
 export type BriefSection = {
@@ -85,6 +88,7 @@ export function parseBriefMarkdown(md: string): ParsedBrief {
         headline,
         body,
         included: true,
+        tone: null as StoryTone,
       };
     });
 
@@ -152,4 +156,25 @@ export function countStories(parsed: ParsedBrief): { total: number; included: nu
     included += section.stories.filter((s) => s.included).length;
   }
   return { total, included };
+}
+
+/**
+ * Merge excluded items back into a freshly-parsed brief.
+ * When the user edits the textarea, excluded stories vanish from the markdown.
+ * This function appends them back into their original section so the Items
+ * panel still shows them as re-selectable.
+ */
+export function mergeExcluded(fresh: ParsedBrief, prev: ParsedBrief): ParsedBrief {
+  return {
+    ...fresh,
+    sections: fresh.sections.map((freshSec) => {
+      const prevSec = prev.sections.find((ps) => ps.heading === freshSec.heading);
+      if (!prevSec) return freshSec;
+      const excludedStories = prevSec.stories.filter((s) => !s.included);
+      const freshHeadlines = new Set(freshSec.stories.map((s) => s.headline));
+      const toRestore = excludedStories.filter((s) => !freshHeadlines.has(s.headline));
+      if (toRestore.length === 0) return freshSec;
+      return { ...freshSec, stories: [...freshSec.stories, ...toRestore] };
+    }),
+  };
 }

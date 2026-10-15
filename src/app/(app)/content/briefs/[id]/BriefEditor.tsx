@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auditBrief } from "@/lib/brief-audit";
-import { parseBriefMarkdown, rebuildBriefMarkdown, countStories, type ParsedBrief, type BriefStory } from "@/lib/brief-items";
+import {
+  parseBriefMarkdown,
+  rebuildBriefMarkdown,
+  countStories,
+  mergeExcluded,
+  type ParsedBrief,
+  type BriefStory,
+  type StoryTone,
+} from "@/lib/brief-items";
 import { markdownToHtml } from "@/lib/markdown";
 import { saveBrief, regeneratePost, regeneratePostStatus } from "./actions";
 
@@ -13,7 +21,9 @@ import { saveBrief, regeneratePost, regeneratePostStatus } from "./actions";
  * on the LinkedIn page (Approve & publish), so the post and the brief always
  * go out together.
  *
- * Now includes an Items panel for toggling/reordering stories post-generation.
+ * Items panel supports drag-and-drop reordering (within and across sections),
+ * persistent deselection (excluded items stay visible and re-selectable),
+ * and per-item editorial tone tags.
  */
 export default function BriefEditor({ id, initialMarkdown }: { id: string; initialMarkdown: string }) {
   const [text, setText] = useState(initialMarkdown);
@@ -25,41 +35,75 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
+  // Source of truth for the Items panel — includes excluded items.
+  // When the Items panel mutates this, `text` is derived from it.
+  // When the textarea is edited directly, we re-parse and merge excluded items back.
+  const [allParsed, setAllParsed] = useState<ParsedBrief>(() => parseBriefMarkdown(initialMarkdown));
+
   const audit = useMemo(() => auditBrief(text), [text]);
-  const parsed = useMemo(() => parseBriefMarkdown(text), [text]);
-  const storyCount = useMemo(() => countStories(parsed), [parsed]);
+  const storyCount = useMemo(() => countStories(allParsed), [allParsed]);
   const dirty = text !== savedText;
 
-  // Item toggle — flip the included flag and rebuild markdown
-  const toggleItem = useCallback((storyId: string) => {
-    const updated: ParsedBrief = {
-      ...parsed,
-      sections: parsed.sections.map((sec) => ({
-        ...sec,
-        stories: sec.stories.map((s) =>
-          s.id === storyId ? { ...s, included: !s.included } : s
-        ),
-      })),
-    };
-    setText(rebuildBriefMarkdown(updated));
-  }, [parsed]);
+  // Textarea changed by user typing — re-parse and merge excluded items back.
+  const handleTextChange = useCallback((newText: string) => {
+    setText(newText);
+    const fresh = parseBriefMarkdown(newText);
+    setAllParsed((prev) => mergeExcluded(fresh, prev));
+  }, []);
 
-  // Move a story within its section
-  const moveItem = useCallback((storyId: string, direction: "up" | "down") => {
-    const updated: ParsedBrief = {
-      ...parsed,
-      sections: parsed.sections.map((sec) => {
-        const idx = sec.stories.findIndex((s) => s.id === storyId);
-        if (idx === -1) return sec;
-        const targetIdx = direction === "up" ? idx - 1 : idx + 1;
-        if (targetIdx < 0 || targetIdx >= sec.stories.length) return sec;
-        const newStories = [...sec.stories];
-        [newStories[idx], newStories[targetIdx]] = [newStories[targetIdx], newStories[idx]];
-        return { ...sec, stories: newStories };
-      }),
-    };
-    setText(rebuildBriefMarkdown(updated));
-  }, [parsed]);
+  // Apply a mutation from the Items panel — update allParsed, derive text.
+  const applyItemsEdit = useCallback((updater: (prev: ParsedBrief) => ParsedBrief) => {
+    setAllParsed((prev) => {
+      const updated = updater(prev);
+      setText(rebuildBriefMarkdown(updated));
+      return updated;
+    });
+  }, []);
+
+  // Toggle a story's included flag
+  const toggleItem = useCallback((sectionIdx: number, storyIdx: number) => {
+    applyItemsEdit((prev) => ({
+      ...prev,
+      sections: prev.sections.map((sec, si) =>
+        si !== sectionIdx ? sec : {
+          ...sec,
+          stories: sec.stories.map((s, ii) =>
+            ii !== storyIdx ? s : { ...s, included: !s.included }
+          ),
+        }
+      ),
+    }));
+  }, [applyItemsEdit]);
+
+  // Move a story within or across sections
+  const moveStory = useCallback((
+    fromSection: number, fromIdx: number,
+    toSection: number, toIdx: number,
+  ) => {
+    applyItemsEdit((prev) => {
+      const sections = prev.sections.map((s) => ({ ...s, stories: [...s.stories] }));
+      const [story] = sections[fromSection].stories.splice(fromIdx, 1);
+      if (!story) return prev;
+      const adjustedIdx = fromSection === toSection && fromIdx < toIdx ? toIdx - 1 : toIdx;
+      sections[toSection].stories.splice(adjustedIdx, 0, story);
+      return { ...prev, sections };
+    });
+  }, [applyItemsEdit]);
+
+  // Set tone on a story (toggle off if same tone clicked again)
+  const setTone = useCallback((sectionIdx: number, storyIdx: number, tone: StoryTone) => {
+    applyItemsEdit((prev) => ({
+      ...prev,
+      sections: prev.sections.map((sec, si) =>
+        si !== sectionIdx ? sec : {
+          ...sec,
+          stories: sec.stories.map((s, ii) =>
+            ii !== storyIdx ? s : { ...s, tone: s.tone === tone ? null : tone }
+          ),
+        }
+      ),
+    }));
+  }, [applyItemsEdit]);
 
   async function save() {
     setBusy("save");
@@ -142,7 +186,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
         {mode === "edit" ? (
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => handleTextChange(e.target.value)}
             rows={34}
             spellCheck
             style={{ fontSize: 12.5, lineHeight: 1.6, padding: "14px 16px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pnl)", color: "var(--tx)", resize: "vertical", fontFamily: "ui-monospace, Menlo, Consolas, monospace", whiteSpace: "pre-wrap" }}
@@ -171,14 +215,19 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
         {rightPanel === "audit" ? (
           <AuditPanel audit={audit} />
         ) : (
-          <ItemsPanel parsed={parsed} onToggle={toggleItem} onMove={moveItem} />
+          <ItemsPanel
+            parsed={allParsed}
+            onToggle={toggleItem}
+            onMove={moveStory}
+            onTone={setTone}
+          />
         )}
       </div>
     </div>
   );
 }
 
-/* ── Audit panel (extracted from original) ─────────────────────────────── */
+/* ── Audit panel (unchanged) ─────────────────────────────────────────── */
 
 function AuditPanel({ audit }: { audit: ReturnType<typeof auditBrief> }) {
   return (
@@ -211,18 +260,51 @@ function AuditPanel({ audit }: { audit: ReturnType<typeof auditBrief> }) {
   );
 }
 
-/* ── Items panel ───────────────────────────────────────────────────────── */
+/* ── Items panel with drag-and-drop ──────────────────────────────────── */
+
+const TONE_OPTIONS: { key: StoryTone; label: string }[] = [
+  { key: "lead", label: "Lead" },
+  { key: "brief", label: "Brief" },
+  { key: "technical", label: "Technical" },
+  { key: "conversational", label: "Casual" },
+];
 
 function ItemsPanel({
   parsed,
   onToggle,
   onMove,
+  onTone,
 }: {
   parsed: ParsedBrief;
-  onToggle: (id: string) => void;
-  onMove: (id: string, dir: "up" | "down") => void;
+  onToggle: (si: number, ii: number) => void;
+  onMove: (fromSi: number, fromIi: number, toSi: number, toIi: number) => void;
+  onTone: (si: number, ii: number, tone: StoryTone) => void;
 }) {
-  const storySections = parsed.sections.filter((s) => !s.isContextSection && s.stories.length > 0);
+  const storySections = parsed.sections
+    .map((s, si) => ({ section: s, si }))
+    .filter(({ section }) => !section.isContextSection && section.stories.length > 0);
+
+  // Drag state
+  const [dragSource, setDragSource] = useState<{ si: number; ii: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ si: number; ii: number } | null>(null);
+
+  const handleDragStart = useCallback((si: number, ii: number) => {
+    setDragSource({ si, ii });
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    if (dragSource && dropTarget) {
+      onMove(dragSource.si, dragSource.ii, dropTarget.si, dropTarget.ii);
+    }
+    setDragSource(null);
+    setDropTarget(null);
+  }, [dragSource, dropTarget, onMove]);
+
+  const handleDragOver = useCallback((e: React.DragEvent, si: number, ii: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDropTarget({ si, ii });
+  }, []);
 
   if (storySections.length === 0) {
     return (
@@ -234,98 +316,167 @@ function ItemsPanel({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxHeight: "70vh", overflowY: "auto" }}>
-      {storySections.map((section) => (
+      {storySections.map(({ section, si }) => (
         <div key={section.id}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 6 }}>
+          <div
+            style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 6 }}
+            onDragOver={(e) => handleDragOver(e, si, 0)}
+          >
             {section.heading}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {section.stories.map((story, idx) => (
-              <StoryRow
-                key={story.id}
-                story={story}
-                isFirst={idx === 0}
-                isLast={idx === section.stories.length - 1}
-                onToggle={() => onToggle(story.id)}
-                onMoveUp={() => onMove(story.id, "up")}
-                onMoveDown={() => onMove(story.id, "down")}
-              />
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {/* Drop zone before first item */}
+            <DropIndicator
+              active={dragSource !== null && dropTarget?.si === si && dropTarget?.ii === 0}
+              onDragOver={(e) => handleDragOver(e, si, 0)}
+            />
+            {section.stories.map((story, ii) => (
+              <div key={story.id}>
+                <StoryRow
+                  story={story}
+                  isDragging={dragSource?.si === si && dragSource?.ii === ii}
+                  onToggle={() => onToggle(si, ii)}
+                  onTone={(tone) => onTone(si, ii, tone)}
+                  onDragStart={() => handleDragStart(si, ii)}
+                  onDragEnd={handleDragEnd}
+                />
+                {/* Drop zone after each item */}
+                <DropIndicator
+                  active={dragSource !== null && dropTarget?.si === si && dropTarget?.ii === ii + 1
+                    && !(dragSource.si === si && (dragSource.ii === ii || dragSource.ii === ii + 1))}
+                  onDragOver={(e) => handleDragOver(e, si, ii + 1)}
+                />
+              </div>
             ))}
           </div>
         </div>
       ))}
       <p style={{ fontSize: 10.5, color: "var(--empty-text)", margin: 0, lineHeight: 1.4 }}>
-        Exclude items or reorder within a section. Changes update the markdown immediately. Save when done.
+        Drag items to reorder or move between sections. Uncheck to exclude (re-check to restore). Tone tags set the editorial treatment per story. Save when done.
       </p>
     </div>
   );
 }
 
-function StoryRow({
-  story,
-  isFirst,
-  isLast,
-  onToggle,
-  onMoveUp,
-  onMoveDown,
-}: {
-  story: BriefStory;
-  isFirst: boolean;
-  isLast: boolean;
-  onToggle: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-}) {
-  const arrowBtn = {
-    background: "none",
-    border: "none",
-    padding: "0 2px",
-    fontSize: 13,
-    cursor: "pointer",
-    color: "var(--sub)",
-    lineHeight: 1,
-  } as const;
+/* ── Drop indicator line ─────────────────────────────────────────────── */
 
+function DropIndicator({
+  active,
+  onDragOver,
+}: {
+  active: boolean;
+  onDragOver: (e: React.DragEvent) => void;
+}) {
   return (
     <div
+      onDragOver={(e) => { e.preventDefault(); onDragOver(e); }}
+      onDrop={(e) => e.preventDefault()}
+      style={{
+        height: active ? 3 : 8,
+        background: active ? "var(--gold-dark)" : "transparent",
+        borderRadius: 2,
+        transition: "height 0.12s, background 0.12s",
+        margin: active ? "1px 8px" : "0 8px",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+/* ── Story row with drag handle and tone tags ────────────────────────── */
+
+function StoryRow({
+  story,
+  isDragging,
+  onToggle,
+  onTone,
+  onDragStart,
+  onDragEnd,
+}: {
+  story: BriefStory;
+  isDragging: boolean;
+  onToggle: () => void;
+  onTone: (tone: StoryTone) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", story.headline);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
       style={{
         display: "flex",
-        alignItems: "flex-start",
-        gap: 8,
+        flexDirection: "column",
+        gap: 4,
         padding: "6px 8px",
         borderRadius: 6,
         background: story.included ? "transparent" : "var(--pg)",
-        opacity: story.included ? 1 : 0.5,
+        opacity: isDragging ? 0.25 : story.included ? 1 : 0.5,
         border: "1px solid transparent",
+        cursor: "grab",
+        transition: "opacity 0.15s",
       }}
     >
-      <input
-        type="checkbox"
-        checked={story.included}
-        onChange={onToggle}
-        style={{ marginTop: 2, accentColor: "var(--gold-dark)", cursor: "pointer" }}
-      />
-      <span style={{ flex: 1, fontSize: 12, lineHeight: 1.4, color: "var(--tx)", textDecoration: story.included ? "none" : "line-through" }}>
-        {story.headline}
-      </span>
-      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-        <button
-          onClick={onMoveUp}
-          disabled={isFirst}
-          style={{ ...arrowBtn, opacity: isFirst ? 0.25 : 1 }}
-          title="Move up"
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <span
+          style={{
+            color: "var(--sub)",
+            cursor: "grab",
+            fontSize: 13,
+            lineHeight: 1,
+            userSelect: "none",
+            paddingTop: 2,
+          }}
+          title="Drag to reorder or move between sections"
         >
-          &#9650;
-        </button>
-        <button
-          onClick={onMoveDown}
-          disabled={isLast}
-          style={{ ...arrowBtn, opacity: isLast ? 0.25 : 1 }}
-          title="Move down"
+          &#x2807;
+        </span>
+        <input
+          type="checkbox"
+          checked={story.included}
+          onChange={onToggle}
+          style={{ marginTop: 2, accentColor: "var(--gold-dark)", cursor: "pointer", flexShrink: 0 }}
+        />
+        <span
+          style={{
+            flex: 1,
+            fontSize: 12,
+            lineHeight: 1.4,
+            color: "var(--tx)",
+            textDecoration: story.included ? "none" : "line-through",
+          }}
         >
-          &#9660;
-        </button>
+          {story.headline}
+        </span>
       </div>
+      {story.included && (
+        <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap" }}>
+          {TONE_OPTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => onTone(key)}
+              style={{
+                fontSize: 9.5,
+                padding: "1px 6px",
+                borderRadius: 3,
+                border: story.tone === key ? "1px solid var(--gold-dark)" : "1px solid var(--bd)",
+                background: story.tone === key ? "var(--table-header)" : "transparent",
+                color: story.tone === key ? "var(--tx)" : "var(--sub)",
+                cursor: "pointer",
+                fontWeight: story.tone === key ? 700 : 500,
+                lineHeight: 1.6,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
