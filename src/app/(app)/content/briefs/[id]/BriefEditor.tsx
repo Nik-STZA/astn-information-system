@@ -483,7 +483,6 @@ function StoryRow({
   onMoveToSection: (targetSi: number) => void;
 }) {
   const [rewriting, setRewriting] = useState(false);
-  const hasSource = /\*Source:/i.test(story.body);
   return (
     <div
       draggable
@@ -583,14 +582,6 @@ function StoryRow({
             >
               {rewriting ? "Rewriting…" : "✎ Rewrite"}
             </button>
-            {!hasSource && (
-              <span
-                title="No source attribution found in story body"
-                style={{ fontSize: 10, color: "var(--warning-amber)", marginLeft: 4, cursor: "help" }}
-              >
-                ⚠ no source
-              </span>
-            )}
             <button
               onClick={onLinkedIn}
               style={{
@@ -620,14 +611,14 @@ function StoryRow({
                   style={{
                     fontSize: 9,
                     padding: "1px 5px",
-                    borderRadius: 3,
-                    border: si === currentSi ? "1px solid var(--gold-dark)" : "1px solid var(--bd)",
-                    background: si === currentSi ? "var(--table-header)" : "transparent",
-                    color: si === currentSi ? "var(--tx)" : "var(--sub)",
+                    borderRadius: 10,
+                    border: si === currentSi ? "1px solid var(--sub)" : "1px solid var(--bd)",
+                    background: si === currentSi ? "var(--sub)" : "transparent",
+                    color: si === currentSi ? "var(--pnl)" : "var(--sub)",
                     cursor: si === currentSi ? "default" : "pointer",
                     fontWeight: si === currentSi ? 700 : 400,
                     lineHeight: 1.6,
-                    opacity: si === currentSi ? 1 : 0.8,
+                    opacity: si === currentSi ? 1 : 0.7,
                   }}
                   title={si === currentSi ? "Current section" : `Move to ${label}`}
                 >
@@ -757,7 +748,7 @@ function AvailablePool({
     const newStory: BriefStory = {
       id: `pool-${item.id}`,
       headline: item.title ?? "Untitled",
-      body: `${item.summary ?? ""}\n\n*Source: [${item.source_name ?? "Link"}](${item.url})*\n`,
+      body: `\n${item.summary ?? ""}\n`,
       included: true,
       tone: null,
       linkedinInclude: false,
@@ -936,9 +927,11 @@ function PoolItemRow({
                   color: "#fff",
                   fontWeight: 700,
                   verticalAlign: "middle",
+                  whiteSpace: "nowrap",
+                  display: "inline-block",
                 }}
               >
-                ≈ similar
+                ≈&nbsp;similar
               </span>
             )}
           </div>
