@@ -23,6 +23,8 @@ export type BriefStory = {
   included: boolean;     // user toggle
   tone: StoryTone;       // editorial tag — null means use brief-level default
   linkedinInclude: boolean; // flag: must appear in the LinkedIn post
+  sourceName: string | null;  // extracted from *Source: [Name](URL)* line
+  sourceUrl: string | null;   // extracted from *Source: [Name](URL)* line
 };
 
 export type BriefSection = {
@@ -37,6 +39,27 @@ export type ParsedBrief = {
   header: string;        // everything before the first ## (title, date range)
   sections: BriefSection[];
 };
+
+/**
+ * Extract source name and URL from a story body.
+ * Looks for patterns like:
+ *   *Source: [Name](URL)*
+ *   *Source: Name*
+ *   Source: [Name](URL)
+ */
+function extractSource(body: string): { sourceName: string | null; sourceUrl: string | null } {
+  // Pattern: *Source: [Name](URL)*
+  const linkedMatch = body.match(/\*?\s*Source:\s*\[([^\]]+)\]\(([^)]+)\)\s*\*?/i);
+  if (linkedMatch) {
+    return { sourceName: linkedMatch[1].trim(), sourceUrl: linkedMatch[2].trim() };
+  }
+  // Pattern: *Source: Name* (no URL)
+  const plainMatch = body.match(/\*?\s*Source:\s*([^[*\n]+?)\s*\*?\s*$/im);
+  if (plainMatch) {
+    return { sourceName: plainMatch[1].trim(), sourceUrl: null };
+  }
+  return { sourceName: null, sourceUrl: null };
+}
 
 /**
  * Parse brief markdown into sections and stories.
@@ -86,6 +109,10 @@ export function parseBriefMarkdown(md: string): ParsedBrief {
       const linkedinInclude = /<!--\s*linkedin\s*-->/.test(rawHeadline);
       const headline = rawHeadline.replace(/\s*<!--\s*linkedin\s*-->\s*/, "").trim();
       const body = storyLines.slice(1).join("\n");
+
+      // Extract source attribution: *Source: [Name](URL)* or *Source: Name*
+      const { sourceName, sourceUrl } = extractSource(body);
+
       return {
         id: `s${si}-i${ii}`,
         headline,
@@ -93,6 +120,8 @@ export function parseBriefMarkdown(md: string): ParsedBrief {
         included: true,
         tone: null as StoryTone,
         linkedinInclude,
+        sourceName,
+        sourceUrl,
       };
     });
 
@@ -152,17 +181,33 @@ export function rebuildBriefMarkdown(parsed: ParsedBrief): string {
 }
 
 /**
- * Count total and included stories.
+ * Count total, included stories, and source coverage.
  */
-export function countStories(parsed: ParsedBrief): { total: number; included: number } {
+export function countStories(parsed: ParsedBrief): {
+  total: number;
+  included: number;
+  sourceFull: number;    // has URL
+  sourcePartial: number; // name only
+  sourceMissing: number; // nothing
+} {
   let total = 0;
   let included = 0;
+  let sourceFull = 0;
+  let sourcePartial = 0;
+  let sourceMissing = 0;
   for (const section of parsed.sections) {
     if (section.isContextSection) continue;
-    total += section.stories.length;
-    included += section.stories.filter((s) => s.included).length;
+    for (const s of section.stories) {
+      total++;
+      if (s.included) {
+        included++;
+        if (s.sourceUrl) sourceFull++;
+        else if (s.sourceName) sourcePartial++;
+        else sourceMissing++;
+      }
+    }
   }
-  return { total, included };
+  return { total, included, sourceFull, sourcePartial, sourceMissing };
 }
 
 /**
@@ -178,12 +223,18 @@ export function mergeExcluded(fresh: ParsedBrief, prev: ParsedBrief): ParsedBrie
       const prevSec = prev.sections.find((ps) => ps.heading === freshSec.heading);
       if (!prevSec) return freshSec;
 
-      // Carry over tone and linkedinInclude from previous state for matching stories
+      // Carry over tone, linkedinInclude, and source info from previous state for matching stories
       const prevByHeadline = new Map(prevSec.stories.map((s) => [s.headline, s]));
       const mergedStories = freshSec.stories.map((s) => {
         const prev = prevByHeadline.get(s.headline);
         if (!prev) return s;
-        return { ...s, tone: prev.tone, linkedinInclude: prev.linkedinInclude };
+        return {
+          ...s,
+          tone: prev.tone,
+          linkedinInclude: prev.linkedinInclude,
+          sourceName: s.sourceName ?? prev.sourceName,
+          sourceUrl: s.sourceUrl ?? prev.sourceUrl,
+        };
       });
 
       const excludedStories = prevSec.stories.filter((s) => !s.included);

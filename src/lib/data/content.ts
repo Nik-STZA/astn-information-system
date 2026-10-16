@@ -214,6 +214,36 @@ export async function updateBriefMarkdown(id: string, reportMarkdown: string) {
   });
 }
 
+// ─── Brief version history ─────────────────────────────────────────────
+
+export type BriefVersion = {
+  id: number;
+  version_num: number;
+  saved_by: string | null;
+  saved_at: string;
+  word_count: number | null;
+  story_count: number | null;
+  change_summary: string | null;
+};
+
+export type BriefVersionDetail = BriefVersion & {
+  report_markdown: string;
+};
+
+export async function fetchBriefVersions(briefId: string) {
+  return cloudRunFetch<{ count: number; data: BriefVersion[] }>(
+    `/api/content/briefs/${briefId}/versions`,
+    { cache: "no-store" },
+  );
+}
+
+export async function fetchBriefVersion(briefId: string, versionId: string) {
+  return cloudRunFetch<BriefVersionDetail>(
+    `/api/content/briefs/${briefId}/versions/${versionId}`,
+    { cache: "no-store" },
+  );
+}
+
 // ─── LinkedIn drafts ────────────────────────────────────────────────────────
 
 export type LinkedInDraft = {

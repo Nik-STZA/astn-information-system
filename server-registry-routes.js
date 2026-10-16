@@ -469,26 +469,90 @@ app.get("/api/content/briefs/:id", async (req, res) => {
 
 // Edit a DRAFT brief's markdown before publishing (OS brief editor). A
 // published edition is the public record and is locked.
+// Saves a version snapshot before updating (migration 028).
 app.put("/api/content/briefs/:id", async (req, res) => {
   try {
     const md = req.body && req.body.report_markdown;
     if (typeof md !== "string" || md.trim().length === 0) {
       return res.status(400).json({ error: "report_markdown (non-empty string) required" });
     }
+    const briefId = req.params.id;
+
+    // Snapshot the current state as a version before overwriting
+    try {
+      const { rows: current } = await pool.query(
+        `SELECT report_markdown FROM weekly_reports WHERE id = $1 AND status = 'draft'`,
+        [briefId]
+      );
+      if (current.length > 0 && current[0].report_markdown !== md) {
+        const { rows: maxV } = await pool.query(
+          `SELECT COALESCE(MAX(version_num), 0) AS max_v FROM brief_versions WHERE brief_id = $1`,
+          [briefId]
+        );
+        const nextVersion = (maxV[0]?.max_v || 0) + 1;
+        const oldMd = current[0].report_markdown;
+        const wordCount = oldMd.split(/\s+/).filter(Boolean).length;
+        const storyCount = (oldMd.match(/^### /gm) || []).length;
+        await pool.query(
+          `INSERT INTO brief_versions (brief_id, version_num, report_markdown, saved_by, word_count, story_count)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (brief_id, version_num) DO NOTHING`,
+          [briefId, nextVersion, oldMd, req.headers["x-user-email"] || "unknown", wordCount, storyCount]
+        );
+      }
+    } catch (vErr) {
+      // Version save failure should not block the actual save
+      console.warn("brief_versions insert failed (table may not exist yet):", vErr.message);
+    }
+
     const { rows } = await pool.query(
       `UPDATE weekly_reports SET report_markdown = $2
         WHERE id = $1 AND status = 'draft'
         RETURNING id, item_count, created_at, week_ending, status, published_at, report_markdown`,
-      [req.params.id, md]
+      [briefId, md]
     );
     if (rows.length === 0) {
-      const { rows: found } = await pool.query(`SELECT status FROM weekly_reports WHERE id = $1`, [req.params.id]);
+      const { rows: found } = await pool.query(`SELECT status FROM weekly_reports WHERE id = $1`, [briefId]);
       if (found.length === 0) return res.status(404).json({ error: "Not found" });
       return res.status(409).json({ error: "Published editions are locked" });
     }
     res.json(rows[0]);
   } catch (err) {
     console.error("PUT /api/content/briefs/:id error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List version history for a brief
+app.get("/api/content/briefs/:id/versions", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, version_num, saved_by, saved_at, word_count, story_count, change_summary
+       FROM brief_versions
+       WHERE brief_id = $1
+       ORDER BY version_num DESC`,
+      [req.params.id]
+    );
+    res.json({ count: rows.length, data: rows });
+  } catch (err) {
+    console.error("GET /api/content/briefs/:id/versions error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get a specific version's full markdown
+app.get("/api/content/briefs/:id/versions/:versionId", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, version_num, report_markdown, saved_by, saved_at, word_count, story_count
+       FROM brief_versions
+       WHERE brief_id = $1 AND id = $2`,
+      [req.params.id, req.params.versionId]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "Version not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("GET /api/content/briefs/:id/versions/:versionId error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

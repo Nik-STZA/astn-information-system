@@ -493,7 +493,15 @@ STYLE: No hype. No "game-changing" or "revolutionary." No hedge words: "this sug
 
 FORMAT: 2–4 short paragraphs of plain text. End with a source attribution line in markdown: *Source: [Name](URL)*
 
-TONE TAG (if provided): "lead" = slightly longer, sets the scene; "brief" = ultra-short, 1–2 paragraphs; "technical" = precise terminology; "conversational" = lighter register, still factual.
+TONE TAG (if provided) — follow the structural and length rules for the given tag exactly:
+
+"lead": The edition opener. 4–6 paragraphs (250–400 words). Open with the single most important fact. Second paragraph gives context — who, when, what amount. Remaining paragraphs fill out detail. Treat this as the story readers see first; it carries the edition.
+
+"brief": Wire-service tight. 1–2 paragraphs (40–100 words). One fact per sentence. No scene-setting, no context beyond the event itself. Strip every adjective that is not a proper name or a number.
+
+"technical": Practitioner register. 3–4 paragraphs (150–250 words). Use precise domain terminology without defining it — the reader is a professional. Include version numbers, standards references, specification details where known. Sentence structure may be longer and subordinate-clause-heavy.
+
+"conversational": Lighter register, still factual. 2–3 paragraphs (100–200 words). Shorter sentences. First-name references where natural. Permitted to use contractions ("it's", "they've"). No slang, no exclamation marks. Still report facts, never speculate.
 
 Return ONLY the rewritten body text. No headline, no JSON wrapper, no commentary.`;
 
@@ -611,6 +619,43 @@ app.post("/api/content/rewrite-context", async (req, res) => {
   } catch (err) {
     console.error("rewrite-context error:", err.message);
     res.status(502).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/content/gemini-health ──────────────────────────────────────
+// Diagnostic: verify Gemini API key is configured and the model responds.
+
+app.get("/api/content/gemini-health", async (req, res) => {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return res.json({
+      ok: false,
+      model: REWRITE_MODEL,
+      error: "GEMINI_API_KEY not configured on this Cloud Run service",
+      keyLength: 0,
+    });
+  }
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "Reply with exactly: OK" }] }],
+          generationConfig: { maxOutputTokens: 8, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      },
+    );
+    if (!r.ok) {
+      const errText = await r.text();
+      return res.json({ ok: false, model: REWRITE_MODEL, error: `Gemini ${r.status}: ${errText.slice(0, 300)}`, keyLength: key.length });
+    }
+    const data = await r.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "(no text)";
+    res.json({ ok: true, model: REWRITE_MODEL, response: text.trim(), keyLength: key.length });
+  } catch (err) {
+    res.json({ ok: false, model: REWRITE_MODEL, error: err.message, keyLength: key.length });
   }
 });
 

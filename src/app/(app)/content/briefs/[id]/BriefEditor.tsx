@@ -13,8 +13,8 @@ import {
   type StoryTone,
 } from "@/lib/brief-items";
 import { markdownToHtml } from "@/lib/markdown";
-import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction, rewriteContextAction } from "./actions";
-import type { ReviewItem } from "@/lib/data/content";
+import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction, rewriteContextAction, loadBriefVersions, loadBriefVersion } from "./actions";
+import type { ReviewItem, BriefVersion } from "@/lib/data/content";
 
 /**
  * Draft brief editor: edit the markdown, see the fact-discipline audit live,
@@ -30,7 +30,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
   const [text, setText] = useState(initialMarkdown);
   const [savedText, setSavedText] = useState(initialMarkdown);
   const [mode, setMode] = useState<"edit" | "preview">("edit");
-  const [rightPanel, setRightPanel] = useState<"audit" | "items" | "available">("audit");
+  const [rightPanel, setRightPanel] = useState<"audit" | "items" | "available" | "history">("audit");
   const [busy, setBusy] = useState<"save" | "post" | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -124,27 +124,39 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
   const rewriteItem = useCallback(async (sectionIdx: number, storyIdx: number) => {
     const story = allParsed.sections[sectionIdx]?.stories[storyIdx];
     if (!story) return;
-    const res = await rewriteStoryAction({
-      headline: story.headline,
-      summary: story.body,
-      tone: story.tone,
-    });
-    if (res.error) {
-      setMsg({ ok: false, text: `Rewrite failed: ${res.error}` });
-      return;
-    }
-    if (res.data?.body) {
-      applyItemsEdit((prev) => ({
-        ...prev,
-        sections: prev.sections.map((sec, si) =>
-          si !== sectionIdx ? sec : {
-            ...sec,
-            stories: sec.stories.map((s, ii) =>
-              ii !== storyIdx ? s : { ...s, body: res.data!.body }
-            ),
-          }
-        ),
-      }));
+    try {
+      const res = await rewriteStoryAction({
+        headline: story.headline,
+        summary: story.body,
+        source_name: story.sourceName ?? undefined,
+        source_url: story.sourceUrl ?? undefined,
+        tone: story.tone,
+      });
+      if (res.error) {
+        console.error("[BriefEditor] rewrite failed:", res.error);
+        setMsg({ ok: false, text: `Rewrite failed: ${res.error}` });
+        return;
+      }
+      if (res.data?.body) {
+        applyItemsEdit((prev) => ({
+          ...prev,
+          sections: prev.sections.map((sec, si) =>
+            si !== sectionIdx ? sec : {
+              ...sec,
+              stories: sec.stories.map((s, ii) =>
+                ii !== storyIdx ? s : { ...s, body: res.data!.body }
+              ),
+            }
+          ),
+        }));
+        setMsg({ ok: true, text: "Story rewritten." });
+      } else {
+        console.error("[BriefEditor] rewrite returned no body:", res);
+        setMsg({ ok: false, text: "Rewrite returned empty — check Gemini health endpoint." });
+      }
+    } catch (err) {
+      console.error("[BriefEditor] rewrite exception:", err);
+      setMsg({ ok: false, text: `Rewrite error: ${err instanceof Error ? err.message : String(err)}` });
     }
   }, [allParsed, applyItemsEdit]);
 
@@ -159,11 +171,15 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
         if (s.included) included.push({ headline: s.headline, body: s.body });
       }
     }
-    if (included.length === 0) return;
+    if (included.length === 0) {
+      setMsg({ ok: false, text: "No included stories to generate context from." });
+      return;
+    }
     setContextBusy(true);
     try {
       const res = await rewriteContextAction(included);
       if (res.error) {
+        console.error("[BriefEditor] context regen failed:", res.error);
         setMsg({ ok: false, text: `Context regeneration failed: ${res.error}` });
         return;
       }
@@ -174,7 +190,14 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
             sec.isContextSection ? { ...sec, preamble: "\n" + res.data!.context + "\n" } : sec
           ),
         }));
+        setMsg({ ok: true, text: "Week in Context regenerated." });
+      } else {
+        console.error("[BriefEditor] context regen returned empty:", res);
+        setMsg({ ok: false, text: "Context regen returned empty — check Gemini health endpoint." });
       }
+    } catch (err) {
+      console.error("[BriefEditor] context regen exception:", err);
+      setMsg({ ok: false, text: `Context error: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setContextBusy(false);
     }
@@ -286,7 +309,31 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
             Items{storyCount.total > 0 && ` (${storyCount.included}/${storyCount.total})`}
           </button>
           <button onClick={() => setRightPanel("available")} style={panelBtn(rightPanel === "available")}>Available</button>
+          <button onClick={() => setRightPanel("history")} style={panelBtn(rightPanel === "history")}>History</button>
         </div>
+        {rightPanel === "items" && storyCount.included > 0 && (
+          <div style={{ fontSize: 10, color: "var(--sub)", display: "flex", gap: 8, alignItems: "center", paddingBottom: 4, borderBottom: "1px solid var(--bd)" }}>
+            <span>Sources:</span>
+            {storyCount.sourceFull > 0 && (
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success-green, #2E7D32)", display: "inline-block" }} />
+                {storyCount.sourceFull} verified
+              </span>
+            )}
+            {storyCount.sourcePartial > 0 && (
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--warning-amber, #CC7700)", display: "inline-block" }} />
+                {storyCount.sourcePartial} partial
+              </span>
+            )}
+            {storyCount.sourceMissing > 0 && (
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--alert-red, #CC0000)", display: "inline-block" }} />
+                {storyCount.sourceMissing} missing
+              </span>
+            )}
+          </div>
+        )}
 
         {rightPanel === "audit" ? (
           <AuditPanel audit={audit} />
@@ -301,7 +348,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
             onRegenerateContext={regenerateContext}
             contextBusy={contextBusy}
           />
-        ) : (
+        ) : rightPanel === "available" ? (
           <AvailablePool
             parsed={allParsed}
             onInsert={(sectionIdx, story) => {
@@ -310,6 +357,14 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
                 sections[sectionIdx].stories.push(story);
                 return { ...prev, sections };
               });
+            }}
+          />
+        ) : (
+          <VersionHistory
+            briefId={id}
+            onRestore={(markdown) => {
+              handleTextChange(markdown);
+              setMsg({ ok: true, text: "Restored from previous version" });
             }}
           />
         )}
@@ -595,16 +650,53 @@ function StoryRow({
           onChange={onToggle}
           style={{ marginTop: 2, accentColor: "var(--gold-dark)", cursor: "pointer", flexShrink: 0 }}
         />
-        <span
-          style={{
-            flex: 1,
-            fontSize: 12,
-            lineHeight: 1.4,
-            color: "var(--tx)",
-            textDecoration: story.included ? "none" : "line-through",
-          }}
-        >
-          {story.headline}
+        <span style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+          <span
+            style={{
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: "var(--tx)",
+              textDecoration: story.included ? "none" : "line-through",
+            }}
+          >
+            {story.headline}
+          </span>
+          {story.included && (
+            <span style={{ fontSize: 10, color: "var(--sub)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span
+                title={
+                  story.sourceUrl ? "Source verified (has URL)" :
+                  story.sourceName ? "Source partial (name only, no URL)" :
+                  "No source attribution"
+                }
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: story.sourceUrl ? "var(--success-green, #2E7D32)" :
+                              story.sourceName ? "var(--warning-amber, #CC7700)" :
+                              "var(--alert-red, #CC0000)",
+                  flexShrink: 0,
+                }}
+              />
+              {story.sourceUrl ? (
+                <a
+                  href={story.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--sub)", textDecoration: "underline" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {story.sourceName || "Source"}
+                </a>
+              ) : story.sourceName ? (
+                <span>{story.sourceName}</span>
+              ) : (
+                <span style={{ fontStyle: "italic", opacity: 0.7 }}>No source</span>
+              )}
+            </span>
+          )}
         </span>
       </div>
       {story.included && (
@@ -822,6 +914,8 @@ function AvailablePool({
       included: true,
       tone: null,
       linkedinInclude: false,
+      sourceName: item.source_name ?? null,
+      sourceUrl: item.source_url ?? null,
     };
     onInsert(sectionIdx, newStory);
     setTimeout(() => setAddingId(null), 600);
@@ -1042,6 +1136,175 @@ function PoolItemRow({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Version history panel ─────────────────────────────────────────── */
+
+function VersionHistory({
+  briefId,
+  onRestore,
+}: {
+  briefId: string;
+  onRestore: (markdown: string) => void;
+}) {
+  const [versions, setVersions] = useState<BriefVersion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadBriefVersions(briefId).then((res) => {
+      if (cancelled) return;
+      if (res.data) setVersions(res.data.data ?? []);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [briefId]);
+
+  const loadVersionPreview = async (versionId: number) => {
+    if (expandedId === versionId) {
+      setExpandedId(null);
+      setPreview(null);
+      return;
+    }
+    setExpandedId(versionId);
+    setPreviewLoading(true);
+    const res = await loadBriefVersion(briefId, String(versionId));
+    if (res.data) {
+      setPreview(res.data.report_markdown ?? null);
+    }
+    setPreviewLoading(false);
+  };
+
+  if (loading) {
+    return <span style={{ fontSize: 12, color: "var(--sub)" }}>Loading version history…</span>;
+  }
+
+  if (versions.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>Version history</span>
+        <span style={{ fontSize: 12, color: "var(--sub)" }}>
+          No previous versions yet. Versions are saved automatically each time you save the brief.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>Version history</span>
+        <span style={{ fontSize: 11, color: "var(--sub)" }}>{versions.length} version{versions.length !== 1 ? "s" : ""}</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: "70vh", overflowY: "auto" }}>
+        {versions.map((v) => {
+          const date = new Date(v.saved_at);
+          const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+          const timeStr = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+          const isExpanded = expandedId === v.id;
+
+          return (
+            <div
+              key={v.id}
+              style={{
+                border: "1px solid var(--bd)",
+                borderRadius: 6,
+                overflow: "hidden",
+                background: isExpanded ? "var(--table-header)" : "transparent",
+              }}
+            >
+              <button
+                onClick={() => loadVersionPreview(v.id)}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--tx)",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>v{v.version_num}</span>
+                  <span style={{ fontSize: 10.5, color: "var(--sub)" }}>
+                    {dateStr} at {timeStr}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                  {v.word_count != null && (
+                    <span style={{ fontSize: 10, color: "var(--sub)" }}>{v.word_count.toLocaleString("en-GB")} words</span>
+                  )}
+                  {v.story_count != null && (
+                    <span style={{ fontSize: 10, color: "var(--sub)" }}>{v.story_count} stories</span>
+                  )}
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div style={{ borderTop: "1px solid var(--bd)", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {previewLoading ? (
+                    <span style={{ fontSize: 11, color: "var(--sub)" }}>Loading…</span>
+                  ) : preview ? (
+                    <>
+                      <pre
+                        style={{
+                          fontSize: 10.5,
+                          lineHeight: 1.5,
+                          color: "var(--tx)",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          maxHeight: 300,
+                          overflowY: "auto",
+                          margin: 0,
+                          padding: 8,
+                          background: "var(--pg)",
+                          borderRadius: 4,
+                          border: "1px solid var(--bd)",
+                        }}
+                      >
+                        {preview.slice(0, 2000)}{preview.length > 2000 ? "\n…" : ""}
+                      </pre>
+                      <button
+                        onClick={() => {
+                          if (preview) onRestore(preview);
+                        }}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "5px 12px",
+                          borderRadius: 4,
+                          border: "1px solid var(--gold-dark)",
+                          background: "transparent",
+                          color: "var(--gold-dark)",
+                          cursor: "pointer",
+                          alignSelf: "flex-start",
+                        }}
+                      >
+                        Restore this version
+                      </button>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 11, color: "var(--sub)" }}>Could not load version content.</span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 10.5, color: "var(--sub)", margin: 0, lineHeight: 1.4 }}>
+        Each save creates a snapshot. Restoring a version replaces the editor content but does not save — review the content then save manually.
+      </p>
     </div>
   );
 }

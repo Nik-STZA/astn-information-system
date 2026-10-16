@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory, rewriteContext } from "@/lib/data/content";
+import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory, rewriteContext, fetchBriefVersions, fetchBriefVersion } from "@/lib/data/content";
 
 export async function saveBrief(id: string, markdown: string) {
   const res = await updateBriefMarkdown(id, markdown);
@@ -48,4 +48,18 @@ export async function rewriteStoryAction(payload: {
  */
 export async function rewriteContextAction(stories: { headline: string; body: string }[]) {
   return rewriteContext(stories);
+}
+
+/**
+ * Fetch version history for a brief.
+ */
+export async function loadBriefVersions(briefId: string) {
+  return fetchBriefVersions(briefId);
+}
+
+/**
+ * Fetch a specific version's full markdown.
+ */
+export async function loadBriefVersion(briefId: string, versionId: string) {
+  return fetchBriefVersion(briefId, versionId);
 }
