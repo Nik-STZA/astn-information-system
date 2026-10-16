@@ -3019,7 +3019,7 @@ const writeRules = require("./lib/xero-write");
 const crypto = require("crypto");
 const XERO_FILES_API = "https://api.xero.com/files.xro/1.0";
 
-async function xeroSend(ctx, method, url, { json, raw, form, contentType, key }) {
+async function xeroSend(ctx, method, url, { json, raw, contentType, key }) {
   const full = url.startsWith("https://") ? url : `${XERO_API}${url}`;
   let last;
   for (let attempt = 0; attempt <= 3; attempt++) {
@@ -3030,9 +3030,7 @@ async function xeroSend(ctx, method, url, { json, raw, form, contentType, key })
       "Idempotency-Key": key,
     };
     let body;
-    if (form) {
-      body = form(); // a fresh FormData per attempt; fetch sets the boundary
-    } else if (raw) {
+    if (raw) {
       headers["Content-Type"] = contentType || "application/octet-stream";
       body = raw;
     } else if (json !== undefined) {
@@ -3399,15 +3397,22 @@ app.post(`${WRITE}/files`, uploadBody, draftWrite("upload_file", "draft", async 
   return {
     issues, operation: "create", payload,
     send: async (key) => {
+      // Built once, with a boundary derived from the key, so every retry is
+      // byte-identical. A fresh FormData per attempt draws a new random
+      // boundary, and Xero then refuses the key as "used with a different
+      // request" (seen on the first live check, 16 Oct 2026).
+      const boundary = `stza-${key.replace(/[^a-z0-9]/gi, "").slice(-40)}`;
+      const name = q.file_name.replace(/["\r\n]/g, "_");
+      const CRLF = "\r\n";
+      const part = (headers, content) => [Buffer.from(`--${boundary}${CRLF}${headers}${CRLF}${CRLF}`), content, Buffer.from(CRLF)];
+      const multipart = Buffer.concat([
+        ...part(`Content-Disposition: form-data; name="name"`, Buffer.from(name)),
+        ...part(`Content-Disposition: form-data; name="filename"`, Buffer.from(name)),
+        ...part(`Content-Disposition: form-data; name="file"; filename="${name}"${CRLF}Content-Type: ${mime}`, raw),
+        Buffer.from(`--${boundary}--${CRLF}`),
+      ]);
       const r = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files${q.folder_id ? `/${q.folder_id}` : ""}`, {
-        key,
-        form: () => {
-          const f = new FormData();
-          f.append("file", new Blob([raw], { type: mime }), q.file_name);
-          f.append("name", q.file_name);
-          f.append("filename", q.file_name);
-          return f;
-        },
+        key, raw: multipart, contentType: `multipart/form-data; boundary=${boundary}`,
       });
       if (r.ok && q.associate_with_id && r.body?.Id) {
         const assoc = { ObjectId: q.associate_with_id, ObjectGroup: q.associate_object_group };
