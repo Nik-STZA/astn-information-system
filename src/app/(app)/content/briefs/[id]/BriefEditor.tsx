@@ -13,7 +13,7 @@ import {
   type StoryTone,
 } from "@/lib/brief-items";
 import { markdownToHtml } from "@/lib/markdown";
-import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction } from "./actions";
+import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction, rewriteContextAction } from "./actions";
 import type { ReviewItem } from "@/lib/data/content";
 
 /**
@@ -145,6 +145,35 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
     }
   }, [allParsed, applyItemsEdit]);
 
+  // Regenerate the "Week in Context" section from currently included stories
+  const [contextBusy, setContextBusy] = useState(false);
+  const regenerateContext = useCallback(async () => {
+    // Gather all included stories across non-context sections
+    const included: { headline: string; body: string }[] = [];
+    for (const sec of allParsed.sections) {
+      if (sec.isContextSection) continue;
+      for (const s of sec.stories) {
+        if (s.included) included.push({ headline: s.headline, body: s.body });
+      }
+    }
+    if (included.length === 0) return;
+    setContextBusy(true);
+    try {
+      const res = await rewriteContextAction(included);
+      if (res && typeof res === "object" && "context" in res) {
+        const newContext = (res as { context: string }).context;
+        applyItemsEdit((prev) => ({
+          ...prev,
+          sections: prev.sections.map((sec) =>
+            sec.isContextSection ? { ...sec, preamble: "\n" + newContext + "\n" } : sec
+          ),
+        }));
+      }
+    } finally {
+      setContextBusy(false);
+    }
+  }, [allParsed, applyItemsEdit]);
+
   async function save() {
     setBusy("save");
     setMsg(null);
@@ -263,6 +292,8 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
             onTone={setTone}
             onLinkedIn={toggleLinkedIn}
             onRewrite={rewriteItem}
+            onRegenerateContext={regenerateContext}
+            contextBusy={contextBusy}
           />
         ) : (
           <AvailablePool
@@ -330,6 +361,8 @@ function ItemsPanel({
   onTone,
   onLinkedIn,
   onRewrite,
+  onRegenerateContext,
+  contextBusy,
 }: {
   parsed: ParsedBrief;
   onToggle: (si: number, ii: number) => void;
@@ -337,6 +370,8 @@ function ItemsPanel({
   onTone: (si: number, ii: number, tone: StoryTone) => void;
   onLinkedIn: (si: number, ii: number) => void;
   onRewrite: (si: number, ii: number) => Promise<void>;
+  onRegenerateContext: () => Promise<void>;
+  contextBusy: boolean;
 }) {
   const storySections = parsed.sections
     .map((s, si) => ({ section: s, si }))
@@ -420,6 +455,35 @@ function ItemsPanel({
                 />
               </div>
             ))}
+          </div>
+        </div>
+      ))}
+      {/* Week in Context section with Regenerate button */}
+      {parsed.sections.filter((s) => s.isContextSection).map((sec) => (
+        <div key={sec.id} style={{ borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--sub)" }}>
+              {sec.heading}
+            </span>
+            <button
+              onClick={onRegenerateContext}
+              disabled={contextBusy}
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                padding: "3px 10px",
+                borderRadius: 4,
+                border: "1px solid var(--gold-border)",
+                background: contextBusy ? "var(--bd)" : "transparent",
+                color: contextBusy ? "var(--sub)" : "var(--gold-dark)",
+                cursor: contextBusy ? "not-allowed" : "pointer",
+              }}
+            >
+              {contextBusy ? "Regenerating…" : "Regenerate"}
+            </button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--sub)", lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 120, overflowY: "auto" }}>
+            {sec.preamble.trim() || "No context summary yet."}
           </div>
         </div>
       ))}

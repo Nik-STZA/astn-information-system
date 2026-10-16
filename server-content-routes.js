@@ -547,6 +547,73 @@ app.post("/api/content/rewrite-story", async (req, res) => {
   }
 });
 
+// ─── POST /api/content/rewrite-context ────────────────────────────────────
+// Regenerates the "Week in Context" summary from the current included stories.
+// Body: { stories: Array<{ headline: string; body: string }> }
+// Returns: { context: string }
+
+const CONTEXT_SYSTEM = `You are an editor for the AfricanSTN Weekly Intelligence Brief — the authoritative intelligence service for professionals working in African sports technology.
+
+Write the "Week in Context" section for this week's brief. This section draws connections across the week's stories, identifying patterns and themes. Follow these rules exactly:
+
+VOICE: British English. Authoritative practitioner voice — not academic, not journalistic, not promotional.
+
+OBSERVATION ONLY: Each bullet links two or more of this week's stories. State the pattern you see. Never speculate, advise, recommend, or suggest what should or could be done. No "creates opportunities for", no recommendations.
+
+STYLE: No hype. No "game-changing" or "revolutionary." No hedge words: "this suggests," "this highlights," "this indicates," "this underscores." No "foundation for", "lays the groundwork", "paves the way."
+
+FORMAT: 3–6 bullet points as a markdown unordered list. Each bullet is one sentence linking two or more stories from this week. Reference specific headlines or facts from the stories.
+
+Return ONLY the bullet list. No heading, no introduction, no JSON wrapper, no commentary.`;
+
+app.post("/api/content/rewrite-context", async (req, res) => {
+  const { stories } = req.body;
+  if (!Array.isArray(stories) || stories.length === 0) {
+    return res.status(400).json({ error: "stories array is required" });
+  }
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
+  }
+
+  const storySummaries = stories.map((s, i) =>
+    `${i + 1}. **${s.headline}**\n${s.body.trim()}`
+  ).join("\n\n");
+
+  const userPayload = `Here are this week's included stories:\n\n${storySummaries}`;
+
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: CONTEXT_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userPayload }] }],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 1024,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(`Gemini ${r.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No text in Gemini response");
+    res.json({ context: text.trim() });
+  } catch (err) {
+    console.error("rewrite-context error:", err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/admin/schema-check ──────────────────────────────────────────
 // Quick check of classified_items columns for debugging
 

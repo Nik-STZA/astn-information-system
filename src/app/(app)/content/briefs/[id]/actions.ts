@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory } from "@/lib/data/content";
+import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory, rewriteContext } from "@/lib/data/content";
 
 export async function saveBrief(id: string, markdown: string) {
   const res = await updateBriefMarkdown(id, markdown);
@@ -41,4 +41,11 @@ export async function rewriteStoryAction(payload: {
   tone?: string | null;
 }) {
   return rewriteStory(payload);
+}
+
+/**
+ * Regenerate the "Week in Context" summary from the currently included stories.
+ */
+export async function rewriteContextAction(stories: { headline: string; body: string }[]) {
+  return rewriteContext(stories);
 }

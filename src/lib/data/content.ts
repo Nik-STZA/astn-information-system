@@ -111,6 +111,17 @@ export async function rewriteStory(payload: {
   );
 }
 
+/**
+ * Regenerate the "Week in Context" summary from the current included stories.
+ */
+export async function rewriteContext(stories: { headline: string; body: string }[]) {
+  return cloudRunMutate<{ context: string }>(
+    "/api/content/rewrite-context",
+    "POST",
+    { stories },
+  );
+}
+
 export async function fetchReviewStats() {
   return cloudRunFetch<ReviewStats>("/api/news/review-stats");
 }
