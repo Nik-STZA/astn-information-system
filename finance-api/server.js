@@ -250,6 +250,13 @@ const secretPath = (name) => `projects/${SECRET_PROJECT}/secrets/${name}`;
 const refreshSecretName = (clientSlug, entitySlug) =>
   `xero-refresh-${clientSlug}-${entitySlug}`;
 
+// The secret an entity actually uses. A reconnect stores one grant and points
+// every entity of that client it reaches at it (see the callback), so this is
+// read from the entity's config. Older rows without secret_name fall back to
+// the per-entity name they were connected under.
+const entitySecretName = (clientSlug, entity) =>
+  entity.accounting_system_config?.secret_name || refreshSecretName(clientSlug, entity.slug);
+
 async function secretExists(name) {
   try {
     const sm = await secretManager();
@@ -303,7 +310,7 @@ app.get("/api/finance/clients/:slug/xero", route(async (req, res) => {
 
   const data = [];
   for (const e of entities) {
-    const secretName = refreshSecretName(req.params.slug, e.slug);
+    const secretName = entitySecretName(req.params.slug, e);
     const cfg = e.accounting_system_config || {};
 
     // Both halves must be present. The refresh token is written to Secret
@@ -344,10 +351,16 @@ app.post("/api/finance/clients/:slug/xero/:entity/secret", route(async (req, res
     return res.status(400).json({ error: "action must be reveal or copy" });
   }
 
+  const { rows: secretEntity } = await pool.query(
+    "SELECT slug, accounting_system_config FROM finance.entities WHERE client_id = $1 AND slug = $2",
+    [client.id, req.params.entity]
+  );
   const names = {
     client_id: "xero-app-client-id",
     client_secret: "xero-app-client-secret",
-    refresh_token: refreshSecretName(req.params.slug, req.params.entity),
+    refresh_token: secretEntity.length
+      ? entitySecretName(req.params.slug, secretEntity[0])
+      : refreshSecretName(req.params.slug, req.params.entity),
   };
   const secretName = names[field];
   if (!secretName) return res.status(400).json({ error: "unknown field" });
@@ -773,6 +786,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
   await storeSecret(secretName, tokens.refresh_token);
 
   const now = new Date().toISOString();
+  let alsoUpdated = [];
   const conn = await pool.connect();
   try {
     await conn.query("BEGIN");
@@ -794,6 +808,35 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
         }),
       ]
     );
+
+    // One authorisation reaches every organisation on the grant, so point the
+    // client's other connected entities at this one too: one reconnect then
+    // carries new scopes to all of them. They share the secret rather than get
+    // a copy, because Xero rotates the refresh token on every use and a copy
+    // would die on the first refresh; sharing it also shares the refresh lock,
+    // which is keyed by secret name. Only entities already mapped to a tenant
+    // this token reaches move, and only within this client, so one client's
+    // reconnect never touches another client's connection.
+    const reachable = connections.map((c) => c.tenantId);
+    const { rows: siblingRows } = await conn.query(
+      `UPDATE finance.entities
+       SET accounting_system_config = accounting_system_config || $3::jsonb
+       WHERE client_id = $1 AND id <> $2
+         AND accounting_system_config->>'tenant_id' = ANY($4::text[])
+       RETURNING slug`,
+      [
+        client.id,
+        entity.id,
+        JSON.stringify({
+          connected_at: now,
+          last_refreshed_at: now,
+          scopes: XERO_SCOPES.split(" "),
+          secret_name: secretName,
+        }),
+        reachable,
+      ]
+    );
+    alsoUpdated = siblingRows.map((r) => r.slug);
 
     const role = await conn.query(
       "SELECT finance.role_at($1, $2, CURRENT_DATE) AS role",
@@ -823,6 +866,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
           candidateOrganisations: connections.length,
           scopes: XERO_SCOPES.split(" "),
           secretName,
+          alsoUpdated,
         }),
         normaliseIp(req.get("X-Forwarded-For") || req.ip),
       ]
@@ -844,6 +888,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, r
     // report as not connected until one is chosen, which is the honest state.
     needsSelection: !tenant,
     candidateOrganisations: connections.length,
+    alsoUpdated,
   });
 }));
 
@@ -901,7 +946,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/organisation", route(async (re
   if (!entityRows.length) return res.status(404).json({ error: "entity not found" });
   const entity = entityRows[0];
 
-  const secretName = refreshSecretName(req.params.slug, entity.slug);
+  const secretName = entitySecretName(req.params.slug, entity);
   if (!(await secretExists(secretName))) {
     return res.status(409).json({ error: "This entity has no Xero authorisation yet." });
   }
@@ -1818,7 +1863,7 @@ async function xeroEntityContext(slug, entitySlug) {
   const tenantId = entity.accounting_system_config?.tenant_id;
   if (!tenantId) return null;
 
-  const secretName = refreshSecretName(slug, entitySlug);
+  const secretName = entitySecretName(slug, entity);
 
   // storeSecret clears the cache only on the instance that handled the
   // reconnect; others would keep a token from the old grant for up to 30
