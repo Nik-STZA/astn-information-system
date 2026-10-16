@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool } from "@/lib/data/content";
+import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory } from "@/lib/data/content";
 
 export async function saveBrief(id: string, markdown: string) {
   const res = await updateBriefMarkdown(id, markdown);
@@ -27,4 +27,18 @@ export async function regeneratePostStatus() {
  */
 export async function loadApprovedPool(days = 21) {
   return fetchApprovedPool(days, 100);
+}
+
+/**
+ * Rewrite a single story body in the AfricanSTN editorial voice.
+ * Calls Gemini via the Cloud Run API.
+ */
+export async function rewriteStoryAction(payload: {
+  headline: string;
+  summary: string;
+  source_name?: string;
+  source_url?: string;
+  tone?: string | null;
+}) {
+  return rewriteStory(payload);
 }

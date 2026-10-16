@@ -94,6 +94,23 @@ export async function fetchApprovedPool(days = 21, limit = 100) {
   );
 }
 
+/**
+ * Rewrite a single story body in the AfricanSTN editorial voice via Gemini.
+ */
+export async function rewriteStory(payload: {
+  headline: string;
+  summary: string;
+  source_name?: string;
+  source_url?: string;
+  tone?: string | null;
+}) {
+  return cloudRunMutate<{ body: string }>(
+    "/api/content/rewrite-story",
+    "POST",
+    payload,
+  );
+}
+
 export async function fetchReviewStats() {
   return cloudRunFetch<ReviewStats>("/api/news/review-stats");
 }

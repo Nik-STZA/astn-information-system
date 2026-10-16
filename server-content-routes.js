@@ -474,6 +474,79 @@ app.post("/api/admin/migrate-015", async (req, res) => {
   }
 });
 
+// ─── POST /api/content/rewrite-story ─────────────────────────────────────
+// Rewrites a single story's body in the AfricanSTN editorial voice using Gemini.
+// Body: { headline, summary, source_name, source_url, tone? }
+// Returns: { body: string }
+
+const REWRITE_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+
+const REWRITE_SYSTEM = `You are an editor for the AfricanSTN Weekly Intelligence Brief — the authoritative intelligence service for professionals working in African sports technology.
+
+Rewrite the provided story into a concise brief item suitable for the weekly edition. Follow these rules exactly:
+
+VOICE: British English. Authoritative practitioner voice — not academic, not journalistic, not promotional. Short paragraphs. One idea per paragraph.
+
+FACTS ONLY: Report what happened. Every statement must be supported by the source summary. Nothing is inferred, extrapolated or embellished. Never write what could, should or might be done. No "creates opportunities for", no recommendations, no advice.
+
+STYLE: No hype. No "game-changing" or "revolutionary." No hedge words: "this suggests," "this highlights," "this indicates," "this underscores." No "foundation for", "lays the groundwork", "paves the way." Name companies, people, amounts, dates. If a detail is unknown, omit it rather than hedging.
+
+FORMAT: 2–4 short paragraphs of plain text. End with a source attribution line in markdown: *Source: [Name](URL)*
+
+TONE TAG (if provided): "lead" = slightly longer, sets the scene; "brief" = ultra-short, 1–2 paragraphs; "technical" = precise terminology; "conversational" = lighter register, still factual.
+
+Return ONLY the rewritten body text. No headline, no JSON wrapper, no commentary.`;
+
+app.post("/api/content/rewrite-story", async (req, res) => {
+  const { headline, summary, source_name, source_url, tone } = req.body;
+  if (!headline || !summary) {
+    return res.status(400).json({ error: "headline and summary are required" });
+  }
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
+  }
+
+  const userPayload = JSON.stringify({
+    headline,
+    summary,
+    source_name: source_name || "Unknown",
+    source_url: source_url || "",
+    tone: tone || null,
+  });
+
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: REWRITE_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userPayload }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 1024,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(`Gemini ${r.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No text in Gemini response");
+    res.json({ body: text.trim() });
+  } catch (err) {
+    console.error("rewrite-story error:", err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/admin/schema-check ──────────────────────────────────────────
 // Quick check of classified_items columns for debugging
 

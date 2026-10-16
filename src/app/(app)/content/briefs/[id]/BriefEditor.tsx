@@ -13,7 +13,7 @@ import {
   type StoryTone,
 } from "@/lib/brief-items";
 import { markdownToHtml } from "@/lib/markdown";
-import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool } from "./actions";
+import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction } from "./actions";
 import type { ReviewItem } from "@/lib/data/content";
 
 /**
@@ -105,6 +105,31 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
       ),
     }));
   }, [applyItemsEdit]);
+
+  // Rewrite a story body via Gemini
+  const rewriteItem = useCallback(async (sectionIdx: number, storyIdx: number) => {
+    const story = allParsed.sections[sectionIdx]?.stories[storyIdx];
+    if (!story) return;
+    const res = await rewriteStoryAction({
+      headline: story.headline,
+      summary: story.body,
+      tone: story.tone,
+    });
+    if (res && typeof res === "object" && "body" in res) {
+      const newBody = (res as { body: string }).body;
+      applyItemsEdit((prev) => ({
+        ...prev,
+        sections: prev.sections.map((sec, si) =>
+          si !== sectionIdx ? sec : {
+            ...sec,
+            stories: sec.stories.map((s, ii) =>
+              ii !== storyIdx ? s : { ...s, body: newBody }
+            ),
+          }
+        ),
+      }));
+    }
+  }, [allParsed, applyItemsEdit]);
 
   async function save() {
     setBusy("save");
@@ -222,6 +247,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
             onToggle={toggleItem}
             onMove={moveStory}
             onTone={setTone}
+            onRewrite={rewriteItem}
           />
         ) : (
           <AvailablePool
@@ -287,11 +313,13 @@ function ItemsPanel({
   onToggle,
   onMove,
   onTone,
+  onRewrite,
 }: {
   parsed: ParsedBrief;
   onToggle: (si: number, ii: number) => void;
   onMove: (fromSi: number, fromIi: number, toSi: number, toIi: number) => void;
   onTone: (si: number, ii: number, tone: StoryTone) => void;
+  onRewrite: (si: number, ii: number) => Promise<void>;
 }) {
   const storySections = parsed.sections
     .map((s, si) => ({ section: s, si }))
@@ -350,6 +378,7 @@ function ItemsPanel({
                   isDragging={dragSource?.si === si && dragSource?.ii === ii}
                   onToggle={() => onToggle(si, ii)}
                   onTone={(tone) => onTone(si, ii, tone)}
+                  onRewrite={() => onRewrite(si, ii)}
                   onDragStart={() => handleDragStart(si, ii)}
                   onDragEnd={handleDragEnd}
                 />
@@ -403,6 +432,7 @@ function StoryRow({
   isDragging,
   onToggle,
   onTone,
+  onRewrite,
   onDragStart,
   onDragEnd,
 }: {
@@ -410,9 +440,11 @@ function StoryRow({
   isDragging: boolean;
   onToggle: () => void;
   onTone: (tone: StoryTone) => void;
+  onRewrite: () => Promise<void>;
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
+  const [rewriting, setRewriting] = useState(false);
   return (
     <div
       draggable
@@ -468,7 +500,7 @@ function StoryRow({
         </span>
       </div>
       {story.included && (
-        <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap", alignItems: "center" }}>
           {TONE_OPTIONS.map(({ key, label }) => (
             <button
               key={key}
@@ -488,6 +520,29 @@ function StoryRow({
               {label}
             </button>
           ))}
+          <button
+            disabled={rewriting}
+            onClick={async () => {
+              setRewriting(true);
+              try { await onRewrite(); } finally { setRewriting(false); }
+            }}
+            style={{
+              fontSize: 9.5,
+              padding: "1px 6px",
+              borderRadius: 3,
+              border: "1px solid var(--gold-dark)",
+              background: rewriting ? "var(--table-header)" : "transparent",
+              color: "var(--gold-dark)",
+              cursor: rewriting ? "wait" : "pointer",
+              fontWeight: 600,
+              lineHeight: 1.6,
+              marginLeft: 4,
+              opacity: rewriting ? 0.6 : 1,
+            }}
+            title="Rewrite this story in AfricanSTN editorial voice via Gemini"
+          >
+            {rewriting ? "Rewriting…" : "✎ Rewrite"}
+          </button>
         </div>
       )}
     </div>
