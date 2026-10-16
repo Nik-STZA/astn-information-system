@@ -55,6 +55,12 @@ const add = (what, r, note = "") => {
     rows.push({ what, result: "n/a", ms: r.ms, note: "not used on this record or organisation" });
     return;
   }
+  // Payroll answers 401 with this text when the organisation has no Xero
+  // Payroll, or the connecting user is not a payroll administrator there.
+  if (r.status === 502 && /Payroll provisioned/.test(r.body?.detail?.body || "")) {
+    rows.push({ what, result: "n/a", ms: r.ms, note: "Xero Payroll not provisioned, or user not payroll admin" });
+    return;
+  }
   const pass = r.status >= 200 && r.status < 300;
   const detail = !pass && r.body && r.body.error ? String(r.body.error).slice(0, 90) : "";
   rows.push({ what, result: pass ? "pass" : `FAIL ${r.status}`, ms: r.ms, note: note || detail });
