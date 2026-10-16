@@ -22,6 +22,7 @@ export type BriefStory = {
   body: string;          // everything between this ### and the next ### or ##
   included: boolean;     // user toggle
   tone: StoryTone;       // editorial tag — null means use brief-level default
+  linkedinInclude: boolean; // flag: must appear in the LinkedIn post
 };
 
 export type BriefSection = {
@@ -81,7 +82,9 @@ export function parseBriefMarkdown(md: string): ParsedBrief {
 
     const stories: BriefStory[] = storyChunks.map((sc, ii) => {
       const storyLines = sc.split("\n");
-      const headline = (storyLines[0] ?? "").replace(/^### /, "").trim();
+      const rawHeadline = (storyLines[0] ?? "").replace(/^### /, "").trim();
+      const linkedinInclude = /<!--\s*linkedin\s*-->/.test(rawHeadline);
+      const headline = rawHeadline.replace(/\s*<!--\s*linkedin\s*-->\s*/, "").trim();
       const body = storyLines.slice(1).join("\n");
       return {
         id: `s${si}-i${ii}`,
@@ -89,6 +92,7 @@ export function parseBriefMarkdown(md: string): ParsedBrief {
         body,
         included: true,
         tone: null as StoryTone,
+        linkedinInclude,
       };
     });
 
@@ -131,7 +135,10 @@ export function rebuildBriefMarkdown(parsed: ParsedBrief): string {
     if (includedStories.length === 0) continue;
 
     const storiesMarkdown = includedStories
-      .map((s) => `### ${s.headline}\n${s.body}`)
+      .map((s) => {
+        const h = s.linkedinInclude ? `${s.headline} <!-- linkedin -->` : s.headline;
+        return `### ${h}\n${s.body}`;
+      })
       .join("");
 
     const sectionMd = section.preamble.trim()
@@ -170,11 +177,20 @@ export function mergeExcluded(fresh: ParsedBrief, prev: ParsedBrief): ParsedBrie
     sections: fresh.sections.map((freshSec) => {
       const prevSec = prev.sections.find((ps) => ps.heading === freshSec.heading);
       if (!prevSec) return freshSec;
+
+      // Carry over tone and linkedinInclude from previous state for matching stories
+      const prevByHeadline = new Map(prevSec.stories.map((s) => [s.headline, s]));
+      const mergedStories = freshSec.stories.map((s) => {
+        const prev = prevByHeadline.get(s.headline);
+        if (!prev) return s;
+        return { ...s, tone: prev.tone, linkedinInclude: prev.linkedinInclude };
+      });
+
       const excludedStories = prevSec.stories.filter((s) => !s.included);
       const freshHeadlines = new Set(freshSec.stories.map((s) => s.headline));
       const toRestore = excludedStories.filter((s) => !freshHeadlines.has(s.headline));
-      if (toRestore.length === 0) return freshSec;
-      return { ...freshSec, stories: [...freshSec.stories, ...toRestore] };
+      if (toRestore.length === 0) return { ...freshSec, stories: mergedStories };
+      return { ...freshSec, stories: [...mergedStories, ...toRestore] };
     }),
   };
 }

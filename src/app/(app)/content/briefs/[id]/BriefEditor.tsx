@@ -106,6 +106,20 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
     }));
   }, [applyItemsEdit]);
 
+  const toggleLinkedIn = useCallback((sectionIdx: number, storyIdx: number) => {
+    applyItemsEdit((prev) => ({
+      ...prev,
+      sections: prev.sections.map((sec, si) =>
+        si !== sectionIdx ? sec : {
+          ...sec,
+          stories: sec.stories.map((s, ii) =>
+            ii !== storyIdx ? s : { ...s, linkedinInclude: !s.linkedinInclude }
+          ),
+        }
+      ),
+    }));
+  }, [applyItemsEdit]);
+
   // Rewrite a story body via Gemini
   const rewriteItem = useCallback(async (sectionIdx: number, storyIdx: number) => {
     const story = allParsed.sections[sectionIdx]?.stories[storyIdx];
@@ -247,6 +261,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
             onToggle={toggleItem}
             onMove={moveStory}
             onTone={setTone}
+            onLinkedIn={toggleLinkedIn}
             onRewrite={rewriteItem}
           />
         ) : (
@@ -313,12 +328,14 @@ function ItemsPanel({
   onToggle,
   onMove,
   onTone,
+  onLinkedIn,
   onRewrite,
 }: {
   parsed: ParsedBrief;
   onToggle: (si: number, ii: number) => void;
   onMove: (fromSi: number, fromIi: number, toSi: number, toIi: number) => void;
   onTone: (si: number, ii: number, tone: StoryTone) => void;
+  onLinkedIn: (si: number, ii: number) => void;
   onRewrite: (si: number, ii: number) => Promise<void>;
 }) {
   const storySections = parsed.sections
@@ -387,6 +404,7 @@ function ItemsPanel({
                   isDragging={dragSource?.si === si && dragSource?.ii === ii}
                   onToggle={() => onToggle(si, ii)}
                   onTone={(tone) => onTone(si, ii, tone)}
+                  onLinkedIn={() => onLinkedIn(si, ii)}
                   onRewrite={() => onRewrite(si, ii)}
                   onDragStart={() => handleDragStart(si, ii)}
                   onDragEnd={handleDragEnd}
@@ -444,6 +462,7 @@ function StoryRow({
   isDragging,
   onToggle,
   onTone,
+  onLinkedIn,
   onRewrite,
   onDragStart,
   onDragEnd,
@@ -455,6 +474,7 @@ function StoryRow({
   isDragging: boolean;
   onToggle: () => void;
   onTone: (tone: StoryTone) => void;
+  onLinkedIn: () => void;
   onRewrite: () => Promise<void>;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -571,6 +591,24 @@ function StoryRow({
                 ⚠ no source
               </span>
             )}
+            <button
+              onClick={onLinkedIn}
+              style={{
+                fontSize: 9.5,
+                padding: "1px 6px",
+                borderRadius: 3,
+                border: story.linkedinInclude ? "1px solid var(--gold-dark)" : "1px solid var(--bd)",
+                background: story.linkedinInclude ? "var(--gold-dark)" : "transparent",
+                color: story.linkedinInclude ? "#fff" : "var(--sub)",
+                cursor: "pointer",
+                fontWeight: story.linkedinInclude ? 700 : 500,
+                lineHeight: 1.6,
+                marginLeft: 4,
+              }}
+              title={story.linkedinInclude ? "Must appear in LinkedIn post (click to remove)" : "Flag to include in LinkedIn post"}
+            >
+              LI
+            </button>
           </div>
           {sectionNames.length > 1 && (
             <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap", marginTop: 2 }}>
@@ -722,6 +760,7 @@ function AvailablePool({
       body: `${item.summary ?? ""}\n\n*Source: [${item.source_name ?? "Link"}](${item.url})*\n`,
       included: true,
       tone: null,
+      linkedinInclude: false,
     };
     onInsert(sectionIdx, newStory);
     setTimeout(() => setAddingId(null), 600);
