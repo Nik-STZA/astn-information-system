@@ -414,28 +414,39 @@ const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
 const XERO_SCOPES = [
   "openid",
+  "profile",
+  "email",
   "offline_access",
-  "accounting.settings.read",
-  "accounting.contacts.read",
-  "accounting.invoices.read",
-  "accounting.banktransactions.read",
+  // Widened 16 Oct 2026 to the laptop MCP's 23 scopes on the same STZA Finance
+  // app, so the portal and the laptop hold the same grant (one engine; see
+  // docs/ap-lane/xero-capability-register.md). Each scope was probed against
+  // the authorize URL on 16 Oct and accepted. A scope only permits a call: no
+  // write happens without a finance-api endpoint, and every write endpoint keeps
+  // the draft-then-approve rule. Existing connections keep their old grant until
+  // each entity reconnects.
+  "accounting.settings",
+  "accounting.contacts",
+  "accounting.invoices",
+  "accounting.payments",
+  "accounting.banktransactions",
   "accounting.manualjournals",
+  "accounting.attachments",
+  "accounting.budgets.read",
+  "files",
+  "assets",
+  "payroll.settings.read",
+  "payroll.payruns.read",
   "accounting.reports.trialbalance.read",
   "accounting.reports.balancesheet.read",
   "accounting.reports.profitandloss.read",
   "accounting.reports.banksummary.read",
   "accounting.reports.aged.read",
-  // Added 11 Sep 2026. Payments feed the pack-changes check (what moved since
-  // the last pack) and, with the executive summary, were gating the
-  // reporting-script migration. Existing connections keep their old grant until
-  // each entity reconnects.
-  //
+  "accounting.reports.executivesummary.read",
+  "accounting.reports.budgetsummary.read",
   // accounting.journals.read is deliberately absent: Xero answers invalid_scope
   // for it on this app (granular scopes), and one invalid scope makes Xero reject
   // the whole authorisation, so adding it would break every connection. Test any
   // change here against the authorize URL before deploying.
-  "accounting.payments.read",
-  "accounting.reports.executivesummary.read",
 ].join(" ");
 
 app.get("/api/finance/xero/authorize-url", route(async (req, res) => {
@@ -1894,7 +1905,8 @@ async function xeroGet(accessToken, tenantId, path, params = {}, extraHeaders = 
 // against the inventory: /CreditNotes and /Reports/BudgetSummary had no caller
 // anywhere, and /Reports/AccountTransactions is not a Xero endpoint at all —
 // xero-server.py:590 records that account-level transactions come from
-// /Journals, which is why that one stays.
+// /Journals, which kept that one until 16 Oct 2026 (removed below: the scope
+// cannot be granted).
 //
 // An allowlist that promises more than the grant can deliver is worse than a
 // short one: the caller gets a 401 from Xero instead of an honest 404 listing
@@ -1910,7 +1922,8 @@ const XERO_READ_RESOURCES = {
   // one. The management pack's supplier tabs, rebuilt from documents because
   // /Journals cannot be granted, need supplier credits to reconcile to the P&L.
   "credit-notes": "/CreditNotes",
-  journals: "/Journals",
+  // journals ("/Journals") removed 16 Oct 2026: accounting.journals.read cannot
+  // be granted to this app, so the entry could only ever return 401.
   "tax-rates": "/TaxRates",
   "tracking-categories": "/TrackingCategories",
 };
