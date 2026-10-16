@@ -129,15 +129,18 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
       summary: story.body,
       tone: story.tone,
     });
-    if (res && typeof res === "object" && "body" in res) {
-      const newBody = (res as { body: string }).body;
+    if (res.error) {
+      setMsg({ ok: false, text: `Rewrite failed: ${res.error}` });
+      return;
+    }
+    if (res.data?.body) {
       applyItemsEdit((prev) => ({
         ...prev,
         sections: prev.sections.map((sec, si) =>
           si !== sectionIdx ? sec : {
             ...sec,
             stories: sec.stories.map((s, ii) =>
-              ii !== storyIdx ? s : { ...s, body: newBody }
+              ii !== storyIdx ? s : { ...s, body: res.data!.body }
             ),
           }
         ),
@@ -160,12 +163,15 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
     setContextBusy(true);
     try {
       const res = await rewriteContextAction(included);
-      if (res && typeof res === "object" && "context" in res) {
-        const newContext = (res as { context: string }).context;
+      if (res.error) {
+        setMsg({ ok: false, text: `Context regeneration failed: ${res.error}` });
+        return;
+      }
+      if (res.data?.context) {
         applyItemsEdit((prev) => ({
           ...prev,
           sections: prev.sections.map((sec) =>
-            sec.isContextSection ? { ...sec, preamble: "\n" + newContext + "\n" } : sec
+            sec.isContextSection ? { ...sec, preamble: "\n" + res.data!.context + "\n" } : sec
           ),
         }));
       }

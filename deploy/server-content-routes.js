@@ -327,8 +327,10 @@ app.post("/api/content/ingest", async (req, res) => {
                 source.category,
                 // This ingester does no classification — it cannot judge relevance,
                 // so it must not assert one. 0.0 keeps unscored items below the
-                // review queue's 0.4 candidate threshold until something that
-                // actually reads the article scores it.
+                // review queue's 0.4 candidate threshold (and the weekly report's
+                // same threshold in africanstn-research-agent) until something that
+                // actually reads the article scores it. The previous 0.5 was above
+                // both thresholds, so every fetched item passed as "relevant".
                 0.0,
                 source.languages ? source.languages.split(",")[0].trim() : "en",
                 source.region_focus,
@@ -469,6 +471,146 @@ app.post("/api/admin/migrate-015", async (req, res) => {
     res.status(500).json({ error: err.message, results });
   } finally {
     conn.release();
+  }
+});
+
+// ─── POST /api/content/rewrite-story ─────────────────────────────────────
+// Rewrites a single story's body in the AfricanSTN editorial voice using Gemini.
+// Body: { headline, summary, source_name, source_url, tone? }
+// Returns: { body: string }
+
+const REWRITE_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+
+const REWRITE_SYSTEM = `You are an editor for the AfricanSTN Weekly Intelligence Brief — the authoritative intelligence service for professionals working in African sports technology.
+
+Rewrite the provided story into a concise brief item suitable for the weekly edition. Follow these rules exactly:
+
+VOICE: British English. Authoritative practitioner voice — not academic, not journalistic, not promotional. Short paragraphs. One idea per paragraph.
+
+FACTS ONLY: Report what happened. Every statement must be supported by the source summary. Nothing is inferred, extrapolated or embellished. Never write what could, should or might be done. No "creates opportunities for", no recommendations, no advice.
+
+STYLE: No hype. No "game-changing" or "revolutionary." No hedge words: "this suggests," "this highlights," "this indicates," "this underscores." No "foundation for", "lays the groundwork", "paves the way." Name companies, people, amounts, dates. If a detail is unknown, omit it rather than hedging.
+
+FORMAT: 2–4 short paragraphs of plain text. End with a source attribution line in markdown: *Source: [Name](URL)*
+
+TONE TAG (if provided): "lead" = slightly longer, sets the scene; "brief" = ultra-short, 1–2 paragraphs; "technical" = precise terminology; "conversational" = lighter register, still factual.
+
+Return ONLY the rewritten body text. No headline, no JSON wrapper, no commentary.`;
+
+app.post("/api/content/rewrite-story", async (req, res) => {
+  const { headline, summary, source_name, source_url, tone } = req.body;
+  if (!headline || !summary) {
+    return res.status(400).json({ error: "headline and summary are required" });
+  }
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
+  }
+
+  const userPayload = JSON.stringify({
+    headline,
+    summary,
+    source_name: source_name || "Unknown",
+    source_url: source_url || "",
+    tone: tone || null,
+  });
+
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: REWRITE_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userPayload }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 1024,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(`Gemini ${r.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No text in Gemini response");
+    res.json({ body: text.trim() });
+  } catch (err) {
+    console.error("rewrite-story error:", err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/content/rewrite-context ────────────────────────────────────
+// Regenerates the "Week in Context" summary from the current included stories.
+// Body: { stories: Array<{ headline: string; body: string }> }
+// Returns: { context: string }
+
+const CONTEXT_SYSTEM = `You are an editor for the AfricanSTN Weekly Intelligence Brief — the authoritative intelligence service for professionals working in African sports technology.
+
+Write the "Week in Context" section for this week's brief. This section draws connections across the week's stories, identifying patterns and themes. Follow these rules exactly:
+
+VOICE: British English. Authoritative practitioner voice — not academic, not journalistic, not promotional.
+
+OBSERVATION ONLY: Each bullet links two or more of this week's stories. State the pattern you see. Never speculate, advise, recommend, or suggest what should or could be done. No "creates opportunities for", no recommendations.
+
+STYLE: No hype. No "game-changing" or "revolutionary." No hedge words: "this suggests," "this highlights," "this indicates," "this underscores." No "foundation for", "lays the groundwork", "paves the way."
+
+FORMAT: 3–6 bullet points as a markdown unordered list. Each bullet is one sentence linking two or more stories from this week. Reference specific headlines or facts from the stories.
+
+Return ONLY the bullet list. No heading, no introduction, no JSON wrapper, no commentary.`;
+
+app.post("/api/content/rewrite-context", async (req, res) => {
+  const { stories } = req.body;
+  if (!Array.isArray(stories) || stories.length === 0) {
+    return res.status(400).json({ error: "stories array is required" });
+  }
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
+  }
+
+  const storySummaries = stories.map((s, i) =>
+    `${i + 1}. **${s.headline}**\n${s.body.trim()}`
+  ).join("\n\n");
+
+  const userPayload = `Here are this week's included stories:\n\n${storySummaries}`;
+
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: CONTEXT_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userPayload }] }],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 1024,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(`Gemini ${r.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No text in Gemini response");
+    res.json({ context: text.trim() });
+  } catch (err) {
+    console.error("rewrite-context error:", err.message);
+    res.status(502).json({ error: err.message });
   }
 });
 
