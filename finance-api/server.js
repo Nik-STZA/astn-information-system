@@ -32,6 +32,12 @@ const {
   isTokenRejection,
 } = require("./lib/xero");
 const {
+  XERO_READ_REPORTS,
+  resolveRead,
+  stripPersonal,
+  allowed: readAllowed,
+} = require("./lib/xero-read");
+const {
   balancesForCodes,
   buildXeroPayload,
   fromPence,
@@ -1901,19 +1907,23 @@ function erpUnavailable(res, ctx) {
 
 // extraHeaders is for internal callers only (the pack change check sends
 // If-Modified-Since). The read passthrough never forwards a caller's headers.
-async function xeroGet(accessToken, tenantId, path, params = {}, extraHeaders = {}) {
+// One Xero GET. `url` is either an accounting path ("/Invoices") or a full URL
+// on another Xero API (Files, Assets, Payroll). Returns the fetch Response;
+// non-2xx responses throw with Xero's body attached.
+async function xeroFetch(accessToken, tenantId, url, params = {}, { accept = "application/json", extraHeaders = {} } = {}) {
+  const full = url.startsWith("https://") ? url : `${XERO_API}${url}`;
   const qs = new URLSearchParams(params).toString();
-  const url = `${XERO_API}${path}${qs ? `?${qs}` : ""}`;
-  const r = await fetch(url, {
+  const r = await fetch(`${full}${qs ? `?${qs}` : ""}`, {
     headers: {
       ...extraHeaders,
       Authorization: `Bearer ${accessToken}`,
       "Xero-Tenant-Id": tenantId,
-      Accept: "application/json",
+      Accept: accept,
     },
   });
   if (!r.ok) {
     const body = await r.text().catch(() => "");
+    const path = full.replace(/^https:\/\/api\.xero\.com/, "");
     // Only drop the cached token when Xero is rejecting the token itself. A 401
     // for a scope that was never granted is permanent, so invalidating on it
     // would refresh — and rotate — on every call of a loop that can never
@@ -1929,6 +1939,11 @@ async function xeroGet(accessToken, tenantId, path, params = {}, extraHeaders = 
     err.httpStatus = 502;
     throw err;
   }
+  return r;
+}
+
+async function xeroGet(accessToken, tenantId, path, params = {}, extraHeaders = {}) {
+  const r = await xeroFetch(accessToken, tenantId, path, params, { extraHeaders });
   return r.json();
 }
 
@@ -1956,42 +1971,14 @@ async function xeroGet(accessToken, tenantId, path, params = {}, extraHeaders = 
 // An allowlist that promises more than the grant can deliver is worse than a
 // short one: the caller gets a 401 from Xero instead of an honest 404 listing
 // what is actually available.
-const XERO_READ_RESOURCES = {
-  accounts: "/Accounts",
-  invoices: "/Invoices",
-  contacts: "/Contacts",
-  payments: "/Payments",
-  "bank-transactions": "/BankTransactions",
-  "manual-journals": "/ManualJournals",
-  // Restored 11 Sep 2026: removed on 14 Aug for having no caller, it now has
-  // one. The management pack's supplier tabs, rebuilt from documents because
-  // /Journals cannot be granted, need supplier credits to reconcile to the P&L.
-  "credit-notes": "/CreditNotes",
-  // journals ("/Journals") removed 16 Oct 2026: accounting.journals.read cannot
-  // be granted to this app, so the entry could only ever return 401.
-  "tax-rates": "/TaxRates",
-  "tracking-categories": "/TrackingCategories",
-};
-
-const XERO_READ_REPORTS = {
-  "trial-balance": "/Reports/TrialBalance",
-  "profit-and-loss": "/Reports/ProfitAndLoss",
-  "balance-sheet": "/Reports/BalanceSheet",
-  "bank-summary": "/Reports/BankSummary",
-  "executive-summary": "/Reports/ExecutiveSummary",
-  "aged-receivables": "/Reports/AgedReceivablesByContact",
-  "aged-payables": "/Reports/AgedPayablesByContact",
-};
-
-async function xeroReadPassthrough(req, res, xeroPath) {
-  if (!xeroPath) {
-    return res.status(404).json({
-      error: "unknown resource",
-      allowed: {
-        resources: Object.keys(XERO_READ_RESOURCES),
-        reports: Object.keys(XERO_READ_REPORTS),
-      },
-    });
+//
+// Widened 16 Oct 2026 to every read tool in the laptop MCP, so the portal and
+// the laptop reach the same data through one token holder. The allowlist and
+// the payroll redaction live in lib/xero-read.js, where they are tested.
+async function xeroReadPassthrough(req, res, target) {
+  if (!target.ok) {
+    const { ok, status, ...body } = target;
+    return res.status(status).json(body);
   }
   const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
@@ -2001,44 +1988,62 @@ async function xeroReadPassthrough(req, res, xeroPath) {
   // order, page, date, fromDate, toDate, periods, timeframe) differ per
   // resource and re-implementing them here would just be a second place to be
   // wrong.
-  const data = await xeroGet(ctx.accessToken, ctx.tenantId, xeroPath, req.query);
-  res.json({ entity: ctx.entity.name, resource: xeroPath, data });
+  const r = await xeroFetch(ctx.accessToken, ctx.tenantId, target.url, req.query, { accept: target.accept });
+
+  if (target.binary) {
+    // PDFs, attachments and Files content: passed through as bytes, never
+    // parsed. Content-Disposition names the file when Xero supplies one.
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set("Content-Type", r.headers.get("content-type") || target.accept);
+    const disposition = r.headers.get("content-disposition");
+    if (disposition) res.set("Content-Disposition", disposition);
+    res.set("X-Xero-Entity", ctx.entity.name);
+    return res.send(buf);
+  }
+
+  let data = await r.json();
+  if (target.personal) data = stripPersonal(data);
+  res.json({
+    entity: ctx.entity.name,
+    resource: target.path,
+    ...(target.personal ? { note: "Per-person payroll data removed by the server." } : {}),
+    data,
+  });
 }
 
+const reportTarget = (report) => {
+  const path = XERO_READ_REPORTS[report];
+  return path
+    ? { ok: true, url: path, path, accept: "application/json", binary: false, personal: false }
+    : { ok: false, status: 404, error: "unknown report", allowed: readAllowed() };
+};
+
 // GET /api/finance/clients/:slug/xero/:entity/read/reports/:report
-// Registered before the :resource route so "reports" is never read as one.
+// Registered before the :resource routes so "reports" is never read as one.
 app.get("/api/finance/clients/:slug/xero/:entity/read/reports/:report", route(async (req, res) =>
-  xeroReadPassthrough(req, res, XERO_READ_REPORTS[req.params.report])
+  xeroReadPassthrough(req, res, reportTarget(req.params.report))
 ));
 
-// GET /api/finance/clients/:slug/xero/:entity/read/:resource/:id/history
-// One document's change history: what changed, when, and by whom. Read-only
-// like the rest of the passthrough. Callers: the pack-changes check, which must
-// tell a bill that was merely paid (nothing posts to its period) from one whose
-// lines were edited, and the stza-xero plugin's get_history.
-const XERO_HISTORY_RESOURCES = new Set([
-  "invoices", "credit-notes", "manual-journals", "bank-transactions", "payments",
-]);
+// GET .../read/:resource/:id/attachments/:name   one attached file (bytes)
+app.get("/api/finance/clients/:slug/xero/:entity/read/:resource/:id/attachments/:name", route(async (req, res) =>
+  xeroReadPassthrough(req, res, resolveRead(req.params))
+));
 
-app.get("/api/finance/clients/:slug/xero/:entity/read/:resource/:id/history", route(async (req, res) => {
-  const { resource, id } = req.params;
-  if (!XERO_HISTORY_RESOURCES.has(resource)) {
-    return res.status(404).json({ error: "history is not available for this resource", allowed: [...XERO_HISTORY_RESOURCES] });
-  }
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: "id must be a Xero GUID" });
+// GET .../read/:resource/:id/:sub   history, attachments, pdf, online, cis,
+// associations, content. History callers include the pack-changes check, which
+// must tell a bill that was merely paid from one whose lines were edited.
+app.get("/api/finance/clients/:slug/xero/:entity/read/:resource/:id/:sub", route(async (req, res) =>
+  xeroReadPassthrough(req, res, resolveRead(req.params))
+));
 
-  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
-  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return erpUnavailable(res, ctx);
+// GET .../read/:resource/:id   one record
+app.get("/api/finance/clients/:slug/xero/:entity/read/:resource/:id", route(async (req, res) =>
+  xeroReadPassthrough(req, res, resolveRead(req.params))
+));
 
-  const path = `${XERO_READ_RESOURCES[resource]}/${id}/History`;
-  const data = await xeroGet(ctx.accessToken, ctx.tenantId, path);
-  res.json({ entity: ctx.entity.name, resource: path, data });
-}));
-
-// GET /api/finance/clients/:slug/xero/:entity/read/:resource
+// GET .../read/:resource   a list (Xero's own filters pass through)
 app.get("/api/finance/clients/:slug/xero/:entity/read/:resource", route(async (req, res) =>
-  xeroReadPassthrough(req, res, XERO_READ_RESOURCES[req.params.resource])
+  xeroReadPassthrough(req, res, resolveRead(req.params))
 ));
 
 // GET /api/finance/clients/:slug/xero/:entity/trial-balance
