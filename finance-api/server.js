@@ -1988,7 +1988,7 @@ async function xeroReadPassthrough(req, res, target) {
   // order, page, date, fromDate, toDate, periods, timeframe) differ per
   // resource and re-implementing them here would just be a second place to be
   // wrong.
-  const r = await xeroFetch(ctx.accessToken, ctx.tenantId, target.url, req.query, { accept: target.accept });
+  const r = await xeroFetch(ctx.accessToken, ctx.tenantId, target.url, { ...(target.defaults || {}), ...req.query }, { accept: target.accept });
 
   if (target.binary) {
     // PDFs, attachments and Files content: passed through as bytes, never

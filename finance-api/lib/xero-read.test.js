@@ -44,6 +44,12 @@ describe("resolveRead: lists and records", () => {
     expect(resolveRead({ resource: "tax-rates", id: ID }).status).toBe(404);
   });
 
+  it("defaults the fixed asset list to REGISTERED, and only the list", () => {
+    expect(resolveRead({ resource: "assets" }).defaults).toEqual({ status: "REGISTERED" });
+    expect(resolveRead({ resource: "assets", id: ID }).defaults).toEqual({});
+    expect(resolveRead({ resource: "invoices" }).defaults).toEqual({});
+  });
+
   it("needs an id for object associations", () => {
     expect(resolveRead({ resource: "object-associations" }).status).toBe(400);
     expect(resolveRead({ resource: "object-associations", id: ID }).url)

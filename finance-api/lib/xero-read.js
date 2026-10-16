@@ -42,7 +42,8 @@ const XERO_READ_RESOURCES = {
   // Settings and organisation
   organisation: { path: "/Organisation", subs: ["cis"], idIsOrg: true },
   "organisation-actions": { path: "/Organisation/Actions" },
-  users: { path: "/Users", byId: true },
+  // Users by id answers 404 (checked 16 Oct 2026); the list carries every field.
+  users: { path: "/Users" },
   currencies: { path: "/Currencies" },
   "branding-themes": { path: "/BrandingThemes", byId: true },
   accounts: { path: "/Accounts", byId: true, subs: ["attachments"] },
@@ -70,8 +71,9 @@ const XERO_READ_RESOURCES = {
   overpayments: { path: "/Overpayments", byId: true, subs: ["history"] },
   "bank-transactions": { path: "/BankTransactions", byId: true, subs: HISTORY_ATTACH },
   "bank-transfers": { path: "/BankTransfers", byId: true, subs: HISTORY_ATTACH },
-  receipts: { path: "/Receipts", byId: true, subs: HISTORY_ATTACH },
-  "expense-claims": { path: "/ExpenseClaims", byId: true, subs: ["history"] },
+  // /Receipts and /ExpenseClaims are not here: both answer 401 on this app,
+  // laptop included (checked 16 Oct 2026). They are Xero's retired expenses
+  // endpoints and no granular scope reaches them.
 
   // Journals. /Journals (ledger journals) is not here: accounting.journals.read
   // cannot be granted to this app, so it could only ever return 401.
@@ -79,7 +81,9 @@ const XERO_READ_RESOURCES = {
 
   // Budgets and published reports
   budgets: { path: "/Budgets", byId: true },
-  "published-reports": { path: "/Reports", byId: true },
+  // Published reports (/Reports) are not here: the list answers 401 on this
+  // app, laptop included (checked 16 Oct 2026); it needs the broad
+  // accounting.reports.read scope, which post-March 2026 apps cannot have.
 
   // Xero Files (the Documents inbox and library)
   files: { api: "files", path: "/Files", byId: true, subs: ["associations", "content"] },
@@ -89,7 +93,9 @@ const XERO_READ_RESOURCES = {
   "object-associations": { api: "files", path: "/Associations", byId: true, idRequired: true },
 
   // Fixed assets
-  assets: { api: "assets", path: "/Assets", byId: true },
+  // The list needs a status (DRAFT, REGISTERED or DISPOSED) or Xero answers
+  // 403; REGISTERED is the default, as on the laptop. A caller's own wins.
+  assets: { api: "assets", path: "/Assets", byId: true, listQuery: { status: "REGISTERED" } },
   "asset-types": { api: "assets", path: "/AssetTypes" },
   "asset-settings": { api: "assets", path: "/Settings" },
 
@@ -189,6 +195,7 @@ function done(base, path, def) {
     ok: true,
     url: `${base}${path}`,
     path,
+    defaults: path === def.path ? def.listQuery || {} : {},
     accept: "application/json",
     binary: false,
     personal: Boolean(def.personal),
