@@ -479,7 +479,7 @@ app.post("/api/admin/migrate-015", async (req, res) => {
 // Body: { headline, summary, source_name, source_url, tone? }
 // Returns: { body: string }
 
-const REWRITE_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const REWRITE_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 const REWRITE_SYSTEM = `You are an editor for the AfricanSTN Weekly Intelligence Brief — the authoritative intelligence service for professionals working in African sports technology.
 
