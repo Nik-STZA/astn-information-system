@@ -2993,6 +2993,471 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
   res.status(201).json(responseBody);
 }));
 
+// ── Draft-tier writes (parity with the laptop MCP) ──────────────────────────
+//
+// POST /api/finance/clients/:slug/xero/:entity/write/<operation>
+//
+// The note and draft tiers of the laptop MCP's write tools, served from the
+// one token holder (docs/ap-lane/xero-capability-register.md). Rules live in
+// lib/xero-write.js, where they are tested. Every route:
+//
+//   * needs X-Actor-Email, and the tier switched on for the entity
+//     (accounting_system_config.write_policy; note and draft default on);
+//   * is a DRY RUN unless the body says dry_run: false. A dry run validates
+//     against Xero's live data and returns the exact payload, writing nothing;
+//   * refuses anything past SUBMITTED. A person approves in Xero;
+//   * sends an Idempotency-Key, so a retried call cannot create a second
+//     document, and retries only 429 and 5xx, which the key makes safe;
+//   * writes a history note to the Xero record, and an audit row here for
+//     every attempt, refused, dry or real.
+//
+// Uploads (attachments, Files) take the file as the raw request body, with
+// the other fields in the query string, so a 25 MB PDF is not base64'd into
+// JSON.
+
+const writeRules = require("./lib/xero-write");
+const crypto = require("crypto");
+const XERO_FILES_API = "https://api.xero.com/files.xro/1.0";
+
+async function xeroSend(ctx, method, url, { json, raw, form, contentType, key }) {
+  const full = url.startsWith("https://") ? url : `${XERO_API}${url}`;
+  let last;
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    const headers = {
+      Authorization: `Bearer ${ctx.accessToken}`,
+      "Xero-Tenant-Id": ctx.tenantId,
+      Accept: "application/json",
+      "Idempotency-Key": key,
+    };
+    let body;
+    if (form) {
+      body = form(); // a fresh FormData per attempt; fetch sets the boundary
+    } else if (raw) {
+      headers["Content-Type"] = contentType || "application/octet-stream";
+      body = raw;
+    } else if (json !== undefined) {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify(json);
+    }
+    const r = await fetch(full, { method, headers, body });
+    const text = await r.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+    last = { status: r.status, ok: r.ok, body: parsed, text };
+    const retry = r.status === 429 || r.status >= 500;
+    if (!retry || attempt === 3) return last;
+    const wait = Math.max(1, Math.min(Number(r.headers.get("retry-after")) || 5, 60));
+    await new Promise((done) => setTimeout(done, (wait + 1) * 1000));
+  }
+  return last;
+}
+
+async function addXeroHistory(ctx, resource, id, details) {
+  const text = writeRules.historyText(details).slice(0, writeRules.HISTORY_MAX_CHARS);
+  const json = { HistoryRecords: [{ Details: text }] };
+  const key = writeRules.idempotencyKey(ctx.entity.slug, `history:${resource}:${id}`, json);
+  const r = await xeroSend(ctx, "PUT", `/${resource}/${id}/History`, { json, key });
+  return r.ok
+    ? { written: true, details: text }
+    : { written: false, http_status: r.status, xero_errors: writeRules.xeroErrors(r.body) };
+}
+
+// One audit row per attempt. Payloads are kept (they are what was asked of the
+// ledger); file bytes never are, only their size and hash.
+async function auditWrite(ctx, req, { tool, tier, result, payload }) {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  const action = result.validation !== "PASS"
+    ? `${tool}_refused`
+    : result.dry_run ? `${tool}_dry_run` : `${tool}_${String(result.action || "").toLowerCase()}`;
+  let conn;
+  try {
+    conn = await pool.connect();
+    const role = await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [ctx.client.id, actorEmail]);
+    return await audit(conn, {
+      actorEmail,
+      actorRole: role.rows[0]?.role,
+      action,
+      targetType: "xero_write",
+      targetId: result.idempotency_key || tool,
+      clientId: ctx.client.id,
+      payload: { tool, tier, entity: ctx.entity.slug, ...result, payload },
+      ip: req.get("X-Forwarded-For") || req.ip,
+    });
+  } catch (e) {
+    // An audit failure is reported in the response rather than hiding the
+    // write's own outcome.
+    console.error(`audit of ${tool} failed: ${e.message}`);
+    return `NOT WRITTEN: ${e.message}`;
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
+// The shared shape of every write route: context, tier, validation, dry run
+// or write, history note, audit. `plan(ctx, input, req)` checks the request
+// against Xero and returns { issues, operation, payload, send(key), saved?,
+// describe?, history?, extra? }.
+//
+// The access token is acquired (xeroEntityContext) before any pooled
+// connection is taken, for the reason given above the journal endpoint.
+function draftWrite(tool, tier, plan) {
+  return route(async (req, res) => {
+    const actorEmail = (req.get("X-Actor-Email") || "").trim();
+    if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+    const input = Buffer.isBuffer(req.body) ? { ...req.query } : { ...(req.body || {}) };
+    const dryRun = !(input.dry_run === false || input.dry_run === "false");
+
+    const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+    if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+    if (ctx.error) return erpUnavailable(res, ctx);
+
+    const result = { entity: ctx.entity.name, tool, tier, dry_run: dryRun };
+    const tierBlock = writeRules.tierIssues(ctx.entity.accounting_system_config, tier);
+    const p = tierBlock.length ? { issues: [] } : await plan(ctx, input, req);
+    const issues = [...tierBlock, ...(p.issues || [])];
+
+    let key = null;
+    if (p.payload) {
+      try {
+        key = writeRules.idempotencyKey(ctx.entity.slug, tool, p.payload, input.idempotency_key);
+      } catch (e) {
+        issues.push(e.message);
+      }
+    }
+    Object.assign(result, { operation: p.operation, idempotency_key: key, payload: p.payload, ...(p.extra || {}) });
+
+    if (issues.length) {
+      result.validation = "FAIL";
+      result.issues = issues;
+      result.audit_id = await auditWrite(ctx, req, { tool, tier, result, payload: p.payload });
+      return res.status(422).json(result);
+    }
+    result.validation = "PASS";
+    if (dryRun) {
+      result.action = "DRY RUN - validated against Xero, nothing written";
+      result.audit_id = await auditWrite(ctx, req, { tool, tier, result, payload: p.payload });
+      return res.json(result);
+    }
+
+    const r = await p.send(key);
+    const saved = p.saved ? p.saved(r.body) : null;
+    const rowErrors = saved && (saved.HasValidationErrors || (saved.ValidationErrors || []).length)
+      ? (saved.ValidationErrors || []).map((e) => e.Message) : [];
+    if (!r.ok || rowErrors.length) {
+      Object.assign(result, {
+        action: "FAILED",
+        http_status: r.status,
+        xero_errors: rowErrors.length ? rowErrors : writeRules.xeroErrors(r.body),
+        xero_response: (r.text || "").slice(0, 2000),
+      });
+      result.audit_id = await auditWrite(ctx, req, { tool, tier, result, payload: p.payload });
+      return res.status(502).json(result);
+    }
+
+    result.action = p.operation === "update" ? "UPDATED" : "WRITTEN";
+    if (p.describe) Object.assign(result, p.describe(saved, r.body));
+    const h = p.history ? p.history(saved, r.body) : null;
+    if (h) result.history_note = await addXeroHistory(ctx, h.resource, h.id, h.text);
+    result.audit_id = await auditWrite(ctx, req, { tool, tier, result, payload: p.payload });
+    res.status(201).json(result);
+  });
+}
+
+async function xeroRef(ctx, what) {
+  const data = await xeroGet(ctx.accessToken, ctx.tenantId, `/${what}`, {});
+  return data?.[what] ?? [];
+}
+
+// A read that may legitimately find nothing: Xero's 404 becomes null.
+async function xeroGetOrNull(ctx, path, params = {}) {
+  try {
+    return await xeroGet(ctx.accessToken, ctx.tenantId, path, params);
+  } catch (e) {
+    if (e.detail?.status === 404 || e.detail?.status === 400) return null;
+    throw e;
+  }
+}
+
+// Bills, sales invoices and credit notes, created or changed while DRAFT or
+// SUBMITTED. Body: type, contact_id, lines[{description, account_code,
+// unit_amount, quantity, tax_type, tracking}], date, due_date, id, number,
+// reference, line_amount_types, currency_code, status, audit_note,
+// idempotency_key, allow_duplicate, dry_run.
+function documentPlan(kind) {
+  const d = writeRules.DOCUMENTS[kind];
+  return async (ctx, b) => {
+    const pre = writeRules.documentRequestIssues(kind, b);
+    const operation = b.id ? "update" : "create";
+    const issues = [...pre.issues];
+    if (issues.length) return { issues, operation };
+
+    let current = null;
+    if (b.id) {
+      const found = (await xeroGetOrNull(ctx, `/${d.endpoint}/${b.id}`))?.[d.endpoint] ?? [];
+      if (!found.length) issues.push(`No ${kind.replace("_", " ")} ${b.id} in this entity`);
+      else {
+        current = found[0];
+        issues.push(...writeRules.laneIssues(pre.status, current.Status));
+        if (current.Type !== pre.type) issues.push(`The existing document is ${current.Type}; its type cannot change`);
+      }
+    }
+    if (b.contact_id) {
+      const contacts = (await xeroGetOrNull(ctx, `/Contacts/${b.contact_id}`))?.Contacts ?? [];
+      if (!contacts.length) issues.push(`No contact ${b.contact_id} in this entity`);
+      else if (contacts[0].ContactStatus !== "ACTIVE") issues.push(`Contact ${contacts[0].Name} is ${contacts[0].ContactStatus}`);
+    }
+
+    let items = null;
+    let net = null;
+    if (Array.isArray(b.lines) && b.lines.length) {
+      const [accounts, taxRates] = await Promise.all([xeroRef(ctx, "Accounts"), xeroRef(ctx, "TaxRates")]);
+      const v = writeRules.validateLines(b.lines, accounts, taxRates);
+      issues.push(...v.issues);
+      items = v.items;
+      net = v.net;
+    }
+
+    // A supplier's document number entered twice is the commonest AP error.
+    const contactId = b.contact_id || current?.Contact?.ContactID;
+    if (b.number && pre.type === d.payableType && contactId && !b.allow_duplicate) {
+      const where = writeRules.duplicateWhere(kind, pre.type, b.number, contactId);
+      const clash = ((await xeroGet(ctx.accessToken, ctx.tenantId, `/${d.endpoint}`, { where }))?.[d.endpoint] ?? [])
+        .filter((x) => x[d.idField] !== b.id && !["DELETED", "VOIDED"].includes(x.Status));
+      if (clash.length) {
+        issues.push(`${d.numberField} ${b.number} already exists for this supplier (${clash[0][d.idField]}, ${clash[0].Status}). Pass allow_duplicate only if it is genuinely a second document`);
+      }
+    }
+
+    const payload = writeRules.buildDocumentPayload(kind, b, { ...pre, items });
+    return {
+      issues,
+      operation,
+      payload,
+      extra: { previous_status: current?.Status ?? null, net_before_tax: net },
+      send: (key) => xeroSend(ctx, "POST", `/${d.endpoint}?summarizeErrors=false`, { json: payload, key }),
+      saved: (body) => (body?.[d.endpoint] || [])[0] || null,
+      describe: (s) => ({
+        [d.idField]: s?.[d.idField], [d.numberField]: s?.[d.numberField] ?? "",
+        xero_status: s?.Status, sub_total: s?.SubTotal, total_tax: s?.TotalTax, total: s?.Total,
+      }),
+      history: (s) => s?.[d.idField] && {
+        resource: d.endpoint, id: s[d.idField],
+        text: `${operation === "update" ? "Updated" : "Created"} as ${s.Status || pre.status}. ${String(b.audit_note).trim()}`,
+      },
+    };
+  };
+}
+
+const WRITE = "/api/finance/clients/:slug/xero/:entity/write";
+
+app.post(`${WRITE}/invoices`, draftWrite("upsert_invoice", "draft", documentPlan("invoice")));
+app.post(`${WRITE}/credit-notes`, draftWrite("upsert_credit_note", "draft", documentPlan("credit_note")));
+
+// Suppliers and customers. Only fields passed are sent. Bank details and
+// archiving are refused. Body: id, name, email, first_name, last_name,
+// contact_number, account_number, tax_number, company_number,
+// default_currency, purchases_default_account_code, sales_default_account_code,
+// accounts_payable_tax_type, accounts_receivable_tax_type, address{line1,
+// line2, city, region, postal_code, country}, phone, audit_note.
+app.post(`${WRITE}/contacts`, draftWrite("upsert_contact", "draft", async (ctx, b) => {
+  const issues = writeRules.contactRequestIssues(b);
+  const operation = b.id ? "update" : "create";
+  if (issues.length) return { issues, operation };
+
+  if (b.id && !((await xeroGetOrNull(ctx, `/Contacts/${b.id}`))?.Contacts ?? []).length) {
+    issues.push(`No contact ${b.id} in this entity`);
+  }
+  const name = String(b.name || "").trim();
+  if (name) {
+    const where = `Name=="${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    const clash = ((await xeroGet(ctx.accessToken, ctx.tenantId, "/Contacts", { where, includeArchived: "true" }))?.Contacts ?? [])
+      .filter((c) => c.ContactID !== b.id);
+    if (clash.length) issues.push(`A contact named "${name}" already exists (${clash[0].ContactID}, ${clash[0].ContactStatus})`);
+  }
+  const codes = [b.purchases_default_account_code, b.sales_default_account_code].filter(Boolean);
+  const taxes = [b.accounts_payable_tax_type, b.accounts_receivable_tax_type].filter(Boolean);
+  if (codes.length) {
+    const active = new Set((await xeroRef(ctx, "Accounts")).filter((a) => a.Status === "ACTIVE").map((a) => a.Code));
+    for (const c of codes) if (!active.has(c)) issues.push(`account code ${c} is not an active account in this entity`);
+  }
+  if (taxes.length) {
+    const active = new Set((await xeroRef(ctx, "TaxRates")).filter((t) => t.Status === "ACTIVE").map((t) => t.TaxType));
+    for (const t of taxes) if (!active.has(t)) issues.push(`tax type ${t} is not an active tax rate in this entity`);
+  }
+
+  const payload = writeRules.buildContactPayload(b);
+  return {
+    issues, operation, payload,
+    send: (key) => xeroSend(ctx, "POST", "/Contacts?summarizeErrors=false", { json: payload, key }),
+    saved: (body) => (body?.Contacts || [])[0] || null,
+    describe: (s) => ({ ContactID: s?.ContactID, name: s?.Name }),
+    history: (s) => s?.ContactID && {
+      resource: "Contacts", id: s.ContactID,
+      text: `${operation === "update" ? "Updated" : "Created"} contact. ${String(b.audit_note).trim()}`,
+    },
+  };
+}));
+
+// A permanent note on a record's History and Notes. Notes cannot be edited
+// or deleted, hence the dry run by default. Body: resource_type, resource_id,
+// details.
+app.post(`${WRITE}/history-notes`, draftWrite("add_history_note", "note", async (ctx, b) => {
+  const issues = [];
+  if (!writeRules.HISTORY_RESOURCES.includes(b.resource_type)) {
+    issues.push(`resource_type must be one of ${writeRules.HISTORY_RESOURCES.join(", ")}`);
+  }
+  if (!writeRules.isGuid(b.resource_id)) issues.push("resource_id must be a Xero GUID");
+  if (!String(b.details || "").trim()) issues.push("details is required");
+  const text = writeRules.historyText(b.details);
+  if (text.length > writeRules.HISTORY_MAX_CHARS) {
+    issues.push(`the note is ${text.length} characters with its prefix; the limit is ${writeRules.HISTORY_MAX_CHARS}`);
+  }
+  const payload = { HistoryRecords: [{ Details: text }] };
+  // Confirm the record exists before a permanent note is aimed at it.
+  if (!issues.length && !(await xeroGetOrNull(ctx, `/${b.resource_type}/${b.resource_id}`))) {
+    issues.push(`No ${b.resource_type} record ${b.resource_id} in this entity`);
+  }
+  return {
+    issues, operation: "create", payload,
+    send: (key) => xeroSend(ctx, "PUT", `/${b.resource_type}/${b.resource_id}/History`, { json: payload, key }),
+    describe: () => ({ details: text }),
+  };
+}));
+
+// Mark a bill line as a billable expense to recharge to a customer. Changes no
+// balance until someone invoices it. Body: source_transaction_id,
+// source_line_item_id, contact_id, linked_transaction_id, audit_note.
+app.post(`${WRITE}/linked-transactions`, draftWrite("upsert_linked_transaction", "draft", async (ctx, b) => {
+  const issues = [];
+  for (const f of ["source_transaction_id", "source_line_item_id"]) {
+    if (!writeRules.isGuid(b[f])) issues.push(`${f} must be a Xero GUID`);
+  }
+  for (const f of ["contact_id", "linked_transaction_id"]) {
+    if (b[f] && !writeRules.isGuid(b[f])) issues.push(`${f} must be a Xero GUID`);
+  }
+  if (!String(b.audit_note || "").trim()) issues.push("audit_note is required");
+  const payload = { SourceTransactionID: b.source_transaction_id, SourceLineItemID: b.source_line_item_id };
+  if (b.contact_id) payload.ContactID = b.contact_id;
+  if (b.linked_transaction_id) payload.LinkedTransactionID = b.linked_transaction_id;
+  return {
+    issues, operation: b.linked_transaction_id ? "update" : "create", payload,
+    send: (key) => xeroSend(ctx, "POST", "/LinkedTransactions", { json: payload, key }),
+    saved: (body) => (body?.LinkedTransactions || [])[0] || null,
+    describe: (s) => ({ LinkedTransactionID: s?.LinkedTransactionID, xero_status: s?.Status }),
+  };
+}));
+
+const uploadBody = express.raw({ type: () => true, limit: writeRules.MAX_UPLOAD_BYTES });
+const sha256Hex = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+
+// Attach a file to a Xero record. Attachments cannot be deleted through the
+// API, hence the dry run by default. Raw body = the file; query: resource_type,
+// resource_id, file_name, audit_note, include_online, dry_run.
+app.post(`${WRITE}/attachments`, uploadBody, draftWrite("upload_attachment", "draft", async (ctx, q, req) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const issues = [...writeRules.fileNameIssues(q.file_name)];
+  if (!writeRules.ATTACHABLE.includes(q.resource_type)) issues.push(`resource_type must be one of ${writeRules.ATTACHABLE.join(", ")}`);
+  if (!writeRules.isGuid(q.resource_id)) issues.push("resource_id must be a Xero GUID");
+  if (!raw.length) issues.push("the request body (the file) is empty");
+  if (!String(q.audit_note || "").trim()) issues.push("audit_note is required");
+  if (!issues.length && !(await xeroGetOrNull(ctx, `/${q.resource_type}/${q.resource_id}`))) {
+    issues.push(`No ${q.resource_type} record ${q.resource_id} in this entity`);
+  }
+  const online = q.include_online === "true";
+  const payload = { file_name: q.file_name, bytes: raw.length, sha256: raw.length ? sha256Hex(raw) : null, include_online: online };
+  const url = `/${q.resource_type}/${q.resource_id}/Attachments/${encodeURIComponent(q.file_name || "")}${online ? "?IncludeOnline=true" : ""}`;
+  return {
+    issues, operation: "create", payload,
+    send: (key) => xeroSend(ctx, "PUT", url, { raw, contentType: req.get("Content-Type"), key }),
+    saved: (body) => (body?.Attachments || [])[0] || null,
+    describe: (s) => ({ AttachmentID: s?.AttachmentID, file_name: s?.FileName }),
+    history: () => writeRules.HISTORY_RESOURCES.includes(q.resource_type) && {
+      resource: q.resource_type, id: q.resource_id, text: `Attached ${q.file_name}. ${String(q.audit_note).trim()}`,
+    },
+  };
+}));
+
+// Put a file into the Xero Files library (inbox or a folder), optionally
+// associating it with a record. Raw body = the file; query: file_name,
+// folder_id, associate_with_id, associate_object_group, audit_note, dry_run.
+app.post(`${WRITE}/files`, uploadBody, draftWrite("upload_file", "draft", async (ctx, q, req) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const issues = [...writeRules.fileNameIssues(q.file_name)];
+  if (!raw.length) issues.push("the request body (the file) is empty");
+  if (q.folder_id && !writeRules.isGuid(q.folder_id)) issues.push("folder_id must be a Xero GUID");
+  if (q.associate_with_id && !writeRules.isGuid(q.associate_with_id)) issues.push("associate_with_id must be a Xero GUID");
+  if (q.associate_with_id && !writeRules.ASSOCIABLE.includes(q.associate_object_group)) {
+    issues.push(`associate_object_group must be one of ${writeRules.ASSOCIABLE.join(", ")}`);
+  }
+  if (!String(q.audit_note || "").trim()) issues.push("audit_note is required");
+  const payload = {
+    file_name: q.file_name, bytes: raw.length, sha256: raw.length ? sha256Hex(raw) : null,
+    folder_id: q.folder_id || "", associate_with_id: q.associate_with_id || "",
+    associate_object_group: q.associate_object_group || "",
+  };
+  const mime = req.get("Content-Type") || "application/octet-stream";
+  return {
+    issues, operation: "create", payload,
+    send: async (key) => {
+      const r = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files${q.folder_id ? `/${q.folder_id}` : ""}`, {
+        key,
+        form: () => {
+          const f = new FormData();
+          f.append("file", new Blob([raw], { type: mime }), q.file_name);
+          f.append("name", q.file_name);
+          f.append("filename", q.file_name);
+          return f;
+        },
+      });
+      if (r.ok && q.associate_with_id && r.body?.Id) {
+        const assoc = { ObjectId: q.associate_with_id, ObjectGroup: q.associate_object_group };
+        const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${r.body.Id}/Associations`, {
+          json: assoc, key: writeRules.idempotencyKey(ctx.entity.slug, "files-assoc", { file: r.body.Id, ...assoc }),
+        });
+        r.body = { ...r.body, _association: a.ok ? "WRITTEN" : `FAILED ${a.status}: ${(a.text || "").slice(0, 300)}` };
+      }
+      return r;
+    },
+    describe: (_s, body) => ({ FileID: body?.Id, file_name: body?.Name, ...(body?._association ? { association: body._association } : {}) }),
+  };
+}));
+
+// Link a file already in Xero Files (a Documents inbox item) to a record: the
+// API equivalent of the Documents "Match" button. The association IS the
+// attachment, so a second copy of a document the record already holds is
+// refused unless allow_duplicate. Body: file_id, object_id, object_group,
+// audit_note, allow_duplicate.
+app.post(`${WRITE}/file-associations`, draftWrite("associate_file", "draft", async (ctx, b) => {
+  const issues = [];
+  if (!writeRules.ASSOCIABLE.includes(b.object_group)) issues.push(`object_group must be one of ${writeRules.ASSOCIABLE.join(", ")}`);
+  if (!writeRules.isGuid(b.file_id) || !writeRules.isGuid(b.object_id)) issues.push("file_id and object_id must be Xero GUIDs");
+  if (!String(b.audit_note || "").trim()) issues.push("audit_note is required");
+  const payload = { ObjectId: b.object_id, ObjectGroup: b.object_group };
+  let fileName = "";
+  const holder = writeRules.ASSOC_ATTACHMENTS[b.object_group];
+  if (!issues.length) {
+    const file = await xeroGetOrNull(ctx, `${XERO_FILES_API}/Files/${b.file_id}`);
+    if (!file) issues.push(`No file ${b.file_id} in Xero Files`);
+    fileName = file?.Name || "";
+    const assoc = (await xeroGetOrNull(ctx, `${XERO_FILES_API}/Files/${b.file_id}/Associations`)) || [];
+    if (assoc.some((x) => x?.ObjectId === b.object_id)) issues.push(`file ${b.file_id} is already associated with ${b.object_id}: nothing to do`);
+    if (holder && fileName && !b.allow_duplicate) {
+      const held = ((await xeroGetOrNull(ctx, `/${holder}/${b.object_id}/Attachments`))?.Attachments ?? []).map((x) => x.FileName);
+      if (held.includes(fileName)) {
+        issues.push(`${b.object_id} already has an attachment named ${fileName}; associating would duplicate it. Pass allow_duplicate to do it anyway`);
+      }
+    }
+  }
+  return {
+    issues, operation: "create", payload, extra: { file_name: fileName },
+    send: (key) => xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${b.file_id}/Associations`, { json: payload, key }),
+    describe: () => ({ FileID: b.file_id, associated_with: b.object_id }),
+    history: () => holder && writeRules.HISTORY_RESOURCES.includes(holder) && {
+      resource: holder, id: b.object_id, text: `Linked Files document ${fileName || b.file_id}. ${String(b.audit_note).trim()}`,
+    },
+  };
+}));
+
 // ── Start ───────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
