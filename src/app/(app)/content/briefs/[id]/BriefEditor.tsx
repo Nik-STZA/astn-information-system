@@ -13,7 +13,8 @@ import {
   type StoryTone,
 } from "@/lib/brief-items";
 import { markdownToHtml } from "@/lib/markdown";
-import { saveBrief, regeneratePost, regeneratePostStatus } from "./actions";
+import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool } from "./actions";
+import type { ReviewItem } from "@/lib/data/content";
 
 /**
  * Draft brief editor: edit the markdown, see the fact-discipline audit live,
@@ -29,7 +30,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
   const [text, setText] = useState(initialMarkdown);
   const [savedText, setSavedText] = useState(initialMarkdown);
   const [mode, setMode] = useState<"edit" | "preview">("edit");
-  const [rightPanel, setRightPanel] = useState<"audit" | "items">("audit");
+  const [rightPanel, setRightPanel] = useState<"audit" | "items" | "available">("audit");
   const [busy, setBusy] = useState<"save" | "post" | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -210,16 +211,28 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
           <button onClick={() => setRightPanel("items")} style={panelBtn(rightPanel === "items")}>
             Items{storyCount.total > 0 && ` (${storyCount.included}/${storyCount.total})`}
           </button>
+          <button onClick={() => setRightPanel("available")} style={panelBtn(rightPanel === "available")}>Available</button>
         </div>
 
         {rightPanel === "audit" ? (
           <AuditPanel audit={audit} />
-        ) : (
+        ) : rightPanel === "items" ? (
           <ItemsPanel
             parsed={allParsed}
             onToggle={toggleItem}
             onMove={moveStory}
             onTone={setTone}
+          />
+        ) : (
+          <AvailablePool
+            parsed={allParsed}
+            onInsert={(sectionIdx, story) => {
+              applyItemsEdit((prev) => {
+                const sections = prev.sections.map((s) => ({ ...s, stories: [...s.stories] }));
+                sections[sectionIdx].stories.push(story);
+                return { ...prev, sections };
+              });
+            }}
           />
         )}
       </div>
@@ -473,6 +486,258 @@ function StoryRow({
               }}
             >
               {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Available pool — approved items not yet in the brief ──────────── */
+
+function AvailablePool({
+  parsed,
+  onInsert,
+}: {
+  parsed: ParsedBrief;
+  onInsert: (sectionIdx: number, story: BriefStory) => void;
+}) {
+  const [items, setItems] = useState<ReviewItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [addingId, setAddingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (loaded) return;
+    setLoading(true);
+    loadApprovedPool(21).then((res) => {
+      setItems(res.data?.data ?? []);
+      setLoading(false);
+      setLoaded(true);
+    });
+  }, [loaded]);
+
+  const briefHeadlines = useMemo(() => {
+    const set = new Set<string>();
+    for (const sec of parsed.sections) {
+      for (const s of sec.stories) {
+        set.add(s.headline.toLowerCase().trim());
+      }
+    }
+    return set;
+  }, [parsed]);
+
+  const targetSections = useMemo(
+    () =>
+      parsed.sections
+        .map((s, si) => ({ heading: s.heading, si, isContext: s.isContextSection }))
+        .filter((s) => !s.isContext),
+    [parsed],
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    const matched = q
+      ? items.filter(
+          (it) =>
+            (it.title ?? "").toLowerCase().includes(q) ||
+            (it.summary ?? "").toLowerCase().includes(q) ||
+            (it.category ?? "").toLowerCase().includes(q),
+        )
+      : items;
+    const available: ReviewItem[] = [];
+    const alreadyIn: ReviewItem[] = [];
+    for (const it of matched) {
+      if (briefHeadlines.has((it.title ?? "").toLowerCase().trim())) {
+        alreadyIn.push(it);
+      } else {
+        available.push(it);
+      }
+    }
+    return { available, alreadyIn };
+  }, [items, search, briefHeadlines]);
+
+  function handleAdd(item: ReviewItem, sectionIdx: number) {
+    setAddingId(item.id);
+    const newStory: BriefStory = {
+      id: `pool-${item.id}`,
+      headline: item.title ?? "Untitled",
+      body: `${item.summary ?? ""}\n\n*Source: [${item.source_name ?? "Link"}](${item.url})*\n`,
+      included: true,
+      tone: null,
+    };
+    onInsert(sectionIdx, newStory);
+    setTimeout(() => setAddingId(null), 600);
+  }
+
+  if (loading) {
+    return <span style={{ fontSize: 12, color: "var(--sub)" }}>Loading approved items…</span>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "70vh", overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
+          Available
+        </span>
+        <span style={{ fontSize: 11, color: "var(--sub)" }}>
+          {filtered.available.length} available · {filtered.alreadyIn.length} in brief
+        </span>
+      </div>
+      <input
+        type="text"
+        placeholder="Search approved items…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        style={{
+          fontSize: 12,
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--bd)",
+          background: "var(--pg)",
+          color: "var(--tx)",
+          outline: "none",
+        }}
+      />
+      {filtered.available.length === 0 && filtered.alreadyIn.length === 0 ? (
+        <span style={{ fontSize: 12, color: "var(--sub)" }}>
+          {items.length === 0 ? "No approved items found in the last 21 days." : "No items match your search."}
+        </span>
+      ) : (
+        <>
+          {filtered.available.map((item) => (
+            <PoolItemRow
+              key={item.id}
+              item={item}
+              inBrief={false}
+              adding={addingId === item.id}
+              targetSections={targetSections}
+              onAdd={(si) => handleAdd(item, si)}
+            />
+          ))}
+          {filtered.alreadyIn.length > 0 && (
+            <>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: ".06em",
+                  textTransform: "uppercase",
+                  color: "var(--sub)",
+                  marginTop: 6,
+                  borderTop: "1px solid var(--bd)",
+                  paddingTop: 8,
+                }}
+              >
+                Already in brief ({filtered.alreadyIn.length})
+              </div>
+              {filtered.alreadyIn.map((item) => (
+                <PoolItemRow key={item.id} item={item} inBrief={true} adding={false} targetSections={targetSections} onAdd={() => {}} />
+              ))}
+            </>
+          )}
+        </>
+      )}
+      <p style={{ fontSize: 10.5, color: "var(--sub)", margin: 0, lineHeight: 1.4 }}>
+        Approved items from the last 21 days. Click + to add to a section.
+      </p>
+    </div>
+  );
+}
+
+/* ── Pool item row ─────────────────────────────────────────────────── */
+
+function PoolItemRow({
+  item,
+  inBrief,
+  adding,
+  targetSections,
+  onAdd,
+}: {
+  item: ReviewItem;
+  inBrief: boolean;
+  adding: boolean;
+  targetSections: { heading: string; si: number }[];
+  onAdd: (sectionIdx: number) => void;
+}) {
+  const [showSections, setShowSections] = useState(false);
+  const created = item.created_at
+    ? new Date(item.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    : "";
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        padding: "6px 8px",
+        borderRadius: 6,
+        opacity: inBrief ? 0.4 : adding ? 0.3 : 1,
+        background: adding ? "var(--table-header)" : "transparent",
+        transition: "opacity 0.2s, background 0.2s",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        {inBrief ? (
+          <span style={{ fontSize: 13, color: "var(--success-green)", flexShrink: 0, paddingTop: 1 }}>✓</span>
+        ) : (
+          <button
+            onClick={() => setShowSections(!showSections)}
+            title="Add to brief"
+            style={{
+              fontSize: 15,
+              lineHeight: 1,
+              color: "var(--gold-dark)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              flexShrink: 0,
+            }}
+          >
+            +
+          </button>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, lineHeight: 1.4, color: "var(--tx)", fontWeight: 600 }}>
+            {item.title ?? "Untitled"}
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--sub)", marginTop: 2 }}>
+            {item.source_name ?? "Unknown"} · {created}
+            {item.category && (
+              <>
+                {" · "}
+                <span style={{ color: "var(--gold-dark)" }}>{item.category}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      {showSections && !inBrief && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 22, marginTop: 2 }}>
+          <span style={{ fontSize: 10, color: "var(--sub)", fontWeight: 600 }}>Add to section:</span>
+          {targetSections.map(({ heading, si }) => (
+            <button
+              key={si}
+              onClick={() => {
+                onAdd(si);
+                setShowSections(false);
+              }}
+              style={{
+                fontSize: 11,
+                padding: "3px 8px",
+                borderRadius: 4,
+                border: "1px solid var(--bd)",
+                background: "transparent",
+                color: "var(--tx)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              {heading}
             </button>
           ))}
         </div>

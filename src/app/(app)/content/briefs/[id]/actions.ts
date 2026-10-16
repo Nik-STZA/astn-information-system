@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus } from "@/lib/data/content";
+import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool } from "@/lib/data/content";
 
 export async function saveBrief(id: string, markdown: string) {
   const res = await updateBriefMarkdown(id, markdown);
@@ -18,4 +18,13 @@ export async function regeneratePost() {
 
 export async function regeneratePostStatus() {
   return fetchWorkflowStatus("generate-linkedin");
+}
+
+/**
+ * Fetch approved items from the review queue for the "Available" pool.
+ * Returns items approved within the last `days` days that the editor
+ * can drag into the brief.
+ */
+export async function loadApprovedPool(days = 21) {
+  return fetchApprovedPool(days, 100);
 }

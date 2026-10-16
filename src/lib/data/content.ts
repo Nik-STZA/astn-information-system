@@ -84,6 +84,16 @@ export async function fetchReviewQueue(
   );
 }
 
+/**
+ * Fetch approved items for the brief editor "Available" pool.
+ * Returns up to 100 approved items within `days` days, no score filter.
+ */
+export async function fetchApprovedPool(days = 21, limit = 100) {
+  return cloudRunFetch<{ count: number; data: ReviewItem[] }>(
+    `/api/news/review-queue?status=approved&limit=${limit}&offset=0&min_score=0&days=${days}&sort=newest`,
+  );
+}
+
 export async function fetchReviewStats() {
   return cloudRunFetch<ReviewStats>("/api/news/review-stats");
 }
