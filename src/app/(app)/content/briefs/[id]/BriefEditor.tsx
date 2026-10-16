@@ -325,6 +325,15 @@ function ItemsPanel({
     .map((s, si) => ({ section: s, si }))
     .filter(({ section }) => !section.isContextSection && section.stories.length > 0);
 
+  // Section names for the move-to-section pills
+  const sectionNames = useMemo(
+    () =>
+      parsed.sections
+        .map((s, si) => ({ label: s.heading.replace(/^\d+\.\s*/, ""), si, isContext: s.isContextSection }))
+        .filter((s) => !s.isContext),
+    [parsed],
+  );
+
   // Drag state
   const [dragSource, setDragSource] = useState<{ si: number; ii: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ si: number; ii: number } | null>(null);
@@ -381,6 +390,9 @@ function ItemsPanel({
                   onRewrite={() => onRewrite(si, ii)}
                   onDragStart={() => handleDragStart(si, ii)}
                   onDragEnd={handleDragEnd}
+                  currentSi={si}
+                  sectionNames={sectionNames}
+                  onMoveToSection={(targetSi) => onMove(si, ii, targetSi, 0)}
                 />
                 {/* Drop zone after each item */}
                 <DropIndicator
@@ -435,6 +447,9 @@ function StoryRow({
   onRewrite,
   onDragStart,
   onDragEnd,
+  currentSi,
+  sectionNames,
+  onMoveToSection,
 }: {
   story: BriefStory;
   isDragging: boolean;
@@ -443,8 +458,12 @@ function StoryRow({
   onRewrite: () => Promise<void>;
   onDragStart: () => void;
   onDragEnd: () => void;
+  currentSi: number;
+  sectionNames: { label: string; si: number }[];
+  onMoveToSection: (targetSi: number) => void;
 }) {
   const [rewriting, setRewriting] = useState(false);
+  const hasSource = /\*Source:/i.test(story.body);
   return (
     <div
       draggable
@@ -500,50 +519,86 @@ function StoryRow({
         </span>
       </div>
       {story.included && (
-        <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap", alignItems: "center" }}>
-          {TONE_OPTIONS.map(({ key, label }) => (
+        <>
+          <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap", alignItems: "center" }}>
+            {TONE_OPTIONS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => onTone(key)}
+                style={{
+                  fontSize: 9.5,
+                  padding: "1px 6px",
+                  borderRadius: 3,
+                  border: story.tone === key ? "1px solid var(--gold-dark)" : "1px solid var(--bd)",
+                  background: story.tone === key ? "var(--table-header)" : "transparent",
+                  color: story.tone === key ? "var(--tx)" : "var(--sub)",
+                  cursor: "pointer",
+                  fontWeight: story.tone === key ? 700 : 500,
+                  lineHeight: 1.6,
+                }}
+              >
+                {label}
+              </button>
+            ))}
             <button
-              key={key}
-              onClick={() => onTone(key)}
+              disabled={rewriting}
+              onClick={async () => {
+                setRewriting(true);
+                try { await onRewrite(); } finally { setRewriting(false); }
+              }}
               style={{
                 fontSize: 9.5,
                 padding: "1px 6px",
                 borderRadius: 3,
-                border: story.tone === key ? "1px solid var(--gold-dark)" : "1px solid var(--bd)",
-                background: story.tone === key ? "var(--table-header)" : "transparent",
-                color: story.tone === key ? "var(--tx)" : "var(--sub)",
-                cursor: "pointer",
-                fontWeight: story.tone === key ? 700 : 500,
+                border: "1px solid var(--gold-dark)",
+                background: rewriting ? "var(--table-header)" : "transparent",
+                color: "var(--gold-dark)",
+                cursor: rewriting ? "wait" : "pointer",
+                fontWeight: 600,
                 lineHeight: 1.6,
+                marginLeft: 4,
+                opacity: rewriting ? 0.6 : 1,
               }}
+              title="Rewrite this story in AfricanSTN editorial voice via Gemini"
             >
-              {label}
+              {rewriting ? "Rewriting…" : "✎ Rewrite"}
             </button>
-          ))}
-          <button
-            disabled={rewriting}
-            onClick={async () => {
-              setRewriting(true);
-              try { await onRewrite(); } finally { setRewriting(false); }
-            }}
-            style={{
-              fontSize: 9.5,
-              padding: "1px 6px",
-              borderRadius: 3,
-              border: "1px solid var(--gold-dark)",
-              background: rewriting ? "var(--table-header)" : "transparent",
-              color: "var(--gold-dark)",
-              cursor: rewriting ? "wait" : "pointer",
-              fontWeight: 600,
-              lineHeight: 1.6,
-              marginLeft: 4,
-              opacity: rewriting ? 0.6 : 1,
-            }}
-            title="Rewrite this story in AfricanSTN editorial voice via Gemini"
-          >
-            {rewriting ? "Rewriting…" : "✎ Rewrite"}
-          </button>
-        </div>
+            {!hasSource && (
+              <span
+                title="No source attribution found in story body"
+                style={{ fontSize: 10, color: "var(--warning-amber)", marginLeft: 4, cursor: "help" }}
+              >
+                ⚠ no source
+              </span>
+            )}
+          </div>
+          {sectionNames.length > 1 && (
+            <div style={{ display: "flex", gap: 3, paddingLeft: 34, flexWrap: "wrap", marginTop: 2 }}>
+              {sectionNames.map(({ label, si }) => (
+                <button
+                  key={si}
+                  disabled={si === currentSi}
+                  onClick={() => onMoveToSection(si)}
+                  style={{
+                    fontSize: 9,
+                    padding: "1px 5px",
+                    borderRadius: 3,
+                    border: si === currentSi ? "1px solid var(--gold-dark)" : "1px solid var(--bd)",
+                    background: si === currentSi ? "var(--table-header)" : "transparent",
+                    color: si === currentSi ? "var(--tx)" : "var(--sub)",
+                    cursor: si === currentSi ? "default" : "pointer",
+                    fontWeight: si === currentSi ? 700 : 400,
+                    lineHeight: 1.6,
+                    opacity: si === currentSi ? 1 : 0.8,
+                  }}
+                  title={si === currentSi ? "Current section" : `Move to ${label}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -614,6 +669,51 @@ function AvailablePool({
     return { available, alreadyIn };
   }, [items, search, briefHeadlines]);
 
+  /** Group available items by category, flag near-duplicates within each group */
+  const grouped = useMemo(() => {
+    const catMap = new Map<string, ReviewItem[]>();
+    for (const it of filtered.available) {
+      const cat = it.category || "Uncategorised";
+      const arr = catMap.get(cat) ?? [];
+      arr.push(it);
+      catMap.set(cat, arr);
+    }
+    // Sort groups: largest first, then alpha
+    const entries = Array.from(catMap.entries()).sort(
+      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
+    );
+    // Near-duplicate detection via word overlap (Jaccard)
+    const stopwords = new Set(["the","a","an","in","on","at","to","for","of","and","is","with","by","from","as","its","has"]);
+    function keywords(text: string): Set<string> {
+      const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w) => w.length > 2 && !stopwords.has(w));
+      return new Set(words);
+    }
+    function jaccard(a: Set<string>, b: Set<string>): number {
+      if (a.size === 0 && b.size === 0) return 0;
+      let inter = 0;
+      for (const w of a) if (b.has(w)) inter++;
+      return inter / (a.size + b.size - inter);
+    }
+    // Build duplicate cluster ids
+    const dupCluster = new Map<string, number>();
+    let clusterId = 0;
+    for (const [, groupItems] of entries) {
+      const kws = groupItems.map((it) => ({ id: it.id, kw: keywords(it.title ?? "") }));
+      for (let i = 0; i < kws.length; i++) {
+        for (let j = i + 1; j < kws.length; j++) {
+          if (jaccard(kws[i].kw, kws[j].kw) >= 0.4) {
+            const existI = dupCluster.get(kws[i].id);
+            const existJ = dupCluster.get(kws[j].id);
+            const cid = existI ?? existJ ?? clusterId++;
+            dupCluster.set(kws[i].id, cid);
+            dupCluster.set(kws[j].id, cid);
+          }
+        }
+      }
+    }
+    return { entries, dupCluster };
+  }, [filtered.available]);
+
   function handleAdd(item: ReviewItem, sectionIdx: number) {
     setAddingId(item.id);
     const newStory: BriefStory = {
@@ -662,15 +762,39 @@ function AvailablePool({
         </span>
       ) : (
         <>
-          {filtered.available.map((item) => (
-            <PoolItemRow
-              key={item.id}
-              item={item}
-              inBrief={false}
-              adding={addingId === item.id}
-              targetSections={targetSections}
-              onAdd={(si) => handleAdd(item, si)}
-            />
+          {grouped.entries.map(([cat, groupItems]) => (
+            <div key={cat}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: ".06em",
+                  textTransform: "uppercase",
+                  color: "var(--gold-dark)",
+                  marginTop: 4,
+                  marginBottom: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {cat}
+                <span style={{ fontSize: 10, fontWeight: 400, color: "var(--sub)" }}>
+                  ({groupItems.length})
+                </span>
+              </div>
+              {groupItems.map((item) => (
+                <PoolItemRow
+                  key={item.id}
+                  item={item}
+                  inBrief={false}
+                  adding={addingId === item.id}
+                  targetSections={targetSections}
+                  onAdd={(si) => handleAdd(item, si)}
+                  dupClusterId={grouped.dupCluster.get(item.id)}
+                />
+              ))}
+            </div>
           ))}
           {filtered.alreadyIn.length > 0 && (
             <>
@@ -689,7 +813,7 @@ function AvailablePool({
                 Already in brief ({filtered.alreadyIn.length})
               </div>
               {filtered.alreadyIn.map((item) => (
-                <PoolItemRow key={item.id} item={item} inBrief={true} adding={false} targetSections={targetSections} onAdd={() => {}} />
+                <PoolItemRow key={item.id} item={item} inBrief={true} adding={false} targetSections={targetSections} onAdd={() => {}} dupClusterId={undefined} />
               ))}
             </>
           )}
@@ -710,12 +834,14 @@ function PoolItemRow({
   adding,
   targetSections,
   onAdd,
+  dupClusterId,
 }: {
   item: ReviewItem;
   inBrief: boolean;
   adding: boolean;
   targetSections: { heading: string; si: number }[];
   onAdd: (sectionIdx: number) => void;
+  dupClusterId: number | undefined;
 }) {
   const [showSections, setShowSections] = useState(false);
   const created = item.created_at
@@ -759,6 +885,23 @@ function PoolItemRow({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12, lineHeight: 1.4, color: "var(--tx)", fontWeight: 600 }}>
             {item.title ?? "Untitled"}
+            {dupClusterId !== undefined && (
+              <span
+                title="Near-duplicate headline detected — consider picking one"
+                style={{
+                  fontSize: 9,
+                  marginLeft: 5,
+                  padding: "1px 4px",
+                  borderRadius: 3,
+                  background: "var(--warning-amber)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  verticalAlign: "middle",
+                }}
+              >
+                ≈ similar
+              </span>
+            )}
           </div>
           <div style={{ fontSize: 10.5, color: "var(--sub)", marginTop: 2 }}>
             {item.source_name ?? "Unknown"} · {created}
