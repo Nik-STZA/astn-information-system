@@ -95,7 +95,7 @@ const LAPTOP_PARITY = {
   associate_file: { serves: [{ write: "file-associations" }] },
 
   // confirmed tiers
-  post_journal: { serves: [{ route: `POST ${X}/journals` }] },
+  post_journal: { serves: [{ write: "journals" }, { route: `POST ${X}/journals` }] },
   post_journal_from_csv: { serves: [{ write: "journals-from-file" }] },
   update_journal_status: { serves: [{ write: "journal-status" }] },
   email_invoice: { serves: [{ write: "invoice-emails" }] },

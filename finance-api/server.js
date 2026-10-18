@@ -3569,19 +3569,25 @@ async function xeroDoc(ctx, endpoint, id) {
 
 const noteOf = (b) => String(b.audit_note || "").trim();
 
-// Journals from a file in Xero's manual journal import format: the Feldspar
-// payroll template, exported to CSV. The CSV is the request body; status,
-// audit_note, allow_duplicate, dry_run and confirmation_code go in the query
-// string. Every journal in the file is validated before any is sent, and the
-// confirmation code covers the whole file.
-app.post(`${WRITE}/journals-from-file`, uploadBody, gatedWrite("post_journal_from_csv",
-  (q) => confirmedRules.journalTier(q.status), async (ctx, q, req) => {
+// Manual journals under the confirmed-tier model: DRAFT is the draft tier;
+// POSTED is the post tier and needs a dry run's confirmation code. Two ways
+// in, one set of rules:
+//   journals-from-file  Xero's manual journal import CSV (the Feldspar payroll
+//                       template) as the request body; status, audit_note,
+//                       allow_duplicate, dry_run and confirmation_code in the
+//                       query string. The code covers the whole file.
+//   journals            one journal as JSON: the laptop's post_journal.
+// The journals endpoint above stays, for callers using its approval-text
+// model. Every journal is validated before any is sent.
+//
+// `source(input, req)` returns { journals: [{ narration, date, rows, lines }],
+// issues }, with each line's tax rate as written (a Xero rate name or code).
+function journalsPlan(source, origin) {
+  return async (ctx, q, req) => {
     const status = String(q.status || "DRAFT").toUpperCase();
     const issues = [...confirmedRules.auditNoteIssues(q)];
     if (!["DRAFT", "POSTED"].includes(status)) issues.push("status must be DRAFT or POSTED");
-    const text = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
-    if (!text.trim()) issues.push("The CSV goes in the request body");
-    const parsed = text.trim() ? confirmedRules.parseJournalFile(text) : { journals: [], issues: [] };
+    const parsed = source(q, req);
     issues.push(...parsed.issues);
     if (issues.length) return { issues, operation: "create" };
 
@@ -3592,7 +3598,7 @@ app.post(`${WRITE}/journals-from-file`, uploadBody, gatedWrite("post_journal_fro
     const tracking = needsTracking ? await xeroRef(ctx, "TrackingCategories") : [];
     const warnings = lockDates.unavailable ? ["PERIOD_LOCK_UNCHECKED: the lock dates could not be read; Xero will still enforce them"] : [];
     const journals = parsed.journals.map((j) => {
-      const label = `Journal "${j.narration}" ${j.date} (file rows ${j.rows[0]}-${j.rows[j.rows.length - 1]})`;
+      const label = `Journal "${j.narration}" ${j.date} (rows ${j.rows[0]}-${j.rows[j.rows.length - 1]})`;
       const lines = j.lines.map((l) => {
         const t = confirmedRules.resolveTaxRate(l.tax_rate, taxRates);
         if (t.error) issues.push(`${label}: ${t.error}`);
@@ -3666,10 +3672,22 @@ app.post(`${WRITE}/journals-from-file`, uploadBody, gatedWrite("post_journal_fro
       }),
       history: (_s, body) => (body?.ManualJournals || []).map((m) => ({
         resource: "ManualJournals", id: m.ManualJournalID,
-        text: `Imported from a journal file as ${m.Status}. ${noteOf(q)}`,
+        text: `${origin} as ${m.Status}. ${noteOf(q)}`,
       })),
     };
-  }));
+  };
+}
+
+const journalFile = (_q, req) => {
+  const text = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
+  return text.trim() ? confirmedRules.parseJournalFile(text) : { journals: [], issues: ["The CSV goes in the request body"] };
+};
+
+app.post(`${WRITE}/journals-from-file`, uploadBody, gatedWrite("post_journal_from_csv",
+  (q) => confirmedRules.journalTier(q.status), journalsPlan(journalFile, "Imported from a journal file")));
+
+app.post(`${WRITE}/journals`, gatedWrite("post_journal",
+  (b) => confirmedRules.journalTier(b.status), journalsPlan((b) => confirmedRules.journalEntries(b), "Created")));
 
 // DRAFT -> POSTED, DRAFT -> VOIDED, POSTED -> VOIDED. Reads the journal back
 // first, so the dry run shows what is being approved rather than a guid.

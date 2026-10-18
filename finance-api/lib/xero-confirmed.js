@@ -213,6 +213,36 @@ function parseJournalFile(text) {
   return { journals: [...byKey.values()], issues };
 }
 
+// One journal as JSON (the laptop's post_journal), in the same shape as a
+// parsed file so both go through the same rules. Amounts are strings or
+// integers, positive for a debit; floats are refused, as everywhere else.
+function journalEntries(b) {
+  const issues = [];
+  const lines = Array.isArray(b.lines) ? b.lines : [];
+  if (!String(b.narration || "").trim()) issues.push("narration is required");
+  if (!w.isIsoDate(b.date)) issues.push("date must be YYYY-MM-DD");
+  if (!lines.length) issues.push("lines are required");
+  const out = lines.map((l, i) => {
+    const line = l && typeof l === "object" ? l : {};
+    if (typeof line.amount === "number" && !Number.isInteger(line.amount)) {
+      issues.push(`Line ${i + 1}: amount ${line.amount} must be a string or an integer, not a float`);
+    }
+    const tracking = line.tracking === undefined ? [] : line.tracking;
+    if (!Array.isArray(tracking) || tracking.some((t) => !t || !t.name || !t.option)) {
+      issues.push(`Line ${i + 1}: tracking must be a list of { name, option }`);
+    }
+    return {
+      account_code: String(line.account_code ?? "").trim(),
+      amount: line.amount === undefined || line.amount === null ? "" : String(line.amount),
+      description: String(line.description ?? ""),
+      tax_rate: String(line.tax_type ?? ""),
+      tracking: Array.isArray(tracking) ? tracking.filter((t) => t && t.name && t.option).map((t) => ({ name: String(t.name), option: String(t.option) })) : [],
+    };
+  });
+  const journal = { narration: String(b.narration || "").trim(), date: b.date, rows: out.map((_, i) => i + 1), lines: out };
+  return { journals: issues.length ? [] : [journal], issues };
+}
+
 // A file's tax rate text to a Xero TaxType: the rate's name as Xero shows it
 // ("20% (VAT on Expenses)", "No VAT") or the TaxType code itself. Blank means
 // NONE. Anything else is an issue, never a guess.
@@ -521,6 +551,7 @@ module.exports = {
   journalTransitionIssues,
   parseCsv,
   parseJournalFile,
+  journalEntries,
   resolveTaxRate,
   paymentRequest,
   paymentDocumentIssues,

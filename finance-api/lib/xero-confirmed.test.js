@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isConfirmedTier, payloadDigest, confirmationRefusal, capIssues, money, grossOf,
-  journalTier, journalTransitionIssues, parseCsv, parseJournalFile, resolveTaxRate,
+  journalTier, journalTransitionIssues, parseCsv, parseJournalFile, journalEntries, resolveTaxRate,
   paymentRequest, paymentDocumentIssues, bankAccountIssues, allocationRequest,
   allocationDocumentIssues, bankTransactionRequest, buildBankTransaction,
   bankTransferRequest, settingRequest, settingChartIssues, repeatingInvoiceRequest,
@@ -141,6 +141,26 @@ describe("journal files", () => {
     const { journals, issues } = parseJournalFile(csv);
     expect(journals[0].lines[0].tracking).toEqual([{ name: "Dept", option: "Ops" }]);
     expect(issues[0]).toMatch(/Row 3: tracking needs both/);
+  });
+
+  it("takes one journal as JSON in the same shape as a file", () => {
+    const { journals, issues } = journalEntries({
+      narration: "Accrual", date: "2026-09-30",
+      lines: [{ account_code: 401, amount: "250.00", description: "Audit", tax_type: "NONE" }, { account_code: "800", amount: -250 }],
+    });
+    expect(issues).toEqual([]);
+    expect(journals[0]).toMatchObject({ narration: "Accrual", date: "2026-09-30", rows: [1, 2] });
+    expect(journals[0].lines).toEqual([
+      { account_code: "401", amount: "250.00", description: "Audit", tax_rate: "NONE", tracking: [] },
+      { account_code: "800", amount: "-250", description: "", tax_rate: "", tracking: [] },
+    ]);
+  });
+
+  it("refuses float amounts and malformed tracking in JSON journals", () => {
+    const { journals, issues } = journalEntries({ narration: "x", date: "2026-09-30", lines: [{ account_code: "1", amount: 12.5, tracking: [{ name: "Dept" }] }] });
+    expect(journals).toEqual([]);
+    expect(issues).toEqual([expect.stringMatching(/not a float/), expect.stringMatching(/tracking must be/)]);
+    expect(journalEntries({}).issues).toEqual(["narration is required", "date must be YYYY-MM-DD", "lines are required"]);
   });
 
   it("resolves tax rates by Xero name or code, never by guess", () => {
