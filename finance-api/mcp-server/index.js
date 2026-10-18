@@ -65,6 +65,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { practiceTools } from "./practice-tools.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -745,6 +746,18 @@ const handlers = {
   },
 };
 
+// ── Toolset ──────────────────────────────────────────────────────────────────
+//
+// STZA_TOOLSET=practice serves the laptop MCP's tools instead, by the same
+// names and arguments, so STZA's own Claude Desktop can move off the laptop's
+// xero-server.py without its skills changing (practice-tools.js). The default
+// stays the client-facing set above.
+
+const TOOLSET = process.env.STZA_TOOLSET === "practice" ? "practice" : "byoai";
+const active = TOOLSET === "practice"
+  ? practiceTools({ apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log })
+  : { tools: TOOLS, handlers };
+
 // ── MCP server ───────────────────────────────────────────────────────────────
 
 const server = new Server(
@@ -753,13 +766,13 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: TOOLS,
+  tools: active.tools,
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  const handler = handlers[name];
+  const handler = active.handlers[name];
   if (!handler) {
     return {
       content: [{ type: "text", text: `Unknown tool: ${name}` }],
@@ -789,7 +802,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  log(`connected via stdio — ${TOOLS.length} tools (1 write: post_journal)`);
+  log(`connected via stdio — ${TOOLSET} toolset, ${active.tools.length} tools`);
 }
 
 main().catch((err) => {
