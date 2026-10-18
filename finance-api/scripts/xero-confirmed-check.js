@@ -125,6 +125,17 @@ const skip = (what, why) => rows.push({ what, ok: null, status: "-", detail: `sk
     check("bank transfer to the same account refused", await call("bank-transfers", { from_bank_account_code: "090", to_bank_account_code: "090", amount: "1", date: today, audit_note: "x" }), /must differ/);
   }
 
+  // ── check_bill (a read: no tier) ──────────────────────────────────────────
+  const anyBill = bills[0] || ((await read("invoices", { where: 'Type=="ACCPAY"' })).Invoices || [])[0];
+  if (anyBill) {
+    await sleep(1200);
+    const r = await fetch(`${root}/checks/bill/${anyBill.InvoiceID}`, { headers: { "X-API-Key": key } });
+    const b = await r.json().catch(() => ({}));
+    const ok = r.status === 200 && Array.isArray(b.flags) && b.flags.length === 9
+      && b.flags.some((f) => f.check === "lines_vs_pdf" && f.not_checked);
+    rows.push({ what: "check_bill runs all nine checks", ok, status: r.status, detail: ok ? `flagged: ${b.flagged.join(", ") || "none"}` : JSON.stringify(b).slice(0, 160) });
+  } else skip("check_bill", "no supplier bill");
+
   // ── send, setup, conversion: off on every portal entity today ─────────────
   check("send tier: email refused while off", await call("invoice-emails", { invoice_id: "00000000-0000-4000-8000-000000000000", audit_note: "x" }), /send tier is switched off|No invoice/);
   check("setup tier: setting refused while off", await call("settings", { kind: "currency", record: { Code: "EUR" }, audit_note: "x" }), /setup tier is switched off|already/);

@@ -47,6 +47,7 @@ const {
 } = require("./lib/journal");
 const writeRules = require("./lib/xero-write");
 const confirmedRules = require("./lib/xero-confirmed");
+const billChecks = require("./lib/bill-checks");
 const {
   ageInvoices,
   fetchAllInvoices,
@@ -3925,6 +3926,57 @@ app.post(`${WRITE}/conversion-setup`, gatedWrite("post_conversion_setup", "conve
     issues, operation: "create", payload: cr.payload, extra: { net: cr.net },
     send: (key) => xeroSend(ctx, "POST", "/Setup", { json: cr.payload, key }),
   };
+}));
+
+// ── Checking a bill ─────────────────────────────────────────────────────────
+//
+// GET /api/finance/clients/:slug/xero/:entity/checks/bill/:id?since=<ISO>
+//
+// The laptop MCP's check_bill: the deterministic flags over one supplier bill
+// (lib/bill-checks.js). Reads only, so no tier and no audit row. Run by the
+// drafter before submitting and independently by the reviewer, because a check
+// performed only by the party being reviewed is not a control.
+app.get("/api/finance/clients/:slug/xero/:entity/checks/bill/:id", route(async (req, res) => {
+  if (!writeRules.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a Xero GUID" });
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+
+  const bill = await xeroDoc(ctx, "Invoices", req.params.id);
+  if (!bill) return res.status(404).json({ error: `no bill ${req.params.id} in ${ctx.entity.slug}` });
+
+  const [org, accounts, history, attachments] = await Promise.all([
+    xeroGet(ctx.accessToken, ctx.tenantId, "/Organisation", {}),
+    xeroRef(ctx, "Accounts"),
+    xeroGetOrNull(ctx, `/Invoices/${req.params.id}/History`),
+    xeroGetOrNull(ctx, `/Invoices/${req.params.id}/Attachments`),
+  ]);
+
+  let siblings = [];
+  let priorLines = [];
+  const contactId = bill.Contact?.ContactID;
+  if (contactId && writeRules.isGuid(contactId)) {
+    siblings = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", {
+      page: 1, where: `Type=="ACCPAY" AND Contact.ContactID==Guid("${contactId}")`,
+    }))?.Invoices ?? [];
+    const recent = siblings
+      .filter((b) => b.InvoiceID !== bill.InvoiceID && !["DELETED", "VOIDED"].includes(b.Status))
+      .sort((a, b) => billChecks.billDate(b).localeCompare(billChecks.billDate(a)))
+      .slice(0, 3);
+    for (const b of recent) priorLines.push(...((await xeroDoc(ctx, "Invoices", b.InvoiceID))?.LineItems ?? []));
+  }
+
+  res.json({
+    entity: ctx.entity.name,
+    ...billChecks.checkBill({
+      bill,
+      paysTax: org?.Organisations?.[0]?.PaysTax,
+      accounts, siblings, priorLines,
+      history: history?.HistoryRecords ?? [],
+      attachments: attachments?.Attachments ?? [],
+      since: req.query.since || "",
+    }),
+  });
 }));
 
 // ── Start ───────────────────────────────────────────────────────────────────
