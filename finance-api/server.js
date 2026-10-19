@@ -3709,7 +3709,7 @@ app.post(`${WRITE}/journal-status`, gatedWrite("update_journal_status",
       send: (key) => xeroSend(ctx, "POST", "/ManualJournals?summarizeErrors=false", { json: payload, key }),
       saved: (body) => body?.ManualJournals?.[0] || null,
       describe: (s) => ({ ManualJournalID: s?.ManualJournalID, xero_status: s?.Status }),
-      history: () => ({ resource: "ManualJournals", id: b.manual_journal_id, text: `Status ${mj.Status} -> ${target}. ${noteOf(b)}` }),
+      history: () => ({ resource: "ManualJournals", id: b.manual_journal_id, text: `Status ${mj.Status} to ${target}. ${noteOf(b)}` }),
     };
   }));
 
