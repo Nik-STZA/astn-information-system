@@ -42,7 +42,8 @@ async function read(path, params) {
   await sleep(1100);
   const qs = params ? `?${new URLSearchParams(params)}` : "";
   const r = await fetch(`${root}/read/${path}${qs}`, { headers: { "X-API-Key": key } });
-  return r.ok ? r.json() : {};
+  // The read routes wrap Xero's body as { entity, resource, data }.
+  return r.ok ? ((await r.json()).data || {}) : {};
 }
 
 // expect: "code" (validated, code issued), "pass" (validated, no code), or a
@@ -64,7 +65,8 @@ const skip = (what, why) => rows.push({ what, ok: null, status: "-", detail: `sk
   const active = accounts.filter((a) => a.Status === "ACTIVE");
   const expense = active.find((a) => a.Type === "EXPENSE" || a.Type === "OVERHEADS");
   const liability = active.find((a) => a.Type === "CURRLIAB");
-  const banks = active.filter((a) => a.Type === "BANK");
+  // The write routes name a bank account by its Code; Xero lets bank accounts have none.
+  const banks = active.filter((a) => a.Type === "BANK" && a.Code);
   const org = ((await read("organisation")).Organisations || [])[0] || {};
 
   // ── journals from a file ──────────────────────────────────────────────────
