@@ -1,6 +1,6 @@
 # Portal Xero parity: tracker
 
-Last updated 18 Oct 2026 (evening). Goal: os.stza.io does everything the laptop MCP does
+Last updated 19 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
 (and more), with STZA's method staying server-side. Detail lives in
 `ap-lane-spec.md` (the spec) and `xero-capability-register.md` (test evidence).
 
@@ -24,40 +24,34 @@ Last updated 18 Oct 2026 (evening). Goal: os.stza.io does everything the laptop 
 | 3 | One reconnect updates every entity of a client (shared token) | PR #31 |
 | 4 | Read parity: 44 resources and 8 reports | PRs #32 and #33. STZA passes 81/81. Feldspar fails only on payroll, which is expected because its payroll is run outside Xero. |
 | 5 | Note and draft writes: contacts, draft bills, invoices and credit notes, history notes, attachments, Files inbox upload, Match, linked transactions | PRs #34 and #35. Proven live on STZA on 16 Oct. |
-| 6 | Capability checks you can re-run | `finance-api/scripts/xero-read-check.js` and `xero-write-check.js` |
+| 6 | Capability checks you can re-run | `finance-api/scripts/xero-read-check.js`, `xero-write-check.js` and `xero-confirmed-check.js` |
+| 7 | Writes that need confirmation (post, send, settle, setup, conversion), journals from file (the Feldspar payroll CSV) and `post_journal` as JSON. Codes live in `finance.write_confirmations`. | PR #36, merged 19 Oct. Migration 018 applied to prod 19 Oct, before the merge. |
+| 8 | Laptop MCP as a thin client: `STZA_TOOLSET=practice` in `finance-api/mcp-server` | PR #39 (replaced #37, which GitHub closed when #36's branch was deleted), merged 19 Oct |
+| 9 | CI parity test (all 74 laptop tools mapped to portal routes) and `check_bill` on the portal | In PR #36 |
+| 10 | Confirmed-tier check run live, dry runs and refusals only: STZA 17/17, Feldspar Group Holdings 9/9, Feldspar Ltd 9/9, Ultraspeed Digital 11/11 | 19 Oct, after the script fixes in PR #38 |
+| 11 | STZA-TEST records from 16 Oct deleted, contact archived | Nik, 19 Oct |
 
 ## Waiting on Nik
 
-- [ ] Delete the STZA-TEST records in STZA's Xero:
-  - bill `de21c20e-1433-406a-9868-226b5f1c0cee` (deleting it also removes its linked transaction)
-  - credit note `dee937ba-0203-431c-9f77-6a5558307850`
-  - archive contact `d50b49d1-8134-442e-a71f-6d657de8f897`
-  - delete files `ce9b6c7a-0df2-428d-aacc-a27971111a0f` and `eb23de8f-4567-4208-92ec-33aa7b7298ce`
+- [ ] Post the live confirmed-tier test journal on STZA and then void it. The dry run
+  passed on 19 Oct (Dr 429 / Cr 404, 0.01, POSTED, narration "STZA-TEST 2026-10-19
+  confirmed-tier live test (void me)"). Nothing in PR #36 has been redeemed live yet.
 - [ ] Decide on the Xero connection limit. The app is at 5 of 5 connections. Adding
   payment details (Core tier, AUD 35/mo) is needed before a 6th client or the Demo
   Company.
-- [ ] Run `! gcloud auth login --update-adc`. The login expired on 18 Oct, which blocks the migration and the live checks.
-- [ ] Merge PR #36 once migration 018 is applied (see "In flight"), then PR #37.
-- [ ] Say "go" for one live redemption test on STZA. For example, post a 0.01 STZA-TEST journal and void it. Nothing in PR #36 has been redeemed live yet.
 - [ ] Decide when to switch Claude Desktop from the laptop `stza-xero` to `stza-xero-portal`.
-
-## In flight (18 Oct 2026)
-
-| # | What | State |
-|---|------|-------|
-| 7 | Writes that need confirmation (post, send, settle, setup, conversion), plus journals from file (the Feldspar payroll CSV) and `post_journal` as JSON | PR #36, CI green. Migration 018 must be applied before merge: it adds `finance.write_confirmations` and sets `write_policy` (Feldspar post on; STZA post and settle on). |
-| 9 | CI parity test: all 74 laptop tools mapped to portal routes (`lib/laptop-parity.js`), and `check_bill` ported to the portal | In PR #36 |
-| 8 | Laptop MCP as a thin client: `STZA_TOOLSET=practice` in `finance-api/mcp-server` | PR #37, which builds on #36. Rebase onto main after #36 merges. |
-
-After merging: run `FINANCE_API_KEY=... node scripts/xero-confirmed-check.js stza stza`, then the same for each Feldspar entity. These are dry runs and refusals only.
+- [ ] Give STZA's Round Money Market bank account a code in Xero, or ask for the write
+  routes to accept an AccountID. Today the settle routes name bank accounts by Code only,
+  so an account without one cannot be used.
 
 ## Still to do in phase 0
 
 | # | What | Notes |
 |---|------|-------|
-| 10 | STZA payroll controls | STZA runs payroll in Xero. Payroll reads already pass, so this adds payroll-to-ledger checks. |
-| 11 | Commit `docs/ap-lane/` | The spec, register and this tracker are still uncommitted. Commit them when Nik asks. |
-| 12 | Switch-over | Run the two Desktop servers side by side, then remove the laptop one and retire the laptop's Xero grant. |
+| 12 | Live redemption test | See "Waiting on Nik". Also proves single use: re-sending the same code must be refused. |
+| 13 | Settle cap test | The 5,000.00 STZA cap has not really been exercised. The only open STZA bill is 7.80, so "over the cap" was refused as "more than outstanding". It needs a bill over 5,000. |
+| 14 | STZA payroll controls | STZA runs payroll in Xero. Payroll reads already pass, so this adds payroll-to-ledger checks. |
+| 15 | Switch-over | Run the two Desktop servers side by side, then remove the laptop one and retire the laptop's Xero grant. |
 
 ## After phase 0 (AP lane and backlog)
 
