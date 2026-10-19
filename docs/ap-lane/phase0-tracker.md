@@ -1,6 +1,6 @@
 # Portal Xero parity: tracker
 
-Last updated 19 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
+Last updated 19 Oct 2026 (evening). Goal: os.stza.io does everything the laptop MCP does
 (and more), with STZA's method staying server-side. Detail lives in
 `ap-lane-spec.md` (the spec) and `xero-capability-register.md` (test evidence).
 
@@ -31,9 +31,13 @@ Last updated 19 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
 | 10 | Confirmed-tier check run live, dry runs and refusals only: STZA 17/17, Feldspar Group Holdings 9/9, Feldspar Ltd 9/9, Ultraspeed Digital 11/11 | 19 Oct, after the script fixes in PR #38 |
 | 11 | STZA-TEST records from 16 Oct deleted, contact archived | Nik, 19 Oct |
 | 12 | First live confirmed-tier writes: STZA-TEST journal `76e5c8a2-e1a5-424d-aa0c-43be37a682c3` (Dr 429 / Cr 404, 0.01) posted with code `985a34326b`, then voided through the portal with code `f12aa1a6c0`. Both codes are recorded as consumed once, by nik@stza.io. Xero history shows both notes. | Nik ran it, 19 Oct 15:09 |
+| 13 | STZA payroll-to-ledger checks: `GET .../checks/payroll` (`lib/payroll-checks.js`). Live on STZA it flags April (March NIC paid late) and June-September (NIC Payable in debit, see below). Feldspar gets a 422: payroll is run outside Xero. | PR #42, 19 Oct |
+| 14 | Finance agents reach Xero through the portal: stza-finance-agents 0.9.0 ships its own `stza-xero` server, the practice toolset. Before this the agents named the retired `stza-xero` plugin's tools and had no Xero access at all. All 37 tools they use are served; smoke test passed. Auth is the `xero-mcp@stza-xero-vault` service account, granted `secretAccessor` on `finance-api-key`. | stza-finance-agents #12, #13, 19 Oct |
 
 ## Waiting on Nik
 
+- [ ] Restart Claude Code, then confirm the synced agents plugin is 0.9.0 (it was still 0.8.0 on 19 Oct). If not, re-upload it in claude.ai.
+- [ ] STZA catch-up (see "STZA ledger findings"): post draft journal `b97cb253`; give the September pension amount and date; pay HMRC 192.75; check the reference on the 18 Jun payment.
 - [ ] Decide on the Xero connection limit. The app is at 5 of 5 connections. Adding
   payment details (Core tier, AUD 35/mo) is needed before a 6th client or the Demo
   Company.
@@ -48,8 +52,19 @@ Last updated 19 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
 |---|------|-------|
 | 16 | Live proof that a spent code is refused | On 19 Oct the re-send was stopped by the duplicate-journal check, which runs before redemption. Single use is shown by `consumed_at` and the unit tests, not yet by a live refusal. |
 | 13 | Settle cap test | The 5,000.00 STZA cap has not really been exercised. The only open STZA bill is 7.80, so "over the cap" was refused as "more than outstanding". It needs a bill over 5,000. |
-| 14 | STZA payroll controls | STZA runs payroll in Xero. Payroll reads already pass, so this adds payroll-to-ledger checks. |
 | 15 | Switch-over | Run the two Desktop servers side by side, then remove the laptop one and retire the laptop's Xero grant. |
+
+## STZA ledger findings (19 Oct 2026)
+
+From the payroll checks. These are bookkeeping items for the agents and Nik, not platform work.
+
+| Item | State |
+|---|---|
+| 18 Jun HMRC payment of 1,142.85 (bank txn `63eb4553`) was corporation tax for the year ended 31 Mar 2026 but was coded wholly to 826 NIC Payable, leaving 826 in debit | Draft reclass `b97cb253` (Dr 830 / Cr 826, dated 18 Jun) created 19 Oct. Nik to post. FM1 to review first once the agents load. |
+| After the reclass, 826 shows 192.75 owed to HMRC: August NIC 35.62 (due 22 Sep) and September 157.13 (due 22 Oct) | Nik to pay |
+| The 18 Jun line carries the PAYE accounts-office reference, copied from the 22 May PAYE line. If the payment really used the PAYE reference, HMRC allocated it to PAYE, not CT | Nik to check the bank statement |
+| September employer pension (481) has no bill. Pattern Feb-Aug: Interactive Investor, "Employer Pension Contribution - <Mon> 2026", 481, no VAT, dated the payment date, then matched | AP Clerk to draft once Nik gives the amount and date |
+| March NIC 11.25 paid on 22 May, a month late (0.07 interest) | Historical; flagged by the April check |
 
 ## After phase 0 (AP lane and backlog)
 
