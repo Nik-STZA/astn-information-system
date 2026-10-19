@@ -32,6 +32,7 @@ const {
   isTokenRejection,
 } = require("./lib/xero");
 const {
+  XERO_APIS,
   XERO_READ_REPORTS,
   resolveRead,
   stripPersonal,
@@ -48,6 +49,7 @@ const {
 const writeRules = require("./lib/xero-write");
 const confirmedRules = require("./lib/xero-confirmed");
 const billChecks = require("./lib/bill-checks");
+const payrollChecks = require("./lib/payroll-checks");
 const {
   ageInvoices,
   fetchAllInvoices,
@@ -3994,6 +3996,65 @@ app.get("/api/finance/clients/:slug/xero/:entity/checks/bill/:id", route(async (
       attachments: attachments?.Attachments ?? [],
       since: req.query.since || "",
     }),
+  });
+}));
+
+// ── Checking payroll against the ledger ─────────────────────────────────────
+//
+// GET /api/finance/clients/:slug/xero/:entity/checks/payroll?from=YYYY-MM&to=YYYY-MM
+//
+// For an entity that runs payroll in Xero (STZA): each month's pay runs against
+// the wage cost, wages payable and HMRC liabilities in the trial balance
+// (lib/payroll-checks.js). Reads only, so no tier and no audit row. Defaults to
+// the first pay run's month through the last complete month; at most 24 months,
+// one trial balance each. An entity whose payroll is run elsewhere (Feldspar)
+// gets a 422 saying so rather than a page of "pay run missing".
+app.get("/api/finance/clients/:slug/xero/:entity/checks/payroll", route(async (req, res) => {
+  const ym = /^\d{4}-(0[1-9]|1[0-2])$/;
+  for (const k of ["from", "to"]) {
+    if (req.query[k] && !ym.test(req.query[k])) return res.status(400).json({ error: `${k} must be YYYY-MM` });
+  }
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+
+  const payroll = (path, params) => xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_APIS.payroll}${path}`, params);
+  let settings;
+  const payRuns = [];
+  try {
+    settings = stripPersonal(await payroll("/Settings"));
+    for (let page = 1; page <= 20; page++) {
+      const batch = stripPersonal(await payroll("/PayRuns", { page }))?.payRuns ?? [];
+      payRuns.push(...batch);
+      if (batch.length < 100) break;
+    }
+  } catch (e) {
+    if ([401, 403, 404].includes(e.detail?.status)) {
+      return res.status(422).json({ error: `${ctx.entity.name} does not run payroll in Xero (Xero returned ${e.detail.status})` });
+    }
+    throw e;
+  }
+  const accounts = payrollChecks.payrollAccounts(settings?.settings?.accounts);
+  if (!accounts.wages) return res.status(422).json({ error: "Xero payroll settings name no wages expense account" });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const lastComplete = new Date(Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
+  const firstRun = payRuns.map((r) => String(r.paymentDate || "").slice(0, 7)).filter(Boolean).sort()[0];
+  const to = req.query.to || lastComplete;
+  const from = req.query.from || firstRun || to;
+  if (from > to) return res.status(400).json({ error: "from is after to" });
+  const months = payrollChecks.monthsBetween(from, to);
+  if (months.length > 24) return res.status(400).json({ error: "at most 24 months per call" });
+
+  const ledger = [];
+  for (const m of months) {
+    const report = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date: m.end });
+    ledger.push({ ...m, tb: payrollChecks.parseTrialBalance(report) });
+  }
+
+  res.json({
+    entity: ctx.entity.name, from, to, pay_runs: payRuns.length,
+    ...payrollChecks.checkPayroll({ payRuns, accounts, ledger, today }),
   });
 }));
 
