@@ -30,12 +30,10 @@ Last updated 19 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
 | 9 | CI parity test (all 74 laptop tools mapped to portal routes) and `check_bill` on the portal | In PR #36 |
 | 10 | Confirmed-tier check run live, dry runs and refusals only: STZA 17/17, Feldspar Group Holdings 9/9, Feldspar Ltd 9/9, Ultraspeed Digital 11/11 | 19 Oct, after the script fixes in PR #38 |
 | 11 | STZA-TEST records from 16 Oct deleted, contact archived | Nik, 19 Oct |
+| 12 | First live confirmed-tier writes: STZA-TEST journal `76e5c8a2-e1a5-424d-aa0c-43be37a682c3` (Dr 429 / Cr 404, 0.01) posted with code `985a34326b`, then voided through the portal with code `f12aa1a6c0`. Both codes are recorded as consumed once, by nik@stza.io. Xero history shows both notes. | Nik ran it, 19 Oct 15:09 |
 
 ## Waiting on Nik
 
-- [ ] Post the live confirmed-tier test journal on STZA and then void it. The dry run
-  passed on 19 Oct (Dr 429 / Cr 404, 0.01, POSTED, narration "STZA-TEST 2026-10-19
-  confirmed-tier live test (void me)"). Nothing in PR #36 has been redeemed live yet.
 - [ ] Decide on the Xero connection limit. The app is at 5 of 5 connections. Adding
   payment details (Core tier, AUD 35/mo) is needed before a 6th client or the Demo
   Company.
@@ -48,7 +46,7 @@ Last updated 19 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
 
 | # | What | Notes |
 |---|------|-------|
-| 12 | Live redemption test | See "Waiting on Nik". Also proves single use: re-sending the same code must be refused. |
+| 16 | Live proof that a spent code is refused | On 19 Oct the re-send was stopped by the duplicate-journal check, which runs before redemption. Single use is shown by `consumed_at` and the unit tests, not yet by a live refusal. |
 | 13 | Settle cap test | The 5,000.00 STZA cap has not really been exercised. The only open STZA bill is 7.80, so "over the cap" was refused as "more than outstanding". It needs a bill over 5,000. |
 | 14 | STZA payroll controls | STZA runs payroll in Xero. Payroll reads already pass, so this adds payroll-to-ledger checks. |
 | 15 | Switch-over | Run the two Desktop servers side by side, then remove the laptop one and retire the laptop's Xero grant. |
