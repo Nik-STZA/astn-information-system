@@ -10,15 +10,25 @@
 //   note        permanent history notes on Xero records
 //   draft       bills, sales invoices, credit notes in DRAFT or SUBMITTED;
 //               contacts; attachments; linked transactions; Files uploads
-//   post, send, settle, setup, conversion   not served here yet
+//   post        POSTED or VOIDED manual journals
+//   send        emailing a sales invoice
+//   settle      payments, allocations, bank transactions and transfers
+//   setup       accounts, tax rates, tracking, currencies, items, contact
+//               groups, repeating invoice templates, fixed assets
+//   conversion  conversion balances (POST /Setup): no undo, no read-back
+// The last five need a confirmation code: see lib/xero-confirmed.js.
 //
 // The agent's lane ends at SUBMITTED. A person approves in Xero.
 
 const crypto = require("crypto");
 
 const TIERS = ["note", "draft", "post", "send", "settle", "setup", "conversion"];
+// max_amount caps a single settle write, in the document's currency; null
+// means no cap. It does not cap post: a payroll or depreciation journal is
+// legitimately large, and the confirmation code shows the whole journal first.
 const DEFAULT_POLICY = {
   note: true, draft: true, post: false, send: false, settle: false, setup: false, conversion: false,
+  max_amount: "5000.00",
 };
 
 // An entity's policy: the defaults, overridden by accounting_system_config.write_policy.
@@ -26,6 +36,8 @@ function writePolicy(entityConfig) {
   const own = (entityConfig && entityConfig.write_policy) || {};
   const out = { ...DEFAULT_POLICY };
   for (const t of TIERS) if (typeof own[t] === "boolean") out[t] = own[t];
+  if (own.max_amount === null) out.max_amount = null;
+  else if (own.max_amount !== undefined) out.max_amount = String(own.max_amount);
   return out;
 }
 
@@ -340,6 +352,8 @@ module.exports = {
   isGuid,
   isIsoDate,
   parseDecimal,
+  toJsonNumber,
+  penceToString,
   validateLines,
   DOCUMENTS,
   documentRequestIssues,
