@@ -18,7 +18,7 @@ Sources this builds on, not repeated here:
 | D1 | **The Documents inbox (`xero.inbox.<token>@xerofiles.com`) is the single front door.** Nothing goes to the bills address. Each document arrives once. | Nik, 12 Oct (item 67); confirmed 16 Oct, item 70 closed |
 | D2 | **The agent reads the source cold and is the single author of the bill.** Xero's own extraction is never used as a starting point. | Item 67 |
 | D3 | **The lane ends at SUBMITTED.** Approval is Nik in Xero. Payments and bank matching are out of scope. | `ap-bill-lane` |
-| D4 | **Rules first, Claude for exceptions.** Code does every check that can be computed. Claude reads documents and proposes; it does not decide. | 16 Oct cost discussion |
+| D4 | **Rules first, the model for reading.** Code does every check that can be computed. The model (section 4) reads documents and proposes; it does not decide. | 16 Oct cost discussion |
 | D5 | **The method stays on STZA servers.** Prompts, rules and the supplier determinations are never exposed to a client login or a client tenancy. | `feedback_protect_workflow_ip` |
 | D6 | **The supplier master is the foundation, and it covers identity, not only coding.** Name, address, country, VAT and company numbers are kept right so the data serves VAT returns, ONS surveys and statutory reporting later. | Nik, 16 Oct |
 | D7 | **Portal and laptop are one engine.** The laptop MCP and the portal call the same finance-api; they cannot drift. | Nik, 16 Oct |
@@ -40,7 +40,7 @@ On 15 Sep, 3 of 287 suppliers carried a default VAT treatment and 7 had a countr
 
 ### 2.3 Fields
 
-**Identity and reporting** (mostly mechanical, verifiable without Claude):
+**Identity and reporting** (mostly mechanical, verifiable without a model):
 
 | Field | Xero contact field | Verified against |
 |---|---|---|
@@ -82,8 +82,8 @@ So the client's VAT evidence lives in their own Xero from the day it is decided.
 ### 2.4 The cleanup (phase 1)
 
 1. **Scope.** Live suppliers only: about 40 across the three entities (a bill in the last 12 months). The other ~247 are listed as dormant and left alone unless Nik chooses to archive them.
-2. **Mechanical pass (no Claude).** For each live supplier: ledger history (accounts and tax types used, currencies, volumes), Companies House and VAT number checks where a number is known, address country from Xero.
-3. **Proposal pass (Claude, once per supplier).** Read the most recent invoice PDF and propose legal name, address, country of establishment, VAT number, determination branch, default account and tax type. Every field cites the document it came from.
+2. **Mechanical pass (no model).** For each live supplier: ledger history (accounts and tax types used, currencies, volumes), Companies House and VAT number checks where a number is known, address country from Xero.
+3. **Proposal pass (the model, once per supplier).** Read the most recent invoice PDF and propose legal name, address, country of establishment, VAT number, determination branch, default account and tax type. Every field cites the document it came from.
 4. **Nik reviews in the portal.** One row per supplier, with differences from Xero highlighted. Approve, edit, or mark "always discuss". The ten mixed-treatment suppliers and the two large open questions (STZA into UDL £50.6k; Asian Capital Partners into FSL £40.1k) are listed first.
 5. **Write to Xero.** Approved rows are written to the contact in each entity, with the determination history note and the source document attached: dry run first, then audit-logged, in the same pattern as journals.
 
@@ -118,7 +118,7 @@ Historic mis-coding found in the cleanup (the ~£100k reverse charge) is **repor
 Supplier emails document -> Documents inbox (one address per entity, via Google Group)
    |
 1. Intake      finance-api lists new Documents items (files API); records file ID + hash
-2. Extract     ONE Claude call per document -> structured fields (all pages)
+2. Extract     ONE model call per file -> structured fields (all pages; several documents per file)
 3. Classify    code: invoice / credit note / receipt / statement / other
 4. Match       code: supplier master lookup (VAT no., name, email domain)
 5. Build       code: lines from extraction + supplier defaults
@@ -133,7 +133,7 @@ Statements never become bills. They are reconciled against the ledger (the `ap-b
 
 Receipts are matched to their invoice and attached to it, never made into a bill.
 
-### 3.2 Computed checks (no Claude)
+### 3.2 Computed checks (no model)
 
 Every failure the tests produced, mapped to the check that catches it:
 
@@ -167,18 +167,34 @@ The check that `check_bill` could never do (`lines_vs_pdf`) becomes computable, 
 
 ---
 
-## 4. Where Claude is used, and what it costs
+## 4. Where a model is used, and what it costs
+
+**Decided 20 Oct 2026 (Nik): Gemini 3.5 Flash on Vertex AI, London region (`europe-west2`).** Processing stays in the UK, under STZA's existing Google Cloud terms and bill (project `africanstn-research`). Requests go to the regional endpoint, never `global`, which does not pin where data is processed.
 
 | Step | Model | Calls | Notes |
 |---|---|---|---|
-| Extract a document | Haiku | 1 per document | Structured output (JSON schema). PDF in, fields out. No conversation, no tools. |
-| Propose a supplier determination | Sonnet | 1 per new supplier | Cleanup: ~40 once. Then only new suppliers. |
-| Explain an exception | Sonnet | only on request | Nik asks "why" in the queue. |
+| Extract a document | `gemini-3.5-flash` @ `europe-west2` | 1 per file | Structured output (JSON schema). File in, a LIST of documents out: one file can hold several invoices. No conversation, no tools. |
+| Propose a supplier determination | `gemini-3.5-flash` @ `europe-west2`, to be confirmed by its own test | 1 per new supplier | Cleanup: ~40 once. Then only new suppliers. No Pro model is offered in London. |
+| Explain an exception | same | only on request | Nik asks "why" in the queue. |
 | Everything else | none | - | Code. |
 
-**Estimate, to be measured in the pilot:** about 15 documents a week across three entities, so roughly 65 extractions a month plus a handful of new suppliers. I expect **under £5 a month for Feldspar** on the API, against today's conversational Cowork process. Per-call cost and tokens are recorded on every run (actual usage, not a hard-coded rate).
+**Evidence (20 Oct).** Replay of the 12 Oct UDL batch, 11 unique files, scored against `reconciliations/2026-10-12-ap-intake-udl.md`:
 
-Overnight batching (Batch API, about half price) is a later option. At this volume, immediacy is worth more than the saving.
+| Model | Region | Score | Misses |
+|---|---|---|---|
+| gemini-3.5-flash | europe-west2 | **11/11** | none |
+| gemini-2.5-flash | europe-west2 | 8/11 | screenshot read as a statement; Amazon credit line dropped on both SSD invoices |
+| gemini-2.5-flash-lite | europe-west1 | 8/11 | the same |
+
+Newer models (3.8 Flash, 3.1 Pro) are not offered in the UK or EU regions. One run per model: re-run before go-live and add a second batch from another entity.
+
+**What the model is NOT trusted with**, learned in the same replay:
+- **The bill amount.** On two identical Amazon invoices the model netted the "Funded by Amazon" credit off the total on one and not the other, with every line right on both. The bill is built from the lines by code (3.2), applying the CFO's 12 Oct ruling: invoice value, the credit left to bank reconciliation.
+- **The VAT treatment.** Google Cloud EMEA invoices print no reverse-charge wording, only the two VAT numbers and 0%. The model reads the facts; the treatment comes from the supplier master and the rules.
+
+**Cost, measured:** about 2.4 US cents per file (about 2k tokens in, 2.3k out including thinking), so roughly £1.20 a month for Feldspar at ~65 files. Per-call tokens are recorded on every run.
+
+**Operational:** the project's Vertex quota is new and returns frequent 429s; calls back off and retry, and a quota increase is requested before go-live. Batching is a later option; at this volume immediacy is worth more.
 
 The extraction prompt and the determination prompt live in finance-api, not in a client-visible skill (D5). The `ap-bill-lane` skill stays as the human-readable procedure for STZA staff.
 
