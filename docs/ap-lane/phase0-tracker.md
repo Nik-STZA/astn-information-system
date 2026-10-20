@@ -71,7 +71,9 @@ From the payroll checks. These are bookkeeping items for the agents and Nik, not
 | Step | State |
 |---|---|
 | Mechanical pass (spec 2.4 step 2) | `lib/supplier-pass.js` + `scripts/supplier-pass.js`, read-only. First live run on Feldspar 20 Oct (12 months): FGH 13 live, FSL 18, UDL 61; 86 identities, 4 across entities. UDL also has 107 spend-only payees: 23.4k of purchases, 1.02m to the balance sheet (mostly 640/641 intercompany, i.e. UDL paying group suppliers). Almost no supplier has a country, a default VAT type or a VAT number on its contact. |
-| Proposal pass, portal review, write to Xero | Not started |
+| Proposal pass | Prototype run 20 Oct on 19 Feldspar suppliers (Gemini 3.5 Flash, London), 6/6 on known answers. Review note `feldspar-sport-group/reconciliations/2026-10-20-supplier-proposals.md`. CFO decisions recorded the same day; STZA contact renamed, and the recode left as DRAFT journal `b1a7ef2e`. Build rules learned: code computes the differences and masks bank details; expense-claim payees are excluded; master flags are honoured before any model default |
+| Bank details masked on every read | 20 Oct: a contact read returned a full account number. The read passthrough now masks bank numbers to the last 4 (`maskBankDetails`) |
+| Portal review, write to Xero | Not started |
 
 ## After phase 0 (AP lane and backlog)
 

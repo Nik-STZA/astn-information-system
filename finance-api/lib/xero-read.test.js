@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveRead, stripPersonal, XERO_READ_RESOURCES, XERO_READ_REPORTS } from "./xero-read";
+import { resolveRead, stripPersonal, maskBankDetails, XERO_READ_RESOURCES, XERO_READ_REPORTS } from "./xero-read";
 
 const ID = "6306a21a-8684-4fd8-8c71-4180c464b6b9";
 
@@ -142,5 +142,25 @@ describe("payroll redaction", () => {
 
   it("leaves non-personal values untouched", () => {
     expect(stripPersonal([1, "a", null, { a: [true] }])).toEqual([1, "a", null, { a: [true] }]);
+  });
+});
+
+describe("maskBankDetails", () => {
+  it("shows a contact's bank numbers as the last 4 characters only", () => {
+    const contact = {
+      Name: "Supplier Ltd", CompanyNumber: "16850337", TaxNumber: "GB493735845",
+      BankAccountDetails: "60-14-41 12345678",
+      BatchPayments: { BankAccountNumber: "60-14-4112345678", BankAccountName: "Supplier Ltd" },
+    };
+    expect(maskBankDetails({ Contacts: [contact] })).toEqual({ Contacts: [{
+      Name: "Supplier Ltd", CompanyNumber: "16850337", TaxNumber: "GB493735845",
+      BankAccountDetails: "****5678",
+      BatchPayments: { BankAccountNumber: "****5678", BankAccountName: "Supplier Ltd" },
+    }] });
+  });
+
+  it("leaves empty values and everything else alone", () => {
+    expect(maskBankDetails({ BankAccountDetails: "", Total: 12, Lines: [{ IBAN: "GB00 TEST 0000 0000 0012 34" }] }))
+      .toEqual({ BankAccountDetails: "", Total: 12, Lines: [{ IBAN: "****1234" }] });
   });
 });

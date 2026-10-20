@@ -36,6 +36,7 @@ const {
   XERO_READ_REPORTS,
   resolveRead,
   stripPersonal,
+  maskBankDetails,
   allowed: readAllowed,
 } = require("./lib/xero-read");
 const {
@@ -2006,7 +2007,7 @@ async function xeroReadPassthrough(req, res, target) {
     return res.send(buf);
   }
 
-  let data = await r.json();
+  let data = maskBankDetails(await r.json());
   if (target.personal) data = stripPersonal(data);
   res.json({
     entity: ctx.entity.name,
