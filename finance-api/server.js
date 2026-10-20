@@ -51,6 +51,9 @@ const writeRules = require("./lib/xero-write");
 const confirmedRules = require("./lib/xero-confirmed");
 const billChecks = require("./lib/bill-checks");
 const payrollChecks = require("./lib/payroll-checks");
+const supplierProposal = require("./lib/supplier-proposal");
+const supplierPass = require("./lib/supplier-pass");
+const vertex = require("./lib/vertex");
 const {
   ageInvoices,
   fetchAllInvoices,
@@ -4057,6 +4060,123 @@ app.get("/api/finance/clients/:slug/xero/:entity/checks/payroll", route(async (r
     entity: ctx.entity.name, from, to, pay_runs: payRuns.length,
     ...payrollChecks.checkPayroll({ payRuns, accounts, ledger, today }),
   });
+}));
+
+// ── Supplier master: the proposal pass ───────────────────────────────────────
+//
+// POST /api/finance/clients/:slug/xero/:entity/suppliers/proposals
+//   body: { contact_ids: [ContactID, ...] }   (1 to 20)
+//
+// For each supplier: its latest bill with a document attached is read by the
+// model (lib/vertex.js, London) against the determination tree, and the
+// proposal is stored in finance.supplier_proposals as 'pending' for the CFO
+// (docs/ap-lane/ap-lane-spec.md 2.4 step 3). Code, not the model, masks bank
+// details, computes the differences from the Xero contact and applies the
+// supplier master (lib/supplier-proposal.js). Nothing is written to Xero.
+// Sequential on purpose: Xero allows about 60 calls a minute per organisation.
+app.post("/api/finance/clients/:slug/xero/:entity/suppliers/proposals", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ids = [...new Set((req.body?.contact_ids || []).map(String))];
+  if (!ids.length || ids.length > 20 || !ids.every((id) => GUID.test(id))) {
+    return res.status(400).json({ error: "contact_ids must be 1 to 20 Xero ContactIDs" });
+  }
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  const { client, entity } = ctx;
+  const get = (path, params) => xeroGet(ctx.accessToken, ctx.tenantId, path, params);
+
+  const org = (await get("/Organisation")).Organisations?.[0] || {};
+  const facts = supplierProposal.entityFacts(org, entity.accounting_system_config?.supplier_master || {});
+  const since = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+  const runId = crypto.randomUUID();
+  const results = [];
+
+  for (const contactId of ids) {
+    try {
+      const master = (await pool.query(
+        `SELECT s.*, se.id AS supplier_entity_id FROM finance.supplier_entities se
+           JOIN finance.suppliers s ON s.id = se.supplier_id
+          WHERE se.entity_id = $1 AND se.xero_contact_id = $2`, [entity.id, contactId])).rows[0] || null;
+      const skip = supplierProposal.skipReason(master);
+      if (skip) { results.push({ contact_id: contactId, skipped: skip }); continue; }
+
+      const contact = (await get(`/Contacts/${contactId}`)).Contacts?.[0];
+      if (!contact) { results.push({ contact_id: contactId, error: "contact not found" }); continue; }
+      const view = supplierProposal.contactView(contact);
+
+      // Newest first; the first bill with a PDF or image attached is the one read.
+      const bills = (await get("/Invoices", {
+        page: 1, order: "Date DESC",
+        where: `Type=="ACCPAY" AND Contact.ContactID==guid("${contactId}")`,
+      })).Invoices ?? [];
+      let doc = null;
+      for (const b of bills.filter((x) => x.HasAttachments && !["DELETED", "VOIDED"].includes(x.Status)).slice(0, 3)) {
+        const atts = (await get(`/Invoices/${b.InvoiceID}/Attachments`)).Attachments ?? [];
+        const a = atts.find((x) => /pdf|image\//.test(x.MimeType || "") && Number(x.ContentLength || 0) <= 15e6);
+        if (!a) continue;
+        const r = await xeroFetch(ctx.accessToken, ctx.tenantId, `/Invoices/${b.InvoiceID}/Attachments/${encodeURIComponent(a.FileName)}`, {}, { accept: a.MimeType });
+        doc = { bill: b, file: a, bytes: Buffer.from(await r.arrayBuffer()) };
+        break;
+      }
+      if (!doc) { results.push({ contact_id: contactId, name: contact.Name, error: "no bill with a document attached" }); continue; }
+
+      const ledger = supplierPass.entityPass({
+        entity: entity.slug, organisation: org, contacts: [contact],
+        bills: bills.filter((b) => supplierPass.docDate(b) >= since), from: since,
+      }).live[0] || null;
+      const invoiceUsed = {
+        id: doc.bill.InvoiceID, number: doc.bill.InvoiceNumber, date: supplierPass.docDate(doc.bill),
+        total: doc.bill.Total, currency: doc.bill.CurrencyCode, file: doc.file.FileName,
+      };
+      const { IsPerson, ...contactForModel } = view;
+      const context = {
+        buying_entity: facts, xero_contact: contactForModel, invoice_used: invoiceUsed,
+        ledger_last_12_months: ledger
+          ? { net: ledger.net, documents: ledger.documents, accounts: ledger.accounts, tax_types: ledger.tax_types, currencies: ledger.currencies }
+          : "none in window",
+      };
+
+      const out = await vertex.generate(supplierProposal.buildRequest({ document: doc.bytes, mimeType: doc.file.MimeType, context }));
+      const { proposal, differences } = supplierProposal.finishProposal(out.text, { view, master });
+      const sha = crypto.createHash("sha256").update(doc.bytes).digest("hex");
+      const row = (await pool.query(
+        `INSERT INTO finance.supplier_proposals
+           (client_id, entity_id, xero_contact_id, supplier_entity_id, run_id, model, model_location,
+            xero_invoice_id, document_sha256, proposal, differences, usage)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [client.id, entity.id, contactId, master?.supplier_entity_id || null, runId, out.model, out.location,
+          invoiceUsed.id, sha, { ...proposal, invoice_used: invoiceUsed, requested_by: actorEmail }, JSON.stringify(differences), out.usage],
+      )).rows[0];
+      results.push({
+        contact_id: contactId, name: contact.Name, proposal_id: row.id,
+        proposed_tax_type: proposal.proposed_tax_type, vat_branch: proposal.vat_branch, confidence: proposal.confidence,
+        always_discuss: proposal.always_discuss, rules_applied: proposal.rules_applied, differences: differences.length,
+      });
+    } catch (e) {
+      // One supplier's failure is reported against it; the run continues.
+      results.push({ contact_id: contactId, error: e.message.slice(0, 300) });
+    }
+  }
+  res.json({ entity: entity.name, run_id: runId, results });
+}));
+
+// GET /api/finance/clients/:slug/suppliers/proposals?decision=pending|all|...
+// The review queue, newest first, across the client's entities.
+app.get("/api/finance/clients/:slug/suppliers/proposals", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const decision = String(req.query.decision || "pending");
+  const { rows } = await pool.query(
+    `SELECT p.id, e.slug AS entity, p.xero_contact_id, p.run_id, p.model, p.model_location,
+            p.xero_invoice_id, p.proposal, p.differences, p.decision, p.decision_note,
+            p.decided_by_email, p.decided_at, p.created_at
+       FROM finance.supplier_proposals p JOIN finance.entities e ON e.id = p.entity_id
+      WHERE p.client_id = $1 AND ($2 = 'all' OR p.decision = $2)
+      ORDER BY p.created_at DESC LIMIT 200`, [client.id, decision]);
+  res.json({ count: rows.length, proposals: rows });
 }));
 
 // ── Start ───────────────────────────────────────────────────────────────────
