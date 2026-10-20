@@ -290,7 +290,7 @@ Engagement letters should say this in advance (section 2.2 data, D5 method). Wor
 - **Q1.** Portal and laptop work the same and stay in sync: section 5.2.
 - **Q2.** No ONS returns at present, but expected in other roles. Country of establishment is captured from day one (VAT needs it anyway); service category is an optional field, filled when a return requires it.
 - **Q3.** Dormant suppliers: revisit after the cleanup.
-- **Q4a.** STZA is not VAT registered. UDL's coding of STZA invoices is therefore NONE, not EXEMPTINPUT; the £13,600 on EXEMPTINPUT is a recode. **Also in the cleanup:** the UDL contact is named "Sports Tech South Africa Ltd T/A STZA", which may not match the legal name. The master should carry the registered name.
+- **Q4a.** STZA is not VAT registered. UDL's coding of STZA invoices is therefore NONE, not EXEMPTINPUT, from now on. The £13,600 already on EXEMPTINPUT (INV-0003, INV-0004) is **not** recoded (Nik, 20 Oct). **Also in the cleanup:** the UDL contact is named "Sports Tech South Africa Ltd T/A STZA", which may not match the legal name. The master should carry the registered name.
 - **Q4b.** Asian Capital Partners is Hong Kong based, so no UK VAT is charged.
 - **Q5.** Intake runs daily, once Nik has fixed the filtering on the Feldspar accounts inbox. Until then, run on request.
 

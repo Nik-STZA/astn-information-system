@@ -223,7 +223,31 @@ function stripPersonal(value) {
   return value;
 }
 
+// Supplier bank details (spec 2.6, 20 Oct 2026): the lane compares them, never
+// holds or repeats them, because a changed bank detail is the payment-diversion
+// fraud this lane must report rather than spread. Every read leaving the service
+// shows a bank number as its last 4 characters only. Found when a contact read
+// on 20 Oct returned the full account number to an agent.
+const BANK_KEYS = new Set(["bankaccountdetails", "bankaccountnumber", "iban", "sortcode", "bsb"]);
+
+function maskBankDetails(value) {
+  if (Array.isArray(value)) return value.map(maskBankDetails);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (BANK_KEYS.has(k.toLowerCase()) && typeof v === "string" && v.trim()) {
+        out[k] = `****${v.replace(/[^A-Za-z0-9]/g, "").slice(-4)}`;
+      } else {
+        out[k] = maskBankDetails(v);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 module.exports = {
+  maskBankDetails,
   XERO_APIS,
   XERO_READ_RESOURCES,
   XERO_READ_REPORTS,
