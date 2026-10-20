@@ -95,6 +95,19 @@ Historic mis-coding found in the cleanup (the ~£100k reverse charge) is **repor
 - **A bill that disagrees with its supplier's default is an exception**, never auto-corrected. It means either a coding error or a stale default ("the default is a prior, not an answer", 15 Sep note).
 - A monthly sync flags master-versus-Xero differences, VAT numbers that no longer validate, and suppliers turning dormant.
 
+### 2.6 Change control on supplier details (Nik, 20 Oct)
+
+**Rule: nothing changes a supplier's address, remittance email or bank details automatically. Every difference is compared, shown to Nik, and only written after he approves it.** The commonest AP fraud is a "we have changed our bank details" invoice or email (payment diversion). A lane that copied details off each new invoice onto the contact would be the attack's delivery route.
+
+- **What is watched**, per supplier per entity: street and postal address (each line and the country), remittance and accounts email, phone, `BankAccountDetails` on the Xero contact, the bank details printed on each invoice, and the legal name, company number and VAT number.
+- **Baseline.** When Nik approves a supplier (2.4 step 4), the master records the approved address and contact details, plus a fingerprint of the bank details: a hash and the last four digits, never the full details, keeping the "never stored" rule above.
+- **Three places a change can show up, all compared, none auto-applied:**
+  1. **On a new invoice.** The extraction reads the address and bank details on the document and compares them with the master. Any difference makes the bill an exception (3.3), shown with the old and new values side by side. It is never a clean bill, and the contact is not touched.
+  2. **In Xero directly.** The sync (2.5) compares each contact with the master. An address, email or bank edit made in Xero, whether by a person, Hubdoc, the Xero OCR or a bank feed rule, is reported with who and when, taken from the contact's history. It is never overwritten silently in either direction.
+  3. **On the master.** A change proposed in the portal goes through the same approval as a new determination and is written to Xero with a history note (old value, new value, the evidence, the approver).
+- **Bank details: report, never write.** The lane never writes `BankAccountDetails`. A changed bank detail is always flagged **"verify independently before paying"**: Nik confirms by phone on a number already on file, not one from the invoice or email that announced the change. The lane does not decide that a change is genuine.
+- **First run.** The cleanup (2.4) captures today's Xero values as "unapproved baseline". Differences between the invoice PDF and the Xero contact found in the proposal pass are listed for Nik, not corrected.
+
 ---
 
 ## 3. The AP lane
@@ -138,6 +151,7 @@ Every failure the tests produced, mapped to the check that catches it:
 | Account exists in the chart; matches supplier default | DV3 on the wrong account |
 | Entity-not-VAT-registered rule (`PaysTax=false` -> one gross line, NONE) | STZA rule |
 | Attachment present on the bill before SUBMITTED | missing evidence |
+| Address, email and bank details on the document = supplier master (2.6) | changed-bank-details fraud; never auto-applied |
 | Round overwrite check after submit | Round edits |
 
 The check that `check_bill` could never do (`lines_vs_pdf`) becomes computable, because the extraction is structured data rather than something read by eye.
@@ -145,6 +159,7 @@ The check that `check_bill` could never do (`lines_vs_pdf`) becomes computable, 
 ### 3.3 What goes to Nik, not the queue
 
 - New supplier, or a supplier marked "always discuss"
+- Any change to a supplier's address, email or bank details (2.6), on the invoice or in Xero
 - Any check failed
 - Intangibles, capital items, intercompany, mixed-treatment suppliers
 - A statement difference
