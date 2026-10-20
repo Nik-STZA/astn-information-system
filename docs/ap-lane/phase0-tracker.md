@@ -66,6 +66,13 @@ From the payroll checks. These are bookkeeping items for the agents and Nik, not
 | September employer pension (481) has no bill. Pattern Feb-Aug: Interactive Investor, "Employer Pension Contribution - <Mon> 2026", 481, no VAT, dated the payment date, then matched | AP Clerk to draft once Nik gives the amount and date |
 | March NIC 11.25 paid on 22 May, a month late (0.07 interest) | Historical; flagged by the April check |
 
+## Phase 1: supplier master
+
+| Step | State |
+|---|---|
+| Mechanical pass (spec 2.4 step 2) | `lib/supplier-pass.js` + `scripts/supplier-pass.js`, read-only. First live run on Feldspar 20 Oct (12 months): FGH 13 live, FSL 18, UDL 61; 86 identities, 4 across entities. UDL also has 107 spend-only payees: 23.4k of purchases, 1.02m to the balance sheet (mostly 640/641 intercompany, i.e. UDL paying group suppliers). Almost no supplier has a country, a default VAT type or a VAT number on its contact. |
+| Proposal pass, portal review, write to Xero | Not started |
+
 ## After phase 0 (AP lane and backlog)
 
 - AP lane phases 1–4, from spec section 5 onwards: data sync, then the supplier
