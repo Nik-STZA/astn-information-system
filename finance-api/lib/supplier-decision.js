@@ -196,6 +196,9 @@ function planDecision({ decision, note, edits, proposal = null, supplier = null,
     if (decision === "approved" && proposal?.vat_branch === "question") {
       errors.push("the proposal asked a question instead of choosing a treatment: answer it with edits (default_tax_type, vat_basis), or decide always_discuss or question");
     }
+    if (decision === "approved" && proposal?.contradiction) {
+      errors.push("the proposal contradicted itself (its VAT type did not follow from its branch): set default_tax_type and vat_basis as edits");
+    }
     if (s.mixed_treatment && l.default_tax_type) {
       errors.push("mixed treatment: no default VAT type, every bill is reviewed (clear default_tax_type or mixed_treatment)");
     }
@@ -205,6 +208,8 @@ function planDecision({ decision, note, edits, proposal = null, supplier = null,
       // A changed treatment must not inherit the basis of the one it replaced.
       errors.push("a changed default_tax_type needs its own vat_basis in the edits");
     }
+    // No default means no basis either: a basis on its own reads as a treatment.
+    if (s.mixed_treatment && !l.default_tax_type) l.vat_basis = null;
     l.status = "approved";
   }
 

@@ -63,6 +63,18 @@ describe("maskProposal", () => {
     expect(m.vat_number.value).toBe("SI42243017");
   });
 
+  // 21 Oct 2026: the Google Cloud quote came back as "VAT number: IE****8997OH".
+  it("leaves the VAT and company numbers readable in the quotes that cite them", () => {
+    const m = maskProposal(proposal({
+      vat_number: cited("IE3668997OH", "invoice p1: 'VAT number: IE3668997OH'"),
+      company_number: cited("8610061000", "invoice p1: 'Reg. no. 8610 061 000'"),
+      reasoning: "Irish VAT number IE3668997OH; pay to 12-3456-78901234.",
+    }));
+    expect(m.vat_number.source).toBe("invoice p1: 'VAT number: IE3668997OH'");
+    expect(m.company_number.source).toBe("invoice p1: 'Reg. no. 8610 061 000'");
+    expect(m.reasoning).toBe("Irish VAT number IE3668997OH; pay to ****1234.");
+  });
+
   it("takes the last 4 letters or digits, never punctuation", () => {
     expect(maskProposal(proposal({ bank_account_last4: cited("-001") })).bank_account_last4.value).toBe("001");
     expect(maskProposal(proposal({ bank_account_last4: cited("511-339947-7001") })).bank_account_last4.value).toBe("7001");
@@ -110,8 +122,21 @@ describe("expense-claim payees", () => {
 });
 
 describe("applyMasterRules", () => {
+  // 21 Oct 2026: Venture Proof came back uk_charges_vat with NONE.
+  it("drops a VAT type that does not follow from the proposal's own branch", () => {
+    const p = applyMasterRules(proposal({ vat_branch: "uk_charges_vat", proposed_tax_type: "NONE" }), null, view());
+    expect(p.proposed_tax_type).toBeNull();
+    expect(p.contradiction).toBe(true);
+    expect(p.questions_for_reviewer.join(" ")).toMatch(/contradicts itself/);
+    for (const [vat_branch, proposed_tax_type] of [["non_uk_services_reverse_charge", "REVERSECHARGES"],
+      ["uk_not_registered", "NONE"], ["non_uk_services_where_performed", "NONE"], ["uk_exempt", "EXEMPTINPUT"]]) {
+      expect(applyMasterRules(proposal({ vat_branch, proposed_tax_type }), null, view()).proposed_tax_type).toBe(proposed_tax_type);
+    }
+    expect(applyMasterRules(proposal({ vat_branch: "non_uk_goods", proposed_tax_type: "INPUT2" }), null, view()).proposed_tax_type).toBeNull();
+  });
+
   it("removes a default the master forbids, and says why", () => {
-    const p = applyMasterRules(proposal({ proposed_tax_type: "INPUT2" }), { mixed_treatment: true }, view());
+    const p = applyMasterRules(proposal({ vat_branch: "uk_charges_vat", proposed_tax_type: "INPUT2" }), { mixed_treatment: true }, view());
     expect(p.proposed_tax_type).toBeNull();
     expect(p.questions_for_reviewer.join(" ")).toMatch(/mixed treatment/);
   });
