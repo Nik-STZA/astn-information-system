@@ -1,6 +1,6 @@
 # Portal Xero parity: tracker
 
-Last updated 19 Oct 2026 (evening). Goal: os.stza.io does everything the laptop MCP does
+Last updated 21 Oct 2026. Goal: os.stza.io does everything the laptop MCP does
 (and more), with STZA's method staying server-side. Detail lives in
 `ap-lane-spec.md` (the spec) and `xero-capability-register.md` (test evidence).
 
@@ -71,11 +71,13 @@ From the payroll checks. These are bookkeeping items for the agents and Nik, not
 | Step | State |
 |---|---|
 | Mechanical pass (spec 2.4 step 2) | `lib/supplier-pass.js` + `scripts/supplier-pass.js`, read-only. First live run on Feldspar 20 Oct (12 months): FGH 13 live, FSL 18, UDL 61; 86 identities, 4 across entities. UDL also has 107 spend-only payees: 23.4k of purchases, 1.02m to the balance sheet (mostly 640/641 intercompany, i.e. UDL paying group suppliers). Almost no supplier has a country, a default VAT type or a VAT number on its contact. |
-| Proposal pass | Prototype run 20 Oct on 19 Feldspar suppliers (Gemini 3.5 Flash, London), 6/6 on known answers. Review note `feldspar-sport-group/reconciliations/2026-10-20-supplier-proposals.md`. CFO decisions recorded the same day; STZA contact renamed, and the recode left as DRAFT journal `b1a7ef2e`. Build rules learned: code computes the differences and masks bank details; expense-claim payees are excluded; master flags are honoured before any model default |
+| Proposal pass | Prototype run 20 Oct on 19 Feldspar suppliers (Gemini 3.5 Flash, London), 6/6 on known answers. Review note `feldspar-sport-group/reconciliations/2026-10-20-supplier-proposals.md`. CFO decisions recorded the same day; STZA contact renamed; no recode (Nik, 20 Oct: the draft journal `b1a7ef2e` was made in error and deleted). Build rules learned: code computes the differences and masks bank details; expense-claim payees are excluded; master flags are honoured before any model default |
 | Bank details masked on every read | 20 Oct: a contact read returned a full account number. The read passthrough now masks bank numbers to the last 4 (`maskBankDetails`) |
 | Supplier tables | Migration 019 applied to prod 20 Oct (4 tables, empty) |
-| Proposal pass in finance-api | `POST .../xero/:entity/suppliers/proposals` and `GET .../suppliers/proposals`; `lib/supplier-proposal.js`, `lib/vertex.js`. Needs `roles/aiplatform.user` on the Cloud Run service account (default compute SA; a dedicated one is on the security list) |
-| Portal review, write to Xero | Not started |
+| Proposal pass in finance-api | `POST .../xero/:entity/suppliers/proposals` and `GET .../suppliers/proposals`; `lib/supplier-proposal.js`, `lib/vertex.js`. Needs `roles/aiplatform.user` on the Cloud Run service account (default compute SA; a dedicated one is on the security list). Live 20 Oct: Google Cloud EMEA (UDL) proposed in 15s, stored pending |
+| CFO decisions | `POST .../suppliers/proposals/:id/decision` (approved, edited, always_discuss, excluded, question, rejected) and `POST .../xero/:entity/suppliers/:contactId/decision` for a supplier decided with no proposal (dormant, expense-claim payee). Writes `finance.suppliers` + `finance.supplier_entities` and an audit row in one transaction; nothing goes to Xero. Same VAT number = one supplier across entities. `lib/supplier-decision.js` |
+| Bank baselines (spec 2.6) | Waiting on a Secret Manager key for the bank HMAC (Nik creates) |
+| Portal review screen, write to Xero (step 5) | Not started |
 
 ## After phase 0 (AP lane and backlog)
 
