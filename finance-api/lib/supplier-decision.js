@@ -67,6 +67,11 @@ const value = (cited) => {
 // The master fields a proposal supports, before any edit.
 function fromProposal(p) {
   if (!p) return { supplier: {}, link: {} };
+  // An expense payee's "invoice" is someone else's receipt, so nothing read from
+  // it describes the contact: not the name, the VAT number nor the defaults.
+  // 21 Oct 2026: deciding Tim Godfrey's proposals renamed his record after the
+  // receipt issuers and gave it Soho Works' VAT number.
+  if (p.expense_payee_suspected) return { supplier: { supplier_type: "expense_payee" }, link: {} };
   const country = value(p.country_of_establishment)?.toUpperCase();
   const currency = value(p.default_currency)?.toUpperCase();
   return {
@@ -76,7 +81,6 @@ function fromProposal(p) {
       country_of_establishment: /^[A-Z]{2}$/.test(country || "") ? country : null,
       vat_number: value(p.vat_number),
       company_number: value(p.company_number),
-      ...(p.expense_payee_suspected ? { supplier_type: "expense_payee" } : {}),
     },
     link: {
       default_account_code: value(p.proposed_account),

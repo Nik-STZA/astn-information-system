@@ -21,6 +21,18 @@ describe("fromProposal", () => {
     expect(JSON.stringify({ supplier, link })).not.toContain("1234");
   });
 
+  // 21 Oct 2026: Tim Godfrey's record took a receipt issuer's name and VAT number.
+  it("takes nothing but the type from an expense payee's receipt", () => {
+    const p = proposal({ legal_name: cited("Soho Works"), vat_number: cited("GB 283 1918 86"),
+      expense_payee_suspected: true, proposed_tax_type: null });
+    expect(fromProposal(p)).toEqual({ supplier: { supplier_type: "expense_payee" }, link: {} });
+    const r = planDecision({ contactName: "Tim Godfrey", decision: "always_discuss", note: "Employee expense claims", proposal: p });
+    expect(r.errors).toEqual([]);
+    expect(r.supplier).toMatchObject({ legal_name: "Tim Godfrey", trading_name: null, vat_number: null,
+      country_of_establishment: null, supplier_type: "expense_payee" });
+    expect(r.link).toMatchObject({ default_tax_type: null, default_account_code: null, vat_basis: null });
+  });
+
   it("a question is not a basis", () => {
     expect(fromProposal(proposal({ vat_branch: "question", proposed_tax_type: null })).link.vat_basis).toBeNull();
   });
