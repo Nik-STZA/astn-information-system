@@ -142,6 +142,25 @@ describe("JSON body parsing", () => {
   });
 });
 
+describe("supplier decisions: input checks before any database call", () => {
+  const actor = { ...authHeaders, "X-Actor-Email": "nik@stza.io" };
+  const contact = "b6e84d72-2822-4d28-93c1-928f7f5dfe06";
+
+  it("needs an actor", async () => {
+    const r = await post(`/api/finance/clients/x/suppliers/proposals/${contact}/decision`, { decision: "approved" }, authHeaders);
+    expect(r.status).toBe(400);
+    const r2 = await post(`/api/finance/clients/x/xero/udl/suppliers/${contact}/decision`, { decision: "excluded" }, authHeaders);
+    expect(r2.status).toBe(400);
+  });
+
+  it("refuses ids that are not uuids", async () => {
+    const r = await post("/api/finance/clients/x/suppliers/proposals/not-a-uuid/decision", { decision: "approved" }, actor);
+    expect(r.status).toBe(400);
+    const r2 = await post("/api/finance/clients/x/xero/udl/suppliers/Mahgerre/decision", { decision: "edited" }, actor);
+    expect(r2.status).toBe(400);
+  });
+});
+
 describe("CORS", () => {
   it("does not set CORS headers for unknown origins", async () => {
     const r = await get("/health", { Origin: "https://evil.example.com" });

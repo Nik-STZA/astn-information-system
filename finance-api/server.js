@@ -53,6 +53,7 @@ const billChecks = require("./lib/bill-checks");
 const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
 const supplierPass = require("./lib/supplier-pass");
+const supplierDecision = require("./lib/supplier-decision");
 const vertex = require("./lib/vertex");
 const {
   ageInvoices,
@@ -4179,6 +4180,186 @@ app.get("/api/finance/clients/:slug/suppliers/proposals", route(async (req, res)
   res.json({ count: rows.length, proposals: rows });
 }));
 
+// ── Supplier master: the CFO's decisions ─────────────────────────────────────
+//
+// Spec 2.4 step 4. A decision writes the supplier master in Cloud SQL and
+// nothing else: writing an approved determination to the Xero contact is step 5,
+// with its own dry run. lib/supplier-decision.js plans the rows; this applies
+// them in one transaction with the audit row. Every decision is the CFO's act,
+// so the actor must hold an engagement role for the client.
+
+// The master rows a contact resolves to: its own link for this entity, else a
+// supplier of the same client with the same VAT number (one identity across
+// the group, spec 2.2).
+async function supplierMasterFor(conn, clientId, entityId, contactId, vatNumber) {
+  const link = (await conn.query(
+    "SELECT * FROM finance.supplier_entities WHERE entity_id = $1 AND xero_contact_id = $2 FOR UPDATE",
+    [entityId, contactId])).rows[0] || null;
+  let supplier = null;
+  if (link) {
+    supplier = (await conn.query("SELECT * FROM finance.suppliers WHERE id = $1 FOR UPDATE", [link.supplier_id])).rows[0];
+  } else if (vatNumber) {
+    supplier = (await conn.query(
+      `SELECT * FROM finance.suppliers WHERE client_id = $1
+          AND upper(regexp_replace(vat_number, '\\s', '', 'g')) = upper(regexp_replace($2, '\\s', '', 'g')) FOR UPDATE`,
+      [clientId, vatNumber])).rows[0] || null;
+  }
+  return { link, supplier };
+}
+
+const SUPPLIER_COLUMNS = ["legal_name", "trading_name", "country_of_establishment", "vat_number", "company_number",
+  "supplier_type", "related_party", "always_discuss", "mixed_treatment", "status", "status_reason"];
+
+// Writes a planned decision. Returns the supplier and supplier_entity ids, or
+// nulls when the decision leaves the master alone.
+async function writeSupplierDecision(conn, { clientId, entityId, contactId, contactName, plan, before, actorEmail, role }) {
+  if (!plan.supplier) return { supplier_id: null, supplier_entity_id: null };
+  const values = SUPPLIER_COLUMNS.map((c) => plan.supplier[c]);
+  let supplierId = before.supplier?.id;
+  if (supplierId) {
+    await conn.query(
+      `UPDATE finance.suppliers SET ${SUPPLIER_COLUMNS.map((c, i) => `${c} = $${i + 2}`).join(", ")} WHERE id = $1`,
+      [supplierId, ...values]);
+  } else {
+    supplierId = (await conn.query(
+      `INSERT INTO finance.suppliers (client_id, ${SUPPLIER_COLUMNS.join(", ")})
+       VALUES ($1, ${SUPPLIER_COLUMNS.map((_, i) => `$${i + 2}`).join(", ")}) RETURNING id`,
+      [clientId, ...values])).rows[0].id;
+  }
+  const l = plan.link;
+  const approved = l.status === "approved";
+  const linkId = (await conn.query(
+    `INSERT INTO finance.supplier_entities AS se
+       (supplier_id, entity_id, xero_contact_id, xero_contact_name, default_account_code, default_tax_type,
+        vat_basis, vat_basis_note, default_currency, payment_terms_days, status,
+        approved_by_email, approved_role, approved_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, CASE WHEN $11 = 'approved' THEN now() END)
+     ON CONFLICT (entity_id, xero_contact_id) DO UPDATE SET
+       supplier_id = EXCLUDED.supplier_id, xero_contact_name = EXCLUDED.xero_contact_name,
+       default_account_code = EXCLUDED.default_account_code, default_tax_type = EXCLUDED.default_tax_type,
+       vat_basis = EXCLUDED.vat_basis, vat_basis_note = EXCLUDED.vat_basis_note,
+       default_currency = EXCLUDED.default_currency, payment_terms_days = EXCLUDED.payment_terms_days,
+       status = EXCLUDED.status, approved_by_email = EXCLUDED.approved_by_email,
+       approved_role = EXCLUDED.approved_role, approved_at = EXCLUDED.approved_at,
+       -- A changed determination has not been written to Xero yet.
+       written_to_xero_at = CASE WHEN se.default_tax_type IS DISTINCT FROM EXCLUDED.default_tax_type
+                                   OR se.default_account_code IS DISTINCT FROM EXCLUDED.default_account_code
+                                 THEN NULL ELSE se.written_to_xero_at END
+     RETURNING id`,
+    [supplierId, entityId, contactId, contactName, l.default_account_code, l.default_tax_type,
+      l.vat_basis, l.vat_basis_note, l.default_currency, l.payment_terms_days, l.status,
+      approved ? actorEmail : null, approved ? role : null])).rows[0].id;
+  return { supplier_id: supplierId, supplier_entity_id: linkId };
+}
+
+// One decision, start to finish, in one transaction. proposalId names the
+// pending proposal being decided, or is null for a decision made without one.
+async function decideSupplier(res, { client, ctx, contactId, proposalId, body, actorEmail }) {
+  // The contact name as it is now, so a later rename in Xero shows.
+  const contact = (await xeroGet(ctx.accessToken, ctx.tenantId, `/Contacts/${contactId}`)).Contacts?.[0];
+  if (!contact) return res.status(404).json({ error: "Xero contact not found in this entity" });
+  const conn = await pool.connect();
+  const refuse = async (status, payload) => { await conn.query("ROLLBACK"); return res.status(status).json(payload); };
+  try {
+    await conn.query("BEGIN");
+    const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+    if (!role) return refuse(403, { error: `${actorEmail} holds no engagement role for this client; supplier decisions are the CFO's` });
+
+    let proposal = null;
+    if (proposalId) {
+      const row = (await conn.query("SELECT decision, proposal FROM finance.supplier_proposals WHERE id = $1 FOR UPDATE", [proposalId])).rows[0];
+      if (row.decision !== "pending") return refuse(409, { error: `proposal already decided: ${row.decision}` });
+      proposal = row.proposal;
+    } else {
+      const pending = (await conn.query(
+        `SELECT id FROM finance.supplier_proposals
+          WHERE entity_id = $1 AND xero_contact_id = $2 AND decision = 'pending' LIMIT 1`,
+        [ctx.entity.id, contactId])).rows[0];
+      if (pending) return refuse(409, { error: "this supplier has a pending proposal; decide that instead", proposal_id: pending.id });
+    }
+
+    const vat = typeof body.edits?.vat_number === "string" ? body.edits.vat_number : proposal?.vat_number?.value || null;
+    const before = await supplierMasterFor(conn, client.id, ctx.entity.id, contactId, vat);
+    const plan = supplierDecision.planDecision({
+      decision: body.decision, note: body.note, edits: body.edits, proposal,
+      supplier: before.supplier, link: before.link, contactName: contact.Name,
+    });
+    if (plan.errors.length) return refuse(422, { error: `Nothing was saved: ${plan.errors.length} problem(s)`, errors: plan.errors });
+
+    const ids = await writeSupplierDecision(conn, {
+      clientId: client.id, entityId: ctx.entity.id, contactId, contactName: contact.Name, plan, before, actorEmail, role,
+    });
+    const note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 1000) : null;
+    if (proposalId) {
+      await conn.query(
+        `UPDATE finance.supplier_proposals
+            SET decision = $2, decision_note = $3, decided_by_email = $4, decided_at = now(),
+                supplier_entity_id = COALESCE($5, supplier_entity_id)
+          WHERE id = $1`,
+        [proposalId, body.decision, note, actorEmail, ids.supplier_entity_id]);
+    }
+    const auditId = await audit(conn, {
+      actorEmail, actorRole: role, action: "decide_supplier", targetType: "supplier_entity",
+      targetId: ids.supplier_entity_id || contactId, clientId: client.id,
+      payload: {
+        entity: ctx.entity.slug, xero_contact_id: contactId, contact_name: contact.Name,
+        proposal_id: proposalId, decision: body.decision, note,
+        supplier: supplierDecision.changes(before.supplier, plan.supplier),
+        supplier_entity: supplierDecision.changes(before.link, plan.link),
+      },
+    });
+    await conn.query("COMMIT");
+    res.json({
+      decision: body.decision, proposal_id: proposalId, ...ids, audit_id: auditId,
+      supplier: plan.supplier, supplier_entity: plan.link, written_to_xero: false,
+    });
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    if (e.code === "23505") return res.status(409).json({ error: "another supplier of this client already holds that VAT number" });
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// POST /api/finance/clients/:slug/suppliers/proposals/:id/decision
+//   body: { decision, note?, edits? }   (lib/supplier-decision.js)
+app.post("/api/finance/clients/:slug/suppliers/proposals/:id/decision", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {
+    return res.status(400).json({ error: "proposal id must be a uuid" });
+  }
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const row = (await pool.query(
+    `SELECT p.id, p.xero_contact_id, p.decision, e.slug AS entity_slug FROM finance.supplier_proposals p
+       JOIN finance.entities e ON e.id = p.entity_id
+      WHERE p.id = $1 AND p.client_id = $2`, [req.params.id, client.id])).rows[0];
+  if (!row) return res.status(404).json({ error: "proposal not found" });
+  if (row.decision !== "pending") return res.status(409).json({ error: `proposal already decided: ${row.decision}` });
+  const ctx = await xeroEntityContext(req.params.slug, row.entity_slug);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  await decideSupplier(res, { client, ctx, contactId: row.xero_contact_id, proposalId: row.id, body: req.body || {}, actorEmail });
+}));
+
+// POST /api/finance/clients/:slug/xero/:entity/suppliers/:contactId/decision
+//   body: { decision: edited|always_discuss|excluded, note?, edits? }
+// A decision with no proposal behind it: a supplier the CFO has already judged
+// (dormant, an expense-claim payee). Refused while a proposal is pending.
+app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/decision", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.contactId)) {
+    return res.status(400).json({ error: "contactId must be a Xero ContactID" });
+  }
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  await decideSupplier(res, { client: ctx.client, ctx, contactId: req.params.contactId, proposalId: null, body: req.body || {}, actorEmail });
+}));
+
 // ── Start ───────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
@@ -4188,4 +4369,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, pool };
+// The supplier decision writes are exported for the local-database check.
+module.exports = { app, pool, supplierMasterFor, writeSupplierDecision };
