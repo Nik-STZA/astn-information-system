@@ -67,12 +67,15 @@ jobs:
           # service over the public internet, so internal-and-cloud-load-
           # balancing would block it. The X-API-Key check is what protects the
           # service, and only the Next.js server holds the key.
+          # Timeout 300s, not 60: one supplier proposal (read the bill PDF,
+          # Vertex) takes 15-70s, and at 60s a timed-out request may or may not
+          # have stored its proposal (21 Oct 2026).
           flags: >-
             --memory=512Mi
             --cpu=1
             --min-instances=0
             --max-instances=3
-            --timeout=60
+            --timeout=300
             --ingress=all
             --allow-unauthenticated
             --add-cloudsql-instances=africanstn-research:europe-west1:africastn-db
