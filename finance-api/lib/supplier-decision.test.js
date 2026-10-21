@@ -74,6 +74,19 @@ describe("planDecision", () => {
     expect(r.supplier.mixed_treatment).toBe(true);
   });
 
+  it("mixed treatment clears the basis too (Venture Proof, 21 Oct)", () => {
+    const r = plan({ decision: "edited", proposal: proposal({ vat_branch: "uk_charges_vat", proposed_tax_type: null }),
+      edits: { mixed_treatment: true, default_account_code: null } });
+    expect(r.errors).toEqual([]);
+    expect(r.link).toMatchObject({ default_tax_type: null, vat_basis: null, default_account_code: null });
+  });
+
+  it("a self-contradicting proposal cannot be approved as it stands", () => {
+    const p = proposal({ vat_branch: "uk_charges_vat", proposed_tax_type: null, contradiction: true });
+    expect(plan({ decision: "approved", proposal: p }).errors[0]).toMatch(/contradicted itself/);
+    expect(plan({ decision: "edited", proposal: p, edits: { default_tax_type: "INPUT2", vat_basis: "uk_charges_vat" } }).errors).toEqual([]);
+  });
+
   it("an existing mixed-treatment master also refuses a default", () => {
     const r = plan({ decision: "approved", proposal: proposal(), supplier: { legal_name: "Venture Proof Ltd", mixed_treatment: true } });
     expect(r.errors[0]).toMatch(/mixed treatment/);

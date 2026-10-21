@@ -230,6 +230,16 @@ function stripPersonal(value) {
 // on 20 Oct returned the full account number to an agent.
 const BANK_KEYS = new Set(["bankaccountdetails", "bankaccountnumber", "iban", "sortcode", "bsb"]);
 
+// Xero history records carry the change as a sentence: "Bank account number
+// changed from no value to 60-14-41 12345678." (21 Oct 2026: found on a contact's
+// history). In a sentence about bank details, any run of 6 or more digits
+// (spaces and dashes allowed, an IBAN's country letters before it) keeps its last 4.
+const BANK_TEXT = /bank|iban|sort ?code|swift|bsb|account (number|no)/i;
+const maskBankText = (s) => (BANK_TEXT.test(s)
+  ? s.replace(/[A-Za-z]{0,4}\d[\d -]{4,}\d/g, (m) => (m.replace(/\D/g, "").length >= 6
+    ? `****${m.replace(/[^A-Za-z0-9]/g, "").slice(-4)}` : m))
+  : s);
+
 function maskBankDetails(value) {
   if (Array.isArray(value)) return value.map(maskBankDetails);
   if (value && typeof value === "object") {
@@ -237,6 +247,8 @@ function maskBankDetails(value) {
     for (const [k, v] of Object.entries(value)) {
       if (BANK_KEYS.has(k.toLowerCase()) && typeof v === "string" && v.trim()) {
         out[k] = `****${v.replace(/[^A-Za-z0-9]/g, "").slice(-4)}`;
+      } else if (k === "Details" && typeof v === "string") {
+        out[k] = maskBankText(v);
       } else {
         out[k] = maskBankDetails(v);
       }

@@ -163,4 +163,20 @@ describe("maskBankDetails", () => {
     expect(maskBankDetails({ BankAccountDetails: "", Total: 12, Lines: [{ IBAN: "GB00 TEST 0000 0000 0012 34" }] }))
       .toEqual({ BankAccountDetails: "", Total: 12, Lines: [{ IBAN: "****1234" }] });
   });
+
+  // 21 Oct 2026: a contact's history carried the full number in its sentence.
+  it("masks bank numbers inside history sentences, and nothing else there", () => {
+    const h = { HistoryRecords: [
+      { Changes: "Edited", Details: "Bank account number changed from no value to 60-14-41 12345678." },
+      { Changes: "Edited", Details: "Bank account number changed from 60-14-4100000068 to 60-14-4100001068." },
+      { Changes: "Note", Details: "IBAN updated: GB29 NWBK 6016 1331 9268 19" },
+      { Changes: "Note", Details: "Invoice 5713451497 approved for 12,000.00. Company 16850337." },
+    ] };
+    const out = maskBankDetails(h).HistoryRecords.map((r) => r.Details);
+    expect(out[0]).toBe("Bank account number changed from no value to ****5678.");
+    expect(out[1]).toBe("Bank account number changed from ****0068 to ****1068.");
+    expect(out[2]).not.toMatch(/6016|1331/);
+    expect(out[2]).toMatch(/\*\*\*\*6819/);
+    expect(out[3]).toBe("Invoice 5713451497 approved for 12,000.00. Company 16850337.");
+  });
 });

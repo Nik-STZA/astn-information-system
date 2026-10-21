@@ -28,6 +28,20 @@ const VAT_BRANCHES = [
   "non_uk_services_reverse_charge", "non_uk_services_where_performed", "non_uk_goods",
   "intra_vat_group", "question",
 ];
+// The VAT types each branch of the tree can lead to. A proposal whose type is
+// not among its own branch's contradicts itself (21 Oct 2026: Venture Proof came
+// back uk_charges_vat with NONE), so the type is dropped and the reviewer asked.
+// Goods imported never get a default (the tree says ask).
+const BRANCH_TAX_TYPES = {
+  uk_charges_vat: ["INPUT2", "ZERORATEDINPUT"],
+  uk_exempt: ["EXEMPTINPUT"],
+  uk_zero_rated: ["ZERORATEDINPUT"],
+  uk_not_registered: ["NONE"],
+  non_uk_services_reverse_charge: ["REVERSECHARGES"],
+  non_uk_services_where_performed: ["NONE", "INPUT2"],
+  non_uk_goods: [],
+  intra_vat_group: ["NONE"],
+};
 
 // The 15 Sep 2026 determination tree, with the rules the 20 Oct run added.
 const METHOD = `You are proposing a supplier-master record for a UK client's accounts-payable ledger. A chartered accountant reviews every proposal; you propose, you do not decide.
@@ -124,12 +138,17 @@ function entityFacts(org = {}, config = {}) {
 
 // Any run of 6 or more digits (spaces and dashes allowed inside) becomes
 // "****" + its last 4. Applied to every string the model returned. The company
-// and VAT numbers are identity, not bank details, and are restored afterwards.
-const maskString = (s) => s.replace(/\d[\d \-]{4,}\d/g, (m) => `****${m.replace(/\D/g, "").slice(-4)}`);
-function maskDeep(o) {
-  if (typeof o === "string") return maskString(o);
-  if (Array.isArray(o)) return o.map(maskDeep);
-  if (o && typeof o === "object") return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, maskDeep(v)]));
+// and VAT numbers are identity, not bank details: a run that is one of them is
+// left alone wherever it appears, so the quote citing the VAT number still
+// shows it (21 Oct 2026: "VAT number: IE****8997OH"), and their values are
+// restored afterwards.
+const digits = (s) => String(s || "").replace(/\D/g, "");
+const maskString = (s, identity = []) => s.replace(/\d[\d \-]{4,}\d/g, (m) =>
+  (identity.includes(digits(m)) ? m : `****${digits(m).slice(-4)}`));
+function maskDeep(o, identity) {
+  if (typeof o === "string") return maskString(o, identity);
+  if (Array.isArray(o)) return o.map((v) => maskDeep(v, identity));
+  if (o && typeof o === "object") return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, maskDeep(v, identity)]));
   return o;
 }
 
@@ -139,7 +158,10 @@ function maskProposal(proposal) {
     company: proposal.company_number?.value ?? null,
     vat: proposal.vat_number?.value ?? null,
   };
-  const out = maskDeep(proposal);
+  // Only numbers long enough to be distinctive count as identity; a bank
+  // number that happened to contain a short one must still be masked.
+  const identity = [keep.company, keep.vat].map(digits).filter((d) => d.length >= 6);
+  const out = maskDeep(proposal, identity);
   if (out.bank_account_last4) out.bank_account_last4.value = keep.bank;
   if (out.company_number) out.company_number.value = keep.company;
   if (out.vat_number) out.vat_number.value = keep.vat;
@@ -203,6 +225,11 @@ function applyMasterRules(proposal, master, view) {
     p.proposed_tax_type = null;
     p.rules_applied.push(why);
   };
+  const allowed = BRANCH_TAX_TYPES[p.vat_branch];
+  if (p.proposed_tax_type && allowed && !allowed.includes(p.proposed_tax_type)) {
+    p.contradiction = true;
+    drop(`The proposal contradicts itself: ${p.proposed_tax_type} does not follow from the branch ${p.vat_branch}. Decide the treatment.`);
+  }
   if (master?.mixed_treatment) drop("Supplier master: mixed treatment, every bill reviewed, no default VAT type.");
   if (master?.related_party) { p.always_discuss = true; p.rules_applied.push("Supplier master: related party."); }
   if (master?.always_discuss) { p.always_discuss = true; p.rules_applied.push("Supplier master: always discuss."); }
