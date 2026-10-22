@@ -76,6 +76,7 @@ From the payroll checks. These are bookkeeping items for the agents and Nik, not
 | Supplier tables | Migration 019 applied to prod 20 Oct (4 tables, empty) |
 | Proposal pass in finance-api | `POST .../xero/:entity/suppliers/proposals` and `GET .../suppliers/proposals`; `lib/supplier-proposal.js`, `lib/vertex.js`. Needs `roles/aiplatform.user` on the Cloud Run service account (default compute SA; a dedicated one is on the security list). Live 20 Oct: Google Cloud EMEA (UDL) proposed in 15s, stored pending |
 | CFO decisions | `POST .../suppliers/proposals/:id/decision` (approved, edited, always_discuss, excluded, question, rejected) and `POST .../xero/:entity/suppliers/:contactId/decision` for a supplier decided with no proposal (dormant, expense-claim payee). Writes `finance.suppliers` + `finance.supplier_entities` and an audit row in one transaction; nothing goes to Xero. Same VAT number = one supplier across entities. `lib/supplier-decision.js` |
+| Feldspar queue decided (21-22 Oct) | Proposal run on the remaining suppliers, then Nik's decisions: 47 approved as proposed on 21 Oct, the rest edited, dormant, excluded or held for discussion over 21-22 Oct. Last batch 22 Oct: Expedia per transaction (mixed treatment); Fortress and Infinity App Systems dormant; Sheridans and London Law Collective standard-rated (441); Howden and C&C exempt insurance; Events and PR standard-rated, no default account; two Doha restaurants no VAT (516); Venture Proof re-decided as per invoice, clearing a stale default. Pending: Stadium Business Summit, waiting for a valid VAT invoice (20% charged, no VAT number or address on the one held) |
 | Bank baselines (spec 2.6) | Waiting on a Secret Manager key for the bank HMAC (Nik creates) |
 | Portal review screen, write to Xero (step 5) | Not started |
 
@@ -102,4 +103,4 @@ Xero refuses these for this app on the laptop too:
 - `/Users/{id}` (404);
 - Feldspar payroll (not provisioned).
 
-`/Journals` is not available to either the laptop or the portal.
+`/Journals` is not available to either the laptop or the portal. That is a choice, not a hard limit: reading it needs Xero's Advanced tier and certification (changelog, 4 Mar 2026), which STZA has declined on cost (Nik, 22 Oct 2026). The ledger is rebuilt from source records instead.
