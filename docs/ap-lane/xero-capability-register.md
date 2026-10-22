@@ -7,7 +7,8 @@
 
 - **One Xero app already.** Since 16 Sep 2026 the laptop MCP and finance-api both use the **STZA Finance** app (`8A909173…`). Feldspar_API (`8EA540A6…`) is retired. They hold **separate grants** on that one app.
 - **Both grants now have the same 23 scopes.** The portal went from 14 to 23 on 16 Oct 2026 (PR #30) and all four portal entities reconnected the same day. Since PR #31, one reconnect per client updates all of that client's entities.
-- **Unavailable to any app created after 2 Mar 2026, laptop included:** `accounting.transactions`, `accounting.reports.read` (broad), and `accounting.journals.read` (no granular replacement). `/Journals` cannot be read by either front end. The portal's `journals` read resource therefore cannot work and should be removed.
+- **Unavailable to any app created after 2 Mar 2026, laptop included:** `accounting.transactions` and `accounting.reports.read` (broad).
+- **`accounting.journals.read` is not granted by default, rather than impossible** (corrected 22 Oct 2026). Xero's changelog of 4 Mar 2026: the scope is "no longer granted by default"; an app needs the Advanced tier and Xero certification to read journals. Nik, 22 Oct 2026: STZA will not pay for the Advanced tier, and will not fall back on the retired Feldspar_API app. So `/Journals` stays unreadable by both front ends, by choice, and the general ledger is rebuilt from source records (see "Proven or documented gaps"). The portal's `journals` read resource cannot work and should be removed.
 
 ## Scope gap (portal grant needs these to match the laptop)
 
@@ -52,7 +53,7 @@ Status: **L** = laptop tool exists, **P** = portal endpoint exists, **-** = miss
 | Prepayments / overpayments | read | get_prepayments, get_overpayments | L | - | read |
 | Bank | transactions read / write, transfers | get_bank_transactions, upsert_bank_transaction, get_bank_transfers, create_bank_transfer | L | part | draft / settle |
 | Journals | manual journals read / post / status | get_manual_journals, post_journal, post_journal_from_csv, update_journal_status | L | P | draft / post |
-| Journals | ledger journals (`/Journals`) | get_journal, get_account_transactions | **blocked by Xero** | - | - |
+| Journals | ledger journals (`/Journals`) | get_journal, get_account_transactions | **not taken: Advanced tier + certification** | - | - |
 | Attachments | list, fetch, upload | list_attachments, fetch_attachment, upload_attachment | L | - | draft |
 | Files (Documents) | inbox, content, associations, upload, link | get_files, upload_file, associate_file | L | - | draft |
 | History | read, add note | get_history, add_history_note | L | read only | note |
@@ -74,7 +75,7 @@ Proven or documented gaps, so nobody plans on them:
 | Receipts, expense claims (`/Receipts`, `/ExpenseClaims`) | 401 on this app, laptop included (16 Oct 2026); retired expenses endpoints | Xero Expenses in the UI |
 | Published reports list (`/Reports`) | 401; needs broad `accounting.reports.read` | Named report endpoints |
 | Bank reconciliation matching | No API for statement lines or matching | Xero JAX / Nik in Xero (already the rule in `ap-bill-lane`) |
-| Ledger journals (`/Journals`) | Scope refused for post-March apps | Rebuild from invoices, bank transactions, payments, manual journals |
+| Ledger journals (`/Journals`) | Needs Xero's Advanced tier and certification for apps after 2 Mar 2026; declined on cost (Nik, 22 Oct 2026) | Rebuild from invoices, credit notes, bank transactions, payments, manual journals |
 | Approve a bill (AUTHORISED) | Possible, but deliberately refused by the write lane | Nik in Xero |
 | Period lock dates | Not writable over the API | Nik in Xero (open item 72) |
 | MTD VAT return submission | Not in the public API | Xero's own HMRC filing |

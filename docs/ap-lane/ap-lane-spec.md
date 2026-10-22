@@ -217,7 +217,7 @@ The portal app currently has `accounting.contacts.read` and `accounting.invoices
 
 **Requirement:** the portal must do everything the laptop `stza-xero` MCP does, the same way, and the two must not drift.
 
-Today they are two implementations on **one Xero app** (STZA Finance, since 16 Sep), with separate grants: `xero-server.py` (laptop, Python, 23 scopes, 74 tools) and `finance-api` (portal, Node, 13 scopes, reads and reports plus manual journals only). Neither can read `/Journals`: Xero refuses that scope to apps created after 2 March 2026. Full comparison: `xero-capability-register.md`. Every rule fixed in one (`associate_file`, `check_bill`, the Round check, the write tiers) has to be re-done in the other, and has not been.
+Today they are two implementations on **one Xero app** (STZA Finance, since 16 Sep), with separate grants: `xero-server.py` (laptop, Python, 23 scopes, 74 tools) and `finance-api` (portal, Node, 13 scopes, reads and reports plus manual journals only). Neither can read `/Journals`: for apps created after 2 March 2026 that scope needs Xero's Advanced tier and certification, which STZA has declined (Nik, 22 Oct 2026). Full comparison: `xero-capability-register.md`. Every rule fixed in one (`associate_file`, `check_bill`, the Round check, the write tiers) has to be re-done in the other, and has not been.
 
 **Design: one engine, two front ends.**
 - **finance-api becomes the only thing that talks to Xero** and the only holder of Xero tokens. Write tiers, dry runs, confirmation, idempotency and the audit log live there once.

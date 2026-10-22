@@ -502,6 +502,9 @@ Two cautions before scheduling it:
   scope documentation notes it as needing an Advanced tier. Unverified against
   Xero's own docs, and it decides whether `/Journals` is reachable at all for a
   given client — check before promising the two scripts that depend on it.
+  **Confirmed 22 Oct 2026:** Xero's changelog (4 Mar 2026) requires the Advanced
+  tier and certification. Nik declined on cost, so those two scripts need a
+  source-record route instead.
 - **`accounting.reports.read` is discontinued** under the granular model, so
   there is no umbrella that grants all reports. Each report needs its own
   scope, and any report without a granular equivalent has no path at all. That
