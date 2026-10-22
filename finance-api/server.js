@@ -54,6 +54,7 @@ const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
 const supplierPass = require("./lib/supplier-pass");
 const supplierDecision = require("./lib/supplier-decision");
+const supplierXeroWrite = require("./lib/supplier-xero-write");
 const vertex = require("./lib/vertex");
 const {
   ageInvoices,
@@ -4359,6 +4360,105 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/decision"
   if (ctx.error) return erpUnavailable(res, ctx);
   await decideSupplier(res, { client: ctx.client, ctx, contactId: req.params.contactId, proposalId: null, body: req.body || {}, actorEmail });
 }));
+
+// GET /api/finance/clients/:slug/suppliers
+// The supplier master: one row per supplier per entity, with whether its
+// determination has been written to Xero yet.
+app.get("/api/finance/clients/:slug/suppliers", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const { rows } = await pool.query(
+    `SELECT e.slug AS entity, se.xero_contact_id, se.xero_contact_name, s.legal_name, s.status AS supplier_status,
+            s.always_discuss, s.mixed_treatment, s.related_party, se.status, se.default_tax_type,
+            se.default_account_code, se.vat_basis, se.approved_by_email, se.approved_at, se.written_to_xero_at
+       FROM finance.supplier_entities se
+       JOIN finance.suppliers s ON s.id = se.supplier_id
+       JOIN finance.entities e ON e.id = se.entity_id
+      WHERE s.client_id = $1
+      ORDER BY e.slug, se.xero_contact_name`, [client.id]);
+  res.json({ count: rows.length, suppliers: rows });
+}));
+
+// POST /api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-xero
+//   body: { dry_run? }   (dry run unless dry_run is false)
+// Spec 2.4 step 5: an approved determination goes onto the Xero contact - the
+// coding defaults, a blank VAT or company number, one history note, and the
+// invoice it was based on attached. lib/supplier-xero-write.js plans it.
+app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-xero",
+  gatedWrite("write_supplier_determination", "draft", async (ctx, b, req) => {
+    const contactId = req.params.contactId;
+    if (!writeRules.isGuid(contactId)) return { issues: ["contactId must be a Xero ContactID"], operation: "update" };
+    const master = (await pool.query(
+      `SELECT row_to_json(s) AS supplier, row_to_json(se) AS link
+         FROM finance.supplier_entities se JOIN finance.suppliers s ON s.id = se.supplier_id
+        WHERE se.entity_id = $1 AND se.xero_contact_id = $2`, [ctx.entity.id, contactId])).rows[0] || {};
+    const skip = supplierXeroWrite.skipReason(master);
+    if (skip) return { issues: [`Nothing to write: ${skip}`], operation: "update" };
+
+    // The invoice behind the latest decision on this contact.
+    const source = (await pool.query(
+      `SELECT proposal->'invoice_used' AS source FROM finance.supplier_proposals
+        WHERE entity_id = $1 AND xero_contact_id = $2 AND decision IN ('approved', 'edited', 'always_discuss')
+        ORDER BY decided_at DESC LIMIT 1`, [ctx.entity.id, contactId])).rows[0]?.source || null;
+    const contact = (await xeroGetOrNull(ctx, `/Contacts/${contactId}`))?.Contacts?.[0] || null;
+    const attachments = contact ? (await xeroGetOrNull(ctx, `/Contacts/${contactId}/Attachments`))?.Attachments ?? [] : [];
+    const p = supplierXeroWrite.planContactWrite({ ...master, contact, source, attachments });
+    const issues = [...p.issues];
+
+    if (p.fields.PurchasesDefaultAccountCode) {
+      const active = new Set((await xeroRef(ctx, "Accounts")).filter((a) => a.Status === "ACTIVE").map((a) => a.Code));
+      if (!active.has(p.fields.PurchasesDefaultAccountCode)) issues.push(`account code ${p.fields.PurchasesDefaultAccountCode} is not an active account in this entity`);
+    }
+    if (p.fields.AccountsPayableTaxType) {
+      const active = new Set((await xeroRef(ctx, "TaxRates")).filter((t) => t.Status === "ACTIVE").map((t) => t.TaxType));
+      if (!active.has(p.fields.AccountsPayableTaxType)) issues.push(`tax type ${p.fields.AccountsPayableTaxType} is not an active tax rate in this entity`);
+    }
+
+    const note = writeRules.historyText(p.note);
+    const payload = { contact_id: contactId, fields: p.fields, history_note: note, attach: p.attach };
+    const done = [];
+    return {
+      issues, operation: "update", payload,
+      extra: { contact: contact?.Name ?? null, changes: p.changes, warnings: p.warnings, history_note: note, attach: p.attach },
+      // Contact, attachment, note, then the master is stamped. A failure part
+      // way is reported with what was already done; the stamp is not set.
+      send: async () => {
+        let body = null;
+        if (Object.keys(p.fields).length) {
+          const json = { Contacts: [{ ContactID: contactId, ...p.fields }] };
+          const r = await xeroSend(ctx, "POST", "/Contacts?summarizeErrors=false",
+            { json, key: writeRules.idempotencyKey(ctx.entity.slug, "write_supplier_determination:contact", json) });
+          const errs = r.ok ? ((r.body?.Contacts || [])[0]?.ValidationErrors || []) : [];
+          if (!r.ok || errs.length) return { ...r, ok: false, errors: errs.map((e) => e.Message) };
+          body = r.body;
+          done.push("contact updated");
+        }
+        if (p.attach) try {
+          const a = (await xeroGet(ctx.accessToken, ctx.tenantId, `/Invoices/${p.attach.invoice_id}/Attachments`)).Attachments ?? [];
+          const file = a.find((x) => x.FileName === p.attach.file_name);
+          if (!file) return { ok: false, status: 404, body: null, text: `${p.attach.file_name} is no longer on invoice ${p.attach.invoice_id}`, partial: { done } };
+          const got = await xeroFetch(ctx.accessToken, ctx.tenantId,
+            `/Invoices/${p.attach.invoice_id}/Attachments/${encodeURIComponent(file.FileName)}`, {}, { accept: file.MimeType });
+          if (!got.ok) return { ok: false, status: got.status, body: null, text: `could not read ${file.FileName} from the invoice`, partial: { done } };
+          const raw = Buffer.from(await got.arrayBuffer());
+          const r = await xeroSend(ctx, "PUT", `/Contacts/${contactId}/Attachments/${encodeURIComponent(file.FileName)}`,
+            { raw, contentType: file.MimeType, key: writeRules.idempotencyKey(ctx.entity.slug, "write_supplier_determination:attach", { contactId, sha: sha256Hex(raw) }) });
+          if (!r.ok) return { ...r, partial: { done } };
+          done.push(`attached ${file.FileName}`);
+        } catch (e) {
+          return { ok: false, status: e.detail?.status || 502, body: null, text: e.message.slice(0, 500), partial: { done } };
+        }
+        const h = await addXeroHistory(ctx, "Contacts", contactId, note);
+        if (!h.written) return { ok: false, status: h.http_status, body: null, errors: h.xero_errors, partial: { done } };
+        done.push("history note");
+        await pool.query(
+          "UPDATE finance.supplier_entities SET written_to_xero_at = now() WHERE id = $1", [master.link.id]);
+        return { ok: true, status: 200, body, done };
+      },
+      saved: (body) => (body?.Contacts || [])[0] || null,
+      describe: () => ({ written_to_xero: true, done }),
+    };
+  }));
 
 // ── Start ───────────────────────────────────────────────────────────────────
 
