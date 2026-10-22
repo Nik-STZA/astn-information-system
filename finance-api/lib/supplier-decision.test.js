@@ -33,6 +33,10 @@ describe("fromProposal", () => {
     expect(r.link).toMatchObject({ default_tax_type: null, default_account_code: null, vat_basis: null });
   });
 
+  it("never takes cfo_decision from the model", () => {
+    expect(fromProposal(proposal({ vat_branch: "cfo_decision" })).link.vat_basis).toBeNull();
+  });
+
   it("a question is not a basis", () => {
     expect(fromProposal(proposal({ vat_branch: "question", proposed_tax_type: null })).link.vat_basis).toBeNull();
   });
@@ -173,5 +177,30 @@ describe("changes", () => {
   it("lists only what moved", () => {
     expect(changes({ a: 1, b: null }, { a: 1, b: 2, c: null })).toEqual({ b: { from: null, to: 2 } });
     expect(changes(null, null)).toEqual({});
+  });
+});
+
+// 22 Oct 2026: Underdog, a US supplier set to NONE by the CFO.
+describe("cfo_decision basis", () => {
+  const underdog = proposal({ legal_name: cited("underdog venture team"), vat_branch: "non_uk_services_reverse_charge",
+    proposed_tax_type: "REVERSECHARGES", proposed_account: "412" });
+
+  it("records the CFO's treatment with the decision note as its reasoning", () => {
+    const r = plan({ decision: "edited", proposal: underdog, note: "CFO decision: services performed entirely from the USA.",
+      edits: { default_tax_type: "NONE", vat_basis: "cfo_decision" } });
+    expect(r.errors).toEqual([]);
+    expect(r.link).toMatchObject({ status: "approved", default_tax_type: "NONE", vat_basis: "cfo_decision",
+      vat_basis_note: "CFO decision: services performed entirely from the USA.", default_account_code: "412" });
+  });
+
+  it("an explicit vat_basis_note wins over the decision note", () => {
+    const r = plan({ decision: "edited", proposal: underdog, note: "n",
+      edits: { default_tax_type: "NONE", vat_basis: "cfo_decision", vat_basis_note: "reason" } });
+    expect(r.link.vat_basis_note).toBe("reason");
+  });
+
+  it("refuses a CFO decision without reasoning, rather than keeping the model's", () => {
+    const r = plan({ decision: "edited", proposal: underdog, edits: { default_tax_type: "NONE", vat_basis: "cfo_decision" } });
+    expect(r.errors).toEqual(["vat_basis cfo_decision needs the reasoning, as vat_basis_note or the note"]);
   });
 });

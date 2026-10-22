@@ -27,6 +27,9 @@ const VAT_BASES = [
   "uk_charges_vat", "uk_exempt", "uk_zero_rated", "uk_not_registered",
   "non_uk_services_reverse_charge", "non_uk_services_where_performed", "non_uk_goods",
   "intra_vat_group",
+  // Set by the CFO on facts the tree does not ask about, never by the model; the
+  // reasoning is the vat_basis_note (migration 020, 22 Oct 2026).
+  "cfo_decision",
 ];
 const SUPPLIER_TYPES = ["company", "sole_trader", "individual", "public_body", "expense_payee"];
 
@@ -85,7 +88,7 @@ function fromProposal(p) {
     link: {
       default_account_code: value(p.proposed_account),
       default_tax_type: TAX_TYPES.includes(p.proposed_tax_type) ? p.proposed_tax_type : null,
-      vat_basis: VAT_BASES.includes(p.vat_branch) ? p.vat_branch : null,
+      vat_basis: VAT_BASES.includes(p.vat_branch) && p.vat_branch !== "cfo_decision" ? p.vat_branch : null,
       vat_basis_note: typeof p.reasoning === "string" ? p.reasoning.slice(0, 500) : null,
       default_currency: /^[A-Z]{3}$/.test(currency || "") ? currency : null,
     },
@@ -211,6 +214,11 @@ function planDecision({ decision, note, edits, proposal = null, supplier = null,
     } else if (edit.link.default_tax_type && edit.link.default_tax_type !== base.link.default_tax_type && !("vat_basis" in edit.link)) {
       // A changed treatment must not inherit the basis of the one it replaced.
       errors.push("a changed default_tax_type needs its own vat_basis in the edits");
+    }
+    if (l.vat_basis === "cfo_decision") {
+      // The CFO's reasoning is the evidence: an explicit note, else the decision note.
+      if (!("vat_basis_note" in edit.link)) l.vat_basis_note = noteText;
+      if (!l.vat_basis_note) errors.push("vat_basis cfo_decision needs the reasoning, as vat_basis_note or the note");
     }
     // No default means no basis either: a basis on its own reads as a treatment.
     if (s.mixed_treatment && !l.default_tax_type) l.vat_basis = null;
