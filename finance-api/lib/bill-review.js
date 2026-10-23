@@ -133,7 +133,10 @@ const INVOICE_TYPES = ["invoice", "credit_note"];
 // Credits applied at payment, not to the supply: the card payment proves the
 // cash, not the value (CFO, 12 Oct 2026). They are left to bank reconciliation.
 const PAYMENT_CREDIT = /funded by amazon|gift card|promotional (credit|balance)|account credit applied/i;
-const normVat = (v) => String(v || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().replace(/^GB/, "");
+// "GB VAT 493735845", "GB 493 7358 45" and "GB493735845" are one number.
+const normVat = (v) => String(v || "").toUpperCase().replace(/\b(VAT|REG(ISTRATION)?|NO)\b|[^A-Z0-9]/g, "").replace(/^GB/, "");
+// Xero's placeholder for a bill without a supplier carries a ContactID.
+const hasSupplier = (bill) => Boolean(bill.Contact?.ContactID) && !/^no contact$/i.test(String(bill.Contact?.Name || "").trim());
 const words = (s) => String(s || "").toLowerCase().replace(/\b(limited|ltd|plc|llp|inc|the)\b/g, "").replace(/[^a-z0-9]/g, "");
 
 // The invoice value the document supports, in pence: its lines (net + VAT),
@@ -242,6 +245,10 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
   if (docVat !== null && (!docCur || docCur === bill.CurrencyCode)) {
     flag("vat_not_on_document", billTax > docVat + 2 && !reverse,
       `bill claims VAT ${money(billTax)}; the document shows ${money(docVat)}`);
+    // The other way: VAT on the document the bill does not claim. A warning,
+    // not an error: the invoice may not be the entity's to recover (addressee).
+    flag("vat_not_claimed", docVat > billTax + 2 && !reverse,
+      `the document shows VAT ${money(docVat)}; the bill claims ${money(billTax)}`);
   } else if (docVat === 0) {
     flag("vat_not_on_document", billTax > 0 && !reverse, `bill claims VAT ${money(billTax)}; the document shows none`);
   }
@@ -264,9 +271,15 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
     flag("customer_vat_number", theirCustomerVat !== ourVat, `document carries customer VAT number ${doc.customer_vat_number}; ${entity.name} is ${entity.vat_number}`);
   }
 
+  // Every line needs an account and a tax type before it can be submitted.
+  const bare = (bill.LineItems || []).filter((l) => !l.AccountCode || !l.TaxType);
+  flag("line_incomplete", bare.length, bare.length
+    ? `${bare.length} line(s) without ${[...new Set(bare.flatMap((l) => [!l.AccountCode && "an account", !l.TaxType && "a tax type"]).filter(Boolean))].join(" or ")}`
+    : "every line has an account and a tax type");
+
   // Against the supplier master.
-  flag("no_supplier", !bill.Contact?.ContactID, bill.Contact?.ContactID ? `supplier ${bill.Contact.Name}` : `no supplier on the bill; the document names ${doc.supplier_name || "none"}`);
-  if (bill.Contact?.ContactID) {
+  flag("no_supplier", !hasSupplier(bill), hasSupplier(bill) ? `supplier ${bill.Contact.Name}` : `no supplier on the bill; the document names ${doc.supplier_name || "none"}`);
+  if (hasSupplier(bill)) {
     flag("not_in_master", !link, link ? `in the supplier master (${link.status})` : "the supplier is not in the supplier master: a new supplier goes to the CFO");
   }
   if (supplier?.vat_number && doc.supplier_vat_number) {
@@ -351,7 +364,7 @@ function reviewBatch({ items, entity = {}, today }) {
   const groups = new Map();
   for (const r of reviews) {
     const b = r._it.bill;
-    if (!b.Contact?.ContactID) continue;
+    if (!hasSupplier(b)) continue;
     const k = `${b.Contact.ContactID}|${billDate(b)}|${pence(b.Total)}`;
     groups.set(k, [...(groups.get(k) || []), r]);
   }
