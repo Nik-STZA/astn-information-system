@@ -124,7 +124,8 @@ describe("planDecision", () => {
       supplier: { legal_name: "Asian Capital Partners Ltd", country_of_establishment: "HK" } });
     expect(r.errors).toEqual([]);
     expect(r.supplier).toMatchObject({ always_discuss: true, legal_name: "Asian Capital Partners Ltd", country_of_establishment: "HK" });
-    expect(r.link).toMatchObject({ status: "proposed", default_tax_type: null });
+    // Decided, so step 5 writes it (seven links sat unwritten until 23 Oct 2026).
+    expect(r.link).toMatchObject({ status: "approved", default_tax_type: null });
   });
 
   it("excludes an expense-claim payee without a proposal", () => {

@@ -191,7 +191,10 @@ function planDecision({ decision, note, edits, proposal = null, supplier = null,
   };
 
   if (decision === "always_discuss") {
+    // A decision like approve or edit (spec 2.4 step 4): the link is decided,
+    // with whatever defaults it already holds, and step 5 writes its note.
     s.always_discuss = true;
+    l.status = "approved";
   } else if (decision === "excluded") {
     s.status = "excluded";
     s.status_reason = noteText;
