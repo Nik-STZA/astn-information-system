@@ -50,7 +50,9 @@ function determinationNote({ supplier, link, source }) {
     const label = BASIS_LABELS[link.vat_basis] || link.vat_basis || "basis not recorded";
     const country = supplier.country_of_establishment && /^non_uk/.test(link.vat_basis || "") ? ` (${supplier.country_of_establishment})` : "";
     vat = `VAT: ${link.default_tax_type} - ${label.replace(/^non-UK supplier/, `non-UK supplier${country}`)}`;
-    if (link.vat_basis === "cfo_decision" && link.vat_basis_note) vat += `: ${link.vat_basis_note}`;
+    // The stored reasoning may repeat the label and carry its own full stop.
+    const why = String(link.vat_basis_note || "").trim().replace(/^CFO decision:\s*/i, "").replace(/\.+$/, "");
+    if (link.vat_basis === "cfo_decision" && why) vat += `: ${why}`;
   } else vat = "VAT: no default";
   const parts = [vat];
   if (supplier.always_discuss) parts.push("Always discuss: every bill goes to the CFO");
