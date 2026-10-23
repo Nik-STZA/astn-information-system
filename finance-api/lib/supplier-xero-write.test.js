@@ -44,6 +44,14 @@ describe("determinationNote", () => {
       link: link({ default_tax_type: "NONE", vat_basis: "cfo_decision", vat_basis_note: "services performed entirely from the USA" }), source });
     expect(n).toMatch(/^VAT: NONE - CFO decision: services performed entirely from the USA\./);
   });
+
+  // Underdog, 22 Oct 2026: the stored note began "CFO decision:" and ended with a full stop.
+  it("does not repeat the label or double the full stop", () => {
+    const n = determinationNote({ supplier: supplier({ country_of_establishment: "US" }),
+      link: link({ default_tax_type: "NONE", vat_basis: "cfo_decision",
+        vat_basis_note: "CFO decision: no VAT; services performed entirely from the USA (Nik, 22 Oct 2026)." }), source });
+    expect(n).toMatch(/^VAT: NONE - CFO decision: no VAT; services performed entirely from the USA \(Nik, 22 Oct 2026\)\. Default 453\./);
+  });
 });
 
 describe("planContactWrite", () => {
