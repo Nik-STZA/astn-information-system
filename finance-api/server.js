@@ -52,6 +52,7 @@ const confirmedRules = require("./lib/xero-confirmed");
 const billChecks = require("./lib/bill-checks");
 const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
+const billReview = require("./lib/bill-review");
 const supplierPass = require("./lib/supplier-pass");
 const supplierDecision = require("./lib/supplier-decision");
 const supplierXeroWrite = require("./lib/supplier-xero-write");
@@ -4179,6 +4180,88 @@ app.get("/api/finance/clients/:slug/suppliers/proposals", route(async (req, res)
       WHERE p.client_id = $1 AND ($2 = 'all' OR p.decision = $2)
       ORDER BY p.created_at DESC LIMIT 200`, [client.id, decision]);
   res.json({ count: rows.length, proposals: rows });
+}));
+
+// ── AP lane phase 2: bills against their documents ──────────────────────────
+//
+// POST /api/finance/clients/:slug/xero/:entity/bills/review
+//   body: { bill_ids: [InvoiceID, ...] }   (1 to 25), or {} for every DRAFT and
+//         SUBMITTED supplier bill (the newest 25)
+//
+// Each bill's attachment is read once by the model (lib/vertex.js, London) and
+// compared with the bill as keyed by code (lib/bill-review.js): the "lines vs
+// PDF" check check_bill could not do. Read-only: nothing is written to Xero or
+// stored; a file attached to several bills is read once. Sequential on purpose:
+// Xero allows about 60 calls a minute per organisation.
+app.post("/api/finance/clients/:slug/xero/:entity/bills/review", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let ids = [...new Set((req.body?.bill_ids || []).map(String))];
+  if (ids.length > 25 || !ids.every((id) => GUID.test(id))) {
+    return res.status(400).json({ error: "bill_ids must be up to 25 Xero InvoiceIDs" });
+  }
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  const { entity } = ctx;
+  const get = (path, params) => xeroGet(ctx.accessToken, ctx.tenantId, path, params);
+
+  if (!ids.length) {
+    ids = ((await get("/Invoices", {
+      page: 1, order: "Date DESC", where: 'Type=="ACCPAY" AND (Status=="DRAFT" OR Status=="SUBMITTED")',
+    })).Invoices ?? []).slice(0, 25).map((b) => b.InvoiceID);
+  }
+  const org = (await get("/Organisation")).Organisations?.[0] || {};
+  const street = (org.Addresses || []).find((a) => a.AddressType === "STREET") || (org.Addresses || [])[0] || {};
+  const facts = { name: org.LegalName || org.Name, vat_number: org.TaxNumber || null, postcode: street.PostalCode || null, pays_tax: org.PaysTax };
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+
+  const reads = new Map(); // sha256 -> extraction, so a file on two bills is read once
+  const items = [];
+  const errors = [];
+  for (const id of ids) {
+    try {
+      const bill = (await get(`/Invoices/${id}`)).Invoices?.[0];
+      if (!bill || bill.Type !== "ACCPAY") { errors.push({ invoice_id: id, error: "not a supplier bill in this entity" }); continue; }
+      let file = null;
+      let extraction = null;
+      if (bill.HasAttachments) {
+        const atts = (await get(`/Invoices/${id}/Attachments`)).Attachments ?? [];
+        const a = atts.find((x) => /pdf|image\//.test(x.MimeType || "") && Number(x.ContentLength || 0) <= 15e6);
+        if (a) {
+          const r = await xeroFetch(ctx.accessToken, ctx.tenantId, `/Invoices/${id}/Attachments/${encodeURIComponent(a.FileName)}`, {}, { accept: a.MimeType });
+          const bytes = Buffer.from(await r.arrayBuffer());
+          const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+          file = { name: a.FileName, sha256, pages: /pdf/.test(a.MimeType) ? billReview.pdfPageCount(bytes) : null };
+          if (!reads.has(sha256)) {
+            try {
+              const out = await vertex.generate(billReview.buildExtractRequest({ document: bytes, mimeType: a.MimeType }));
+              reads.set(sha256, { extraction: billReview.parseExtraction(out.text), usage: out.usage });
+            } catch (e) {
+              reads.set(sha256, { extraction: null, error: e.message.slice(0, 200) });
+            }
+          }
+          extraction = reads.get(sha256).extraction;
+        }
+      }
+      const master = bill.Contact?.ContactID ? (await pool.query(
+        `SELECT row_to_json(s) AS supplier, row_to_json(se) AS link FROM finance.supplier_entities se
+           JOIN finance.suppliers s ON s.id = se.supplier_id
+          WHERE se.entity_id = $1 AND se.xero_contact_id = $2`, [entity.id, bill.Contact.ContactID])).rows[0] : null;
+      items.push({ bill, file, extraction, supplier: master?.supplier || null, link: master?.link || null });
+    } catch (e) {
+      // One bill's failure is reported against it; the review continues.
+      errors.push({ invoice_id: id, error: e.message.slice(0, 300) });
+    }
+  }
+  const usage = [...reads.values()].reduce((t, r) => ({
+    files_read: t.files_read + 1,
+    tokens_in: t.tokens_in + (r.usage?.promptTokenCount || 0),
+    tokens_out: t.tokens_out + (r.usage?.candidatesTokenCount || 0) + (r.usage?.thoughtsTokenCount || 0),
+    read_errors: t.read_errors + (r.error ? 1 : 0),
+  }), { files_read: 0, tokens_in: 0, tokens_out: 0, read_errors: 0 });
+  res.json({ entity: entity.name, reviewed_by: actorEmail, today, ...billReview.reviewBatch({ items, entity: facts, today }), errors, usage });
 }));
 
 // ── Supplier master: the CFO's decisions ─────────────────────────────────────
