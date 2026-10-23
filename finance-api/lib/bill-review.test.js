@@ -122,6 +122,28 @@ describe("reviewBill", () => {
     expect(r.flagged).toEqual(expect.arrayContaining(["not_in_master", "cfo_review"]));
   });
 
+  // Live run, UDL, 23 Oct 2026.
+  it("reads 'GB VAT 493735845' as the entity's own VAT number", () => {
+    const r = reviewBill({ bill, entity, file: { name: "a.pdf", pages: 1 },
+      extraction: { documents: [{ ...doc, customer_name: "X", customer_vat_number: "GB VAT 493735845" }] } });
+    expect(r.flags.find((f) => f.check === "customer_vat_number").flagged).toBe(false);
+    expect(r.flags.find((f) => f.check === "addressee").flagged).toBe(false);
+  });
+
+  it("treats Xero's 'No Contact' placeholder as no supplier", () => {
+    const r = reviewBill({ bill: { ...bill, Contact: { ContactID: "14a3c84d", Name: "No Contact" } }, entity,
+      file: { name: "a.pdf", pages: 1 }, extraction: { documents: [doc] } });
+    expect(r.flagged).toContain("no_supplier");
+    expect(r.flagged).not.toContain("not_in_master");
+  });
+
+  it("flags VAT on the document the bill does not claim, and lines with no account or tax type", () => {
+    const r = reviewBill({ bill: { ...bill, TotalTax: 0, LineItems: [{ LineAmount: 120 }] }, entity,
+      file: { name: "a.pdf", pages: 1 }, extraction: { documents: [doc] } });
+    expect(r.flagged).toEqual(expect.arrayContaining(["vat_not_claimed", "line_incomplete"]));
+    expect(r.flags.find((f) => f.check === "line_incomplete").detail).toBe("1 line(s) without an account or a tax type");
+  });
+
   it("flags a document dated in the future", () => {
     const r = reviewBill({ bill: { ...bill, DateString: "2026-12-08T00:00:00" }, entity, today: "2026-10-23",
       file: { name: "a.pdf", pages: 1 }, extraction: { documents: [{ ...doc, document_date: "2026-12-08" }] } });
