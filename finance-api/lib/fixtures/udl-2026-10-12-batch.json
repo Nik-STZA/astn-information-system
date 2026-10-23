@@ -1,0 +1,1093 @@
+{
+ "_about": "The 12 Oct 2026 UDL batch as Xero bill inbox keyed it (answer key: reconciliations/2026-10-12-ap-intake-udl.md), with each file as gemini-3.5-flash (europe-west2) read it on 20 Oct 2026. Personal names replaced. Supplier master as decided 21-23 Oct 2026; amazon contact id is a placeholder.",
+ "entity": {
+  "name": "Ultraspeed Digital Limited",
+  "vat_number": "GB493735845",
+  "pays_tax": true,
+  "postcode": "E1 5LP"
+ },
+ "today": "2026-10-12",
+ "items": [
+  {
+   "bill": {
+    "InvoiceID": "f14a85e3-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {},
+    "DateString": "2026-10-12T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 1429.37,
+    "TotalTax": 0,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 1429.37,
+      "TaxType": "NONE",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "image.png",
+    "sha256": "8389e520aa63fcb7e24f4625ec475c6ac4a456425d15c342feb2b797b3657310",
+    "pages": null
+   },
+   "extraction": {
+    "total_pages_read": 1,
+    "documents": [
+     {
+      "document_type": "report_or_screenshot",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 1429.37,
+      "vat_total": null,
+      "bank_account_last4": null,
+      "customer_address": null,
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": null,
+      "document_number": null,
+      "doubts": null,
+      "lines": [
+       {
+        "description": "02 Sep 2026 - Google Cloud Z7kmxv - Google Cloud Z7kmxv - CARDHOLDER",
+        "net": 98.73,
+        "vat": null
+       },
+       {
+        "description": "04 Sep 2026 - Www.twilio.com - www.twilio.com - 19.95 USD - CARDHOLDER",
+        "net": 14.75,
+        "vat": null
+       },
+       {
+        "description": "18 Sep 2026 - Google Cloud Xhmqt7 - Google Cloud Xhmqt7 - CARDHOLDER",
+        "net": 100,
+        "vat": null
+       },
+       {
+        "description": "29 Sep 2026 - Argos - Argos - CARDHOLDER",
+        "net": 341.1,
+        "vat": null
+       },
+       {
+        "description": "30 Sep 2026 - Amazon* N40u63h44 - amazon.co.uk - CARDHOLDER",
+        "net": 300.69,
+        "vat": null
+       },
+       {
+        "description": "02 Oct 2026 - Google*workspace Felds - Google*workspace Felds - 4967.97 HKD - Google Workspace",
+        "net": 480.02,
+        "vat": null
+       },
+       {
+        "description": "02 Oct 2026 - Google Cloud Krwc8n - Google Cloud Krwc8n - CARDHOLDER",
+        "net": 94.08,
+        "vat": null
+       },
+       {
+        "description": "06 Oct 2026 - Www.twilio.com - www.twilio.com - 19.95 USD - CARDHOLDER",
+        "net": 14.75,
+        "vat": null
+       }
+      ],
+      "net_total": 1429.37,
+      "reverse_charge_wording": null,
+      "supplier_address": null,
+      "supplier_country": null,
+      "supplier_name": null,
+      "supplier_vat_number": null,
+      "vat_rate_shown": null
+     }
+    ]
+   },
+   "supplier": null,
+   "link": null
+  },
+  {
+   "bill": {
+    "InvoiceID": "351c77bd-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {},
+    "DateString": "2026-10-12T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 1429.37,
+    "TotalTax": 0,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 1429.37,
+      "TaxType": "NONE",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "image.png",
+    "sha256": "8389e520aa63fcb7e24f4625ec475c6ac4a456425d15c342feb2b797b3657310",
+    "pages": null
+   },
+   "extraction": {
+    "total_pages_read": 1,
+    "documents": [
+     {
+      "document_type": "report_or_screenshot",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 1429.37,
+      "vat_total": null,
+      "bank_account_last4": null,
+      "customer_address": null,
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": null,
+      "document_number": null,
+      "doubts": null,
+      "lines": [
+       {
+        "description": "02 Sep 2026 - Google Cloud Z7kmxv - Google Cloud Z7kmxv - CARDHOLDER",
+        "net": 98.73,
+        "vat": null
+       },
+       {
+        "description": "04 Sep 2026 - Www.twilio.com - www.twilio.com - 19.95 USD - CARDHOLDER",
+        "net": 14.75,
+        "vat": null
+       },
+       {
+        "description": "18 Sep 2026 - Google Cloud Xhmqt7 - Google Cloud Xhmqt7 - CARDHOLDER",
+        "net": 100,
+        "vat": null
+       },
+       {
+        "description": "29 Sep 2026 - Argos - Argos - CARDHOLDER",
+        "net": 341.1,
+        "vat": null
+       },
+       {
+        "description": "30 Sep 2026 - Amazon* N40u63h44 - amazon.co.uk - CARDHOLDER",
+        "net": 300.69,
+        "vat": null
+       },
+       {
+        "description": "02 Oct 2026 - Google*workspace Felds - Google*workspace Felds - 4967.97 HKD - Google Workspace",
+        "net": 480.02,
+        "vat": null
+       },
+       {
+        "description": "02 Oct 2026 - Google Cloud Krwc8n - Google Cloud Krwc8n - CARDHOLDER",
+        "net": 94.08,
+        "vat": null
+       },
+       {
+        "description": "06 Oct 2026 - Www.twilio.com - www.twilio.com - 19.95 USD - CARDHOLDER",
+        "net": 14.75,
+        "vat": null
+       }
+      ],
+      "net_total": 1429.37,
+      "reverse_charge_wording": null,
+      "supplier_address": null,
+      "supplier_country": null,
+      "supplier_name": null,
+      "supplier_vat_number": null,
+      "vat_rate_shown": null
+     }
+    ]
+   },
+   "supplier": null,
+   "link": null
+  },
+  {
+   "bill": {
+    "InvoiceID": "b9a80703-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "44ced927-ccb4-4d16-b792-cd434ec4fc77",
+     "Name": "Google Asia Pacific Pte Ltd"
+    },
+    "DateString": "2026-09-30T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 4967.97,
+    "TotalTax": 827.99,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 4967.97,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "5701134982.pdf",
+    "sha256": "f22ea0c62597eb4f67e7ae1f73afbf44f5dad2785040713a1ff153a612783333",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1,
+       2
+      ],
+      "currency": "HKD",
+      "gross_total": 4967.97,
+      "vat_total": 0,
+      "bank_account_last4": null,
+      "customer_address": "Central, Hong Kong Island, Hong Kong",
+      "customer_name": "NAMED INDIVIDUAL",
+      "customer_vat_number": null,
+      "document_date": "2026-09-30",
+      "document_number": "5701134982",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Google Workspace Enterprise Standard Usage Sep 1 - Sep 17",
+        "net": 2877.53,
+        "vat": 0
+       },
+       {
+        "description": "Google Workspace Enterprise Standard Usage Sep 18 - Sep 30",
+        "net": 2090.44,
+        "vat": 0
+       }
+      ],
+      "net_total": 4967.97,
+      "reverse_charge_wording": null,
+      "supplier_address": "70 Pasir Panjang Road, #03-71, Mapletree Business City, Singapore 117371",
+      "supplier_country": "Singapore",
+      "supplier_name": "Google Asia Pacific Pte. Ltd.",
+      "supplier_vat_number": "200817984R",
+      "vat_rate_shown": "0%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "200817984R",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "REVERSECHARGES",
+    "default_account_code": "451"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "ceb3dad1-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "b6e84d72-2822-4d28-93c1-928f7f5dfe06",
+     "Name": "Google Cloud EMEA Limited"
+    },
+    "DateString": "2026-10-12T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 194.08,
+    "TotalTax": 32.35,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 194.08,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "5713451497.pdf",
+    "sha256": "a1eb460d63cf666e5efa38e2ad350d83206d25a56a8be7315815d4874bdb1393",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1,
+       2
+      ],
+      "currency": "GBP",
+      "gross_total": 194.08,
+      "vat_total": 0,
+      "bank_account_last4": null,
+      "customer_address": "Fora, Office 2.07 42-46 Princelet Street, LONDON, E1 5LP, United Kingdom",
+      "customer_name": "Ultraspeed Digital Limited",
+      "customer_vat_number": "GB 493735845",
+      "document_date": "2026-09-30",
+      "document_number": "5713451497",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Google Cloud – Fee for September 2026",
+        "net": 194.08,
+        "vat": 0
+       }
+      ],
+      "net_total": 194.08,
+      "reverse_charge_wording": null,
+      "supplier_address": "Velasco, Clanwilliam Place, Dublin 2, Ireland",
+      "supplier_country": "Ireland",
+      "supplier_name": "Google Cloud EMEA Limited",
+      "supplier_vat_number": "IE3668997OH",
+      "vat_rate_shown": "0%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "IE3668997OH",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "REVERSECHARGES",
+    "default_account_code": "453"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "5fdb9fae-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "b6e84d72-2822-4d28-93c1-928f7f5dfe06",
+     "Name": "Google Cloud EMEA Limited"
+    },
+    "DateString": "2026-08-31T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 98.73,
+    "TotalTax": 16.45,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 98.73,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "5681909625.pdf",
+    "sha256": "e4da09dd26a3f251582dc5c3846cd7bfe6d3d205a48b1d7c6fddf267645bf8ed",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1,
+       2
+      ],
+      "currency": "GBP",
+      "gross_total": 98.73,
+      "vat_total": 0,
+      "bank_account_last4": null,
+      "customer_address": "Fora, Office 2.07 42-46 Princelet Street, LONDON, E1 5LP, United Kingdom",
+      "customer_name": "Ultraspeed Digital Limited",
+      "customer_vat_number": "GB 493735845",
+      "document_date": "2026-08-31",
+      "document_number": "5681909625",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Google Cloud – Fee for August 2026",
+        "net": 98.73,
+        "vat": 0
+       }
+      ],
+      "net_total": 98.73,
+      "reverse_charge_wording": null,
+      "supplier_address": "Velasco, Clanwilliam Place, Dublin 2, Ireland",
+      "supplier_country": "Ireland",
+      "supplier_name": "Google Cloud EMEA Limited",
+      "supplier_vat_number": "IE3668997OH",
+      "vat_rate_shown": "0%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "IE3668997OH",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "REVERSECHARGES",
+    "default_account_code": "453"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "79edc2b4-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {},
+    "DateString": "2026-10-05T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 19.95,
+    "TotalTax": 0,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 19.95,
+      "TaxType": "NONE",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "billing_invoices_8a128d3fa0d34c6801a0f9a19c2b660c.pdf",
+    "sha256": "62e6454317b61c29296695519b5222c611f75a132398ac07c7942a60bfbd931b",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1,
+       2
+      ],
+      "currency": "USD",
+      "gross_total": 19.95,
+      "vat_total": 0,
+      "bank_account_last4": null,
+      "customer_address": "Fora, Office 2.07 42-46 Princelet Street, London London E1 5LP United Kingdom",
+      "customer_name": "Ultraspeed Digital Limited",
+      "customer_vat_number": "GB493735845",
+      "document_date": "2026-10-01",
+      "document_number": "INV20055179",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Essentials 50K Overage Essentials 50K includes 50,000 email credits per month.",
+        "net": 0,
+        "vat": 0
+       },
+       {
+        "description": "Essentials 50K Essentials 50K includes 50,000 email credits per month.",
+        "net": 19.95,
+        "vat": 0
+       }
+      ],
+      "net_total": 19.95,
+      "reverse_charge_wording": "This invoice is subject to the reverse charge mechanism, if applicable.",
+      "supplier_address": "70 Sir John Rogerson's Quay Dublin 2, D02 R296 Ireland",
+      "supplier_country": "Ireland",
+      "supplier_name": "Twilio Ireland Limited",
+      "supplier_vat_number": "GB374316984",
+      "vat_rate_shown": "0.000%"
+     }
+    ]
+   },
+   "supplier": null,
+   "link": null
+  },
+  {
+   "bill": {
+    "InvoiceID": "8a1a8760-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {},
+    "DateString": "2026-09-03T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 19.95,
+    "TotalTax": 0,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 19.95,
+      "TaxType": "NONE",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "billing_invoices_8a128de9a058873001a05f0af5f3074b.pdf",
+    "sha256": "bc9ae30b29823a9dadd6a65b0e2f684ea0f199fdf2f6208dffaddb69838ce009",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1,
+       2
+      ],
+      "currency": "USD",
+      "gross_total": 19.95,
+      "vat_total": 0,
+      "bank_account_last4": null,
+      "customer_address": "Fora, Office 2.07 42-46 Princelet Street, London London E1 5LP United Kingdom",
+      "customer_name": "Ultraspeed Digital Limited",
+      "customer_vat_number": "GB493735845",
+      "document_date": "2026-09-01",
+      "document_number": "INV19809940",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Essentials 50K Overage - Essentials 50K includes 50,000 email credits per month.",
+        "net": 0,
+        "vat": 0
+       },
+       {
+        "description": "Essentials 50K - Essentials 50K includes 50,000 email credits per month.",
+        "net": 19.95,
+        "vat": 0
+       }
+      ],
+      "net_total": 19.95,
+      "reverse_charge_wording": "This invoice is subject to the reverse charge mechanism, if applicable.",
+      "supplier_address": "70 Sir John Rogerson's Quay Dublin 2, D02 R296 Ireland",
+      "supplier_country": "Ireland",
+      "supplier_name": "Twilio Ireland Limited",
+      "supplier_vat_number": "GB374316984",
+      "vat_rate_shown": "0.000%"
+     }
+    ]
+   },
+   "supplier": null,
+   "link": null
+  },
+  {
+   "bill": {
+    "InvoiceID": "671549fa-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "00000000-0000-4000-8000-0000000000a1",
+     "Name": "amazon"
+    },
+    "DateString": "2026-09-28T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 48.44,
+    "TotalTax": 8.07,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 48.44,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "invoice__2_.pdf",
+    "sha256": "bc97c78305c5436fd746b8444605b5fb3d4ee845cff705cace9992738be951b9",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 48.44,
+      "vat_total": 8.07,
+      "bank_account_last4": null,
+      "customer_address": "FORA OFFICE 2 07, 42 46 PRINCELET STREET, LONDON, E1 5LP, GB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-28",
+      "document_number": "GB6AXAJUIAEUD",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "DC power supply (0-30V,0-10A) adjustable, switching power supplies, mini high precision 4-digit display with USB fast charging interface, variable lab bench power supply, output button/encoder knob | B09C8LWV9W",
+        "net": 40.37,
+        "vat": 8.07
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0.33,
+        "vat": 0.07
+       },
+       {
+        "description": "Promotions",
+        "net": -0.33,
+        "vat": -0.07
+       }
+      ],
+      "net_total": 40.37,
+      "reverse_charge_wording": null,
+      "supplier_address": "龙华区福城街道九龙山社区悦兴路178号 金域九悦花园（北区）2栋A座1701 深圳市, 广东, 518000 CN",
+      "supplier_country": "CN",
+      "supplier_name": "shenzhenshizhichengdianzikejiyouxiangongsi",
+      "supplier_vat_number": "GB727255821",
+      "vat_rate_shown": "20%"
+     },
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       2
+      ],
+      "currency": "GBP",
+      "gross_total": 28.83,
+      "vat_total": 4.81,
+      "bank_account_last4": null,
+      "customer_address": "FORA OFFICE 2 07, 42 46 PRINCELET STREET, LONDON, E1 5LP, GB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-28",
+      "document_number": "GB6AXAJUXAEUD",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Yauhody CAT 6 Ethernet Cable 3m 6-Pack, Black | B08LG93GYW",
+        "net": 14.15,
+        "vat": 2.84
+       },
+       {
+        "description": "Yauhody CAT 6 Ethernet Cable - 1m Black Pack of 6 | B08LG3YV3T",
+        "net": 9.87,
+        "vat": 1.97
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0.66,
+        "vat": 0.13
+       },
+       {
+        "description": "Promotions",
+        "net": -0.66,
+        "vat": -0.13
+       }
+      ],
+      "net_total": 24.02,
+      "reverse_charge_wording": null,
+      "supplier_address": "宝山区长江南路180号B150室 上海市, 上海, 200439 CN",
+      "supplier_country": "CN",
+      "supplier_name": "shanghaiaitengkejiyouxiangongsi",
+      "supplier_vat_number": "GB727255821",
+      "vat_rate_shown": "20%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "GB727255821",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "INPUT2",
+    "default_account_code": "454"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "f5fdf0c2-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "00000000-0000-4000-8000-0000000000a1",
+     "Name": "amazon"
+    },
+    "DateString": "2026-09-29T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 14.99,
+    "TotalTax": 2.5,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 14.99,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "invoice.pdf",
+    "sha256": "0ac9ad082cfd23cfe02440803e088dc8fe64551b7bfb3c89528159a942a22aae",
+    "pages": 1
+   },
+   "extraction": {
+    "total_pages_read": 1,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 14.99,
+      "vat_total": 2.5,
+      "bank_account_last4": null,
+      "customer_address": "CARDHOLDER\nFORA OFFICE 2 07, 42 46 PRINCELET STREET\nLONDON, E1 5LP\nGB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-29",
+      "document_number": "GB6AYHTG9AEUD",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Cable Matters USB to Ethernet Adapter, USB 3.0 Gigabit Network | B00BBD7NFU ASIN: B00BBD7NFU",
+        "net": 12.49,
+        "vat": 2.5
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0,
+        "vat": 0
+       }
+      ],
+      "net_total": 12.49,
+      "reverse_charge_wording": null,
+      "supplier_address": "153 NORTHBORO RD\nSTE 5\nSouthborough, MA, 01772-1034\nUS",
+      "supplier_country": "US",
+      "supplier_name": "Cable Matters Inc.",
+      "supplier_vat_number": "GB727255821",
+      "vat_rate_shown": "20%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "GB727255821",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "INPUT2",
+    "default_account_code": "454"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "eeab6277-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "00000000-0000-4000-8000-0000000000a1",
+     "Name": "amazon"
+    },
+    "DateString": "2026-09-29T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 73.98,
+    "TotalTax": 12.33,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 73.98,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "invoice__4_.pdf",
+    "sha256": "fc53194ba73a22ee7de2251d1448d78081a60156f90d9afd08d120eec92ee178",
+    "pages": 1
+   },
+   "extraction": {
+    "total_pages_read": 1,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 73.98,
+      "vat_total": 12.5,
+      "bank_account_last4": null,
+      "customer_address": "CARDHOLDER\nFORA OFFICE 2 07, 42 46 PRINCELET\nSTREET\nLONDON, E1 5LP\nGB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-29",
+      "document_number": "GB6AYU2PSAEUD",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Patriot Memory P300 M.2 Pcie Gen 3 x4 512GB low-power consumption SSD - P300P512GM28 | B082BJ4679 ASIN: B082BJ4679",
+        "net": 62.49,
+        "vat": 12.5
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0.67,
+        "vat": 0.13
+       },
+       {
+        "description": "Promotions",
+        "net": -0.67,
+        "vat": -0.13
+       },
+       {
+        "description": "Funded by Amazon",
+        "net": -1.01,
+        "vat": 0
+       }
+      ],
+      "net_total": 61.48,
+      "reverse_charge_wording": null,
+      "supplier_address": "Innsbruckweg 190-192\nRotterdam, The Netherlands, 3047 AH\nNL",
+      "supplier_country": "NL",
+      "supplier_name": "Patriot Memory BV",
+      "supplier_vat_number": "GB727255821",
+      "vat_rate_shown": "20%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "GB727255821",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "INPUT2",
+    "default_account_code": "454"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "a361dd68-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "00000000-0000-4000-8000-0000000000a1",
+     "Name": "amazon"
+    },
+    "DateString": "2026-09-29T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 73.98,
+    "TotalTax": 12.33,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 73.98,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "invoice__3_.pdf",
+    "sha256": "c72dd3ba02baf1839c8f266d8770aa875e357c235d0fb3fa546622b3022e43ba",
+    "pages": 1
+   },
+   "extraction": {
+    "total_pages_read": 1,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 73.98,
+      "vat_total": 12.5,
+      "bank_account_last4": null,
+      "customer_address": "CARDHOLDER\nFORA OFFICE 2 07, 42 46 PRINCELET STREET\nLONDON, E1 5LP\nGB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-29",
+      "document_number": "GB6AY09Y7AEUD",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Patriot Memory P300 M.2 Pcie Gen 3 x4 512GB low-power consumption SSD - P300P512GM28 | B082BJ4679",
+        "net": 62.49,
+        "vat": 12.5
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0.34,
+        "vat": 0.06
+       },
+       {
+        "description": "Promotions",
+        "net": -0.34,
+        "vat": -0.06
+       },
+       {
+        "description": "Funded by Amazon",
+        "net": -1.01,
+        "vat": 0
+       }
+      ],
+      "net_total": 62.49,
+      "reverse_charge_wording": null,
+      "supplier_address": "Innsbruckweg 190-192, Rotterdam, The Netherlands, 3047 AH, NL",
+      "supplier_country": "NL",
+      "supplier_name": "Patriot Memory BV",
+      "supplier_vat_number": "GB727255821",
+      "vat_rate_shown": "20%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "GB727255821",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "INPUT2",
+    "default_account_code": "454"
+   }
+  },
+  {
+   "bill": {
+    "InvoiceID": "8f5e617e-0000-4000-8000-000000000000",
+    "Type": "ACCPAY",
+    "Status": "DRAFT",
+    "InvoiceNumber": "",
+    "Contact": {
+     "ContactID": "00000000-0000-4000-8000-0000000000a1",
+     "Name": "amazon"
+    },
+    "DateString": "2026-09-28T00:00:00",
+    "CurrencyCode": "GBP",
+    "LineAmountTypes": "Inclusive",
+    "Total": 50.48,
+    "TotalTax": 8.41,
+    "LineItems": [
+     {
+      "Description": "",
+      "LineAmount": 50.48,
+      "TaxType": "INPUT2",
+      "AccountCode": "423"
+     }
+    ]
+   },
+   "file": {
+    "name": "invoice__1_.pdf",
+    "sha256": "d4f1c674afabd69f6e22309ea9a07b935015e58927c7546891497fb912a180db",
+    "pages": 2
+   },
+   "extraction": {
+    "total_pages_read": 2,
+    "documents": [
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       1
+      ],
+      "currency": "GBP",
+      "gross_total": 50.48,
+      "vat_total": 8.41,
+      "bank_account_last4": null,
+      "customer_address": "FORA OFFICE 2 07, 42 46 PRINCELET STREET\nLONDON, E1 5LP\nGB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-28",
+      "document_number": "GB6006BFAVOVRI",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Pimoroni NVMe Base (M.2 2230, 2242, 2260 and 2280) SSD PCIe for Raspberry Pi 5 (up to 800MB/s!),(PIM699) ASIN: B0CTK1RLN5",
+        "net": 21.03,
+        "vat": 4.21
+       },
+       {
+        "description": "Pimoroni NVMe Base (M.2 2230, 2242, 2260 and 2280) SSD PCIe for Raspberry Pi 5 (up to 800MB/s!),(PIM699) ASIN: B0CTK1RLN5",
+        "net": 21.04,
+        "vat": 4.2
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0,
+        "vat": 0
+       }
+      ],
+      "net_total": 42.07,
+      "reverse_charge_wording": null,
+      "supplier_address": "45 ALBERT ROAD\nCORFE MULLEN\nWIMBORNE, Dorset, BH21 3QD\nGB",
+      "supplier_country": "GB",
+      "supplier_name": "InDemandUK Ltd",
+      "supplier_vat_number": "GB437414693",
+      "vat_rate_shown": "20%"
+     },
+     {
+      "document_type": "invoice",
+      "page_numbers": [
+       2
+      ],
+      "currency": "GBP",
+      "gross_total": 9.99,
+      "vat_total": 1.67,
+      "bank_account_last4": null,
+      "customer_address": "FORA OFFICE 2 07, 42 46 PRINCELET STREET\nLONDON, E1 5LP\nGB",
+      "customer_name": "CARDHOLDER",
+      "customer_vat_number": null,
+      "document_date": "2026-09-28",
+      "document_number": "GB6AXL201AEUD",
+      "doubts": null,
+      "lines": [
+       {
+        "description": "Cleqee Multimeter Test Leads Kit Banana Plug with Push On Alligator Clips | B0DK4J8919 ASIN: B0DK4J8919",
+        "net": 8.32,
+        "vat": 1.67
+       },
+       {
+        "description": "Shipping Charges",
+        "net": 0,
+        "vat": 0
+       }
+      ],
+      "net_total": 8.32,
+      "reverse_charge_wording": null,
+      "supplier_address": "武进区常武中路18-50号5-314室-101A\n(常州科教城内)\n常州市, 江苏省, 213000\nCN",
+      "supplier_country": "CN",
+      "supplier_name": "changzhouleqidianzikejiyouxiangongsi",
+      "supplier_vat_number": "GB727255821",
+      "vat_rate_shown": "20%"
+     }
+    ]
+   },
+   "supplier": {
+    "vat_number": "GB727255821",
+    "always_discuss": false,
+    "mixed_treatment": false
+   },
+   "link": {
+    "status": "approved",
+    "default_tax_type": "INPUT2",
+    "default_account_code": "454"
+   }
+  }
+ ]
+}
