@@ -97,6 +97,12 @@ describe("documentValue", () => {
   it("falls back to the printed gross when there are no lines", () => {
     expect(documentValue({ gross_total: 19.95, lines: [] })).toBe(1995);
   });
+
+  // Smart Numbers, FSL, 23 Oct 2026: the line printed net, the VAT only in the summary.
+  it("adds the VAT total once when the lines carry no VAT of their own", () => {
+    expect(documentValue({ gross_total: 13.18, vat_total: 2.2, lines: [{ description: "Service Charges", net: 10.98, vat: null }] })).toBe(1318);
+    expect(documentValue({ gross_total: 13.18, vat_total: 2.2, lines: [{ description: "Service Charges", net: 10.98, vat: 2.2 }] })).toBe(1318);
+  });
 });
 
 describe("reviewBill", () => {

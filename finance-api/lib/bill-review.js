@@ -144,7 +144,11 @@ const words = (s) => String(s || "").toLowerCase().replace(/\b(limited|ltd|plc|l
 function documentValue(doc) {
   const lines = (doc.lines || []).filter((l) => l.net !== null && !PAYMENT_CREDIT.test(l.description));
   if (lines.length) {
-    const fromLines = lines.reduce((t, l) => t + pence(l.net) + pence(l.vat), 0);
+    // Lines printed net with the VAT only in the summary (Smart Numbers, FSL,
+    // 23 Oct 2026): the document's VAT total is added once.
+    const lineVat = lines.some((l) => l.vat !== null);
+    const fromLines = lines.reduce((t, l) => t + pence(l.net) + pence(l.vat), 0)
+      + (lineVat || doc.vat_total === null ? 0 : pence(doc.vat_total));
     if (fromLines !== 0 || doc.gross_total === null) return fromLines;
   }
   return doc.gross_total === null ? null : pence(doc.gross_total);
