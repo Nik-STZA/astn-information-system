@@ -5,6 +5,7 @@
 import Link from "next/link";
 import styles from "./ApQueue.module.css";
 import FetchDocuments from "./FetchDocuments";
+import ApActions from "./ApActions";
 import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApItemDetail, ApItemRow } from "@/modules/finance/lib/ap-queue";
 
@@ -178,8 +179,17 @@ function Detail({ item, slug, entity, back }: { item: ApItemDetail; slug: string
             </>
           )}
 
-        {(item.state === "clean" || item.state === "exception") && (
-          <p className={styles.note}>Sending to Xero comes in the next step. Until then, nothing here changes Xero.</p>
+        {bill && (
+          <ApActions slug={slug} entity={entity} item={{
+            id: item.id,
+            state: item.state,
+            contactId: bill.Contact?.ContactID ?? null,
+            contactName: bill.Contact?.Name ?? null,
+            number: bill.InvoiceNumber,
+            total: bill.Total,
+            currency: bill.CurrencyCode,
+            lines: bill.LineItems.map((l) => ({ description: l.Description, amount: l.LineAmount, account: l.AccountCode, tax: l.TaxType })),
+          }} />
         )}
       </article>
     </div>
