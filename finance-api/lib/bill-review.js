@@ -17,11 +17,17 @@
 //
 // What the batch got wrong, and the check here that catches each:
 //
-//   screenshot of a Xero report made into two bills   not_an_invoice, same_file_twice
+//   screenshot of a Xero report made into two bills   not_evidence, same_file_twice
 //   HK$4,967.97 keyed as GBP                          currency
 //   GBP 876.79 of VAT on invoices showing 0%          vat_not_on_document
 //   two two-page PDFs read as one page each           documents_without_bill, pages_unread
 //   two SSD invoices flagged as a duplicate           duplicate_cleared_by_number
+//
+// Bills are booked on whatever the client provides (CFO, 26 Oct 2026): an
+// invoice, a receipt or a payment confirmation (a bank or card app screenshot of
+// the payment) is evidence of the purchase, and its type is reported as a fact.
+// A report, a statement or anything else is not, and is flagged. The VAT is a
+// separate question: it needs a VAT invoice (vat_without_invoice).
 //
 // Flags use check_bill's shape ({ check, flagged, detail }) so the two read
 // as one report. This module never fetches: the route reads Xero and Vertex
@@ -33,7 +39,7 @@ const { normNumber, billDate } = require("./bill-checks");
 
 const EXTRACT_PROMPT = `You are reading one file that a supplier or a colleague sent to a UK company's accounts-payable inbox.
 Read EVERY page. A single file can hold several separate invoices (for example one per page); return one entry per document you find.
-If the file is not a supplier invoice or credit note (a screenshot of a report, a statement, a receipt-only page, a quote, anything else), say so in document_type and still return one entry.
+If the file is not a supplier invoice or credit note, say so in document_type and still return one entry: "receipt" for a till or online receipt from the supplier; "payment_confirmation" for a bank, card or payment app screen or email showing a payment to the supplier; "statement" for a statement of account; "report_or_screenshot" for a screenshot of a report or of accounting software; "other" for anything else (a quote, an order, a letter).
 Copy values exactly as printed. Never infer a value that is not on the document: use null.
 Currency: return the ISO code the document actually uses. Look at the symbol and any code next to the amounts (HK$ is HKD, US$ or $ with a US/Irish Twilio is USD). Never assume GBP because the reader is in the UK.
 VAT: return the VAT/GST amount and rate exactly as printed. If the document shows 0% or no VAT line, vat_total is 0. If it says reverse charge (or "VAT to be accounted for by the recipient", Article 196, etc.), set reverse_charge_wording to that text.
@@ -43,7 +49,7 @@ Bank details: if the document prints the supplier's bank details, give only the 
 const DOC = {
   type: "OBJECT",
   properties: {
-    document_type: { type: "STRING", enum: ["invoice", "credit_note", "receipt", "statement", "report_or_screenshot", "other"] },
+    document_type: { type: "STRING", enum: ["invoice", "credit_note", "receipt", "payment_confirmation", "statement", "report_or_screenshot", "other"] },
     page_numbers: { type: "ARRAY", items: { type: "INTEGER" } },
     supplier_name: { type: "STRING", nullable: true },
     supplier_country: { type: "STRING", nullable: true },
@@ -130,6 +136,15 @@ function pdfPageCount(bytes) {
 const pence = (v) => Math.round(Number(v || 0) * 100);
 const money = (p) => (p / 100).toFixed(2);
 const INVOICE_TYPES = ["invoice", "credit_note"];
+// What a bill can be booked on: the documents that show the purchase.
+const EVIDENCE_TYPES = [...INVOICE_TYPES, "receipt", "payment_confirmation"];
+const TYPE_NAMES = { invoice: "an invoice", credit_note: "a credit note", receipt: "a receipt", payment_confirmation: "a payment confirmation",
+  statement: "a statement", report_or_screenshot: "a report or screenshot", other: "not a purchase document" };
+// Whether a document supports reclaiming the VAT it shows: a VAT invoice, or a
+// receipt carrying the supplier's VAT number up to GBP 250 (a simplified
+// invoice, VAT Notice 700 para 16.6).
+const supportsVat = (doc) => INVOICE_TYPES.includes(doc.document_type)
+  || (doc.document_type === "receipt" && Boolean(doc.supplier_vat_number) && doc.gross_total !== null && pence(doc.gross_total) <= 25000);
 // Credits applied at payment, not to the supply: the card payment proves the
 // cash, not the value (CFO, 12 Oct 2026). They are left to bank reconciliation.
 const PAYMENT_CREDIT = /funded by amazon|gift card|promotional (credit|balance)|account credit applied/i;
@@ -166,13 +181,18 @@ function documentValue(doc) {
 }
 
 // Which document in the file a bill is for: the same number, else the same
-// value, else the only invoice there is.
+// value, else the only one there is. Invoices are tried before receipts and
+// payment confirmations, so a receipt filed with its invoice does not win.
 function matchDocument(bill, docs) {
-  const invoices = docs.filter((d) => INVOICE_TYPES.includes(d.document_type));
   const n = normNumber(bill.InvoiceNumber);
-  return (n && invoices.find((d) => normNumber(d.document_number) === n))
-    || invoices.find((d) => documentValue(d) === pence(bill.Total))
-    || (invoices.length === 1 ? invoices[0] : null);
+  for (const types of [INVOICE_TYPES, EVIDENCE_TYPES]) {
+    const pool = docs.filter((d) => types.includes(d.document_type));
+    const hit = (n && pool.find((d) => normNumber(d.document_number) === n))
+      || pool.find((d) => documentValue(d) === pence(bill.Total))
+      || (pool.length === 1 ? pool[0] : null);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**
@@ -211,10 +231,12 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
   }
 
   const kinds = [...new Set(docs.map((d) => d.document_type))];
+  const evidence = docs.filter((d) => EVIDENCE_TYPES.includes(d.document_type));
   const invoices = docs.filter((d) => INVOICE_TYPES.includes(d.document_type));
-  flag("not_an_invoice", !invoices.length,
+  flag("not_evidence", !evidence.length,
     invoices.length ? `${invoices.length} invoice(s) or credit note(s) in the file`
-      : `The file is ${kinds.join(", ") || "empty"}, not an invoice: it should not be a bill`);
+      : evidence.length ? `the file is ${kinds.map((k) => TYPE_NAMES[k] || k).join(", ")}, not an invoice: booked on what the client provided`
+        : `the file is ${kinds.map((k) => TYPE_NAMES[k] || k).join(", ") || "empty"}: it does not show a purchase`);
 
   if (file.pages) {
     const read = new Set(docs.flatMap((d) => d.page_numbers));
@@ -225,9 +247,9 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
   } else flag("pages_unread", false, "page count of the file unknown (not a PDF, or its page tree is compressed)", { not_checked: true });
 
   const doc = matchDocument(bill, docs);
-  if (!invoices.length) return result(null);
+  if (!evidence.length) return result(null);
   if (!doc) {
-    flag("document_not_matched", true, `None of the ${invoices.length} invoice(s) in the file matches this bill by number or value`);
+    flag("document_not_matched", true, `None of the ${evidence.length} document(s) in the file matches this bill by number or value`);
     return result(null);
   }
 
@@ -263,10 +285,20 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
       `bill claims VAT ${money(billTax)}; the document shows ${money(docVat)}`);
     // The other way: VAT on the document the bill does not claim. A warning,
     // not an error: the invoice may not be the entity's to recover (addressee).
-    flag("vat_not_claimed", docVat > billTax + 2 && !reverse,
-      `the document shows VAT ${money(docVat)}; the bill claims ${money(billTax)}`);
+    // Only where the document could support the claim.
+    if (supportsVat(doc)) {
+      flag("vat_not_claimed", docVat > billTax + 2 && !reverse,
+        `the document shows VAT ${money(docVat)}; the bill claims ${money(billTax)}`);
+    }
   } else if (docVat === 0) {
     flag("vat_not_on_document", billTax > 0 && !reverse, `bill claims VAT ${money(billTax)}; the document shows none`);
+  }
+  // Booking on a receipt or a payment confirmation is fine; reclaiming VAT on
+  // one is not, unless it is a simplified invoice (see supportsVat).
+  if (!supportsVat(doc)) {
+    flag("vat_without_invoice", billTax > 0 && !reverse, billTax > 0 && !reverse
+      ? `bill claims VAT ${money(billTax)} on ${TYPE_NAMES[doc.document_type] || doc.document_type}: reclaiming VAT needs a VAT invoice (or a receipt showing the supplier's VAT number, up to GBP 250)`
+      : `no VAT claimed on ${TYPE_NAMES[doc.document_type] || doc.document_type}`);
   }
 
   // Dates.

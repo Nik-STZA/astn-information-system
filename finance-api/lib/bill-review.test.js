@@ -11,7 +11,7 @@ describe("replay of the 12 Oct 2026 UDL batch", () => {
 
   it("1. the screenshot of a Xero report, made into two bills", () => {
     for (const id of ["f14a85e3", "351c77bd"]) {
-      expect(byId(r, id).flagged).toEqual(expect.arrayContaining(["not_an_invoice", "same_file_twice"]));
+      expect(byId(r, id).flagged).toEqual(expect.arrayContaining(["not_evidence", "same_file_twice"]));
     }
   });
 
@@ -174,6 +174,46 @@ describe("reviewBill", () => {
       expect(run([{ TaxType: "INPUT2", AccountCode: "515" }], staff, { ...hotel, customer_name: "John Smith" }).flagged).toBe(true);
       expect(run([{ TaxType: "INPUT2", AccountCode: "515" }], staff, { ...hotel, customer_name: "Ann Bloggs" }).flagged).toBe(true);
       expect(run([{ TaxType: "INPUT2", AccountCode: "515" }], entity).flagged).toBe(true);
+    });
+  });
+
+  // 26 Oct 2026, CFO: bills are booked on whatever the client provides. The
+  // document type is a fact; only VAT the document cannot support is flagged.
+  describe("receipts and payment confirmations", () => {
+    const noVat = { ...bill, TotalTax: 0, LineItems: [{ TaxType: "NONE", AccountCode: "429" }] };
+    const receipt = { ...doc, document_type: "receipt", customer_name: null, vat_total: null, net_total: null };
+    const run = (b, d) => reviewBill({ bill: b, entity, file: { name: "a.png" }, extraction: { documents: [d] } });
+    const check = (r, name) => r.flags.find((f) => f.check === name);
+
+    it("books a payment confirmation with no VAT claimed, and still checks it", () => {
+      const r = run(noVat, { ...receipt, document_type: "payment_confirmation" });
+      expect(check(r, "not_evidence")).toMatchObject({ flagged: false, detail: "the file is a payment confirmation, not an invoice: booked on what the client provided" });
+      expect(check(r, "vat_without_invoice").flagged).toBe(false);
+      expect(check(r, "total_vs_document").flagged).toBe(false);
+      expect(run({ ...noVat, Total: 99 }, { ...receipt, document_type: "payment_confirmation" }).flagged).toContain("total_vs_document");
+    });
+
+    it("flags VAT claimed on a receipt with no VAT number", () => {
+      const r = run(bill, receipt);
+      expect(check(r, "vat_without_invoice")).toMatchObject({ flagged: true });
+      expect(check(r, "vat_without_invoice").detail).toMatch(/^bill claims VAT 20\.00 on a receipt: reclaiming VAT needs a VAT invoice/);
+    });
+
+    it("accepts a receipt with the supplier's VAT number up to GBP 250 as a simplified invoice", () => {
+      const simplified = { ...receipt, supplier_vat_number: "GB123456789", vat_total: 20 };
+      expect(check(run(bill, simplified), "vat_without_invoice")).toBeUndefined();
+      expect(run(bill, { ...simplified, gross_total: 300 }).flagged).toContain("vat_without_invoice");
+    });
+
+    it("still flags a file that does not show a purchase", () => {
+      for (const type of ["statement", "report_or_screenshot", "other"]) {
+        expect(run(noVat, { ...receipt, document_type: type }).flagged).toContain("not_evidence");
+      }
+    });
+
+    it("matches the invoice, not the receipt, when both are in the file", () => {
+      const r = reviewBill({ bill, entity, file: { name: "a.pdf" }, extraction: { documents: [{ ...receipt, page_numbers: [2] }, doc] } });
+      expect(r.document.type).toBe("invoice");
     });
   });
 
