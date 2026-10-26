@@ -150,6 +150,33 @@ describe("reviewBill", () => {
     expect(r.flags.find((f) => f.check === "line_incomplete").detail).toBe("1 line(s) without an account or a tax type");
   });
 
+  // 26 Oct 2026: a hotel folio in the CEO's name. VAT Notice 700
+  // para 19.5.9(a) accepts an employee's name for subsistence and road fuel.
+  describe("invoices in an employee's name", () => {
+    const staff = { ...entity, employees: ["Jo Bloggs"], employee_invoice_accounts: ["491", "514", "515", "516"] };
+    const hotel = { ...doc, customer_name: "MS JO ANNE BLOGGS", customer_address: "1 High Street, London" };
+    const run = (lines, ent = staff, d = hotel) => reviewBill({ bill: { ...bill, LineItems: lines }, entity: ent,
+      file: { name: "a.pdf", pages: 1 }, extraction: { documents: [d] } }).flags.find((f) => f.check === "addressee");
+
+    it("passes a listed employee's hotel and meals", () => {
+      const f = run([{ TaxType: "INPUT2", AccountCode: "515" }, { TaxType: "INPUT2", AccountCode: "516" }]);
+      expect(f.flagged).toBe(false);
+      expect(f.detail).toBe("addressed to employee Jo Bloggs: subsistence or fuel, valid in an employee's name (VAT Notice 700 para 19.5.9(a))");
+    });
+
+    it("still flags a listed employee's invoice coded outside subsistence and fuel", () => {
+      const f = run([{ TaxType: "INPUT2", AccountCode: "515" }, { TaxType: "INPUT2", AccountCode: "463" }]);
+      expect(f.flagged).toBe(true);
+      expect(f.detail).toMatch(/subsistence and road fuel only .*line\(s\) coded to 463$/);
+    });
+
+    it("flags a name not on the list, and does not match on a surname alone", () => {
+      expect(run([{ TaxType: "INPUT2", AccountCode: "515" }], staff, { ...hotel, customer_name: "John Smith" }).flagged).toBe(true);
+      expect(run([{ TaxType: "INPUT2", AccountCode: "515" }], staff, { ...hotel, customer_name: "Ann Bloggs" }).flagged).toBe(true);
+      expect(run([{ TaxType: "INPUT2", AccountCode: "515" }], entity).flagged).toBe(true);
+    });
+  });
+
   it("flags a document dated in the future", () => {
     const r = reviewBill({ bill: { ...bill, DateString: "2026-12-08T00:00:00" }, entity, today: "2026-10-23",
       file: { name: "a.pdf", pages: 1 }, extraction: { documents: [{ ...doc, document_date: "2026-12-08" }] } });

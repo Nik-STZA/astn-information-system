@@ -4214,7 +4214,9 @@ app.post("/api/finance/clients/:slug/xero/:entity/bills/review", route(async (re
   }
   const org = (await get("/Organisation")).Organisations?.[0] || {};
   const street = (org.Addresses || []).find((a) => a.AddressType === "STREET") || (org.Addresses || [])[0] || {};
-  const facts = { name: org.LegalName || org.Name, vat_number: org.TaxNumber || null, postcode: street.PostalCode || null, pays_tax: org.PaysTax };
+  const master = entity.accounting_system_config?.supplier_master || {};
+  const facts = { name: org.LegalName || org.Name, vat_number: org.TaxNumber || null, postcode: street.PostalCode || null, pays_tax: org.PaysTax,
+    employees: master.employees || [], employee_invoice_accounts: master.employee_invoice_accounts || [] };
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 
   const reads = new Map(); // sha256 -> extraction, so a file on two bills is read once
