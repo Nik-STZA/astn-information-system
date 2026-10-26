@@ -200,7 +200,8 @@ function applyEdits(bill, edits = {}) {
 function decide(item, { action, note = "", edits = null } = {}) {
   const issues = [];
   if (!["approve", "reject"].includes(action)) issues.push("action must be approve or reject");
-  if (action === "approve" && item.state !== "exception") issues.push(`only an exception is approved here; this item is ${item.state}`);
+  // A clean or approved item is approved here only to change its coding before it is sent.
+  if (action === "approve" && !["exception", "clean", "approved"].includes(item.state)) issues.push(`only an unsent item is approved here; this item is ${item.state}`);
   if (action === "reject" && !["exception", "clean"].includes(item.state)) issues.push(`a ${item.state} item cannot be rejected`);
   if (action === "reject" && !String(note).trim()) issues.push("a reason is required to reject");
   if (issues.length) return { issues };
