@@ -4341,6 +4341,15 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
       const r = await xeroFetch(ctx.accessToken, ctx.tenantId, `${XERO_FILES_API}/Files/${f.Id}/Content`, {}, { accept: f.MimeType });
       const bytes = Buffer.from(await r.arrayBuffer());
       const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+      // The same file forwarded twice (a signature on every email) is not read again.
+      const same = (await pool.query(
+        "SELECT file_name FROM finance.ap_items WHERE entity_id = $1 AND file_sha256 = $2 LIMIT 1", [entity.id, sha256])).rows[0];
+      if (same) {
+        const reason = `the same file as ${same.file_name}, already read`;
+        await insert(f, 0, { state: "skipped", reason, sha256 });
+        results.push({ file: f.Name, skipped: reason });
+        continue;
+      }
       const out = await vertex.generate(billReview.buildExtractRequest({ document: bytes, mimeType: f.MimeType }));
       const extraction = billReview.parseExtraction(out.text);
       const pages = /pdf/.test(f.MimeType) ? billReview.pdfPageCount(bytes) : null;
@@ -4350,6 +4359,13 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
         continue;
       }
       for (const [i, doc] of extraction.documents.entries()) {
+        const notDoc = apLane.notADocument(doc);
+        if (notDoc) {
+          const row = (await insert(f, i, { sha256, model: out.model, location: out.location, extraction: doc, usage: i ? null : out.usage,
+            state: "skipped", reason: notDoc })).rows[0];
+          results.push({ file: f.Name, document: i, item_id: row?.id || null, skipped: notDoc });
+          continue;
+        }
         const match = apLane.matchSupplier(doc, links);
         const bill = apLane.buildBill({ doc, match, entity: facts });
         // Bills it may already be. Credit notes are a separate Xero resource:
