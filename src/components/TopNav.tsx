@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 import type { NavGroup } from "@/shared/layout/nav";
+import styles from "./TopNav.module.css";
 
 function checkActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
@@ -46,16 +48,12 @@ const labelStyle: React.CSSProperties = {
   paddingLeft: 9,
 };
 
+// Size and spacing live in TopNav.module.css so a phone can enlarge them; the
+// colours stay inline because the hover handlers swap them.
 const inactiveLinkStyle: React.CSSProperties = {
-  fontSize: 12,
-  lineHeight: 1,
-  padding: "7px 10px",
-  whiteSpace: "nowrap",
-  borderRadius: 6,
   fontWeight: 500,
   color: "#C7C4BD",
   background: "transparent",
-  transition: "color .15s, background .15s",
 };
 
 const activeLinkStyle: React.CSSProperties = {
@@ -78,6 +76,8 @@ const badgeStyle: React.CSSProperties = {
   verticalAlign: "middle",
 };
 
+const MENU_ID = "topnav-menu";
+
 // Groups are resolved server-side from the FEATURES flag and passed in, so a
 // disabled module never reaches the browser at all.
 export default function TopNav({
@@ -88,6 +88,22 @@ export default function TopNav({
   groups: NavGroup[];
 }) {
   const pathname = usePathname();
+  // Only matters below 900px, where the links sit behind the menu button.
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close the phone menu once a link has taken the user somewhere.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   const handleSignOut = async () => {
     // IAP session cookie is cleared at the proxy, not in the app.
@@ -102,17 +118,7 @@ export default function TopNav({
         borderBottom: "1px solid rgba(197,160,89,.28)",
       }}
     >
-      <div
-        style={{
-          maxWidth: 1320,
-          margin: "0 auto",
-          padding: "10px 26px",
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          flexWrap: "wrap",
-        }}
-      >
+      <div className={styles.bar}>
         {/* STZA wordmark + co-brand */}
         <Link
           href="/dashboard"
@@ -146,122 +152,86 @@ export default function TopNav({
           </span>
         </Link>
 
-        {/* Separator */}
-        <div
-          style={{
-            width: 1,
-            height: 34,
-            background: "rgba(255,255,255,.12)",
-            flexShrink: 0,
-          }}
-        />
-
-        {/* Nav groups */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "stretch",
-            flex: 1,
-            flexWrap: "wrap",
-            gap: 0,
-            rowGap: 10,
-            minWidth: 0,
-          }}
+        {/* Phone only: opens the links as a full-width panel */}
+        <button
+          type="button"
+          className={styles.menuButton}
+          aria-expanded={menuOpen}
+          aria-controls={MENU_ID}
+          onClick={() => setMenuOpen((open) => !open)}
         >
-          {groups.map((group, idx) => {
-            return (
-              <div key={group.label} style={{ display: "contents" }}>
-                {idx > 0 && (
-                  <div
-                    style={{
-                      width: 1,
-                      alignSelf: "stretch",
-                      background: "rgba(255,255,255,.08)",
-                    }}
-                  />
-                )}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                    padding: "0 13px",
-                    minWidth: 0,
-                    maxWidth: "100%",
-                  }}
-                >
-                  <div style={labelStyle}>{group.label}</div>
-                  {/* Wraps on a phone: a row wider than the screen made the
-                      whole page wider, and phones zoomed it out to fit. */}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-                    {group.items.map((item) => {
-                      const active = checkActive(pathname, item.href);
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          style={active ? activeLinkStyle : inactiveLinkStyle}
-                          onMouseEnter={(e) => {
-                            if (!active) {
-                              e.currentTarget.style.color = "#F4F1EA";
-                              e.currentTarget.style.background =
-                                "rgba(255,255,255,.05)";
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!active) {
-                              e.currentTarget.style.color = "#C7C4BD";
-                              e.currentTarget.style.background = "transparent";
-                            }
-                          }}
-                        >
-                          {item.label}
-                          {item.badge && <span style={badgeStyle}>{item.badge}</span>}
-                        </Link>
-                      );
-                    })}
+          <span className={styles.menuIcon} aria-hidden="true">
+            {menuOpen ? "×" : "☰"}
+          </span>
+          Menu
+        </button>
+
+        {/* Separator */}
+        <div className={styles.separator} />
+
+        <div id={MENU_ID} className={styles.panel} data-open={menuOpen}>
+          {/* Nav groups */}
+          <div className={styles.groups}>
+            {groups.map((group, idx) => {
+              return (
+                <div key={group.label} style={{ display: "contents" }}>
+                  {idx > 0 && <div className={styles.groupDivider} />}
+                  <div className={styles.group}>
+                    <div style={labelStyle}>{group.label}</div>
+                    <div className={styles.links}>
+                      {group.items.map((item) => {
+                        const active = checkActive(pathname, item.href);
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            className={styles.link}
+                            aria-current={active ? "page" : undefined}
+                            style={active ? activeLinkStyle : inactiveLinkStyle}
+                            onMouseEnter={(e) => {
+                              if (!active) {
+                                e.currentTarget.style.color = "#F4F1EA";
+                                e.currentTarget.style.background =
+                                  "rgba(255,255,255,.05)";
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!active) {
+                                e.currentTarget.style.color = "#C7C4BD";
+                                e.currentTarget.style.background = "transparent";
+                              }
+                            }}
+                          >
+                            {item.label}
+                            {item.badge && <span style={badgeStyle}>{item.badge}</span>}
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        {/* User section */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-            flexShrink: 0,
-          }}
-        >
-          <ThemeToggle />
-          <span
-            className="hidden md:inline"
-            style={{ fontWeight: 500, fontSize: 12, color: "#8E9196" }}
-          >
-            {userEmail}
-          </span>
-          <button
-            onClick={handleSignOut}
-            style={{
-              fontWeight: 600,
-              fontSize: 12,
-              color: "#C5A059",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#F4F1EA";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#C5A059";
-            }}
-          >
-            Sign out
-          </button>
+          {/* User section */}
+          <div className={styles.user}>
+            <ThemeToggle />
+            <span className={styles.email}>{userEmail}</span>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className={styles.signOut}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#F4F1EA";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "#C5A059";
+              }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </div>
     </nav>
