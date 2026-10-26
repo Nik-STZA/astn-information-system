@@ -84,6 +84,6 @@ Each step is its own PR.
 
 ## 5. Decisions needed from Nik
 
-1. **Source.** Is the Documents inbox (D1) receiving Feldspar's documents yet, now that inbox filtering has been fixed (Q5)? If not, should phase 3 start from bills already keyed as drafts in Xero and move to the inbox later?
+1. **Source. Answered by Nik, 26 Oct:** documents arrive at Feldspar's accounts Gmail, and Nik forwards them by hand. Filters and auto-forwarding follow once the new email addresses are set up. **So phase 3 builds on the Documents inbox as designed (D1).** It is fed by hand for now, and automation does not change the engine. Intake runs from the "Fetch new documents" button until forwarding is automatic; the daily schedule comes after that.
 2. **Styling.** The spec says the screens come after the UX/UI design tokens. Build the queue now in the current portal style and restyle later, or wait?
 3. **Vertex quota.** Should a quota increase be requested now? A week's intake runs at one file per call until it is raised.
