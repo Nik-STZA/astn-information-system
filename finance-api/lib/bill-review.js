@@ -463,5 +463,5 @@ function reviewBatch({ items, entity = {}, today }) {
 
 module.exports = {
   EXTRACT_PROMPT, EXTRACT_SCHEMA, buildExtractRequest, parseExtraction, pdfPageCount,
-  documentValue, matchDocument, reviewBill, reviewBatch,
+  documentValue, matchDocument, reviewBill, reviewBatch, isPayment, normVat, words,
 };
