@@ -139,6 +139,17 @@ const normVat = (v) => String(v || "").toUpperCase().replace(/\b(VAT|REG(ISTRATI
 const hasSupplier = (bill) => Boolean(bill.Contact?.ContactID) && !/^no contact$/i.test(String(bill.Contact?.Name || "").trim());
 const words = (s) => String(s || "").toLowerCase().replace(/\b(limited|ltd|plc|llp|inc|the)\b/g, "").replace(/[^a-z0-9]/g, "");
 
+// The listed employee a document's customer name refers to, or null. Every word
+// of the listed name must appear in the document's ("Jo Bloggs" matches
+// "MS JO ANNE BLOGGS"), so a surname alone does not match.
+function employeeNamed(customerName, employees = []) {
+  const have = new Set(String(customerName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return (employees || []).find((e) => {
+    const need = String(e).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    return need.length > 1 && need.every((w) => have.has(w));
+  }) || null;
+}
+
 // The invoice value the document supports, in pence: its lines (net + VAT),
 // less nothing for payment credits; else the printed gross.
 function documentValue(doc) {
@@ -170,7 +181,8 @@ function matchDocument(bill, docs) {
  *   bill        the bill as keyed (GET /Invoices/{id})
  *   file        { name, sha256, pages } of the attachment read (pages may be null)
  *   extraction  parseExtraction(...) of that file, or null if none was read
- *   entity      { name, vat_number, postcode, pays_tax } of the buying entity
+ *   entity      { name, vat_number, postcode, pays_tax, employees, employee_invoice_accounts }
+ *               of the buying entity; the last two from its supplier_master config
  *   supplier    finance.suppliers row for the bill's contact, or null
  *   link        finance.supplier_entities row, or null
  *   today       YYYY-MM-DD, for the future-date check
@@ -269,7 +281,18 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
   const postcode = String(entity.postcode || "").replace(/\s/g, "").toUpperCase();
   const atOurAddress = Boolean(postcode) && String(doc.customer_address || "").replace(/\s/g, "").toUpperCase().includes(postcode);
   const addressed = words(doc.customer_name).includes(words(entity.name)) || (ourVat && theirCustomerVat === ourVat) || atOurAddress;
-  flag("addressee", doc.customer_name && !addressed,
+  // An invoice in an employee's name is valid evidence for subsistence and road
+  // fuel only (VAT Notice 700 para 19.5.9(a)): it passes when the employee is
+  // listed and every line is coded to one of the entity's subsistence or fuel
+  // accounts. Anything else in an employee's name is still flagged.
+  const employee = !addressed && doc.customer_name ? employeeNamed(doc.customer_name, entity.employees) : null;
+  if (employee) {
+    const allowed = new Set((entity.employee_invoice_accounts || []).map(String));
+    const outside = [...new Set((bill.LineItems || []).map((l) => l.AccountCode || "(none)"))].filter((c) => !allowed.has(c));
+    flag("addressee", outside.length, outside.length
+      ? `addressed to employee ${employee} (${doc.customer_name}): valid evidence for subsistence and road fuel only (VAT Notice 700 para 19.5.9(a)); line(s) coded to ${outside.join(", ")}`
+      : `addressed to employee ${employee}: subsistence or fuel, valid in an employee's name (VAT Notice 700 para 19.5.9(a))`);
+  } else flag("addressee", doc.customer_name && !addressed,
     addressed ? `addressed to ${atOurAddress && !words(doc.customer_name).includes(words(entity.name)) ? `${doc.customer_name} at ${entity.name}'s address` : entity.name}` : `addressed to ${doc.customer_name || "(no customer named)"}${doc.customer_address ? `, ${doc.customer_address.replace(/\s+/g, " ")}` : ""}, not ${entity.name}`);
   if (theirCustomerVat && ourVat) {
     flag("customer_vat_number", theirCustomerVat !== ourVat, `document carries customer VAT number ${doc.customer_vat_number}; ${entity.name} is ${entity.vat_number}`);
