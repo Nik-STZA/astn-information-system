@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { screenFile, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage } from "./ap-lane";
+import { screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage } from "./ap-lane";
 import { reviewBill } from "./bill-review";
 
 // One invoice from the 12 Oct 2026 UDL batch, as the extraction read it.
@@ -24,6 +24,22 @@ describe("screenFile", () => {
     expect(screenFile({ MimeType: "image/png", Size: 642 })).toMatch(/^image under 20 KB: an email signature/);
     expect(screenFile({ MimeType: "text/plain", Size: 206 })).toBe("not a PDF or image (text/plain)");
     expect(screenFile({ MimeType: "application/pdf", Size: 20e6 })).toBe("over 15 MB");
+  });
+});
+
+// UDL inbox, 26 Oct 2026: signatures, a banner and a certification logo over
+// the image floor, and a cropped spreadsheet of card spend.
+describe("notADocument", () => {
+  const blank = { gross_total: null, net_total: null, lines: [] };
+  it("sets aside a file with no amounts that is not a purchase document", () => {
+    for (const type of ["other", "report_or_screenshot", "statement"]) {
+      expect(notADocument({ ...blank, document_type: type })).toMatch(/^no amounts on it/);
+    }
+  });
+  it("keeps anything with an amount, and every purchase document", () => {
+    expect(notADocument({ ...blank, document_type: "report_or_screenshot", lines: [{ description: "Card spend", net: -341.1 }] })).toBeNull();
+    expect(notADocument({ ...blank, document_type: "other", gross_total: 10 })).toBeNull();
+    expect(notADocument({ ...blank, document_type: "invoice" })).toBeNull();
   });
 });
 

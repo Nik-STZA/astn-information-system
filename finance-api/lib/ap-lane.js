@@ -144,6 +144,17 @@ function alreadyBilled(bill, xeroBills = []) {
     && ((bill.Contact?.ContactID && b.contact_id === bill.Contact.ContactID) || pence(b.total) === pence(bill.Total))) || null;
 }
 
+// Why a document the model read is not a purchase document at all, or null.
+// Signatures and banners over the image floor still reach the model (UDL, 26
+// Oct 2026: a logistics firm's signature, a promotional banner, a certification
+// logo); with no amounts on them they are not the CFO's to look at. Anything
+// with an amount, even a report, still goes to the CFO.
+function notADocument(doc) {
+  if (["invoice", "credit_note", "receipt", "payment_confirmation"].includes(doc.document_type)) return null;
+  const amounts = doc.gross_total !== null || doc.net_total !== null || (doc.lines || []).some((l) => l.net !== null);
+  return amounts ? null : "no amounts on it: a logo, banner or email signature, not a purchase document";
+}
+
 // Clean, or an exception for the CFO (spec 3.3), with every reason. The phase
 // 2 review supplies most of them; the rest are what a bill built from scratch
 // can lack.
@@ -160,4 +171,4 @@ function triage({ review, doc, match, bill, duplicates = [] }) {
   return { state: reasons.length ? "exception" : "clean", reasons };
 }
 
-module.exports = { screenFile, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES };
+module.exports = { screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES };
