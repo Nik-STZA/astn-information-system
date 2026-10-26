@@ -4477,8 +4477,10 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
       `SELECT row_to_json(s) AS supplier, row_to_json(se) AS link
          FROM finance.supplier_entities se JOIN finance.suppliers s ON s.id = se.supplier_id
         WHERE se.entity_id = $1 AND se.xero_contact_id = $2`, [ctx.entity.id, contactId])).rows[0] || {};
+    // A link with nothing to write says why in `skipped`, so a run over the
+    // master lists it as skipped rather than failed.
     const skip = supplierXeroWrite.skipReason(master);
-    if (skip) return { issues: [`Nothing to write: ${skip}`], operation: "update" };
+    if (skip) return { issues: [`Nothing to write: ${skip}`], operation: "update", extra: { skipped: skip } };
 
     // The invoice behind the latest decision on this contact.
     const source = (await pool.query(
@@ -4486,6 +4488,12 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
         WHERE entity_id = $1 AND xero_contact_id = $2 AND decision IN ('approved', 'edited', 'always_discuss')
         ORDER BY decided_at DESC LIMIT 1`, [ctx.entity.id, contactId])).rows[0]?.source || null;
     const contact = (await xeroGetOrNull(ctx, `/Contacts/${contactId}`))?.Contacts?.[0] || null;
+    // A contact merged or archived in Xero (23 Oct 2026: three Dragon Argent
+    // contacts merged into one) leaves its link pointing at nothing to write.
+    const gone = !contact ? "the Xero contact is not found in this entity"
+      : contact.ContactStatus && contact.ContactStatus !== "ACTIVE"
+        ? `the Xero contact is ${contact.ContactStatus} (merged or archived in Xero): point the link at the live contact or remove it` : null;
+    if (gone) return { issues: [`Nothing to write: ${gone}`], operation: "update", extra: { contact: contact?.Name ?? null, skipped: gone } };
     const attachments = contact ? (await xeroGetOrNull(ctx, `/Contacts/${contactId}/Attachments`))?.Attachments ?? [] : [];
     const p = supplierXeroWrite.planContactWrite({ ...master, contact, source, attachments });
     const issues = [...p.issues];
