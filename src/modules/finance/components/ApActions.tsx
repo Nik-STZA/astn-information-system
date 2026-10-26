@@ -22,7 +22,7 @@ export interface ApActionsItem {
   number: string;
   total: number | null;
   currency: string | null;
-  lines: Array<{ description: string; amount: number; account: string | null; tax: string | null }>;
+  lines: Array<{ description: string; amount: number; account: string | null; tax: string | null; accountName?: string | null; taxName?: string | null }>;
 }
 
 export default function ApActions({ slug, entity, item }: { slug: string; entity: string; item: ApActionsItem }) {
@@ -40,6 +40,7 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
   const [check, setCheck] = useState<ApSendResult | null>(null);
   const [result, setResult] = useState<ApSendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recoding, setRecoding] = useState(false);
   const url = `/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${item.id}/send`;
 
   async function post(dryRun: boolean): Promise<ApSendResult> {
@@ -66,11 +67,15 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
 
   return (
     <div className={styles.actions}>
-      {!check && !result && (
-        <button type="button" className={styles.button} onClick={dryRun} disabled={busy}>
-          {busy ? "Checking..." : "Send to Xero"}
-        </button>
+      {!check && !result && !recoding && (
+        <div className={styles.buttonRow}>
+          <button type="button" className={styles.button} onClick={dryRun} disabled={busy}>
+            {busy ? "Checking..." : "Send to Xero"}
+          </button>
+          <button type="button" className={styles.buttonSecondary} onClick={() => setRecoding(true)} disabled={busy}>Change coding</button>
+        </div>
       )}
+      {recoding && <DecidePanel slug={slug} entity={entity} item={item} recode onCancel={() => setRecoding(false)} />}
 
       {check?.validation === "PASS" && (
         <div className={styles.confirm}>
@@ -79,6 +84,14 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
             <strong>{money(item.total, item.currency)}</strong>, in Xero at <strong>Awaiting approval</strong>, with the document attached.
             You then approve it in Xero.
           </p>
+          <ul className={styles.codingList}>
+            {item.lines.map((l, i) => (
+              <li key={i}>
+                <span className={styles.lineDesc}>{l.description}</span> <strong>{money(l.amount, null)}</strong>
+                <div className={styles.lineCoding}>{l.accountName ?? l.account} · {l.taxName ?? l.tax}</div>
+              </li>
+            ))}
+          </ul>
           <div className={styles.buttonRow}>
             <button type="button" className={styles.button} onClick={confirm} disabled={busy}>{busy ? "Sending..." : "Confirm and send"}</button>
             <button type="button" className={styles.buttonSecondary} onClick={() => setCheck(null)} disabled={busy}>Cancel</button>
@@ -101,7 +114,11 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
   );
 }
 
-function DecidePanel({ slug, entity, item }: { slug: string; entity: string; item: ApActionsItem }) {
+// For an exception, the decision. For a clean bill (recode), the same form to
+// change its coding before it is sent; saving makes it approved.
+function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
+  slug: string; entity: string; item: ApActionsItem; recode?: boolean; onCancel?: () => void;
+}) {
   const router = useRouter();
   const [options, setOptions] = useState<ApOptions | null>(null);
   const [contactId, setContactId] = useState(item.contactId ?? "");
@@ -142,7 +159,7 @@ function DecidePanel({ slug, entity, item }: { slug: string; entity: string; ite
 
   return (
     <div className={styles.actions}>
-      <h3 className={styles.sectionTitle}>Your decision</h3>
+      <h3 className={styles.sectionTitle}>{recode ? "Change coding" : "Your decision"}</h3>
       {!options && !error && <p className={styles.status}>Loading accounts...</p>}
       {options && (
         <>
@@ -183,11 +200,12 @@ function DecidePanel({ slug, entity, item }: { slug: string; entity: string; ite
           </label>
           <div className={styles.buttonRow}>
             <button type="button" className={styles.button} onClick={() => decide("approve")} disabled={busy || !ready}>
-              {busy ? "Saving..." : "Approve"}
+              {busy ? "Saving..." : recode ? "Save coding" : "Approve"}
             </button>
             <button type="button" className={styles.buttonSecondary} onClick={() => decide("reject")} disabled={busy || !note.trim()}>
               Reject
             </button>
+            {onCancel && <button type="button" className={styles.buttonSecondary} onClick={onCancel} disabled={busy}>Cancel</button>}
           </div>
           {!ready && <p className={styles.status}>Choose a supplier, and an account and VAT treatment for every line, to approve.</p>}
         </>

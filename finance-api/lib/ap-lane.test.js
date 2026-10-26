@@ -186,7 +186,11 @@ describe("step 3", () => {
   it("needs a reason to reject, and only decides an item once", () => {
     expect(decide({ state: "exception", proposed_bill: bill }, { action: "reject" }).issues).toEqual(["a reason is required to reject"]);
     expect(decide({ state: "exception", proposed_bill: bill }, { action: "reject", note: "Not ours" })).toMatchObject({ state: "rejected", note: "Not ours" });
-    expect(decide({ state: "written", proposed_bill: bill }, { action: "approve" }).issues).toEqual(["only an exception is approved here; this item is written"]);
+    expect(decide({ state: "written", proposed_bill: bill }, { action: "approve" }).issues).toEqual(["only an unsent item is approved here; this item is written"]);
+    // A clean bill re-coded before it is sent.
+    const recoded = decide({ state: "clean", proposed_bill: bill }, { action: "approve", edits: { lines: [{ index: 0, account_code: "463" }] } });
+    expect(recoded).toMatchObject({ issues: [], state: "approved" });
+    expect(recoded.bill.LineItems[0].AccountCode).toBe("463");
     expect(applyEdits(bill, { lines: [{ index: 9, account_code: "1" }] }).issues).toEqual(["there is no line 9"]);
   });
 });

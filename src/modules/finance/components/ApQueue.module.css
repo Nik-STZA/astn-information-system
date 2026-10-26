@@ -403,3 +403,13 @@
   .lineEdit { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .lineEdit legend { grid-column: 1 / -1; }
 }
+
+.codingList {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13.5px;
+}

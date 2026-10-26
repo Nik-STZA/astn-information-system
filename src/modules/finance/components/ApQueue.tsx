@@ -9,6 +9,20 @@ import ApActions from "./ApActions";
 import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApItemDetail, ApItemRow } from "@/modules/finance/lib/ap-queue";
 
+// Account and VAT names by code, from the entity's own Xero chart.
+export interface CodingNames {
+  accounts: Record<string, string>;
+  taxes: Record<string, string>;
+}
+
+export function accountLabel(code: string | null, names: CodingNames): string | null {
+  return code ? (names.accounts[code] ? `${code} · ${names.accounts[code]}` : code) : null;
+}
+
+export function taxLabel(type: string | null, names: CodingNames): string | null {
+  return type ? names.taxes[type] ?? type : null;
+}
+
 interface Props {
   slug: string;
   entity: string;
@@ -16,9 +30,10 @@ interface Props {
   tab: string;
   items: ApItemRow[];
   selected: ApItemDetail | null;
+  names: CodingNames;
 }
 
-export default function ApQueue({ slug, entity, entities, tab, items, selected }: Props) {
+export default function ApQueue({ slug, entity, entities, tab, items, selected, names }: Props) {
   const href = (q: { entity?: string; tab?: string; item?: string }) => {
     const p = new URLSearchParams({ entity: q.entity ?? entity, tab: q.tab ?? tab });
     if (q.item) p.set("item", q.item);
@@ -67,7 +82,7 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected }
 
         <section className={selected ? styles.detailPane : styles.hideOnPhone} aria-label="Item">
           {selected
-            ? <Detail item={selected} slug={slug} entity={entity} back={href({ item: undefined })} />
+            ? <Detail item={selected} slug={slug} entity={entity} back={href({ item: undefined })} names={names} />
             : <div className={styles.empty}>Choose an item to see the bill and its document.</div>}
         </section>
       </div>
@@ -108,7 +123,7 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
   );
 }
 
-function Detail({ item, slug, entity, back }: { item: ApItemDetail; slug: string; entity: string; back: string }) {
+function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug: string; entity: string; back: string; names: CodingNames }) {
   const bill = item.proposed_bill;
   const reasons = item.review?.reasons ?? [];
   const fileUrl = `/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${item.id}/file`;
@@ -160,7 +175,8 @@ function Detail({ item, slug, entity, back }: { item: ApItemDetail; slug: string
                   <span className={styles.amount}>{money(l.LineAmount, null)}</span>
                 </div>
                 <div className={styles.lineCoding}>
-                  Account {l.AccountCode ?? <span className={styles.missing}>not set</span>} · VAT {l.TaxType ?? <span className={styles.missing}>not set</span>}
+                  <div>Account: {accountLabel(l.AccountCode, names) ?? <span className={styles.missing}>not set</span>}</div>
+                  <div>VAT: {taxLabel(l.TaxType, names) ?? <span className={styles.missing}>not set</span>}</div>
                 </div>
               </div>
             ))}
@@ -188,7 +204,10 @@ function Detail({ item, slug, entity, back }: { item: ApItemDetail; slug: string
             number: bill.InvoiceNumber,
             total: bill.Total,
             currency: bill.CurrencyCode,
-            lines: bill.LineItems.map((l) => ({ description: l.Description, amount: l.LineAmount, account: l.AccountCode, tax: l.TaxType })),
+            lines: bill.LineItems.map((l) => ({
+              description: l.Description, amount: l.LineAmount, account: l.AccountCode, tax: l.TaxType,
+              accountName: accountLabel(l.AccountCode, names), taxName: taxLabel(l.TaxType, names),
+            })),
           }} />
         )}
       </article>

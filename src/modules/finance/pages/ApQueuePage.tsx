@@ -7,7 +7,8 @@ import ClientTabs from "@/modules/finance/components/ClientTabs";
 import ApQueue from "@/modules/finance/components/ApQueue";
 import styles from "@/modules/finance/components/ApQueue.module.css";
 import { fetchEntities } from "@/modules/finance/lib/api";
-import { fetchApItem, fetchApItems, type ApItemDetail, type ApItemRow } from "@/modules/finance/lib/ap-queue";
+import { fetchApItem, fetchApItems, fetchApOptions, type ApItemDetail, type ApItemRow } from "@/modules/finance/lib/ap-queue";
+import type { CodingNames } from "@/modules/finance/components/ApQueue";
 import { AP_TABS } from "@/modules/finance/lib/ap-labels";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export default async function ApQueuePage({
   let entities: Array<{ slug: string; name: string }> = [];
   let items: ApItemRow[] = [];
   let selected: ApItemDetail | null = null;
+  let names: CodingNames = { accounts: {}, taxes: {} };
 
   try {
     entities = (await fetchEntities(params.slug)).filter((e) => e.connected).map((e) => ({ slug: e.slug, name: e.name }));
@@ -38,6 +40,16 @@ export default async function ApQueuePage({
     try {
       items = await fetchApItems(params.slug, entity, ALL_STATES);
       if (searchParams.item) selected = await fetchApItem(params.slug, entity, searchParams.item);
+      // Account and VAT names for the open item; codes alone if Xero is slow.
+      if (selected) {
+        const o = await fetchApOptions(params.slug, entity);
+        if (o.ok) {
+          names = {
+            accounts: Object.fromEntries(o.data.accounts.map((a) => [a.code, a.name])),
+            taxes: Object.fromEntries(o.data.tax_types.map((t) => [t.type, t.name])),
+          };
+        }
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : "Could not load the queue";
     }
@@ -52,7 +64,7 @@ export default async function ApQueuePage({
       ) : !entity ? (
         <div className={styles.empty}>No company is connected to Xero for this client.</div>
       ) : (
-        <ApQueue slug={params.slug} entity={entity} entities={entities} tab={tab} items={items} selected={selected} />
+        <ApQueue slug={params.slug} entity={entity} entities={entities} tab={tab} items={items} selected={selected} names={names} />
       )}
     </div>
   );
