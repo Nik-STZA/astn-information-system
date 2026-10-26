@@ -171,4 +171,80 @@ function triage({ review, doc, match, bill, duplicates = [] }) {
   return { state: reasons.length ? "exception" : "clean", reasons };
 }
 
-module.exports = { screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES };
+// ── Step 3: the CFO's decision, and the send to Xero ────────────────────────
+
+// The proposed bill with the CFO's edits applied: a supplier chosen for a
+// document the engine did not recognise, and an account or VAT treatment per
+// line. Lines are addressed by position; amounts and descriptions are the
+// document's and are not edited here.
+//   edits  { contact?: { ContactID, Name }, lines?: [{ index, account_code?, tax_type? }] }
+function applyEdits(bill, edits = {}) {
+  const issues = [];
+  const out = { ...bill, Contact: { ...bill.Contact }, LineItems: bill.LineItems.map((l) => ({ ...l })) };
+  if (edits.contact) {
+    if (!edits.contact.ContactID) issues.push("the chosen supplier has no Xero contact");
+    else out.Contact = { ContactID: edits.contact.ContactID, Name: edits.contact.Name || null };
+  }
+  for (const e of edits.lines || []) {
+    const line = Number.isInteger(e.index) ? out.LineItems[e.index] : null;
+    if (!line) { issues.push(`there is no line ${e.index}`); continue; }
+    if (e.account_code !== undefined) line.AccountCode = String(e.account_code || "").trim() || null;
+    if (e.tax_type !== undefined) line.TaxType = String(e.tax_type || "").trim() || null;
+  }
+  return { bill: out, issues };
+}
+
+// What the CFO's decision on a queue item does to it, or why it cannot.
+//   item    the finance.ap_items row
+//   action  "approve" | "reject"
+function decide(item, { action, note = "", edits = null } = {}) {
+  const issues = [];
+  if (!["approve", "reject"].includes(action)) issues.push("action must be approve or reject");
+  if (action === "approve" && item.state !== "exception") issues.push(`only an exception is approved here; this item is ${item.state}`);
+  if (action === "reject" && !["exception", "clean"].includes(item.state)) issues.push(`a ${item.state} item cannot be rejected`);
+  if (action === "reject" && !String(note).trim()) issues.push("a reason is required to reject");
+  if (issues.length) return { issues };
+  if (action === "reject") return { issues, state: "rejected", note: String(note).trim(), bill: item.proposed_bill, edits: null };
+  const { bill, issues: editIssues } = applyEdits(item.proposed_bill, edits || {});
+  return { issues: editIssues, state: "approved", note: String(note || "").trim() || null, bill, edits: edits || null };
+}
+
+const money2 = (n) => (Math.round(Number(n) * 100) / 100).toFixed(2);
+
+// The request the existing bill write takes (server.js documentPlan), at
+// SUBMITTED: the lane ends there and the CFO approves in Xero (D3, and one
+// approval per bill, Nik 26 Oct 2026). Anything still missing is an issue, not
+// a guess.
+function sendRequest(item) {
+  const bill = item.proposed_bill || {};
+  const issues = [];
+  if (!["clean", "approved"].includes(item.state)) issues.push(`only a clean or approved item is sent; this item is ${item.state}`);
+  if (bill.Type !== "ACCPAY") issues.push("only bills are sent for now; a supplier credit note goes in by hand");
+  if (!bill.Contact?.ContactID) issues.push("no Xero supplier: choose one first");
+  if (!bill.DateString) issues.push("no date on the bill");
+  (bill.LineItems || []).forEach((l, i) => {
+    if (!l.AccountCode) issues.push(`line ${i + 1} has no account`);
+    if (!l.TaxType) issues.push(`line ${i + 1} has no VAT treatment`);
+  });
+  const body = {
+    type: "ACCPAY",
+    status: "SUBMITTED",
+    contact_id: bill.Contact?.ContactID,
+    date: (bill.DateString || "").slice(0, 10),
+    due_date: bill.DueDateString ? bill.DueDateString.slice(0, 10) : undefined,
+    number: bill.InvoiceNumber || undefined,
+    reference: bill.Reference || bill.InvoiceNumber || undefined,
+    currency_code: bill.CurrencyCode || undefined,
+    line_amount_types: bill.LineAmountTypes,
+    lines: (bill.LineItems || []).map((l) => ({
+      description: l.Description, quantity: "1", unit_amount: money2(l.LineAmount), account_code: l.AccountCode, tax_type: l.TaxType,
+    })),
+    audit_note: `From the Documents inbox (${item.file_name}), built by the AP lane and sent from the portal.`,
+  };
+  return { body, issues };
+}
+
+module.exports = {
+  screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
+  applyEdits, decide, sendRequest,
+};

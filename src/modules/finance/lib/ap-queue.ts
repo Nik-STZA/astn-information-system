@@ -125,3 +125,56 @@ export async function fetchApFile(slug: string, entity: string, id: string): Pro
     cache: "no-store",
   });
 }
+
+// ── Step 3: decide and send ─────────────────────────────────────────────────
+
+export interface ApOptions {
+  accounts: Array<{ code: string; name: string; type: string }>;
+  tax_types: Array<{ type: string; name: string }>;
+  suppliers: Array<{ contact_id: string; name: string }>;
+}
+
+export interface ApDecisionBody {
+  action: "approve" | "reject";
+  note?: string;
+  edits?: {
+    contact?: { ContactID: string; Name: string | null };
+    lines?: Array<{ index: number; account_code?: string; tax_type?: string }>;
+  };
+}
+
+export interface ApSendResult {
+  validation?: "PASS" | "FAIL";
+  issues?: string[];
+  action?: string;
+  InvoiceID?: string;
+  InvoiceNumber?: string;
+  xero_status?: string;
+  total?: number;
+  done?: string[];
+  attached?: boolean;
+  file?: string;
+  error?: string;
+}
+
+export async function fetchApOptions(slug: string, entity: string): Promise<Result<ApOptions>> {
+  return call<ApOptions>(`${base(slug, entity)}/options`);
+}
+
+export async function decideApItem(slug: string, entity: string, id: string, actorEmail: string, body: ApDecisionBody): Promise<Result<unknown>> {
+  return call(`${base(slug, entity)}/items/${encodeURIComponent(id)}/decision`, { method: "POST", actorEmail, body: JSON.stringify(body) });
+}
+
+// Dry run unless dryRun is false. A refused send (422) comes back as data, with
+// its issues, so the screen can say why.
+export async function sendApItem(slug: string, entity: string, id: string, actorEmail: string, dryRun: boolean): Promise<{ status: number; data: ApSendResult }> {
+  const key = process.env.FINANCE_API_KEY;
+  if (!key) return { status: 500, data: { error: "FINANCE_API_KEY is not configured" } };
+  const res = await fetch(`${BASE_URL}${base(slug, entity)}/items/${encodeURIComponent(id)}/send`, {
+    method: "POST",
+    headers: { "X-API-Key": key, "X-Actor-Email": actorEmail, "Content-Type": "application/json" },
+    body: JSON.stringify({ dry_run: dryRun }),
+    cache: "no-store",
+  });
+  return { status: res.status, data: (await res.json().catch(() => ({}))) as ApSendResult };
+}

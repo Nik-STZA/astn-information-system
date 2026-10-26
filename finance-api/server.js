@@ -4441,6 +4441,116 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id", route(async (req
   res.json(rows[0]);
 }));
 
+// GET /api/finance/clients/:slug/xero/:entity/ap/options
+// What the CFO can choose from when deciding an exception: the active expense
+// and other postable accounts, the active VAT treatments, and this entity's
+// suppliers in the master (only a supplier with a Xero contact can be billed).
+app.get("/api/finance/clients/:slug/xero/:entity/ap/options", route(async (req, res) => {
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  const [accounts, taxRates] = await Promise.all([xeroRef(ctx, "Accounts"), xeroRef(ctx, "TaxRates")]);
+  const suppliers = (await pool.query(
+    `SELECT se.xero_contact_id, se.xero_contact_name FROM finance.supplier_entities se
+       JOIN finance.suppliers s ON s.id = se.supplier_id
+      WHERE se.entity_id = $1 AND s.status = 'active' ORDER BY se.xero_contact_name`, [ctx.entity.id])).rows;
+  res.json({
+    accounts: accounts.filter((a) => a.Status === "ACTIVE" && a.Code && a.Type !== "BANK")
+      .map((a) => ({ code: a.Code, name: a.Name, type: a.Type })).sort((x, y) => x.code.localeCompare(y.code, "en", { numeric: true })),
+    tax_types: taxRates.filter((t) => t.Status === "ACTIVE" && (t.CanApplyToExpenses ?? true))
+      .map((t) => ({ type: t.TaxType, name: t.Name })),
+    suppliers: suppliers.map((s) => ({ contact_id: s.xero_contact_id, name: s.xero_contact_name })),
+  });
+}));
+
+// POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/decision
+//   body: { action: "approve" | "reject", note?, edits?: { contact?, lines? } }
+// The CFO's decision on an exception (phase3-design.md, section 1). Writes the
+// queue row and an audit line; nothing goes to Xero here. An approved item is
+// then sent like a clean one.
+app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/decision", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!writeRules.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a uuid" });
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+    if (!role) { await conn.query("ROLLBACK"); return res.status(403).json({ error: `${actorEmail} holds no engagement role for this client` }); }
+    const item = (await conn.query(
+      `SELECT i.* FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
+        WHERE i.client_id = $1 AND e.slug = $2 AND i.id = $3 FOR UPDATE OF i`, [client.id, req.params.entity, req.params.id])).rows[0];
+    if (!item) { await conn.query("ROLLBACK"); return res.status(404).json({ error: "item not found" }); }
+    const d = apLane.decide(item, req.body || {});
+    if (d.issues.length) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: d.issues }); }
+    const row = (await conn.query(
+      `UPDATE finance.ap_items SET state = $2, decision_note = $3, edits = $4, proposed_bill = $5,
+              decided_by_email = $6, decided_at = now()
+        WHERE id = $1 RETURNING id, state, decided_at`,
+      [item.id, d.state, d.note, d.edits ? JSON.stringify(d.edits) : null, JSON.stringify(d.bill), actorEmail])).rows[0];
+    await audit(conn, {
+      actorEmail, actorRole: role, action: `ap_item_${d.state}`, targetType: "ap_item", targetId: item.id, clientId: client.id,
+      payload: { note: d.note, edits: d.edits, from: item.state }, ip: req.get("X-Forwarded-For"),
+    });
+    await conn.query("COMMIT");
+    res.json(row);
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+}));
+
+// POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/send
+//   body: { dry_run? }   (dry run unless dry_run is false)
+// A clean item, or an exception the CFO approved, becomes a bill in Xero at
+// SUBMITTED, with its inbox document attached, through the same checks as every
+// bill write (documentPlan: contact, accounts, VAT types, duplicate number).
+// The CFO approves it in Xero: one approval per bill (Nik, 26 Oct 2026).
+app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
+  gatedWrite("send_ap_bill", "draft", async (ctx, b, req) => {
+    const actorEmail = (req.get("X-Actor-Email") || "").trim();
+    if (!writeRules.isGuid(req.params.id)) return { issues: ["id must be a uuid"], operation: "create" };
+    const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [ctx.client.id, actorEmail])).rows[0].role;
+    if (!role) return { issues: [`${actorEmail} holds no engagement role for this client`], operation: "create" };
+    const item = (await pool.query("SELECT * FROM finance.ap_items WHERE entity_id = $1 AND id = $2", [ctx.entity.id, req.params.id])).rows[0];
+    if (!item) return { issues: ["item not found"], operation: "create" };
+    const { body, issues } = apLane.sendRequest(item);
+    if (issues.length) return { issues, operation: "create", extra: { item_state: item.state } };
+    const bill = await documentPlan("invoice")(ctx, body);
+    if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
+    const done = [];
+    return {
+      ...bill,
+      extra: { ...(bill.extra || {}), item_state: item.state, file: item.file_name },
+      // The bill, then its document, then the queue row. A failure after the
+      // bill exists is reported with the bill's id and the row is still marked
+      // written, so it cannot be sent twice.
+      send: async (key) => {
+        const r = await bill.send(key);
+        const saved = bill.saved(r.body);
+        if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors) return r;
+        done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} created ${saved.Status}`);
+        let attachError = null;
+        const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
+          json: { ObjectId: saved.InvoiceID, ObjectGroup: "Invoice" },
+          key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: saved.InvoiceID }),
+        });
+        if (a.ok) done.push(`document ${item.file_name} attached`);
+        else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
+        await pool.query(
+          `UPDATE finance.ap_items SET state = 'written', xero_invoice_id = $2, written_at = now(), write_error = $3,
+                  decided_by_email = COALESCE(decided_by_email, $4), decided_at = COALESCE(decided_at, now())
+            WHERE id = $1`, [item.id, saved.InvoiceID, attachError ? JSON.stringify({ attach: attachError }) : null, actorEmail]);
+        return r;
+      },
+      describe: (s, raw) => ({ ...bill.describe(s, raw), done, attached: done.some((x) => x.startsWith("document")) }),
+    };
+  }));
+
 // GET /api/finance/clients/:slug/xero/:entity/ap/items/:id/file   the document,
 // for the viewer beside the proposed bill
 app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id/file", route(async (req, res) => {

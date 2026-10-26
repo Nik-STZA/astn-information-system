@@ -145,3 +145,48 @@ describe("duplicatesOf and triage", () => {
     expect(t.reasons.map((r) => r.check)).toEqual(["supplier_status", "duplicate", "reader_doubts"]);
   });
 });
+
+// Step 3: the CFO's decision and the send (phase3-design.md, one approval per
+// bill: a clean item goes to Xero at SUBMITTED; an exception is decided first).
+import { applyEdits, decide, sendRequest } from "./ap-lane";
+
+describe("step 3", () => {
+  const bill = buildBill({ doc: invoice, match: { link }, entity });
+  const item = { state: "clean", file_name: "a.pdf", proposed_bill: bill };
+
+  it("builds the bill write at SUBMITTED from a clean item", () => {
+    const { body, issues } = sendRequest(item);
+    expect(issues).toEqual([]);
+    expect(body).toMatchObject({
+      type: "ACCPAY", status: "SUBMITTED", contact_id: link.xero_contact_id, date: "2026-09-29", due_date: "2026-09-29",
+      number: "GB6AYHTG9AEUD", reference: "GB6AYHTG9AEUD", currency_code: "GBP", line_amount_types: "Exclusive",
+    });
+    expect(body.lines[0]).toEqual({ description: "USB to Ethernet Adapter", quantity: "1", unit_amount: "12.49", account_code: "454", tax_type: "INPUT2" });
+    expect(body.audit_note).toMatch(/Documents inbox \(a\.pdf\)/);
+  });
+
+  it("refuses to send an exception, or a bill with no supplier, account or VAT", () => {
+    expect(sendRequest({ ...item, state: "exception" }).issues).toContain("only a clean or approved item is sent; this item is exception");
+    const bare = buildBill({ doc: invoice, match: null, entity });
+    expect(sendRequest({ ...item, proposed_bill: bare }).issues).toEqual(expect.arrayContaining([
+      "no Xero supplier: choose one first", "line 1 has no account", "line 1 has no VAT treatment",
+    ]));
+  });
+
+  it("approves an exception with the CFO's supplier and coding, then it can be sent", () => {
+    const bare = buildBill({ doc: invoice, match: null, entity });
+    const d = decide({ state: "exception", proposed_bill: bare }, { action: "approve", edits: {
+      contact: { ContactID: link.xero_contact_id, Name: "Amazon" },
+      lines: [{ index: 0, account_code: "454", tax_type: "INPUT2" }, { index: 1, account_code: "454", tax_type: "INPUT2" }],
+    } });
+    expect(d).toMatchObject({ issues: [], state: "approved" });
+    expect(sendRequest({ ...item, state: "approved", proposed_bill: d.bill }).issues).toEqual([]);
+  });
+
+  it("needs a reason to reject, and only decides an item once", () => {
+    expect(decide({ state: "exception", proposed_bill: bill }, { action: "reject" }).issues).toEqual(["a reason is required to reject"]);
+    expect(decide({ state: "exception", proposed_bill: bill }, { action: "reject", note: "Not ours" })).toMatchObject({ state: "rejected", note: "Not ours" });
+    expect(decide({ state: "written", proposed_bill: bill }, { action: "approve" }).issues).toEqual(["only an exception is approved here; this item is written"]);
+    expect(applyEdits(bill, { lines: [{ index: 9, account_code: "1" }] }).issues).toEqual(["there is no line 9"]);
+  });
+});

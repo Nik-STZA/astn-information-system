@@ -300,3 +300,106 @@
     background: var(--warm-light);
   }
 }
+
+/* Step 3: actions on an item. Stacked and full width on a phone. */
+.actions {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.actions .button { width: 100%; }
+.buttonRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.buttonSecondary {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid var(--bd);
+  background: transparent;
+  color: var(--tx);
+  font: 600 14px Manrope, sans-serif;
+  cursor: pointer;
+}
+.buttonSecondary:disabled, .button:disabled { opacity: 0.55; cursor: not-allowed; }
+.linkButton {
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--gold-dark);
+  font: 600 13px Manrope, sans-serif;
+  cursor: pointer;
+}
+.confirm {
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--brand-gold);
+  background: var(--empty-bg);
+}
+.confirmText {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.done {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border-left: 3px solid var(--success-green);
+  background: var(--empty-bg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--label-text);
+}
+.select, .textarea {
+  min-height: 44px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--bd);
+  background: var(--pnl);
+  color: var(--tx);
+  font: 500 15px Manrope, sans-serif;
+}
+.textarea { min-height: 64px; resize: vertical; }
+.lineEdit {
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lineEdit legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.issueList {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--sub);
+}
+
+@media (min-width: 900px) {
+  .actions .button { width: auto; align-self: flex-start; }
+  .buttonRow { flex-direction: row; }
+  .lineEdit { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lineEdit legend { grid-column: 1 / -1; }
+}
