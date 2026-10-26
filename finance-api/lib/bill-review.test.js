@@ -103,6 +103,22 @@ describe("documentValue", () => {
     expect(documentValue({ gross_total: 13.18, vat_total: 2.2, lines: [{ description: "Service Charges", net: 10.98, vat: null }] })).toBe(1318);
     expect(documentValue({ gross_total: 13.18, vat_total: 2.2, lines: [{ description: "Service Charges", net: 10.98, vat: 2.2 }] })).toBe(1318);
   });
+
+  // A hotel folio, 7 Oct 2026: lines printed with VAT included, and
+  // the card payment printed as a line that settles the folio to zero. Read the
+  // same way three times; valued at 122.87 (the VAT alone) before this.
+  it("values a folio whose lines include VAT and end in the card payment", () => {
+    const folio = { gross_total: 741.33, net_total: 618.46, vat_total: 122.87, lines: [
+      ...[225, 225, 19.5, 227, 36.75, 4, 4.08].map((net) => ({ description: "GUEST ROOM", net, vat: null })),
+      { description: "VISA-0000", net: -741.33, vat: null },
+    ] };
+    expect(documentValue(folio)).toBe(74133);
+  });
+
+  it("keeps a charge that only mentions a card scheme, and a positive 'payment' line", () => {
+    expect(documentValue({ gross_total: 50, vat_total: 0, lines: [{ description: "Visa application fee", net: 50, vat: null }] })).toBe(5000);
+    expect(documentValue({ gross_total: 60, vat_total: 0, lines: [{ description: "Visa", net: 50, vat: null }, { description: "Visa", net: 10, vat: null }] })).toBe(6000);
+  });
 });
 
 describe("reviewBill", () => {

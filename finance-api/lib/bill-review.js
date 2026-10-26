@@ -148,6 +148,12 @@ const supportsVat = (doc) => INVOICE_TYPES.includes(doc.document_type)
 // Credits applied at payment, not to the supply: the card payment proves the
 // cash, not the value (CFO, 12 Oct 2026). They are left to bank reconciliation.
 const PAYMENT_CREDIT = /funded by amazon|gift card|promotional (credit|balance)|account credit applied/i;
+// A folio or till receipt settles to zero: the payment is printed as a negative
+// line ("VISA-0000 -741.33" on a hotel folio, 7 Oct 2026). Only a line that is
+// nothing but a payment method (with at most a card number) and negative
+// counts, so a "Visa application fee" stays a charge.
+const SETTLEMENT = /^(visa|mastercard|master card|amex|american express|maestro|diners( club)?|discover|debit card|credit card|card( payment)?|payment( received)?|cash|deposit( paid)?|balance( paid)?)[\s\-*:#x\d]*$/i;
+const isPayment = (l) => PAYMENT_CREDIT.test(l.description) || (pence(l.net) < 0 && SETTLEMENT.test(String(l.description || "").trim()));
 // "GB VAT 493735845", "GB 493 7358 45" and "GB493735845" are one number.
 const normVat = (v) => String(v || "").toUpperCase().replace(/\b(VAT|REG(ISTRATION)?|NO)\b|[^A-Z0-9]/g, "").replace(/^GB/, "");
 // Xero's placeholder for a bill without a supplier carries a ContactID.
@@ -166,15 +172,18 @@ function employeeNamed(customerName, employees = []) {
 }
 
 // The invoice value the document supports, in pence: its lines (net + VAT),
-// less nothing for payment credits; else the printed gross.
+// less nothing for payment credits or settlements; else the printed gross.
 function documentValue(doc) {
-  const lines = (doc.lines || []).filter((l) => l.net !== null && !PAYMENT_CREDIT.test(l.description));
+  const lines = (doc.lines || []).filter((l) => l.net !== null && !isPayment(l));
   if (lines.length) {
+    const lineVat = lines.some((l) => l.vat !== null);
+    const sum = lines.reduce((t, l) => t + pence(l.net) + pence(l.vat), 0);
+    // Lines printed with VAT included (hotel folios, till receipts): they add
+    // up to the printed gross, and the VAT total is already inside them.
+    if (!lineVat && doc.gross_total !== null && Math.abs(sum - pence(doc.gross_total)) <= 2) return sum;
     // Lines printed net with the VAT only in the summary (Smart Numbers, FSL,
     // 23 Oct 2026): the document's VAT total is added once.
-    const lineVat = lines.some((l) => l.vat !== null);
-    const fromLines = lines.reduce((t, l) => t + pence(l.net) + pence(l.vat), 0)
-      + (lineVat || doc.vat_total === null ? 0 : pence(doc.vat_total));
+    const fromLines = sum + (lineVat || doc.vat_total === null ? 0 : pence(doc.vat_total));
     if (fromLines !== 0 || doc.gross_total === null) return fromLines;
   }
   return doc.gross_total === null ? null : pence(doc.gross_total);
@@ -270,7 +279,7 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
   const value = documentValue(doc);
   if (value !== null && (!docCur || docCur === bill.CurrencyCode)) {
     const diff = pence(bill.Total) - value;
-    const credits = (doc.lines || []).filter((l) => PAYMENT_CREDIT.test(l.description));
+    const credits = (doc.lines || []).filter(isPayment);
     flag("total_vs_document", diff !== 0,
       `bill ${money(pence(bill.Total))}, document ${money(value)}${diff ? ` (bill ${diff > 0 ? "over" : "under"} by ${money(Math.abs(diff))})` : ""}`
       + (credits.length ? `; payment credit(s) left to bank reconciliation: ${credits.map((l) => `${l.description} ${l.net}`).join(", ")}` : ""));
