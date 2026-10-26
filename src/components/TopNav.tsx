@@ -186,10 +186,14 @@ export default function TopNav({
                     flexDirection: "column",
                     gap: 6,
                     padding: "0 13px",
+                    minWidth: 0,
+                    maxWidth: "100%",
                   }}
                 >
                   <div style={labelStyle}>{group.label}</div>
-                  <div style={{ display: "flex", gap: 2 }}>
+                  {/* Wraps on a phone: a row wider than the screen made the
+                      whole page wider, and phones zoomed it out to fit. */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
                     {group.items.map((item) => {
                       const active = checkActive(pathname, item.href);
                       return (
