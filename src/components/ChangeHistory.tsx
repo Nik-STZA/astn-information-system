@@ -82,6 +82,7 @@ export default function ChangeHistory({ changes }: Props) {
                 {change.fields.map(({ field, oldValue, newValue }) => (
                   <div
                     key={field}
+                    className="r-stack-sm"
                     style={{
                       display: "grid", gridTemplateColumns: "10rem 1fr",
                       gap: "2px 12px", fontSize: 12.5,

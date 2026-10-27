@@ -103,7 +103,7 @@ export default async function ClientsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Clients" />
 
       {error && (

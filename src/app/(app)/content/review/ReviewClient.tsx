@@ -333,7 +333,7 @@ function DetailPanel({
         gap: 12,
       }}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <div className="r-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
         {/* Left: editable brief copy */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>
@@ -531,7 +531,7 @@ export default function ReviewClient({
           </div>
         </div>
       ) : (
-        <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden" }}>
+        <div className="r-scroll-x" style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "var(--table-header)", borderBottom: "1.5px solid var(--bd)" }}>

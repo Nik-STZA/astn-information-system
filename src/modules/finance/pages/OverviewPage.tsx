@@ -50,7 +50,7 @@ function Card({ label, value }: { label: string; value: string }) {
 
 export default function OverviewPage() {
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Overview" />
 
       <p

@@ -41,6 +41,7 @@ function Pill({ text, colour }: { text: string; colour: string }) {
 function Row({ item, slug }: { item: OpenItemRow; slug: string }) {
   return (
     <div
+      className="r-row"
       style={{
         display: "grid",
         gridTemplateColumns: "46px 1fr 150px 110px 96px",
@@ -127,7 +128,7 @@ export default async function OpenItemsPage({
   );
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Open items" />
       <ClientTabs slug={params.slug} active="open-items" />
 

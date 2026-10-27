@@ -276,6 +276,7 @@ export default async function OverviewPage() {
 
       {/* Charts row */}
       <section
+        className="r-stack"
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",

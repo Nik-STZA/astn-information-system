@@ -141,7 +141,7 @@ export default async function DiaryPage({ params }: { params: { slug: string } }
   const entries = await fetchDiary(params.slug);
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Diary" />
       <ClientTabs slug={params.slug} active="diary" />
 

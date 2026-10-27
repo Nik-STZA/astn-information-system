@@ -89,7 +89,7 @@ export default function ReportsClient({ prospects, clients, opportunities, stats
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
         <SummaryCard label="Prospects" value={stats?.prospects.total ?? prospects.length} />
         <SummaryCard label="Clients" value={stats?.clients.total ?? clients.length} dashed />
         <SummaryCard label="Pipeline value" value={`£${activeValue.toLocaleString("en-GB")}`} dashed />
@@ -99,7 +99,7 @@ export default function ReportsClient({ prospects, clients, opportunities, stats
       {/* Data exports section */}
       <div style={{ marginBottom: 32 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", margin: "0 0 16px 0" }}>Data exports</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="r-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <ExportCard
             title="Compliance prospects"
             description={`${prospects.length} records — company details, outreach status, IR registration, document URLs.`}
@@ -137,7 +137,7 @@ export default function ReportsClient({ prospects, clients, opportunities, stats
       {stats && (
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", margin: "0 0 16px 0" }}>Platform snapshot</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
             {/* Prospect pipeline */}
             <SnapshotCard
               title="Prospect pipeline"

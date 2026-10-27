@@ -233,7 +233,7 @@ function ProspectForm({ prospect, onClose }: { prospect?: Prospect; onClose: () 
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <FormField label="Company name *">
           <input name="company_name" required defaultValue={prospect?.company_name ?? ""} style={inputStyle} />
         </FormField>
@@ -286,7 +286,7 @@ function ProspectForm({ prospect, onClose }: { prospect?: Prospect; onClose: () 
         <FormField label="Terms of service URL">
           <input name="terms_url" type="url" defaultValue={prospect?.terms_url ?? ""} style={inputStyle} placeholder="https://example.com/terms" />
         </FormField>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <FormField label="LinkedIn URL">
             <input name="linkedin_url" type="url" defaultValue={prospect?.linkedin_url ?? ""} style={inputStyle} placeholder="https://linkedin.com/company/..." />
           </FormField>
@@ -303,7 +303,7 @@ function ProspectForm({ prospect, onClose }: { prospect?: Prospect; onClose: () 
         <textarea name="notes" rows={3} defaultValue={prospect?.notes ?? ""} style={inputStyle} />
       </FormField>
       {prospect && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
           <FormField label="Outreach date">
             <input type="date" name="outreach_date" defaultValue={prospect.outreach_date?.slice(0, 10) ?? ""} style={inputStyle} />
           </FormField>
@@ -731,7 +731,7 @@ function ProspectDetail({
                     {pipelineData.assessment.generated_by} v{pipelineData.assessment.agent_version}
                   </span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+                <div className="r-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
                   <ScoreBadge score={pipelineData.assessment.score_ir_registration} label="IR reg." />
                   <ScoreBadge score={pipelineData.assessment.score_biometric_handling} label="Biometric" />
                   <ScoreBadge score={pipelineData.assessment.score_cross_border} label="Cross-border" />
@@ -1102,7 +1102,7 @@ function ClientDetail({ client, onClose, onEdit, onAddActivity, jurisdictions }:
                 </div>
 
                 {domainEntries.length > 0 && (
-                  <div style={{
+                  <div className="r-grid-2" style={{
                     display: "grid",
                     gridTemplateColumns: `repeat(${Math.min(domainEntries.length, 5)}, 1fr)`,
                     gap: 4, borderTop: "1px solid var(--bd)", paddingTop: 10,
@@ -1215,7 +1215,7 @@ function ClientForm({ client, onClose }: { client?: Client; onClose: () => void 
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <FormField label="Company name *">
           <input name="company_name" required defaultValue={client?.company_name ?? ""} style={inputStyle} />
         </FormField>
@@ -1411,14 +1411,14 @@ export default function ComplianceClient({
             POPIA representative services. {prospects.length} prospects, {activeClients.length} active clients.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <div className="r-wrap" style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           <button onClick={() => setShowProspectForm(true)} style={btnPrimaryStyle}>+ Add prospect</button>
           <button onClick={() => setShowClientForm(true)} style={btnSecondaryStyle}>+ Add client</button>
         </div>
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
         <StatCard label="Total prospects" value={String(prospects.length)} />
         <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 10, padding: "16px 18px" }}>
           <div style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.1, color: "#B4432C" }}>{highPriority}</div>
@@ -1506,7 +1506,7 @@ export default function ComplianceClient({
 
       {/* Prospect table */}
       {tab === "prospects" && (
-        <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(26,28,30,.05)" }}>
+        <div className="r-scroll-x" style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(26,28,30,.05)" }}>
           {filteredProspects.length === 0 ? (
             <div style={{ padding: "32px 18px", textAlign: "center", color: "var(--sub)", fontSize: 13 }}>No prospects match the current filters.</div>
           ) : (
@@ -1568,7 +1568,7 @@ export default function ComplianceClient({
 
       {/* Client table */}
       {tab === "clients" && (
-        <div style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(26,28,30,.05)" }}>
+        <div className="r-scroll-x" style={{ background: "var(--pnl)", border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(26,28,30,.05)" }}>
           {filteredClients.length === 0 ? (
             <div style={{ padding: "40px 18px", textAlign: "center", border: "1.5px dashed var(--empty-border)", borderRadius: 12, margin: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "var(--sub)", marginBottom: 4 }}>No clients yet</div>
@@ -1717,7 +1717,7 @@ function ActivityForm({ clientId, onClose }: { clientId: string; onClose: () => 
           <option value="other">Other</option>
         </select>
       </FormField>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <FormField label="Date *">
           <input type="date" name="activity_date" required defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle} />
         </FormField>

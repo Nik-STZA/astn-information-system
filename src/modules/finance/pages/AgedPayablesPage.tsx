@@ -83,7 +83,7 @@ export default async function AgedPayablesPage({
         scope);
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="AP ageing" />
       <ClientTabs slug={slug} active="reports" />
 

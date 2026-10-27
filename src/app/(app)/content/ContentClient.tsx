@@ -72,7 +72,7 @@ export default function ContentClient({ editions, error }: Props) {
       </div>
 
       {/* Stat cards row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
         <StatCard label="Total editions" value={editions.length} />
         <StatCard label="Published" value={published} dashed muted />
         <StatCard label="In progress" value={inProgress} valueColor="#A67514" />
@@ -98,7 +98,7 @@ export default function ContentClient({ editions, error }: Props) {
           </div>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 16 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 16 }}>
           {editions.map((e) => (
             <EditionCard key={e.id} edition={e} />
           ))}
@@ -337,7 +337,7 @@ function EditionForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
+      <div className="r-modal" style={{
         backgroundColor: "var(--pg)",
         borderRadius: 16,
         border: "1px solid var(--bd)",
@@ -352,7 +352,7 @@ function EditionForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
               <label style={labelStyle}>Series</label>
               <select name="series" defaultValue="weekly" style={inputStyle}>
@@ -376,7 +376,7 @@ function EditionForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
             <input name="subtitle" style={inputStyle} placeholder="Optional subtitle" />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
               <label style={labelStyle}>Country</label>
               <input name="country_name" style={inputStyle} placeholder="e.g. South Africa" />

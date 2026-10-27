@@ -313,6 +313,7 @@ function OpportunityForm({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
+        className="r-modal"
         style={{
           background: "#fff",
           borderRadius: 14,
@@ -353,7 +354,7 @@ function OpportunityForm({
           </div>
         )}
         <form onSubmit={handleSubmit}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Opportunity name *
@@ -471,6 +472,7 @@ export default function PipelineClient({
 
   return (
     <div
+      className="page-inner"
       style={{
         maxWidth: 1320,
         margin: "0 auto",
@@ -540,6 +542,7 @@ export default function PipelineClient({
 
       {/* Stat cards */}
       <div
+        className="r-grid-2"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
@@ -637,6 +640,7 @@ export default function PipelineClient({
         </div>
       ) : (
         <div
+          className="r-scroll-x"
           style={{
             background: "#fff",
             border: "1px solid #E4D9C4",
@@ -775,7 +779,7 @@ export default function PipelineClient({
       >
         Cross-module summary
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+      <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
         <SummaryCard
           title="Compliance prospects"
           rows={[

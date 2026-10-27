@@ -118,7 +118,7 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
           boxShadow: "0 1px 3px rgba(26,28,30,.04), 0 1px 2px rgba(26,28,30,.03)",
         }}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
           <SelectField
             name="organization_type"
             label="Organisation type"
@@ -143,7 +143,7 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
         </div>
 
         <Section title="Web & contact">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
             <TextField name="organization_website" label="Organisation website" defaultValue={org.organization_website} type="url" />
             <TextField name="contact_email" label="Contact email" defaultValue={org.contact_email} type="email" />
             <TextField name="contact_phone" label="Contact phone" defaultValue={org.contact_phone} />
@@ -152,7 +152,7 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
         </Section>
 
         <Section title="Partnership & outreach">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
             <SelectField name="partnership_type" label="Partnership type" defaultValue={org.partnership_type} options={[...CANONICAL_PARTNERSHIP_TYPES]} placeholder="Select partnership type" />
             <SelectField name="commercial_priority" label="Commercial priority" defaultValue={org.commercial_priority} options={[...CANONICAL_COMMERCIAL_PRIORITY]} placeholder="Select priority" />
             <SelectField name="outreach_candidate" label="Outreach candidate" defaultValue={org.outreach_candidate} options={[...CANONICAL_OUTREACH_CANDIDATE]} placeholder="Select" />
@@ -170,7 +170,7 @@ export default function OrganizationEditForm({ org, typeOptions }: Props) {
         </Section>
 
         <Section title="Verification">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
             <SelectField name="source_confidence_band" label="Source confidence" defaultValue={parsedConfidence.band} options={[...CONFIDENCE_BANDS]} placeholder="Select band" />
             <TextField name="source_confidence_descriptor" label="Confidence descriptor (optional)" defaultValue={parsedConfidence.descriptor} placeholder="e.g. via StadiumDB" />
             <DateField name="verification_date" label="Verification date" defaultValue={org.verification_date} />
@@ -450,6 +450,7 @@ function ConfirmChangesModal({
           {diffs.map(({ field, oldValue, newValue }) => (
             <li
               key={field}
+              className="r-stack-sm"
               style={{
                 display: "grid", gridTemplateColumns: "12rem 1fr",
                 gap: "2px 12px",

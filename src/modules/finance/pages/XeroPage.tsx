@@ -221,7 +221,7 @@ export default async function XeroPage({
   const status = await fetchXeroStatus(params.slug);
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Xero connections" />
       <ClientTabs slug={params.slug} active="xero" />
 

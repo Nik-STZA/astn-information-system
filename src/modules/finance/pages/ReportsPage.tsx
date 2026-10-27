@@ -31,7 +31,7 @@ const LABEL: React.CSSProperties = {
 export default function ReportsPage({ params }: { params: { slug: string } }) {
   const base = `/finance/clients/${params.slug}/reports`;
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Reports" />
       <ClientTabs slug={params.slug} active="reports" />
 

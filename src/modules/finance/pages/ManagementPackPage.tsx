@@ -37,7 +37,7 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
   }
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Management pack" />
       <ClientTabs slug={slug} active="reports" />
 

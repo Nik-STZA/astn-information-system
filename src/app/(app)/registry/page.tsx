@@ -220,6 +220,7 @@ export default async function RegistryPage({ searchParams }: PageProps) {
 
       {/* Table */}
       <div
+        className="r-scroll-x"
         style={{
           background: "var(--pnl)",
           border: "1px solid var(--bd)",

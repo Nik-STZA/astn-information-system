@@ -467,3 +467,134 @@
 @media (max-width: 900px) {
   .finance-two-pane { grid-template-columns: 1fr !important; }
 }
+
+/* ── Phone layout helpers ──
+   Most pages lay out with inline style grids, which cannot carry a media
+   query. These classes sit beside those inline styles and override them on
+   narrow screens (hence !important). Desktop is untouched. */
+
+/* Scrolls sideways inside its own box, so a wide table never widens the page
+   or gets clipped by a card with overflow: hidden. */
+.r-scroll-x {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 899px) {
+  /* Two-pane and side-panel layouts stack. */
+  .r-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* The flex version: a fixed-width sidebar beside a detail pane. */
+  .r-col {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .r-col > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-container {
+    padding: 16px 16px 40px;
+  }
+
+  /* A long option label must not push a select (or any field) off screen. */
+  main select,
+  main input,
+  main textarea {
+    max-width: 100%;
+  }
+
+  /* Pages that add their own padding inside the page container. */
+  .page-inner {
+    padding: 4px 0 24px !important;
+  }
+
+  /* Rows of stat cards: two to a row on a phone. */
+  .r-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .r-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  /* Form field pairs and small grids that only stack on a phone. */
+  .r-stack-sm {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* A list row laid out as columns (reference, title, then details): on a
+     phone the details drop under the title instead of squeezing beside it. */
+  .r-row {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    row-gap: 4px !important;
+  }
+  .r-row > :nth-child(n + 3) {
+    grid-column: 2;
+  }
+
+  /* Flex rows (headers with actions, toolbars) that should wrap. */
+  .r-wrap {
+    flex-wrap: wrap !important;
+  }
+
+  /* One line of tabs or chips that scrolls sideways instead of wrapping. */
+  .r-strip {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .r-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .r-strip > a,
+  .r-strip > button {
+    flex-shrink: 0;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Modals and drawers fit the screen rather than overflowing it. */
+  .r-modal {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100vh - 24px) !important;
+    overflow-y: auto !important;
+    padding: 20px 16px !important;
+  }
+}
+
+@media screen and (max-width: 640px) {
+  /* Printable reports (the doc-page web component) render as a sheet of
+     paper. On a phone the sheet takes the screen width with slim margins so
+     the report reflows instead of making the page 800px wide. Print output
+     is unaffected: this applies to screens only, and the component sets its
+     own print widths. Outer-document rules on the host beat the
+     component's own :host defaults. */
+  doc-page {
+    --doc-page-w: 100%;
+    --doc-page-margin: 18px;
+    padding: 12px 0;
+    min-height: 0;
+    overflow-wrap: anywhere;
+  }
+  /* The sheet lays its content out in a table, which would grow to fit the
+     widest unbreakable line; capping each block holds it to the screen
+     (100vw less the page gutters and the sheet margins). */
+  doc-page > * {
+    max-width: calc(100vw - 68px);
+  }
+  doc-page table {
+    display: block;
+    overflow-x: auto;
+  }
+}

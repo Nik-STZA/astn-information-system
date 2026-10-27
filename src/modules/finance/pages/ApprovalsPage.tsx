@@ -22,7 +22,7 @@ export default async function ApprovalsPage({ params }: { params: { slug: string
   const awaiting = items.filter((i) => i.panel === "awaiting-decision").length;
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Approvals" />
       <ClientTabs slug={params.slug} active="approvals" />
 

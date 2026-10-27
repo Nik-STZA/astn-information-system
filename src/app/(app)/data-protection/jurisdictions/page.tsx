@@ -242,7 +242,7 @@ export default async function JurisdictionsPage() {
       </section>
 
       {/* Table */}
-      <div className="card" style={{ overflow: "hidden" }}>
+      <div className="card r-scroll-x" style={{ overflow: "hidden" }}>
         <table
           style={{
             width: "100%",

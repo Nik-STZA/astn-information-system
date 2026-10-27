@@ -51,8 +51,11 @@ export default function ClientTabs({
   active: string;
 }) {
   const base = `/finance/clients/${slug}`;
+  // On a phone the tabs stay on one line and scroll sideways (r-strip in
+  // globals.css) rather than wrapping into three rows.
   return (
     <div
+      className="r-strip"
       style={{
         display: "flex",
         alignItems: "center",

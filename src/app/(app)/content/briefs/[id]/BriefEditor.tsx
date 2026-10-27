@@ -252,7 +252,7 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
   } as const);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)", gap: 18, alignItems: "start" }}>
+    <div className="r-stack" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)", gap: 18, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {(["edit", "preview"] as const).map((m) => (
