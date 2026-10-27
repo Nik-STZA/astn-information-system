@@ -193,6 +193,77 @@ function buildTools(clientSlug, entities) {
       },
     },
     {
+      name: "list_bills_queue",
+      description:
+        "List the Bills queue in os.stza.io for an entity: supplier documents the AP engine has read (from the Documents inbox " +
+        "or from draft bills Xero keyed), each with its state and the reasons it needs the CFO. States: exception (needs a " +
+        "decision), clean, approved (ready to send), written (in Xero awaiting approval), skipped, rejected.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", enum: entityEnum, description: "Entity slug" },
+          state: { type: "string", description: "Comma-separated states. Default exception,clean,approved" },
+        },
+        required: ["entity"],
+      },
+    },
+    {
+      name: "get_bill_item",
+      description:
+        "One Bills queue item in full: what the engine read from the document (supplier, addressee, type, dates, totals and " +
+        "each line), the bill it proposes with each line's index, account and VAT treatment, the checks it failed, how Xero's " +
+        "own draft differed, and any earlier recommendation. Read this before recommending coding.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", enum: entityEnum, description: "Entity slug" },
+          item_id: { type: "string", description: "Queue item id from list_bills_queue" },
+        },
+        required: ["entity", "item_id"],
+      },
+    },
+    {
+      name: "get_bill_coding_options",
+      description: "The active expense and balance-sheet accounts (code and name), VAT treatments (type and name) and suppliers this entity's bills can use.",
+      input_schema: {
+        type: "object",
+        properties: { entity: { type: "string", enum: entityEnum, description: "Entity slug" } },
+        required: ["entity"],
+      },
+    },
+    {
+      name: "recommend_bill_coding",
+      description:
+        "Attach your recommended coding to a Bills queue item: an account code and VAT type for each line (by its index from " +
+        "get_bill_item), a short reason per line, an optional due date, and a note. The CFO sees it on the item and accepts or " +
+        "changes it. It does not approve, change or send the bill, and nothing reaches Xero. Codes must come from " +
+        "get_bill_coding_options; a refusal lists what was wrong.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", enum: entityEnum, description: "Entity slug" },
+          item_id: { type: "string", description: "Queue item id" },
+          lines: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: {
+                index: { type: "integer", description: "Line index from get_bill_item, starting at 0" },
+                account_code: { type: "string" },
+                tax_type: { type: "string", description: "VAT type, e.g. INPUT2, REVERSECHARGES, NONE" },
+                reason: { type: "string", description: "Why this account and VAT treatment, in a sentence" },
+              },
+              required: ["index", "account_code", "tax_type", "reason"],
+            },
+          },
+          due_date: { type: "string", description: "YYYY-MM-DD, only when the bill has none or it is wrong" },
+          note: { type: "string", description: "Your overall view for the CFO, including anything else to check (entity, evidence, VAT)" },
+        },
+        required: ["entity", "item_id", "lines", "note"],
+      },
+    },
+    {
       name: "create_draft_journal",
       description:
         "Create a manual journal in Xero as a DRAFT, for a person to review and post in Xero. It never posts to the ledger. " +
@@ -303,6 +374,65 @@ async function createDraftJournal(job, input) {
   };
 }
 
+// ── The Bills queue ──────────────────────────────────────────────────────────
+//
+// The AP engine in finance-api reads supplier documents and queues proposed
+// bills (docs/ap-lane). An agent reads the queue and may attach a recommended
+// coding; it cannot approve or send. The CFO does both in the Bills tab.
+
+const apPath = (slug, entity) =>
+  `/api/finance/clients/${encodeURIComponent(slug)}/xero/${encodeURIComponent(entity)}/ap`;
+
+// The person who asked: recommendations are recorded against them, and they
+// must hold an engagement role for the client.
+async function requesterOf(job) {
+  const runs = (await apiCall("GET", `/api/finance/clients/${encodeURIComponent(job.client.slug)}/agent-runs`))?.data ?? [];
+  return runs.find((r) => r.id === job.id)?.requested_by_email ?? null;
+}
+
+// One item, without the engine's bookkeeping (tokens, hashes, run ids).
+function billItemView(i) {
+  const bill = i.proposed_bill || {};
+  return {
+    id: i.id, state: i.state, state_reason: i.state_reason, source: i.source, file_name: i.file_name,
+    supplier_matched_by: i.matched_by,
+    document: i.extraction,
+    proposed_bill: {
+      supplier: bill.Contact?.Name ?? null, number: bill.InvoiceNumber || null, date: (bill.DateString || "").slice(0, 10) || null,
+      due_date: (bill.DueDateString || "").slice(0, 10) || null, currency: bill.CurrencyCode, amounts_are: bill.LineAmountTypes,
+      total: bill.Total, vat: bill.TotalTax,
+      lines: (bill.LineItems || []).map((l, index) => ({ index, description: l.Description, amount: l.LineAmount, account_code: l.AccountCode, tax_type: l.TaxType })),
+    },
+    checks_failed: i.review?.reasons ?? [],
+    xero_draft_differences: i.review?.draft_differences ?? null,
+    earlier_recommendation: i.recommendation ?? null,
+    decided: i.decided_at ? { by: i.decided_by_email, at: i.decided_at, note: i.decision_note } : null,
+  };
+}
+
+async function billsTool(job, name, input) {
+  const base = apPath(job.client.slug, input.entity);
+  if (name === "list_bills_queue") {
+    const r = await apiCall("GET", `${base}/items?state=${encodeURIComponent(input.state || "exception,clean,approved")}`);
+    return { count: r.count, items: (r.items || []).map((i) => ({
+      id: i.id, state: i.state, source: i.source, supplier: i.supplier, number: i.number, date: i.date, total: i.total,
+      currency: i.currency, reasons: (i.reasons || []).map((x) => x.check), recommended: i.recommended, file_name: i.file_name,
+    })) };
+  }
+  if (name === "get_bill_item") return billItemView(await apiCall("GET", `${base}/items/${encodeURIComponent(input.item_id)}`));
+  if (name === "get_bill_coding_options") return apiCall("GET", `${base}/options`);
+  if (name === "recommend_bill_coding") {
+    const actor = await requesterOf(job);
+    if (!actor) return { error: "The person who asked could not be found, so the recommendation was not saved." };
+    const res = await apiRequest("POST", `${base}/items/${encodeURIComponent(input.item_id)}/recommendation`, {
+      lines: input.lines, due_date: input.due_date, note: input.note, agent: job.agent || "general", run_id: job.id,
+    }, { "X-Actor-Email": actor });
+    if (!res.ok) return { saved: false, status: res.status, refused: res.body };
+    return { saved: true, note: "Saved on the item for the CFO, who accepts or changes it in the Bills tab. Nothing was approved or sent; tell the user that." };
+  }
+  return { error: `Unknown tool: ${name}` };
+}
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS. You have access to live Xero accounting data via tools. You are acting on behalf of a qualified Chartered Accountant (CA(SA)) with Big 4 experience.
@@ -322,7 +452,13 @@ Journals:
 - You can create a manual journal in Xero only as a DRAFT, and only after the user approves it. You can never post one.
 - First, check the chart of accounts, then reply with a proposal headed "Proposed journal (draft)". It must name the entity, give the date in YYYY-MM-DD form (for example 2026-08-31), give the narration, and list each line with ONE account code, a description and the amount. If you are unsure which account to use, ask; do not list alternatives. End by asking the user to reply "approved" to create it as a draft in Xero.
 - Only when the user's follow-up plainly approves that proposal, call create_draft_journal with exactly the proposed entity, date, narration, codes and amounts (debits positive, credits negative). If they ask for a change, make it and propose again.
-- After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.`;
+- After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.
+
+The Bills queue:
+- "Bills" means the Bills tab in os.stza.io, not Xero's bills list. Read it with list_bills_queue and get_bill_item. Draft bills in Xero do not appear in aged payables, so never look for a Bills item there.
+- To review coding, read the item (the document's own lines, addressee and dates) and get_bill_coding_options, then save your view with recommend_bill_coding: one account and VAT type per line, each with a one-sentence reason, and a note for anything else to check.
+- Code from the document, not the supplier's habit. A charge for a later period is a prepayment. A document addressed to another group company belongs to that company: say so in the note rather than coding around it. VAT follows the supplier's position (a non-UK supplier of services is usually reverse charge) and what the document can support.
+- You cannot approve, change or send a bill. The CFO accepts or changes your recommendation in the Bills tab; say that when you finish.`;
 
 const AGENT_PROMPTS = {
   fc: `${SYSTEM_BASE}
@@ -464,6 +600,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
       try {
         if (tu.name === "list_entities") {
           result = { entities: connectedEntities };
+        } else if (["list_bills_queue", "get_bill_item", "get_bill_coding_options", "recommend_bill_coding"].includes(tu.name)) {
+          result = await billsTool(job, tu.name, tu.input);
+          if (tu.name === "recommend_bill_coding") console.log(`    Recommendation: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
         } else if (tu.name === "create_draft_journal") {
           result = await createDraftJournal(job, tu.input);
           console.log(`    Draft journal: ${result.created ? `created ${result.journal_number ?? ""}` : `refused (${result.status ?? "no approval"})`}`);

@@ -29,7 +29,18 @@ export interface ApItemRow {
   decided_at: string | null;
   xero_invoice_id: string | null;
   source: ApSource;
+  recommended: boolean;
   created_at: string;
+}
+
+// An agent's suggested coding (the AP Clerk), for the CFO to accept or change.
+export interface ApRecommendation {
+  lines: Array<{ index: number; account_code: string; tax_type: string; reason: string | null }>;
+  due_date: string | null;
+  note: string;
+  agent: string | null;
+  by_email: string;
+  at: string;
 }
 
 // Where the document came from: the Documents inbox, or a draft bill Xero keyed
@@ -72,6 +83,7 @@ export interface ApItemDetail {
   proposed_bill: ApProposedBill | null;
   review: { reasons?: ApReason[]; draft_differences?: { blocking: ApDraftDifference[]; coding: ApDraftDifference[] } } | null;
   source: ApSource;
+  recommendation: ApRecommendation | null;
   extraction: { document_type?: string; supplier_name?: string | null } | null;
   created_at: string;
 }

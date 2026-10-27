@@ -6,6 +6,7 @@ import Link from "next/link";
 import styles from "./ApQueue.module.css";
 import FetchDocuments from "./FetchDocuments";
 import ApActions from "./ApActions";
+import ApRecommendation from "./ApRecommendation";
 import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApItemDetail, ApItemRow } from "@/modules/finance/lib/ap-queue";
 
@@ -112,9 +113,10 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
             ? item.state_reason
             : [item.number, shortDate(item.date)].filter((x) => x && x !== "-").join(" · ") || item.file_name}
         </div>
-        {(item.source === "ledger_draft" || (item.state === "exception" && reasons.length > 0)) && (
+        {(item.source === "ledger_draft" || item.recommended || (item.state === "exception" && reasons.length > 0)) && (
           <div className={styles.reasonsShort}>
             {item.source === "ledger_draft" && <span className={styles.tag}>Xero draft</span>}
+            {item.recommended && <span className={styles.tag}>AP Clerk suggestion</span>}
             {item.state === "exception" && reasons.slice(0, 3).map((r) => <span key={r.check} className={styles.tagWarn}>{checkLabel(r.check)}</span>)}
             {item.state === "exception" && reasons.length > 3 && <span className={styles.tag}>+{reasons.length - 3} more</span>}
           </div>
@@ -216,6 +218,14 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
               {isPdf && <iframe src={fileUrl} title={`The document: ${item.file_name}`} className={styles.docFrame} />}
             </>
           )}
+
+        {bill && item.recommendation && (
+          <ApRecommendation slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
+            lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))}
+            labels={item.recommendation.lines.map((l) => ({
+              account: accountLabel(l.account_code, names) ?? l.account_code, tax: taxLabel(l.tax_type, names) ?? l.tax_type,
+            }))} />
+        )}
 
         {bill && (
           <ApActions slug={slug} entity={entity} item={{
