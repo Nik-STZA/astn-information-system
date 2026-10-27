@@ -60,6 +60,27 @@
 }
 .ava { width: 26px; height: 26px; border-radius: 999px; background: var(--cardhover); border: 1px solid var(--bd); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: var(--label-text); }
 
+/* The board: columns side by side, scrolling sideways on a phone. */
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: 82%; gap: 12px; overflow-x: auto; padding-bottom: 6px; align-items: start; scroll-snap-type: x mandatory; }
+.board > section { scroll-snap-align: start; }
+@media (min-width: 900px) {
+  .board { grid-auto-columns: minmax(200px, 1fr); scroll-snap-type: none; }
+}
+.col { background: var(--cardhover); border: 1px solid transparent; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 200px; }
+.colOver { border-color: var(--brand-gold); background: var(--accent-bg); }
+.colHead { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--label-text); padding: 2px 4px; }
+.colHint { font-size: 12px; color: var(--sub); padding: 4px; }
+.tcard {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; box-sizing: border-box;
+  background: var(--pnl); border: 1px solid var(--bd); border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  font: 400 13px var(--font-sans); color: var(--tx);
+}
+.tcard:hover { border-color: var(--sub); }
+.tcard[draggable="true"] { cursor: grab; }
+.tcardSel { border-color: var(--brand-gold); }
+.tcardTitle { font-weight: 500; }
+.tcardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
 /* The task panel */
 .panel {
   position: fixed; inset: 0; z-index: 60; background: var(--pnl); overflow-y: auto;

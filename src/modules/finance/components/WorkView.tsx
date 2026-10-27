@@ -9,8 +9,8 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Plus, X } from "lucide-react";
 import styles from "./Work.module.css";
 import {
-  AGENTS, SETTABLE, STATUS_LABEL, blockerText, eventText, ownerInitials, ownerLabel, taskTree,
-  type Task, type TaskEvent,
+  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree,
+  type ShownStatus, type Task, type TaskEvent,
 } from "@/modules/finance/lib/work";
 
 export interface BillOption { id: string; label: string }
@@ -28,14 +28,34 @@ function StatusPill({ s }: { s: Task["shown_status"] }) {
   return <span className={`${styles.status} ${styles[`s-${s}`]}`}><span className={styles.dot} />{STATUS_LABEL[s]}</span>;
 }
 
-export default function WorkView({ slug, tasks, entities, bills, error, initialTask }: {
+export default function WorkView({ slug, tasks, entities, bills, error, initialTask, initialView }: {
   slug: string; tasks: Task[]; entities: Entity[]; bills: BillOption[]; error: string | null; initialTask: string | null;
+  initialView: "list" | "board" | null;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(initialTask);
   const [creating, setCreating] = useState<{ parent_id: string | null } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showDone, setShowDone] = useState(false);
+  const [view, setView] = useState<"list" | "board">(initialView ?? "list");
+  const [boardIssues, setBoardIssues] = useState<string[]>([]);
+  // The view you last used, per browser, unless the link names one.
+  useEffect(() => {
+    if (initialView) return;
+    try { const v = localStorage.getItem("stza-work-view"); if (v === "list" || v === "board") setView(v); } catch { /* default */ }
+  }, [initialView]);
+  const pickView = (v: "list" | "board") => {
+    setView(v);
+    try { localStorage.setItem("stza-work-view", v); } catch { /* ignore */ }
+  };
+  // A card dropped on a column: the new status, recorded in the task's history.
+  async function moveTo(id: string, status: ShownStatus) {
+    const t = tasks.find((x) => x.id === id);
+    if (!t || !DROPPABLE.has(status) || t.status === status) return;
+    const r = await send(`${base}/tasks/${id}`, "PATCH", { status });
+    setBoardIssues(r.issues);
+    if (r.ok) router.refresh();
+  }
   const rows = useMemo(() => taskTree(tasks, { collapsed, showDone }), [tasks, collapsed, showDone]);
   const task = tasks.find((t) => t.id === selected) ?? null;
   const base = `/api/finance/${encodeURIComponent(slug)}/work`;
@@ -61,8 +81,8 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
 
       <div className={styles.bar}>
         <div className="seg" role="group" aria-label="View">
-          <button type="button" className="seg-on" aria-pressed="true">List</button>
-          <button type="button" disabled title="Coming next">Board</button>
+          <button type="button" className={view === "list" ? "seg-on" : undefined} aria-pressed={view === "list"} onClick={() => pickView("list")}>List</button>
+          <button type="button" className={view === "board" ? "seg-on" : undefined} aria-pressed={view === "board"} onClick={() => pickView("board")}>Board</button>
           <button type="button" disabled title="Coming next">Timeline</button>
         </div>
         <label className={styles.check}><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />Show done</label>
@@ -72,7 +92,11 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
 
       <div className={styles.layout}>
         <div className={styles.listPane}>
-          <section className={`${styles.card} ${styles.scroll}`} aria-label="Tasks">
+          {view === "board" && (
+            <Board tasks={tasks} showDone={showDone} selected={selected} issues={boardIssues}
+              onOpen={(id) => { setCreating(null); setSelected(id); }} onMove={moveTo} />
+          )}
+          {view === "list" && <section className={`${styles.card} ${styles.scroll}`} aria-label="Tasks">
             {rows.length === 0 ? (
               <div className={styles.empty}>{tasks.length ? "Everything here is done. Tick Show done to see it." : "No tasks yet. Add the first with New task."}</div>
             ) : (
@@ -119,7 +143,7 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
                 </tbody>
               </table>
             )}
-          </section>
+          </section>}
         </div>
 
         {creating && (
@@ -133,6 +157,54 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
         )}
       </div>
     </div>
+  );
+}
+
+// ── Board ─────────────────────────────────────────────────────────────────────
+
+function Board({ tasks, showDone, selected, issues, onOpen, onMove }: {
+  tasks: Task[]; showDone: boolean; selected: string | null; issues: string[];
+  onOpen: (id: string) => void; onMove: (id: string, status: ShownStatus) => void;
+}) {
+  const cols = boardColumns(tasks, { showDone });
+  const [over, setOver] = useState<ShownStatus | null>(null);
+  return (
+    <>
+      <Issues issues={issues} />
+      <div className={styles.board} aria-label="Tasks as a board">
+        {cols.map((c) => {
+          const droppable = DROPPABLE.has(c.status);
+          return (
+            <section key={c.status} aria-label={STATUS_LABEL[c.status]}
+              className={`${styles.col} ${over === c.status && droppable ? styles.colOver : ""}`}
+              onDragOver={(e) => { if (droppable) { e.preventDefault(); setOver(c.status); } }}
+              onDragLeave={() => setOver(null)}
+              onDrop={(e) => { e.preventDefault(); setOver(null); const id = e.dataTransfer.getData("text/plain"); if (id) onMove(id, c.status); }}>
+              <div className={styles.colHead}>
+                <span>{STATUS_LABEL[c.status]}</span><span className={styles.meta}>{c.tasks.length}</span>
+              </div>
+              {!droppable && c.tasks.length === 0 && <div className={styles.colHint}>Set by blockers</div>}
+              {c.tasks.map((t) => {
+                const openBlocks = t.blockers.filter((b) => b.open);
+                const late = t.due_on && t.status !== "done" && t.due_on < today();
+                return (
+                  <button key={t.id} type="button" draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
+                    className={`${styles.tcard} ${t.id === selected ? styles.tcardSel : ""}`} onClick={() => onOpen(t.id)}>
+                    <span className={styles.tcardTitle}>{t.title}{t.priority === "P1" && <span className={styles.blocker}> · P1</span>}</span>
+                    {(t.parentTitle || t.entity_name) && <span className={styles.meta}>{[t.parentTitle, t.entity_name].filter(Boolean).join(" · ")}</span>}
+                    {openBlocks[0] && <span className={styles.blocker}>{blockerText(openBlocks[0])}{openBlocks.length > 1 ? ` +${openBlocks.length - 1} more` : ""}</span>}
+                    <span className={styles.tcardFoot}>
+                      <span className={styles.ava} title={ownerLabel(t)}>{ownerInitials(t)}</span>
+                      {t.due_on && <span className={late ? styles.overdue : styles.meta}>{shortDate(t.due_on)}</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </section>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
