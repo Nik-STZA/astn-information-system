@@ -153,6 +153,8 @@ The frontend talks to a separate Express API running on Cloud Run. This is NOT p
 - Cloud Run service: `africastn-api`
 - Cloud SQL instance: `africastn-db` (PostgreSQL 17)
 - Service account for GitHub Actions: `github-deploy@africanstn-research.iam.gserviceaccount.com`
+- Runtime service account for `africastn-api`: `africastn-api@africanstn-research.iam.gserviceaccount.com`
+  (Cloud SQL client + accessor on its six secrets only; set by `--service-account` in the deploy workflow)
 - Workload Identity Federation pool: `github-pool`, provider: `github-provider`
 
 ### Database (Cloud SQL)
