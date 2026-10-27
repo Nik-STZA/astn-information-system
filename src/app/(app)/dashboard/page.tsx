@@ -316,6 +316,7 @@ export default async function DashboardPage() {
       )}
       {/* Header */}
       <div
+        className="r-wrap"
         style={{
           display: "flex",
           alignItems: "flex-end",
@@ -347,6 +348,7 @@ export default async function DashboardPage() {
 
       {/* Hero KPI row */}
       <div
+        className="r-grid-2"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(5, 1fr)",
@@ -389,6 +391,7 @@ export default async function DashboardPage() {
 
       {/* Funnel + Maturity */}
       <div
+        className="r-stack"
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
@@ -459,6 +462,7 @@ export default async function DashboardPage() {
 
       {/* Sector + Pipeline/Content */}
       <div
+        className="r-stack"
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
@@ -521,7 +525,7 @@ export default async function DashboardPage() {
         </div>
 
         {/* Pipeline + Content */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div
             className={pipelineValue === 0 && pipelineTotal === 0 ? "card-empty" : "card"}
             style={{
@@ -656,6 +660,7 @@ export default async function DashboardPage() {
           <div style={{ flex: 1, height: 1, background: "#EEE5D3" }} />
         </div>
         <div
+          className="r-grid-2"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(5, 1fr)",

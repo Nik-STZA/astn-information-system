@@ -83,7 +83,7 @@ export default async function EditionDetailPage({ params }: Props) {
       </div>
 
       {/* Meta cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
         <MetaCard label="Series" value={edition.series} />
         <MetaCard label="Country" value={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>

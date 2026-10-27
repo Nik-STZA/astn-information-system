@@ -274,7 +274,7 @@ function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClo
       style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,17,19,.45)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #E4D9C4", width: 560, maxHeight: "90vh", overflow: "auto", padding: "24px 28px", boxShadow: "0 8px 30px rgba(26,28,30,.15)" }}>
+      <div className="r-modal" style={{ background: "#fff", borderRadius: 14, border: "1px solid #E4D9C4", width: 560, maxHeight: "90vh", overflow: "auto", padding: "24px 28px", boxShadow: "0 8px 30px rgba(26,28,30,.15)" }}>
         {children}
       </div>
     </div>
@@ -339,7 +339,7 @@ function CardActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () =>
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+    <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
       <div>
         <div style={sectionLabel}>{label}</div>
         <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
@@ -364,7 +364,7 @@ function EngagementCard({ e, onEdit, onDelete }: { e: Engagement; onEdit: () => 
           <CardActions onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         <div>
           <div style={sectionLabel}>Start</div>
           <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
@@ -411,7 +411,7 @@ function RegistrationCard({ r, onEdit, onDelete }: { r: IORegistration; onEdit: 
           <CardActions onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         <div>
           <div style={sectionLabel}>Type</div>
           <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
@@ -668,7 +668,7 @@ function EngagementFormModal({ clientId, initial, onClose, onSaved }: {
       </div>
       {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Service tier *</label>
             <select name="service_tier" defaultValue={initial?.service_tier ?? "representative"} style={inputStyle} required>
@@ -776,7 +776,7 @@ function RegistrationFormModal({ clientId, initial, onClose, onSaved }: {
       </div>
       {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Registration type *</label>
             <select name="registration_type" defaultValue={initial?.registration_type ?? "information_officer"} style={inputStyle} required>
@@ -897,7 +897,7 @@ function BreachFormModal({ clientId, initial, onClose, onSaved }: {
       </div>
       {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Incident date *</label>
             <input name="incident_date" type="date" required defaultValue={toDateInput(initial?.incident_date)} style={inputStyle} />
@@ -1023,7 +1023,7 @@ function TaskFormModal({ clientId, initial, onClose, onSaved }: {
       <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>{isEdit ? "Edit task" : "Add task"}</div>
       {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div style={{ gridColumn: "1 / -1" }}>
             <label style={labelStyle}>Title *</label>
             <input name="title" required defaultValue={initial?.title ?? ""} style={inputStyle} placeholder="e.g. Submit IO registration" />
@@ -1090,7 +1090,7 @@ function CorrespondenceFormModal({ clientId, initial, onClose, onSaved }: {
       <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>{isEdit ? "Edit correspondence" : "Log correspondence"}</div>
       {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Direction *</label>
             <select name="direction" defaultValue={initial?.direction ?? "inbound"} style={inputStyle} required>
@@ -1205,7 +1205,7 @@ function ProcessingActivityFormModal({ clientId, initial, onClose, onSaved }: { 
         <label style={labelStyle}>Description</label>
         <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.description} onChange={(e) => set("description", e.target.value)} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <label style={labelStyle}>Legal basis *</label>
             <select style={inputStyle} value={form.legal_basis} onChange={(e) => set("legal_basis", e.target.value)}>
@@ -1233,7 +1233,7 @@ function ProcessingActivityFormModal({ clientId, initial, onClose, onSaved }: { 
         <label style={labelStyle}>Recipients (comma-separated)</label>
         <input style={inputStyle} value={form.recipients_str} onChange={(e) => set("recipients_str", e.target.value)} placeholder="Payroll provider, cloud host" />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <label style={labelStyle}>Retention period</label>
             <input style={inputStyle} value={form.retention_period} onChange={(e) => set("retention_period", e.target.value)} placeholder="7 years after contract end" />
@@ -1249,7 +1249,7 @@ function ProcessingActivityFormModal({ clientId, initial, onClose, onSaved }: { 
         </label>
 
         {form.cross_border && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <label style={labelStyle}>Transfer countries (ISO codes)</label>
               <input style={inputStyle} value={form.transfer_countries_str} onChange={(e) => set("transfer_countries_str", e.target.value)} placeholder="GB, US, DE" />
@@ -1363,7 +1363,7 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
             <label style={labelStyle}>Processing description</label>
             <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.processing_description} onChange={(e) => set("processing_description", e.target.value)} placeholder="What processing of this category occurs?" />
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label style={labelStyle}>Volume estimate</label>
                 <input style={inputStyle} value={form.volume_estimate} onChange={(e) => set("volume_estimate", e.target.value)} placeholder="Approximate data subjects" />
@@ -1383,7 +1383,7 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
                 <input type="checkbox" checked={form.prior_auth_required} onChange={(e) => set("prior_auth_required", e.target.checked)} /> Prior authorisation required
               </label>
               {form.prior_auth_required && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 6 }}>
+                <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 6 }}>
                   <div>
                     <label style={labelStyle}>Status</label>
                     <select style={inputStyle} value={form.prior_auth_status} onChange={(e) => set("prior_auth_status", e.target.value)}>
@@ -1406,7 +1406,7 @@ function SpecialCategoryFormModal({ item, onClose, onSaved }: { item: SpecialCat
 
         {form.is_processed === true && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+            <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
               <div>
                 <label style={labelStyle}>Compliance status</label>
                 <select style={inputStyle} value={form.compliance_status} onChange={(e) => set("compliance_status", e.target.value)}>
@@ -1770,31 +1770,31 @@ function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: stri
         <div style={{ fontFamily: "Manrope, sans-serif", fontWeight: 800, fontSize: 15, color: "#1A1C1E", marginBottom: 14 }}>{isEdit ? "Edit DSAR" : "Log data subject request"}</div>
 
         <div style={sectionTitle}>Request details</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>Type *</label><select value={requestType} onChange={(e) => setRequestType(e.target.value as DataSubjectRequest["request_type"])} style={inputStyle}><option value="access">Access (s23)</option><option value="correction">Correction (s24)</option><option value="deletion">Deletion (s24)</option><option value="objection">Objection (s11)</option><option value="portability">Portability</option><option value="other">Other</option></select></div>
           <div><label style={labelStyle}>Priority</label><select value={priority} onChange={(e) => setPriority(e.target.value as DataSubjectRequest["priority"])} style={inputStyle}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
         </div>
         <div style={{ marginBottom: 10 }}><label style={labelStyle}>Description</label><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>
 
         <div style={sectionTitle}>Data subject</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>Name *</label><input value={dsName} onChange={(e) => setDsName(e.target.value)} style={inputStyle} /></div>
           <div><label style={labelStyle}>Email</label><input value={dsEmail} onChange={(e) => setDsEmail(e.target.value)} style={inputStyle} /></div>
           <div><label style={labelStyle}>Phone</label><input value={dsPhone} onChange={(e) => setDsPhone(e.target.value)} style={inputStyle} /></div>
           <div><label style={labelStyle}>Category</label><select value={dsCategory} onChange={(e) => setDsCategory(e.target.value)} style={inputStyle}><option value="">—</option><option value="customer">Customer</option><option value="employee">Employee</option><option value="supplier">Supplier</option><option value="website_visitor">Website visitor</option><option value="other">Other</option></select></div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>ID type</label><select value={dsIdType} onChange={(e) => setDsIdType(e.target.value)} style={inputStyle}><option value="">—</option><option value="id_number">SA ID number</option><option value="passport">Passport</option><option value="other">Other</option></select></div>
           <div><label style={labelStyle}>ID ref (masked)</label><input value={dsIdRef} onChange={(e) => setDsIdRef(e.target.value)} style={inputStyle} placeholder="e.g. ***1234" /></div>
           <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}><label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={identityVerified} onChange={(e) => setIdentityVerified(e.target.checked)} /> Identity verified</label></div>
         </div>
 
         <div style={sectionTitle}>Workflow</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>Status</label><select value={status} onChange={(e) => setStatus(e.target.value as DataSubjectRequest["status"])} style={inputStyle}><option value="received">Received</option><option value="identity_verification">Identity verification</option><option value="in_progress">In progress</option><option value="awaiting_info">Awaiting info</option><option value="completed">Completed</option><option value="refused">Refused</option><option value="escalated">Escalated</option><option value="closed">Closed</option></select></div>
           <div><label style={labelStyle}>Assigned to</label><input value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} style={inputStyle} /></div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>Received</label><input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} style={inputStyle} /></div>
           <div><label style={labelStyle}>Acknowledged</label><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} style={inputStyle} /></div>
           <div><label style={labelStyle}>Deadline</label><input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} style={inputStyle} placeholder="Auto: +30 days" /></div>
@@ -2136,7 +2136,7 @@ export default function ClientsClient({ initialClients, summary }: { initialClie
   const selected = clients.find((c) => c.id === selectedId) ?? null;
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196" }}>AfricanSTN · Commercial</div>
@@ -2146,7 +2146,7 @@ export default function ClientsClient({ initialClients, summary }: { initialClie
         </div>
       </div>
       {/* Body */}
-      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+      <div className="r-col" style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
         {/* Sidebar */}
         <div style={{ width: 270, flexShrink: 0 }}>
           <div style={{ background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, overflow: "hidden" }}>
@@ -2203,7 +2203,7 @@ function AddClientModal({ onClose }: { onClose: () => void }) {
       <h2 style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Add client</h2>
       {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "Manrope, sans-serif", fontSize: 12, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
           <div><label style={labelStyle}>Company name *</label><input name="company_name" required style={inputStyle} /></div>
           <div><label style={labelStyle}>Website</label><input name="company_website" style={inputStyle} /></div>
           <div><label style={labelStyle}>Country</label><input name="company_country" style={inputStyle} /></div>
@@ -2267,7 +2267,7 @@ function EditClientModal({ client, onClose, onSaved }: { client: Client; onClose
       <h2 style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Edit client</h2>
       {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "Manrope, sans-serif", fontSize: 12, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
+        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
           <div><label style={labelStyle}>Company name *</label><input name="company_name" required defaultValue={client.company_name} style={inputStyle} /></div>
           <div><label style={labelStyle}>Website</label><input name="company_website" defaultValue={client.company_website ?? ""} style={inputStyle} /></div>
           <div><label style={labelStyle}>Country</label><input name="company_country" defaultValue={client.company_country ?? ""} style={inputStyle} /></div>

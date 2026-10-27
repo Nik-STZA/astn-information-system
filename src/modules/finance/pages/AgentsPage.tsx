@@ -21,7 +21,7 @@ export default async function AgentsPage({ params }: { params: { slug: string } 
   }
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Agents" />
       <ClientTabs slug={params.slug} active="agents" />
 

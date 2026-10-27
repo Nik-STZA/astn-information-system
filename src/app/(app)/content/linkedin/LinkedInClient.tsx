@@ -110,7 +110,7 @@ function DraftEditor({ draft, onSaved }: { draft: LinkedInDraft; onSaved: () => 
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 18, alignItems: "start" }}>
+    <div className="r-stack" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 18, alignItems: "start" }}>
       {/* Editor */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>

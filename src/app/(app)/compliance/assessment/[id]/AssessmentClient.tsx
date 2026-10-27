@@ -424,7 +424,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 </div>
               </div>
               {/* Domain score cards — 3×2 grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, margin: "0 0 26px" }}>
+              <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, margin: "0 0 26px" }}>
                 {domainScores.map((d) => {
                   const numScore = Number(d.score ?? 0);
                   const sl = scoreLabel(numScore);
@@ -606,7 +606,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
             <h2 style={S.sectionHead}>Key POPIA obligations for international companies</h2>
             <div style={S.sectionRule} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "0 0 26px" }}>
+          <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "0 0 26px" }}>
             {[
               { title: "Information Officer", body: "Appoint and register with the IR (s55–56). International entities must designate a local representative." },
               { title: "Lawful processing", body: "Personal information must be processed lawfully for a defined purpose, with data-subject consent or another s11 ground." },

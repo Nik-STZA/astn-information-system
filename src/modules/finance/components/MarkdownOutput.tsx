@@ -99,29 +99,32 @@ function renderTable(rows: string[]): ReactNode {
     return numericCount > body.length * 0.5 ? ("right" as const) : a;
   });
 
+  // A wide table scrolls inside its own box on a phone (r-scroll-x).
   return (
-    <table style={TABLE_STYLE}>
-      <thead>
-        <tr>
-          {header.map((h, i) => (
-            <th key={i} style={{ ...TH_STYLE, textAlign: effectiveAlign[i] ?? "left" }}>
-              {inlineFormat(h)}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {body.map((row, ri) => (
-          <tr key={ri}>
-            {row.map((cell, ci) => (
-              <td key={ci} style={{ ...TD_STYLE, textAlign: effectiveAlign[ci] ?? "left" }}>
-                {inlineFormat(cell)}
-              </td>
+    <div className="r-scroll-x">
+      <table style={TABLE_STYLE}>
+        <thead>
+          <tr>
+            {header.map((h, i) => (
+              <th key={i} style={{ ...TH_STYLE, textAlign: effectiveAlign[i] ?? "left" }}>
+                {inlineFormat(h)}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {body.map((row, ri) => (
+            <tr key={ri}>
+              {row.map((cell, ci) => (
+                <td key={ci} style={{ ...TD_STYLE, textAlign: effectiveAlign[ci] ?? "left" }}>
+                  {inlineFormat(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

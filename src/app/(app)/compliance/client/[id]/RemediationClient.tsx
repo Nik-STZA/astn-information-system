@@ -369,7 +369,7 @@ export default function RemediationClient({
               </div>
             </div>
           ) : (
-            <div className="card" style={{ overflow: "hidden" }}>
+            <div className="card r-scroll-x" style={{ overflow: "hidden" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: "var(--table-header)" }}>

@@ -30,7 +30,7 @@ export default async function CoaPage({
       : null;
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
+    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Chart of accounts" />
       <ClientTabs slug={slug} active="coa" />
 

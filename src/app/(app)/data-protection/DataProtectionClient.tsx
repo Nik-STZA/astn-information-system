@@ -381,7 +381,7 @@ export default function DataProtectionClient({
       </div>
 
       {/* Counter cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+      <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         {[
           { label: "Countries tracked", value: countries.length },
           { label: "With a DP law", value: withLaw },
@@ -483,6 +483,7 @@ export default function DataProtectionClient({
 
       {/* Table */}
       <div
+        className="r-scroll-x"
         style={{
           background: "var(--pnl)",
           border: "1px solid var(--bd)",

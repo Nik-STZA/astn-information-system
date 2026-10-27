@@ -384,7 +384,7 @@ export default function ReviewQueueClient({
           <h2 className="text-sm font-semibold text-brand-dark mb-3">
             Recent ingestion runs
           </h2>
-          <div className="bg-white border border-gold-border rounded-lg overflow-hidden">
+          <div className="bg-white border border-gold-border rounded-lg overflow-hidden r-scroll-x">
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-warm-light text-warm-grey">

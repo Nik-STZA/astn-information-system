@@ -168,7 +168,7 @@ export default function AssessmentV2Client({ detail }: Props) {
 
             {/* Domain scores grid */}
             {domainEntries.length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${domainCols}, 1fr)`, gap: 8, marginBottom: 28 }}>
+              <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: `repeat(${domainCols}, 1fr)`, gap: 8, marginBottom: 28 }}>
                 {domainEntries.map(([code, ds]) => {
                   const sl = scoreLabel(ds.score);
                   return (
@@ -439,7 +439,7 @@ export default function AssessmentV2Client({ detail }: Props) {
                   <h3 style={S.sectionHead}>Evidence summary</h3>
                   <div style={S.sectionRule} />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 28 }}>
+                <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 28 }}>
                   {[
                     { label: "Total evidence", value: wp.evidence_summary.total_evidence },
                     { label: "Keyword matches", value: wp.evidence_summary.keyword_evidence },

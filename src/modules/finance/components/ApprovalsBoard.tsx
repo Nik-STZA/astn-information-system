@@ -572,6 +572,7 @@ export default function ApprovalsBoard({
                       select(i.ref);
                     }
                   }}
+                  className="r-row"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "70px 1fr auto auto",
