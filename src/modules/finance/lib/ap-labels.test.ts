@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "./ap-labels";
+import { AP_TABS, checkLabel, documentTypeLabel, matchOptions, money, shortDate } from "./ap-labels";
 
 describe("ap-labels", () => {
   it("puts every queue state in exactly one tab, except superseded", () => {
@@ -21,5 +21,32 @@ describe("ap-labels", () => {
     expect(money(null, "GBP")).toBe("-");
     expect(shortDate("2026-10-07T00:00:00")).toBe("7 Oct 2026");
     expect(shortDate(null)).toBe("-");
+  });
+});
+
+describe("matchOptions", () => {
+  const accounts = [
+    { value: "442", label: "442 Legal and professional fees" },
+    { value: "620", label: "620 Prepayments" },
+    { value: "6200", label: "6200 Prepaid software" },
+    { value: "429", label: "429 General expenses" },
+  ];
+  const labels = (q: string) => matchOptions(accounts, q).map((a) => a.value);
+
+  it("finds an account by name as well as by number", () => {
+    expect(labels("prep")).toEqual(["620", "6200"]);
+    expect(labels("PREPAYMENTS")).toEqual(["620"]);
+    expect(labels("620")).toEqual(["620", "6200"]);
+  });
+
+  it("needs every word, in any order, and puts a match at the start first", () => {
+    expect(labels("fees legal")).toEqual(["442"]);
+    expect(labels("expenses")).toEqual(["429"]);
+    expect(labels("software prep")).toEqual(["6200"]);
+  });
+
+  it("shows everything when nothing is typed, and nothing for no match", () => {
+    expect(labels("  ")).toEqual(["442", "620", "6200", "429"]);
+    expect(labels("zzz")).toEqual([]);
   });
 });

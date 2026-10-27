@@ -3231,8 +3231,11 @@ function gatedWrite(tool, tierOf, plan) {
 
     const r = await p.send(key);
     const saved = p.saved ? p.saved(r.body) : null;
-    const rowErrors = saved && (saved.HasValidationErrors || (saved.ValidationErrors || []).length)
-      ? (saved.ValidationErrors || []).map((e) => e.Message) : [];
+    const rowErrors = saved && (saved.HasValidationErrors || saved.HasErrors || (saved.ValidationErrors || []).length)
+      ? ((saved.ValidationErrors || []).map((e) => e.Message).filter(Boolean).length
+        ? (saved.ValidationErrors || []).map((e) => e.Message).filter(Boolean)
+        : ["Xero marked the document as having errors"])
+      : [];
     if (!r.ok || rowErrors.length) {
       Object.assign(result, {
         action: "FAILED",
@@ -4629,7 +4632,9 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
       send: async (key) => {
         const r = await bill.send(key);
         const saved = bill.saved(r.body);
-        if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors) return r;
+        // Xero answers 200 with the errors on the bill itself (HasErrors and
+        // ValidationErrors): the row is marked written only when Xero took it.
+        if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors || saved.HasErrors || (saved.ValidationErrors || []).length) return r;
         done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} ${fromDraft ? "updated" : "created"} ${saved.Status}`);
         let attachError = null;
         if (fromDraft) {

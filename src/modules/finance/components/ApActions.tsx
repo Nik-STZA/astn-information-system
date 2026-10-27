@@ -11,7 +11,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import styles from "./ApQueue.module.css";
-import { money } from "@/modules/finance/lib/ap-labels";
+import SearchSelect from "./SearchSelect";
+import { money, shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApOptions, ApSendResult, ApState } from "@/modules/finance/lib/ap-queue";
 
 export interface ApActionsItem {
@@ -20,6 +21,9 @@ export interface ApActionsItem {
   contactId: string | null;
   contactName: string | null;
   number: string;
+  date: string | null;
+  dueDate: string | null;
+  fromDraft: boolean;
   total: number | null;
   currency: string | null;
   lines: Array<{ description: string; amount: number; account: string | null; tax: string | null; accountName?: string | null; taxName?: string | null }>;
@@ -80,8 +84,8 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
       {check?.validation === "PASS" && (
         <div className={styles.confirm}>
           <p className={styles.confirmText}>
-            This creates a bill from <strong>{item.contactName}</strong>{item.number ? `, ${item.number}` : ""}, for{" "}
-            <strong>{money(item.total, item.currency)}</strong>, in Xero at <strong>Awaiting approval</strong>, with the document attached.
+            This {item.fromDraft ? "updates Xero's draft bill" : "creates a bill"} from <strong>{item.contactName}</strong>{item.number ? `, ${item.number}` : ""}, for{" "}
+            <strong>{money(item.total, item.currency)}</strong>, due <strong>{shortDate(item.dueDate)}</strong>, to <strong>Awaiting approval</strong>, with the document attached.
             You then approve it in Xero.
           </p>
           <ul className={styles.codingList}>
@@ -122,6 +126,7 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
   const router = useRouter();
   const [options, setOptions] = useState<ApOptions | null>(null);
   const [contactId, setContactId] = useState(item.contactId ?? "");
+  const [dueDate, setDueDate] = useState((item.dueDate ?? "").slice(0, 10));
   const [lines, setLines] = useState(item.lines.map((l) => ({ account: l.account ?? "", tax: l.tax ?? "" })));
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -143,6 +148,7 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
       action, note,
       edits: {
         ...(contactId && contactId !== item.contactId ? { contact: { ContactID: contactId, Name: supplier?.name ?? null } } : {}),
+        ...(dueDate && dueDate !== (item.dueDate ?? "").slice(0, 10) ? { due_date: dueDate } : {}),
         lines: lines.map((l, index) => ({ index, account_code: l.account, tax_type: l.tax })),
       },
     };
@@ -155,7 +161,14 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
     } catch (e) { setError(e instanceof Error ? e.message : "The decision failed"); } finally { setBusy(false); }
   }
 
-  const ready = contactId && lines.every((l) => l.account && l.tax);
+  const ready = contactId && dueDate && lines.every((l) => l.account && l.tax);
+  const supplierOptions = [
+    ...(item.contactId && options && !options.suppliers.some((s) => s.contact_id === item.contactId)
+      ? [{ value: item.contactId, label: item.contactName ?? item.contactId }] : []),
+    ...(options?.suppliers ?? []).map((s) => ({ value: s.contact_id, label: s.name })),
+  ];
+  const accountOptions = (options?.accounts ?? []).map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }));
+  const taxOptions = (options?.tax_types ?? []).map((t) => ({ value: t.type, label: t.name }));
 
   return (
     <div className={styles.actions}>
@@ -163,35 +176,21 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
       {!options && !error && <p className={styles.status}>Loading accounts...</p>}
       {options && (
         <>
+          <SearchSelect label="Supplier" value={contactId} options={supplierOptions} placeholder="Type to find a supplier"
+            onChange={setContactId} />
           <label className={styles.field}>
-            <span>Supplier</span>
-            <select className={styles.select} value={contactId} onChange={(e) => setContactId(e.target.value)}>
-              <option value="">Choose a supplier</option>
-              {item.contactId && !options.suppliers.some((s) => s.contact_id === item.contactId) && (
-                <option value={item.contactId}>{item.contactName}</option>
-              )}
-              {options.suppliers.map((s) => <option key={s.contact_id} value={s.contact_id}>{s.name}</option>)}
-            </select>
+            <span>Due date{item.date ? ` (bill dated ${shortDate(item.date)})` : ""}</span>
+            <input type="date" className={styles.select} value={dueDate} min={(item.date ?? "").slice(0, 10) || undefined}
+              onChange={(e) => setDueDate(e.target.value)} />
           </label>
           {item.lines.map((l, i) => (
             <fieldset key={i} className={styles.lineEdit}>
               <legend>{l.description} · {money(l.amount, null)}</legend>
-              <label className={styles.field}>
-                <span>Account</span>
-                <select className={styles.select} value={lines[i].account}
-                  onChange={(e) => setLines(lines.map((x, n) => (n === i ? { ...x, account: e.target.value } : x)))}>
-                  <option value="">Choose an account</option>
-                  {options.accounts.map((a) => <option key={a.code} value={a.code}>{a.code} {a.name}</option>)}
-                </select>
-              </label>
-              <label className={styles.field}>
-                <span>VAT</span>
-                <select className={styles.select} value={lines[i].tax}
-                  onChange={(e) => setLines(lines.map((x, n) => (n === i ? { ...x, tax: e.target.value } : x)))}>
-                  <option value="">Choose the VAT treatment</option>
-                  {options.tax_types.map((t) => <option key={t.type} value={t.type}>{t.name}</option>)}
-                </select>
-              </label>
+              <SearchSelect label="Account" value={lines[i].account} options={accountOptions}
+                placeholder="Type a name or code, e.g. prepayments"
+                onChange={(v) => setLines(lines.map((x, n) => (n === i ? { ...x, account: v } : x)))} />
+              <SearchSelect label="VAT" value={lines[i].tax} options={taxOptions} placeholder="Type to find the VAT treatment"
+                onChange={(v) => setLines(lines.map((x, n) => (n === i ? { ...x, tax: v } : x)))} />
             </fieldset>
           ))}
           <label className={styles.field}>
@@ -207,7 +206,7 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
             </button>
             {onCancel && <button type="button" className={styles.buttonSecondary} onClick={onCancel} disabled={busy}>Cancel</button>}
           </div>
-          {!ready && <p className={styles.status}>Choose a supplier, and an account and VAT treatment for every line, to approve.</p>}
+          {!ready && <p className={styles.status}>Choose a supplier, a due date, and an account and VAT treatment for every line, to approve.</p>}
         </>
       )}
       {issues.length > 0 && <Issues title="Not saved" issues={issues} onClose={() => setIssues([])} />}

@@ -176,7 +176,7 @@ describe("step 3", () => {
   it("approves an exception with the CFO's supplier and coding, then it can be sent", () => {
     const bare = buildBill({ doc: invoice, match: null, entity });
     const d = decide({ state: "exception", proposed_bill: bare }, { action: "approve", edits: {
-      contact: { ContactID: link.xero_contact_id, Name: "Amazon" },
+      contact: { ContactID: link.xero_contact_id, Name: "Amazon" }, due_date: "2026-10-29",
       lines: [{ index: 0, account_code: "454", tax_type: "INPUT2" }, { index: 1, account_code: "454", tax_type: "INPUT2" }],
     } });
     expect(d).toMatchObject({ issues: [], state: "approved" });
@@ -266,5 +266,27 @@ describe("drafts Xero keyed", () => {
     expect(sendRequest({ ...item, ledger_draft_id: null }).issues).toContain("the Xero draft this item came from is not recorded");
     // An inbox item still creates a new bill.
     expect(sendRequest({ ...item, source: "files_inbox" }).body.id).toBeUndefined();
+  });
+});
+
+describe("due date before a send", () => {
+  // FSL, 27 Oct 2026: a retainer invoice with no due date; Xero refused the
+  // bill at SUBMITTED ("Due Date cannot be empty").
+  const noDue = { ...buildBill({ doc: invoice, match: { link: { ...link, payment_terms_days: null } }, entity }), DueDateString: null };
+
+  it("refuses to send a bill with no due date", () => {
+    expect(sendRequest({ state: "approved", file_name: "a.pdf", proposed_bill: noDue }).issues)
+      .toEqual(["no due date: set one first (Xero needs it on a bill awaiting approval)"]);
+  });
+
+  it("lets the CFO set the due date, not before the bill's date", () => {
+    const d = decide({ state: "exception", proposed_bill: noDue }, { action: "approve", edits: { due_date: "2026-11-01" } });
+    expect(d.issues).toEqual([]);
+    expect(d.bill.DueDateString).toBe("2026-11-01T00:00:00");
+    expect(sendRequest({ state: "approved", file_name: "a.pdf", proposed_bill: d.bill }).body.due_date).toBe("2026-11-01");
+    expect(decide({ state: "exception", proposed_bill: noDue }, { action: "approve", edits: { due_date: "2026-09-01" } }).issues)
+      .toEqual(["the due date is before the bill's date"]);
+    expect(decide({ state: "exception", proposed_bill: noDue }, { action: "approve", edits: { due_date: "1 Nov" } }).issues)
+      .toEqual(["the due date must be a date (YYYY-MM-DD)"]);
   });
 });
