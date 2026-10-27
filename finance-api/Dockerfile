@@ -11,6 +11,9 @@ RUN npm install --omit=dev
 # require("./lib/xero") unresolvable and the container failed to start.
 COPY server.js ./
 COPY lib ./lib
+# The same image runs the agent runner as the Cloud Run Job agent-runner
+# (node runner.js, RUNNER_ONCE=1), started by this service when a run is queued.
+COPY runner.js ./
 
 ENV NODE_ENV=production
 EXPOSE 8080

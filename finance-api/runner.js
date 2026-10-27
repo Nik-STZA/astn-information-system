@@ -13,16 +13,22 @@
 //   POLL_INTERVAL_MS (default 5000)
 //   MODEL            (default claude-sonnet-5)
 //   MAX_TURNS        (default 25)
+//   RUNNER_ONCE      1 (or --once): run every queued job, then exit. This is how
+//                    the Cloud Run Job agent-runner runs: finance-api starts it
+//                    when a run is queued, so nothing sits polling.
 
 const Anthropic = require("@anthropic-ai/sdk").default;
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const API_URL = process.env.FINANCE_API_URL ?? "http://127.0.0.1:8080";
-const API_KEY = process.env.FINANCE_API_KEY;
+// Trimmed: a secret mounted by Cloud Run arrives exactly as stored, and a
+// trailing newline breaks the header (the api-key CRLF incident, July 2026).
+const API_KEY = (process.env.FINANCE_API_KEY || "").trim() || undefined;
 const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS || "5000", 10);
 const MODEL = process.env.MODEL || "claude-sonnet-5";
 const MAX_TURNS = parseInt(process.env.MAX_TURNS || "25", 10);
+const ONCE = process.env.RUNNER_ONCE === "1" || process.argv.includes("--once");
 
 if (!API_KEY) {
   console.error("FINANCE_API_KEY is required");
@@ -33,7 +39,7 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
-const anthropic = new Anthropic();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY.trim() });
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -681,11 +687,14 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
 let running = true;
 
 async function poll() {
+  let claimFailures = 0;
   while (running) {
     try {
       const job = await claimJob();
+      claimFailures = 0;
       if (!job) {
-        // No queued jobs — sleep and retry
+        // Queue empty: a once runner is done; a polling runner waits.
+        if (ONCE) return;
         await sleep(POLL_MS);
         continue;
       }
@@ -712,6 +721,9 @@ async function poll() {
     } catch (e) {
       // Claim itself failed — API might be down
       console.error("Poll error:", e.message);
+      claimFailures += 1;
+      // A once runner gives up after three tries; the run stays queued for the next start.
+      if (ONCE && claimFailures >= 3) throw new Error(`could not claim jobs: ${e.message}`);
       await sleep(POLL_MS * 2);
     }
   }
@@ -728,6 +740,7 @@ console.log(`  API:   ${API_URL}`);
 console.log(`  Model: ${MODEL}`);
 console.log(`  Poll:  ${POLL_MS}ms`);
 console.log(`  Max turns: ${MAX_TURNS}`);
+console.log(`  Mode:  ${ONCE ? "once (exit when the queue is empty)" : "polling"}`);
 console.log("");
 
 process.on("SIGINT", () => {
@@ -740,7 +753,9 @@ process.on("SIGTERM", () => {
   running = false;
 });
 
-poll().catch((e) => {
+poll().then(() => {
+  if (ONCE) console.log("Queue empty, exiting.");
+}).catch((e) => {
   console.error("Fatal:", e);
   process.exit(1);
 });

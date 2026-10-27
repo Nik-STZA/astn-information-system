@@ -122,6 +122,7 @@ module.exports = {
   initialRun,
   jobRunRequest,
   startPackJob,
+  metadataToken,
   STALE_RUNNING_MINUTES,
   STALE_QUEUED_HOURS,
   NO_PIPELINE_MESSAGE,
