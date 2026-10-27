@@ -296,3 +296,36 @@ export async function fetchReportRuns(
   // An older finance-api does not say, and everything built on the laptop then.
   return { runs: r.data, executor: r.executor ?? "local", pipeline: r.pipeline ?? "legacy" };
 }
+
+// ── Overview (GET /api/finance/overview) ─────────────────────────────────────
+
+export interface FinanceOverviewClient {
+  slug: string;
+  name: string;
+  currency: string | null;
+  entities: number;
+  bills: { for_you: number; ready: number; sent_this_week: number };
+  approvals: { awaiting: number; blocked: number };
+  open_items: { open: number; p1: number; overdue: number };
+  agents: { in_flight: number; last: { agent: string | null; status: string; at: string } | null };
+  pack: { period: string; status: string; at: string } | null;
+}
+
+export interface FinanceOverview {
+  today: string;
+  totals: {
+    needs_you: number;
+    bills_for_you: number;
+    approvals_awaiting: number;
+    blocked: number;
+    ready_to_send: number;
+    agents_in_flight: number;
+  };
+  clients: FinanceOverviewClient[];
+  blocked: Array<{ client: string; slug: string; kind: "waiting" | "overdue"; title: string; why: string; since: string | null; href: string }>;
+  activity: Array<{ id: string; client: string; slug: string; agent: string | null; status: string; instruction: string; at: string }>;
+}
+
+export async function fetchFinanceOverview(): Promise<FinanceOverview> {
+  return get<FinanceOverview>("/api/finance/overview");
+}
