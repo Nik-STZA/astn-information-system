@@ -80,3 +80,28 @@ describe("changes", () => {
       .toEqual({ status: { from: "todo", to: "done" } });
   });
 });
+
+import { openItemTask } from "./work";
+
+describe("open items into tasks", () => {
+  const base = { id: "oi-1", title: " Chase HSBC for the facility letter ", is_closed: false, priority: "P1", owner_label: "CFO",
+    category: "Financial reporting", ref: "C7", notes: "Letter needed for audit." };
+
+  it("leaves done items out, but not partly done ones", () => {
+    expect(openItemTask({ ...base, status: "DONE (with parked follow-on)" })).toBeNull();
+    expect(openItemTask({ ...base, status: "Open", is_closed: true })).toBeNull();
+    expect(openItemTask({ ...base, status: "Partially DONE (schema); reader pending" }).task.status).toBe("in_progress");
+  });
+
+  it("turns an outside wait into a Waiting blocker and keeps the register's words", () => {
+    const r = openItemTask({ ...base, status: "Awaiting external (HSBC) - repeated CFO chase, no reply" });
+    expect(r.task).toMatchObject({ title: "Chase HSBC for the facility letter", status: "todo", priority: "P1", source: "open_item", source_ref: "oi-1" });
+    expect(r.blockers).toEqual([{ kind: "external", party: "HSBC", description: "Awaiting external (HSBC) - repeated CFO chase, no reply" }]);
+    expect(r.task.notes).toBe("Letter needed for audit.\nFrom the open-items register:\nRef: C7\nStatus: Awaiting external (HSBC) - repeated CFO chase, no reply\nOwner: CFO\nCategory: Financial reporting");
+  });
+
+  it("reads a paused decision as waiting on that person", () => {
+    expect(openItemTask({ ...base, status: "Paused pending CEO decision" }).blockers[0]).toMatchObject({ kind: "external", party: "CEO" });
+    expect(openItemTask({ ...base, status: "In progress" })).toMatchObject({ task: { status: "in_progress" }, blockers: [] });
+  });
+});

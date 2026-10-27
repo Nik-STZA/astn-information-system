@@ -35,7 +35,7 @@ describe("finance overview", () => {
       agents: { in_flight: 1, last: { agent: "fc", status: "succeeded" } },
       pack: { period: "2026-09", status: "succeeded" },
     });
-    expect(o.totals).toEqual({ needs_you: 3, bills_for_you: 2, approvals_awaiting: 1, blocked: 2, ready_to_send: 2, agents_in_flight: 1 });
+    expect(o.totals).toEqual({ needs_you: 3, bills_for_you: 2, approvals_awaiting: 1, blocked: 2, tasks_open: 0, ready_to_send: 2, agents_in_flight: 1 });
   });
 
   it("lists what is stuck, oldest first, with why and where to go", () => {
@@ -52,5 +52,24 @@ describe("finance overview", () => {
     expect(isOpen({ is_closed: false, status: "DONE" })).toBe(false);
     expect(isOpen({ is_closed: false, status: "Partially DONE" })).toBe(true);
     expect(isOpen({ is_closed: true, status: "Open" })).toBe(false);
+  });
+});
+
+describe("Work in the overview", () => {
+  it("counts open, blocked, waiting and overdue tasks, and lists the stuck ones with a link", () => {
+    const tasks = [
+      { id: "t1", title: "Management pack", due_on: "2026-11-10", blockers: [{ kind: "task", blocking_title: "Payroll journal", since: "2026-10-26T08:00:00Z" }] },
+      { id: "t2", title: "Payroll journal", due_on: "2026-10-30", blockers: [{ kind: "external", party: "Client", description: "payroll file", since: "2026-10-21T10:00:00Z" }] },
+      { id: "t3", title: "Approve retainer", due_on: "2026-10-24", blockers: [] },
+      { id: "t4", title: "Later", due_on: null, blockers: [] },
+    ];
+    const o = overview([{ client, tasks }], today);
+    expect(o.clients[0].work).toEqual({ open: 4, blocked: 1, waiting: 1, overdue: 1 });
+    expect(o.blocked.map((b) => [b.kind, b.title, b.why, b.href])).toEqual([
+      ["waiting", "Payroll journal", "Waiting on Client: payroll file", "/finance/clients/acme/work?task=t2"],
+      ["overdue", "Approve retainer", "Overdue since 2026-10-24", "/finance/clients/acme/work?task=t3"],
+      ["blocked", "Management pack", "Blocked by: Payroll journal", "/finance/clients/acme/work?task=t1"],
+    ]);
+    expect(o.totals.tasks_open).toBe(4);
   });
 });

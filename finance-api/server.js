@@ -187,7 +187,7 @@ app.get("/api/finance/clients", route(async (_req, res) => {
 // Read-only, one round of queries for all clients.
 app.get("/api/finance/overview", route(async (_req, res) => {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const [clients, entities, ap, wip, openItems, runs, packs] = await Promise.all([
+  const [clients, entities, ap, wip, openItems, runs, packs, tasks] = await Promise.all([
     pool.query(`SELECT c.id, c.slug, c.name, f.reporting_currency FROM shared.clients c
                   JOIN finance.client_finance_config f ON f.client_id = c.id ORDER BY c.name`),
     pool.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities GROUP BY client_id"),
@@ -202,13 +202,29 @@ app.get("/api/finance/overview", route(async (_req, res) => {
                  WHERE r.queued_at > now() - interval '30 days' ORDER BY r.queued_at DESC`),
     pool.query(`SELECT DISTINCT ON (client_id) client_id, period, status, queued_at, finished_at
                   FROM finance.report_runs ORDER BY client_id, queued_at DESC`),
+    // Open Work tasks, each with the blockers that still hold (lib/work.js rules:
+    // a task blocker holds until that task is done, a Bills one until decided).
+    pool.query(`SELECT t.client_id, t.id, t.title, t.due_on::text,
+                       COALESCE(json_agg(json_build_object('kind', b.kind, 'party', b.party, 'description', b.description,
+                         'blocking_title', bt.title, 'since', b.since) ORDER BY b.since)
+                         FILTER (WHERE b.id IS NOT NULL), '[]') AS blockers
+                  FROM finance.tasks t
+                  LEFT JOIN finance.task_blockers b ON b.task_id = t.id AND b.resolved_at IS NULL
+                   AND (b.kind = 'external'
+                        OR (b.kind = 'task' AND EXISTS (SELECT 1 FROM finance.tasks x WHERE x.id = b.blocking_task_id
+                              AND x.status <> 'done' AND x.deleted_at IS NULL))
+                        OR (b.kind = 'ap_item' AND NOT EXISTS (SELECT 1 FROM finance.ap_items x WHERE x.id = b.ap_item_id
+                              AND x.state IN ('written', 'rejected', 'superseded', 'skipped'))))
+                  LEFT JOIN finance.tasks bt ON bt.id = b.blocking_task_id
+                 WHERE t.deleted_at IS NULL AND t.status <> 'done'
+                 GROUP BY t.client_id, t.id`),
   ]);
   const of = (q, id) => q.rows.filter((r) => r.client_id === id);
   const body = financeOverview.overview(clients.rows.map((client) => ({
     client,
     entities: entities.rows.find((e) => e.client_id === client.id)?.n ?? 0,
     apItems: of(ap, client.id), wip: of(wip, client.id), openItems: of(openItems, client.id),
-    runs: of(runs, client.id), packs: of(packs, client.id),
+    runs: of(runs, client.id), packs: of(packs, client.id), tasks: of(tasks, client.id),
   })), today);
   body.activity = runs.rows.slice(0, 8).map((r) => ({
     id: r.id, client: r.client_name, slug: r.slug, agent: r.agent, status: r.status,
@@ -1862,7 +1878,11 @@ app.post("/api/finance/clients/:slug/sync", route(async (req, res) => {
     }
 
     let removed = 0;
-    if (openItems) {
+    // Once a client's open items are in Work, Work is the master (Nik, 27 Oct
+    // 2026): the register file stays as an archive and is no longer mirrored.
+    const inWork = openItems && (await conn.query(
+      "SELECT 1 FROM finance.tasks WHERE client_id = $1 AND source = 'open_item' LIMIT 1", [client.id])).rows.length > 0;
+    if (openItems && !inWork) {
       // Same reasoning as the diary lock. Upsert-on-ref is safe on its own,
       // but the delete-missing sweep at the end is not.
       await conn.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
@@ -1898,7 +1918,8 @@ app.post("/api/finance/clients/:slug/sync", route(async (req, res) => {
     }
 
     await conn.query("COMMIT");
-    res.json({ ok: true, diaryEntries: diaryRows, openItems: openItems ? openItems.length : null, removed });
+    res.json({ ok: true, diaryEntries: diaryRows, openItems: openItems && !inWork ? openItems.length : null, removed,
+      ...(inWork ? { openItemsIgnored: "open items live in Work for this client; the register file is an archive" } : {}) });
   } catch (err) {
     await conn.query("ROLLBACK").catch(() => {});
     throw err;
@@ -4838,6 +4859,7 @@ async function workBillDecided(apItemId, outcome) {
 app.get("/api/finance/clients/:slug/tasks", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
   if (!client) return res.status(404).json({ error: "client not found" });
+  await syncApprovalTasks(client.id);
   const [tasks, blockers] = await Promise.all([
     pool.query(
       `SELECT t.id, t.parent_id, t.entity_id, e.slug AS entity_slug, e.name AS entity_name, t.title, t.notes, t.status, t.priority,
@@ -5022,6 +5044,93 @@ app.post("/api/finance/clients/:slug/tasks/:id/notes", route(async (req, res) =>
   await taskEvent(conn, client.id, task.id, actorEmail, "comment", { text: text.slice(0, 4000) });
   return { status: 201, body: { ok: true } };
 })));
+
+// POST /api/finance/clients/:slug/tasks/import-open-items   body: { dry_run? }
+// Brings the open-items register into Work once (Nik, 27 Oct 2026: Work is the
+// master from then on). A dry run unless dry_run is false: it lists what each
+// open item would become. Items already imported are left alone (source_ref
+// is the open item's id, unique per client), so running it again adds only
+// what is new.
+app.post("/api/finance/clients/:slug/tasks/import-open-items", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  const dryRun = !(req.body?.dry_run === false);
+  const items = (await conn.query(
+    `SELECT o.* FROM finance.open_items o
+      WHERE o.client_id = $1
+        AND NOT EXISTS (SELECT 1 FROM finance.tasks t WHERE t.client_id = o.client_id AND t.source = 'open_item' AND t.source_ref = o.id::text)
+      ORDER BY o.priority NULLS LAST, o.ref`, [client.id])).rows;
+  const plan = items.map((o) => ({ open_item: { id: o.id, ref: o.ref, title: o.title, status: o.status }, becomes: work.openItemTask(o) }));
+  const toCreate = plan.filter((p) => p.becomes);
+  const summary = {
+    dry_run: dryRun,
+    read: items.length,
+    create: toCreate.length,
+    skipped_done: plan.length - toCreate.length,
+    with_blocker: toCreate.filter((p) => p.becomes.blockers.length).length,
+    plan: plan.map((p) => ({
+      ref: p.open_item.ref, title: p.open_item.title, register_status: p.open_item.status,
+      result: p.becomes ? { status: p.becomes.task.status, priority: p.becomes.task.priority, waiting_on: p.becomes.blockers.map((b) => b.party) } : "skipped: done",
+    })),
+  };
+  if (dryRun) return { status: 200, body: summary };
+  let position = (await conn.query("SELECT COALESCE(MAX(position), 0)::int AS p FROM finance.tasks WHERE client_id = $1", [client.id])).rows[0].p;
+  for (const p of toCreate) {
+    const t = p.becomes.task;
+    position += 1;
+    const row = (await conn.query(
+      `INSERT INTO finance.tasks (client_id, created_by, title, notes, status, priority, due_on, entity_id, source, source_ref, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [client.id, actorEmail, t.title, t.notes, t.status, t.priority, t.due_on, t.entity_id, t.source, String(t.source_ref), position])).rows[0];
+    await taskEvent(conn, client.id, row.id, actorEmail, "created", { imported_from: "open-items register", ref: p.open_item.ref, register_status: p.open_item.status });
+    for (const b of p.becomes.blockers) {
+      const br = (await conn.query(
+        "INSERT INTO finance.task_blockers (task_id, created_by, kind, party, description) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+        [row.id, actorEmail, b.kind, b.party, b.description])).rows[0];
+      await taskEvent(conn, client.id, row.id, actorEmail, "blocked", { blocker_id: br.id, kind: b.kind, party: b.party, description: b.description });
+    }
+  }
+  return { status: 201, body: summary };
+})));
+
+// Approvals waiting on the CFO appear in Work as tasks that close themselves
+// once decided (Nik, 27 Oct 2026). Run whenever Work is read: a task is opened
+// for each approval in the awaiting-decision panel that has none, and an open
+// approval task whose approval has left that panel is marked done.
+async function syncApprovalTasks(clientId) {
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const added = (await conn.query(
+      `INSERT INTO finance.tasks (client_id, created_by, title, notes, status, priority, due_on, entity_id, source, source_ref)
+       SELECT w.client_id, 'automatic', 'Approve: ' || w.title,
+              'Waiting for your decision in Approvals' || COALESCE(' (' || w.type || ')', '') || '.',
+              'review', CASE WHEN w.priority IN ('P1','P2','P3') THEN w.priority END, w.due_at::date, w.entity_id, 'approval', w.id::text
+         FROM finance.wip_items w
+        WHERE w.client_id = $1 AND w.panel = 'awaiting-decision'
+       ON CONFLICT (client_id, source, source_ref) WHERE source_ref IS NOT NULL DO NOTHING
+       RETURNING id`, [clientId])).rows;
+    for (const r of added) await taskEvent(conn, clientId, r.id, "automatic", "created", { from: "Approvals" });
+    // Decided, sent back or withdrawn: no longer waiting on the CFO either way.
+    const closed = (await conn.query(
+      `UPDATE finance.tasks t SET status = 'done', closed_at = now()
+        WHERE t.client_id = $1 AND t.source = 'approval' AND t.status <> 'done' AND t.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM finance.wip_items w WHERE w.id::text = t.source_ref AND w.panel = 'awaiting-decision')
+       RETURNING t.id,
+         (SELECT w.status FROM finance.wip_items w WHERE w.id::text = t.source_ref) AS approval_status`, [clientId])).rows;
+    for (const r of closed) {
+      await taskEvent(conn, clientId, r.id, "automatic", "status", {
+        changes: { status: { from: "review", to: "done" } },
+        reason: r.approval_status ? `the approval is now ${r.approval_status}` : "the approval was withdrawn",
+      });
+      await clearBlockers(conn, { taskIds: [r.id], reason: "the approval was decided" });
+    }
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    console.error(`work: approvals sync failed for client ${clientId}: ${e.message}`);
+  } finally {
+    conn.release();
+  }
+}
 
 // ── Supplier master: the CFO's decisions ─────────────────────────────────────
 //
