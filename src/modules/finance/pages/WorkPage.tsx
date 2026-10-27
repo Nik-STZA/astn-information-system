@@ -36,5 +36,5 @@ export default async function WorkPage({ params, searchParams }: {
   }));
 
   return <WorkView slug={params.slug} tasks={tasks} entities={entities} bills={bills} error={error} initialTask={searchParams.task ?? null}
-    initialView={searchParams.view === "board" || searchParams.view === "list" ? searchParams.view : null} />;
+    initialView={searchParams.view === "board" || searchParams.view === "list" || searchParams.view === "timeline" ? searchParams.view : null} />;
 }

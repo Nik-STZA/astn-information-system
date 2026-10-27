@@ -4,16 +4,17 @@
 // to finance-api through /api/finance/<slug>/work/..., which records who did it
 // in the task's history; the page then refreshes from the server.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Plus, X } from "lucide-react";
 import styles from "./Work.module.css";
 import {
-  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree,
-  type ShownStatus, type Task, type TaskEvent,
+  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree, timelineLayout,
+  type ShownStatus, type Task, type TaskEvent, type TreeRow,
 } from "@/modules/finance/lib/work";
 
 export interface BillOption { id: string; label: string }
+type View = "list" | "board" | "timeline";
 type Entity = { id: string; slug: string; name: string };
 
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
@@ -30,21 +31,30 @@ function StatusPill({ s }: { s: Task["shown_status"] }) {
 
 export default function WorkView({ slug, tasks, entities, bills, error, initialTask, initialView }: {
   slug: string; tasks: Task[]; entities: Entity[]; bills: BillOption[]; error: string | null; initialTask: string | null;
-  initialView: "list" | "board" | null;
+  initialView: View | null;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(initialTask);
   const [creating, setCreating] = useState<{ parent_id: string | null } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showDone, setShowDone] = useState(false);
-  const [view, setView] = useState<"list" | "board">(initialView ?? "list");
+  const [view, setView] = useState<View>(initialView ?? "list");
+  const [links, setLinks] = useState(true);
   const [boardIssues, setBoardIssues] = useState<string[]>([]);
   // The view you last used, per browser, unless the link names one.
   useEffect(() => {
     if (initialView) return;
-    try { const v = localStorage.getItem("stza-work-view"); if (v === "list" || v === "board") setView(v); } catch { /* default */ }
+    try {
+      const v = localStorage.getItem("stza-work-view");
+      if (v === "list" || v === "board" || v === "timeline") setView(v);
+      setLinks(localStorage.getItem("stza-work-links") !== "0");
+    } catch { /* defaults */ }
   }, [initialView]);
-  const pickView = (v: "list" | "board") => {
+  const toggleLinks = () => {
+    setLinks(!links);
+    try { localStorage.setItem("stza-work-links", links ? "0" : "1"); } catch { /* ignore */ }
+  };
+  const pickView = (v: View) => {
     setView(v);
     try { localStorage.setItem("stza-work-view", v); } catch { /* ignore */ }
   };
@@ -83,8 +93,13 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
         <div className="seg" role="group" aria-label="View">
           <button type="button" className={view === "list" ? "seg-on" : undefined} aria-pressed={view === "list"} onClick={() => pickView("list")}>List</button>
           <button type="button" className={view === "board" ? "seg-on" : undefined} aria-pressed={view === "board"} onClick={() => pickView("board")}>Board</button>
-          <button type="button" disabled title="Coming next">Timeline</button>
+          <button type="button" className={view === "timeline" ? "seg-on" : undefined} aria-pressed={view === "timeline"} onClick={() => pickView("timeline")}>Timeline</button>
         </div>
+        {view === "timeline" && (
+          <button type="button" className={styles.toggle} onClick={toggleLinks} aria-pressed={links}>
+            <span className={`${styles.knob} ${links ? styles.knobOn : ""}`}><span /></span>Show links
+          </button>
+        )}
         <label className={styles.check}><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />Show done</label>
       </div>
 
@@ -92,6 +107,10 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
 
       <div className={styles.layout}>
         <div className={styles.listPane}>
+          {view === "timeline" && (
+            <Timeline rows={rows} tasks={tasks} links={links} selected={selected}
+              onOpen={(id) => { setCreating(null); setSelected(id); }} onToggle={toggle} />
+          )}
           {view === "board" && (
             <Board tasks={tasks} showDone={showDone} selected={selected} issues={boardIssues}
               onOpen={(id) => { setCreating(null); setSelected(id); }} onMove={moveTo} />
@@ -159,6 +178,113 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
     </div>
   );
 }
+
+// ── Timeline ──────────────────────────────────────────────────────────────────
+//
+// One row per task in list order (collapsing a parent here collapses it in the
+// list too). Bars run start to due; a parent with no dates spans its
+// sub-tasks as a thin bar. Arrows run from the end of a blocking task to the
+// start of the task waiting on it, and can be switched off.
+
+const DAY = 36;
+const ROW = 40;
+const HEAD = 40;
+
+function Timeline({ rows, tasks, links, selected, onOpen, onToggle }: {
+  rows: TreeRow[]; tasks: Task[]; links: boolean; selected: string | null;
+  onOpen: (id: string) => void; onToggle: (id: string) => void;
+}) {
+  const l = useMemo(() => timelineLayout(rows, tasks, today()), [rows, tasks]);
+  // Open scrolled to two days before today.
+  const track = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (track.current && l.todayIndex !== null) track.current.scrollLeft = Math.max(0, (l.todayIndex - 2) * DAY);
+  }, [l.todayIndex]);
+  if (!rows.length) return <section className={styles.card}><div className={styles.empty}>No tasks to show.</div></section>;
+  const barOf = new Map(l.bars.map((b) => [b.id, b]));
+  const width = l.days.length * DAY;
+  const height = rows.length * ROW;
+  const isWeekend = (d: string) => [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
+  return (
+    <section className={`${styles.card} ${styles.tl}`} aria-label="Tasks on a timeline">
+      <div className={styles.tlGrid}>
+        <div className={styles.tlNames}>
+          <div className={styles.tlNameHead} style={{ height: HEAD }}>Task</div>
+          {rows.map(({ task: t, depth, hasChildren, open }) => (
+            <div key={t.id} className={`${styles.tlName} ${t.id === selected ? styles.tlSel : ""}`} style={{ height: ROW, paddingLeft: 8 + depth * 16 }}>
+              {hasChildren ? (
+                <button type="button" className={styles.chev} aria-label={open ? "Hide sub-tasks" : "Show sub-tasks"} aria-expanded={open} onClick={() => onToggle(t.id)}>
+                  <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : undefined }} aria-hidden="true" />
+                </button>
+              ) : <span className={styles.spacer} />}
+              <button type="button" className={`${styles.titleText} ${hasChildren ? styles.parentTitle : ""}`} onClick={() => onOpen(t.id)} title={t.title}>{t.title}</button>
+            </div>
+          ))}
+        </div>
+        <div className={styles.tlTrackWrap} ref={track}>
+          <div style={{ position: "relative", width, height: HEAD + height }}>
+            <div className={styles.tlHead} style={{ height: HEAD }}>
+              {l.days.map((d, i) => {
+                const day = Number(d.slice(8, 10));
+                const label = i === 0 || day === 1
+                  ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
+                  : String(day);
+                return (
+                  <div key={d} className={`${styles.tlDay} ${isWeekend(d) ? styles.tlWeekend : ""} ${i === l.todayIndex ? styles.tlToday : ""}`}
+                    style={{ left: i * DAY, width: DAY }} title={d}>{label}</div>
+                );
+              })}
+            </div>
+            {l.days.map((d, i) => (isWeekend(d)
+              ? <div key={d} className={styles.tlShade} style={{ left: i * DAY, width: DAY, top: HEAD, height }} />
+              : null))}
+            {rows.map(({ task: t }, r) => (
+              <div key={t.id} className={`${styles.tlRow} ${t.id === selected ? styles.tlSel : ""}`}
+                style={{ top: HEAD + r * ROW, height: ROW, width }} onClick={() => onOpen(t.id)} />
+            ))}
+            {l.todayIndex !== null && <div className={styles.tlTodayLine} style={{ left: l.todayIndex * DAY + DAY / 2, top: HEAD, height }} />}
+            {l.bars.map((b) => {
+              const t = tasks.find((x) => x.id === b.id)!;
+              const w = (b.to - b.from + 1) * DAY - 6;
+              return (
+                <button key={b.id} type="button" onClick={() => onOpen(b.id)} title={`${t.title}: ${STATUS_LABEL[t.shown_status]}`}
+                  className={`${styles.tlBar} ${b.parent ? styles.tlParent : styles[`b-${t.shown_status}`]}`}
+                  style={{ left: b.from * DAY + 3, width: w, top: HEAD + b.row * ROW + (b.parent ? 16 : 9) }}>
+                  {!b.parent && w > 70 ? STATUS_LABEL[t.shown_status] : ""}
+                </button>
+              );
+            })}
+            {links && l.links.length > 0 && (
+              <svg className={styles.tlLinks} width={width} height={HEAD + height} aria-hidden="true">
+                <defs>
+                  <marker id="tl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0 0 10 5 0 10z" style={{ fill: "var(--sub)" }} />
+                  </marker>
+                </defs>
+                {l.links.map((k) => {
+                  const a = barOf.get(k.from)!;
+                  const z = barOf.get(k.to)!;
+                  const x1 = (a.to + 1) * DAY - 3;
+                  const y1 = HEAD + a.row * ROW + ROW / 2;
+                  const x2 = z.from * DAY + 1;
+                  const y2 = HEAD + z.row * ROW + ROW / 2;
+                  // Forwards: across and down into the bar's start. Overlapping:
+                  // down to the row boundary, back, then into the bar from the left.
+                  const d = x2 >= x1 + 16
+                    ? `M${x1} ${y1} H${x1 + 8} V${y2} H${x2}`
+                    : `M${x1} ${y1} H${x1 + 8} V${y2 - ROW / 2 + 3} H${x2 - 10} V${y2} H${x2}`;
+                  return <path key={`${k.from}-${k.to}`} d={d} fill="none"
+                    style={{ stroke: "var(--sub)" }} strokeWidth={1.5} markerEnd="url(#tl-arrow)" />;
+                })}
+              </svg>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 
 // ── Board ─────────────────────────────────────────────────────────────────────
 
