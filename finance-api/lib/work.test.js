@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { taskInput, blockerInput, blockerOpen, shownStatus, wouldLoop, wouldNestLoop, changes } from "./work";
+import { taskInput, blockerInput, blockerOpen, shownStatus, wouldLoop, wouldNestLoop, changes, viaInput } from "./work";
 
 const ID1 = "00000000-0000-4000-8000-000000000001";
 const ID2 = "00000000-0000-4000-8000-000000000002";
@@ -103,5 +103,27 @@ describe("open items into tasks", () => {
   it("reads a paused decision as waiting on that person", () => {
     expect(openItemTask({ ...base, status: "Paused pending CEO decision" }).blockers[0]).toMatchObject({ kind: "external", party: "CEO" });
     expect(openItemTask({ ...base, status: "In progress" })).toMatchObject({ task: { status: "in_progress" }, blockers: [] });
+  });
+});
+
+describe("viaInput", () => {
+  const RUN = "6306a21a-8684-4fd8-8c71-4180c464b6b9";
+
+  it("is nothing for a person in the portal", () => {
+    expect(viaInput(undefined)).toEqual({ via: null, source: null, ref: null, issues: [] });
+    expect(viaInput("", "x").issues).toEqual(["X-Work-Ref needs X-Work-Via"]);
+  });
+
+  it("reads an agent run and a Claude conversation", () => {
+    expect(viaInput(`agent:fm1:${RUN}`)).toEqual({ via: { kind: "agent", agent: "fm1", run_id: RUN }, source: "agent", ref: null, issues: [] });
+    expect(viaInput(`agent:general:${RUN}`).via).toMatchObject({ agent: "general" });
+    expect(viaInput("claude", " fsl-vat-q3 ")).toEqual({ via: { kind: "claude" }, source: "claude", ref: "fsl-vat-q3", issues: [] });
+  });
+
+  it("refuses anything else", () => {
+    expect(viaInput(`agent:cfo:${RUN}`).issues[0]).toMatch(/agent must be one of/);
+    expect(viaInput("agent:fm1:not-a-run").issues).toEqual(["X-Work-Via must be agent:<agent>:<run id> or claude"]);
+    expect(viaInput("nik").issues).toEqual(["X-Work-Via must be agent:<agent>:<run id> or claude"]);
+    expect(viaInput("claude", "x".repeat(201)).issues).toEqual(["X-Work-Ref is over 200 characters"]);
   });
 });

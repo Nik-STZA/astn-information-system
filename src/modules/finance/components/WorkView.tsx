@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Plus, X } from "lucide-react";
 import styles from "./Work.module.css";
 import {
-  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree, timelineLayout,
+  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree, timelineLayout, viaText,
   type ShownStatus, type Task, type TaskEvent, type TreeRow,
 } from "@/modules/finance/lib/work";
 
@@ -563,7 +563,7 @@ function TaskPanel({ base, task, tasks, entities, bills, people, onClose, onAddS
         <div className={styles.hist}>
           {events === null && <span className={styles.small}>Loading...</span>}
           {events?.map((e) => (
-            <div key={e.id} className={styles.histItem}>{eventText(e)}<span className={styles.histWhen}>{when(e.at)} · {e.actor === "automatic" ? "automatic" : e.actor}</span></div>
+            <div key={e.id} className={styles.histItem}>{eventText(e)}<span className={styles.histWhen}>{when(e.at)} · {e.actor === "automatic" ? "automatic" : e.actor}{viaText(e)}</span></div>
           ))}
         </div>
       </section>

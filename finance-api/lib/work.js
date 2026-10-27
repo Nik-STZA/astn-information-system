@@ -214,3 +214,35 @@ function openItemTask(o) {
 }
 
 module.exports.openItemTask = openItemTask;
+
+// ── Who a change came through (agents and Claude, 28 Oct 2026) ───────────────
+//
+// An agent run or a Claude conversation changes Work as the person who asked
+// (the role check is theirs), and says so in the X-Work-Via header:
+//   agent:<agent>:<run id>   an agent run in os.stza.io
+//   claude                   a Claude conversation through the MCP server
+// The portal never sends it, so a person cannot pass a change off as an agent's.
+// X-Work-Ref, with it, names the item so the same thing sent twice is one task.
+
+// { via, source, issues }: via is null when the header is absent.
+function viaInput(header, ref) {
+  const h = String(header ?? "").trim();
+  const r = String(ref ?? "").trim();
+  if (!h) return { via: null, source: null, ref: null, issues: r ? ["X-Work-Ref needs X-Work-Via"] : [] };
+  const issues = [];
+  let via = null;
+  const m = /^agent:([a-z0-9-]+):([0-9a-f-]{36})$/i.exec(h);
+  if (m) {
+    if (![...AGENTS, "general"].includes(m[1])) issues.push(`the agent must be one of ${AGENTS.join(", ")} or general`);
+    else if (!isGuid(m[2])) issues.push("the run id must be an id");
+    else via = { kind: "agent", agent: m[1], run_id: m[2].toLowerCase() };
+  } else if (h === "claude") {
+    via = { kind: "claude" };
+  } else {
+    issues.push("X-Work-Via must be agent:<agent>:<run id> or claude");
+  }
+  if (r.length > 200) issues.push("X-Work-Ref is over 200 characters");
+  return { via: issues.length ? null : via, source: via?.kind ?? null, ref: r || null, issues };
+}
+
+module.exports.viaInput = viaInput;

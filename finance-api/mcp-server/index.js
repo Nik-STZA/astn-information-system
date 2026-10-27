@@ -66,6 +66,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { practiceTools } from "./practice-tools.js";
+import { workTools } from "./work-tools.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -754,8 +755,14 @@ const handlers = {
 // stays the client-facing set above.
 
 const TOOLSET = process.env.STZA_TOOLSET === "practice" ? "practice" : "byoai";
+// The practice toolset also gets Work (work-tools.js): STZA's own Claude can
+// push an open item into a client's task list in os.stza.io.
+function withWork(set) {
+  const w = workTools({ apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log });
+  return { tools: [...set.tools, ...w.tools], handlers: { ...set.handlers, ...w.handlers } };
+}
 const active = TOOLSET === "practice"
-  ? practiceTools({ apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log })
+  ? withWork(practiceTools({ apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log }))
   : { tools: TOOLS, handlers };
 
 // ── MCP server ───────────────────────────────────────────────────────────────

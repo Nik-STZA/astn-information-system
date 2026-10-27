@@ -24,7 +24,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 // The laptop's config names for the entities that moved to the portal.
-const LAPTOP_NAMES = {
+export const LAPTOP_NAMES = {
   ultraspeed: "ultraspeed-digital",
   feldspar_ltd: "feldspar-ltd",
   feldspar_holdings: "feldspar-group-holdings",
