@@ -147,7 +147,7 @@ function Turn({ run, followUp }: { run: AgentRunRow; followUp: boolean }) {
 
       {!FINISHED.has(run.status) && (
         <div style={{ fontSize: 11.5, color: STATUS_COLOUR[run.status], marginBottom: 10 }}>
-          {run.status === "queued" ? "Waiting for the runner to pick this up…" : "Working on it…"}
+          <PendingStatus status={run.status} queuedAt={run.queued_at} startedAt={run.started_at} />
         </div>
       )}
 
@@ -466,4 +466,27 @@ export default function AgentPanel({
       )}
     </div>
   );
+}
+
+// What a run still in progress is doing, with a clock, so a wait reads as
+// progress. Runs start as a Cloud Run Job, which takes 10 to 30 seconds to
+// start (27 Oct 2026); the old "Waiting for the runner" looked like a hang.
+// A run queued for more than two minutes has not been started, and says so.
+const STUCK_SECONDS = 120;
+
+function PendingStatus({ status, queuedAt, startedAt }: { status: string; queuedAt: string; startedAt: string | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const since = (iso: string | null) => (iso ? Math.max(0, Math.round((now - Date.parse(iso)) / 1000)) : 0);
+  const clock = (n: number) => (n < 60 ? `${n}s` : `${Math.floor(n / 60)}m ${String(n % 60).padStart(2, "0")}s`);
+  if (status === "queued") {
+    const waited = since(queuedAt);
+    return waited > STUCK_SECONDS
+      ? <>Not started after {clock(waited)}. The agent runner did not pick this up; it will run when the runner next starts.</>
+      : <>Starting the agent (usually 10 to 30 seconds)… {clock(waited)}</>;
+  }
+  return <>Working: reading the books and writing the answer… {clock(since(startedAt ?? queuedAt))}</>;
 }
