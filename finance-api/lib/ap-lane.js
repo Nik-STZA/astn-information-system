@@ -155,10 +155,93 @@ function notADocument(doc) {
   return amounts ? null : "no amounts on it: a logo, banner or email signature, not a purchase document";
 }
 
+// ── Drafts Xero keyed itself ─────────────────────────────────────────────────
+//
+// A document emailed to an entity's Xero bills address arrives as a DRAFT bill
+// Xero keyed, with the document attached, and never reaches the Documents inbox
+// (FSL, 27 Oct 2026: two Asian Capital Partners drafts). The engine reads the
+// attachment as it reads an inbox file and proposes its own bill; sending
+// updates that draft instead of creating a second bill.
+
+const ymd = (s) => String(s || "").slice(0, 10) || null;
+
+// The draft's last-changed stamp, as milliseconds: a draft edited in Xero after
+// it was read is a different version, read again before anything is sent.
+function draftVersion(draft) {
+  const m = /\/Date\((\d+)/.exec(String(draft?.UpdatedDateUTC || ""));
+  if (m) return m[1];
+  const t = Date.parse(draft?.UpdatedDateUTCString || "");
+  return Number.isNaN(t) ? null : String(t);
+}
+
+// The engine's bill for a draft: the document and the master decide, and the
+// draft fills only what they leave blank. The supplier, number and due date
+// come over as Xero keyed them. Coding the master has no default for comes over
+// too, as a suggestion: coding_from_xero keeps the item for the CFO.
+function billFromDraft(bill, draft) {
+  const out = { ...bill, Contact: { ...bill.Contact }, LineItems: bill.LineItems.map((l) => ({ ...l })), InvoiceID: draft.InvoiceID };
+  const filled = [];
+  if (!out.Contact.ContactID && draft.Contact?.ContactID) {
+    out.Contact = { ContactID: draft.Contact.ContactID, Name: draft.Contact.Name || null };
+  }
+  if (!out.InvoiceNumber && draft.InvoiceNumber) out.InvoiceNumber = draft.InvoiceNumber;
+  if (!out.Reference && (draft.Reference || draft.InvoiceNumber)) out.Reference = draft.Reference || draft.InvoiceNumber;
+  if (!out.DueDateString && draft.DueDateString) out.DueDateString = draft.DueDateString;
+  const keyed = draft.LineItems || [];
+  if (keyed.length === out.LineItems.length) {
+    out.LineItems.forEach((l, i) => {
+      if (!l.AccountCode && keyed[i].AccountCode) { l.AccountCode = keyed[i].AccountCode; filled.push(`line ${i + 1} account ${l.AccountCode}`); }
+      if (!l.TaxType && keyed[i].TaxType) { l.TaxType = keyed[i].TaxType; filled.push(`line ${i + 1} VAT ${l.TaxType}`); }
+    });
+  }
+  return { bill: out, filled };
+}
+
+// What Xero keyed against what the engine proposes.
+//   blocking  the bill itself differs (supplier, number, date, currency, total):
+//             the CFO sees it before the draft is overwritten
+//   coding    account, VAT treatment or line layout differs: listed, and the
+//             engine's coding is what is sent
+// A blank on either side is not a difference: one side filling the other in.
+function draftDifferences(bill, draft) {
+  const blocking = [];
+  const coding = [];
+  const differ = (field, keyed, proposed) => ({ field, keyed, proposed });
+  if (bill.Contact?.ContactID && draft.Contact?.ContactID && bill.Contact.ContactID !== draft.Contact.ContactID) {
+    blocking.push(differ("supplier", draft.Contact.Name, bill.Contact.Name));
+  }
+  if (normNumber(bill.InvoiceNumber) && normNumber(draft.InvoiceNumber) && normNumber(bill.InvoiceNumber) !== normNumber(draft.InvoiceNumber)) {
+    blocking.push(differ("number", draft.InvoiceNumber, bill.InvoiceNumber));
+  }
+  if (ymd(bill.DateString) && ymd(draft.DateString) && ymd(bill.DateString) !== ymd(draft.DateString)) {
+    blocking.push(differ("date", ymd(draft.DateString), ymd(bill.DateString)));
+  }
+  if (bill.CurrencyCode && draft.CurrencyCode && bill.CurrencyCode !== draft.CurrencyCode) {
+    blocking.push(differ("currency", draft.CurrencyCode, bill.CurrencyCode));
+  }
+  if (bill.Total !== null && bill.Total !== undefined && draft.Total !== null && draft.Total !== undefined && pence(bill.Total) !== pence(draft.Total)) {
+    blocking.push(differ("total", money(pence(draft.Total)), money(pence(bill.Total))));
+  }
+  const keyed = draft.LineItems || [];
+  if (keyed.length !== bill.LineItems.length) {
+    coding.push(differ("lines", keyed.length, bill.LineItems.length));
+  } else {
+    bill.LineItems.forEach((l, i) => {
+      if (l.AccountCode && keyed[i].AccountCode && l.AccountCode !== keyed[i].AccountCode) coding.push(differ(`line ${i + 1} account`, keyed[i].AccountCode, l.AccountCode));
+      if (l.TaxType && keyed[i].TaxType && l.TaxType !== keyed[i].TaxType) coding.push(differ(`line ${i + 1} VAT`, keyed[i].TaxType, l.TaxType));
+    });
+  }
+  if (bill.LineAmountTypes && draft.LineAmountTypes && bill.LineAmountTypes !== draft.LineAmountTypes) {
+    coding.push(differ("amounts are", draft.LineAmountTypes, bill.LineAmountTypes));
+  }
+  return { blocking, coding };
+}
+
 // Clean, or an exception for the CFO (spec 3.3), with every reason. The phase
 // 2 review supplies most of them; the rest are what a bill built from scratch
-// can lack.
-function triage({ review, doc, match, bill, duplicates = [] }) {
+// can lack. For a Xero draft, draft carries what the draft adds:
+//   { differences, filled, attachments, documents }
+function triage({ review, doc, match, bill, duplicates = [], draft = null }) {
   const reasons = (review?.flags || []).filter((f) => f.flagged).map(({ check, detail }) => ({ check, detail }));
   if (!bill.DueDateString) reasons.push({ check: "no_due_date", detail: "no due date on the document and no payment terms in the supplier master" });
   if (!bill.CurrencyCode) reasons.push({ check: "no_currency", detail: "the document's currency could not be read" });
@@ -168,6 +251,20 @@ function triage({ review, doc, match, bill, duplicates = [] }) {
     reasons.push({ check: "duplicate", detail: `may already be ${d.source === "xero" ? "in Xero" : "in the queue"}: ${d.number || "no number"}, ${d.date || "no date"}, ${d.total}` });
   }
   if (doc?.doubts) reasons.push({ check: "reader_doubts", detail: `the reader was unsure: ${doc.doubts}` });
+  if (draft) {
+    for (const d of draft.differences?.blocking || []) {
+      reasons.push({ check: "draft_differs", detail: `Xero keyed the ${d.field} as ${d.keyed ?? "blank"}; the document says ${d.proposed ?? "blank"}` });
+    }
+    if (draft.filled?.length) {
+      reasons.push({ check: "coding_from_xero", detail: `no default in the supplier master; Xero's coding kept as a suggestion: ${draft.filled.join(", ")}` });
+    }
+    if ((draft.attachments || 0) > 1) {
+      reasons.push({ check: "several_attachments", detail: `the draft has ${draft.attachments} attachments; only the first document was read` });
+    }
+    if ((draft.documents || 0) > 1) {
+      reasons.push({ check: "several_documents", detail: `the attachment holds ${draft.documents} documents; the draft is one bill` });
+    }
+  }
   return { state: reasons.length ? "exception" : "clean", reasons };
 }
 
@@ -227,7 +324,11 @@ function sendRequest(item) {
     if (!l.AccountCode) issues.push(`line ${i + 1} has no account`);
     if (!l.TaxType) issues.push(`line ${i + 1} has no VAT treatment`);
   });
+  const fromDraft = item.source === "ledger_draft";
+  if (fromDraft && !item.ledger_draft_id) issues.push("the Xero draft this item came from is not recorded");
   const body = {
+    // A draft Xero keyed is updated in place: one bill, its document already attached.
+    id: fromDraft ? item.ledger_draft_id : undefined,
     type: "ACCPAY",
     status: "SUBMITTED",
     contact_id: bill.Contact?.ContactID,
@@ -240,12 +341,14 @@ function sendRequest(item) {
     lines: (bill.LineItems || []).map((l) => ({
       description: l.Description, quantity: "1", unit_amount: money2(l.LineAmount), account_code: l.AccountCode, tax_type: l.TaxType,
     })),
-    audit_note: `From the Documents inbox (${item.file_name}), built by the AP lane and sent from the portal.`,
+    audit_note: fromDraft
+      ? `Draft keyed by Xero from ${item.file_name}; checked against the document by the AP lane and sent from the portal.`
+      : `From the Documents inbox (${item.file_name}), built by the AP lane and sent from the portal.`,
   };
   return { body, issues };
 }
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest,
+  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences,
 };
