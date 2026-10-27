@@ -50,3 +50,31 @@ describe("wording", () => {
     expect(ownerInitials({ owner_kind: null, owner: null })).toBe("-");
   });
 });
+
+import { boardColumns } from "./work";
+
+describe("boardColumns", () => {
+  const tasks = [
+    t("close", null),
+    t("payroll", "close", { shown_status: "waiting", status: "todo" }),
+    t("pack", "close", { shown_status: "blocked", priority: "P1", due_on: "2026-11-10" }),
+    t("prepay", "close", { due_on: "2026-11-03" }),
+    t("urgent", null, { priority: "P1", due_on: "2026-11-20" }),
+    t("bank", "close", { shown_status: "done", status: "done" }),
+  ];
+
+  it("shows the pieces of work, not the parents, each in its status column", () => {
+    const cols = boardColumns(tasks);
+    expect(cols.map((c) => c.status)).toEqual(["todo", "in_progress", "blocked", "waiting", "review"]);
+    expect(cols.flatMap((c) => c.tasks.map((x) => x.id))).not.toContain("close");
+    expect(cols.find((c) => c.status === "waiting")!.tasks.map((x) => [x.id, x.parentTitle])).toEqual([["payroll", "close"]]);
+  });
+
+  it("puts P1 first, then the earliest due date", () => {
+    expect(boardColumns(tasks).find((c) => c.status === "todo")!.tasks.map((x) => x.id)).toEqual(["urgent", "prepay"]);
+  });
+
+  it("adds the Done column only when asked", () => {
+    expect(boardColumns(tasks, { showDone: true }).at(-1)).toMatchObject({ status: "done", tasks: [{ id: "bank" }] });
+  });
+});

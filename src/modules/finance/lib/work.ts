@@ -182,3 +182,37 @@ export async function workCall(slug: string, path: string, method: string, actor
   });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
+
+// ── Board ─────────────────────────────────────────────────────────────────────
+
+export const BOARD_COLUMNS: ShownStatus[] = ["todo", "in_progress", "blocked", "waiting", "review", "done"];
+
+// Columns a card can be dropped into: the statuses a person sets. Blocked and
+// Waiting come from blockers, so nothing is dropped there.
+export const DROPPABLE = new Set<ShownStatus>(SETTABLE);
+
+export interface BoardColumn {
+  status: ShownStatus;
+  tasks: Array<Task & { parentTitle: string | null }>;
+}
+
+// The board shows the pieces of work: tasks with no sub-tasks. A parent is a
+// label on its sub-tasks' cards, not a card of its own. Most urgent first:
+// P1, then by due date (undated last), then oldest.
+export function boardColumns(tasks: Task[], { showDone = false } = {}): BoardColumn[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const hasKids = new Set(tasks.map((t) => t.parent_id).filter(Boolean) as string[]);
+  const rank = (t: Task) => [t.priority === "P1" ? 0 : 1, t.due_on ?? "9999-12-31", t.created_at] as const;
+  const order = (a: Task, b: Task) => {
+    const [ra, rb] = [rank(a), rank(b)];
+    return ra[0] - rb[0] || ra[1].localeCompare(rb[1]) || ra[2].localeCompare(rb[2]);
+  };
+  const leaves = tasks.filter((t) => !hasKids.has(t.id));
+  return BOARD_COLUMNS
+    .filter((s) => showDone || s !== "done")
+    .map((status) => ({
+      status,
+      tasks: leaves.filter((t) => t.shown_status === status).sort(order)
+        .map((t) => ({ ...t, parentTitle: t.parent_id ? byId.get(t.parent_id)?.title ?? null : null })),
+    }));
+}

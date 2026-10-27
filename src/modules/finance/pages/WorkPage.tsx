@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function WorkPage({ params, searchParams }: {
   params: { slug: string };
-  searchParams: { task?: string };
+  searchParams: { task?: string; view?: string };
 }) {
   let tasks: Task[] = [];
   let error: string | null = null;
@@ -35,5 +35,6 @@ export default async function WorkPage({ params, searchParams }: {
     } catch { /* no bills to offer for this company */ }
   }));
 
-  return <WorkView slug={params.slug} tasks={tasks} entities={entities} bills={bills} error={error} initialTask={searchParams.task ?? null} />;
+  return <WorkView slug={params.slug} tasks={tasks} entities={entities} bills={bills} error={error} initialTask={searchParams.task ?? null}
+    initialView={searchParams.view === "board" || searchParams.view === "list" ? searchParams.view : null} />;
 }
