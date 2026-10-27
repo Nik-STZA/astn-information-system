@@ -79,3 +79,18 @@ export function shortDate(value: string | null | undefined): string {
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
 }
+
+// Options for a type-to-search picker: every word typed must appear somewhere
+// in the label, in any order ("prep" finds "620 Prepayments", so does "620").
+// Labels that start with what was typed come first; otherwise the list keeps
+// its order.
+export function matchOptions<T extends { label: string }>(options: T[], query: string): T[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return options;
+  const q = words.join(" ");
+  const hits = options.filter((o) => {
+    const label = o.label.toLowerCase();
+    return words.every((w) => label.includes(w));
+  });
+  return [...hits.filter((o) => o.label.toLowerCase().startsWith(q)), ...hits.filter((o) => !o.label.toLowerCase().startsWith(q))];
+}

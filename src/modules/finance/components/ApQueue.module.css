@@ -375,6 +375,35 @@
   font: 500 15px Manrope, sans-serif;
 }
 .textarea { min-height: 64px; resize: vertical; }
+.combo { position: relative; }
+.comboList {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--pnl);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.comboOption, .comboOptionActive, .comboEmpty {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font: 500 15px Manrope, sans-serif;
+  color: var(--tx);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.comboOptionActive { background: var(--empty-bg); }
+.comboEmpty { color: var(--sub); cursor: default; }
 .lineEdit {
   margin: 0;
   padding: 10px 12px 12px;

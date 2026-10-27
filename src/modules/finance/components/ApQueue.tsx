@@ -224,6 +224,9 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
             contactId: bill.Contact?.ContactID ?? null,
             contactName: bill.Contact?.Name ?? null,
             number: bill.InvoiceNumber,
+            date: bill.DateString,
+            dueDate: bill.DueDateString,
+            fromDraft: item.source === "ledger_draft",
             total: bill.Total,
             currency: bill.CurrencyCode,
             lines: bill.LineItems.map((l) => ({

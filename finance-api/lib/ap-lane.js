@@ -274,13 +274,21 @@ function triage({ review, doc, match, bill, duplicates = [], draft = null }) {
 // document the engine did not recognise, and an account or VAT treatment per
 // line. Lines are addressed by position; amounts and descriptions are the
 // document's and are not edited here.
-//   edits  { contact?: { ContactID, Name }, lines?: [{ index, account_code?, tax_type? }] }
+//   edits  { contact?: { ContactID, Name }, due_date?: "YYYY-MM-DD", lines?: [{ index, account_code?, tax_type? }] }
 function applyEdits(bill, edits = {}) {
   const issues = [];
   const out = { ...bill, Contact: { ...bill.Contact }, LineItems: bill.LineItems.map((l) => ({ ...l })) };
   if (edits.contact) {
     if (!edits.contact.ContactID) issues.push("the chosen supplier has no Xero contact");
     else out.Contact = { ContactID: edits.contact.ContactID, Name: edits.contact.Name || null };
+  }
+  // Xero refuses a bill awaiting approval with no due date; a document with
+  // none (FSL, 27 Oct 2026: a retainer invoice) needs the CFO to set it.
+  if (edits.due_date !== undefined && edits.due_date !== null && edits.due_date !== "") {
+    const d = String(edits.due_date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`))) issues.push("the due date must be a date (YYYY-MM-DD)");
+    else if (out.DateString && d < out.DateString.slice(0, 10)) issues.push("the due date is before the bill's date");
+    else out.DueDateString = `${d}T00:00:00`;
   }
   for (const e of edits.lines || []) {
     const line = Number.isInteger(e.index) ? out.LineItems[e.index] : null;
@@ -320,6 +328,7 @@ function sendRequest(item) {
   if (bill.Type !== "ACCPAY") issues.push("only bills are sent for now; a supplier credit note goes in by hand");
   if (!bill.Contact?.ContactID) issues.push("no Xero supplier: choose one first");
   if (!bill.DateString) issues.push("no date on the bill");
+  if (!bill.DueDateString) issues.push("no due date: set one first (Xero needs it on a bill awaiting approval)");
   (bill.LineItems || []).forEach((l, i) => {
     if (!l.AccountCode) issues.push(`line ${i + 1} has no account`);
     if (!l.TaxType) issues.push(`line ${i + 1} has no VAT treatment`);
