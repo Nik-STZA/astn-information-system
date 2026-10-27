@@ -81,6 +81,43 @@
 .tcardTitle { font-weight: 500; }
 .tcardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
+/* The timeline: task names on the left stay put while the days scroll. */
+.tl { overflow: hidden; }
+.tlGrid { display: flex; }
+.tlNames { flex: 0 0 150px; width: 150px; min-width: 0; border-right: 1px solid var(--bd); background: var(--pnl); }
+.tlNameHead { display: flex; align-items: center; padding: 0 12px; font-size: 12px; font-weight: 500; color: var(--sub); border-bottom: 1px solid var(--bd); box-sizing: border-box; }
+.tlName { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--bd); box-sizing: border-box; overflow: hidden; white-space: nowrap; }
+.tlName .titleText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tlTrackWrap { flex: 1 1 auto; overflow-x: auto; min-width: 0; }
+.tlHead { position: absolute; left: 0; top: 0; right: 0; border-bottom: 1px solid var(--bd); }
+.tlDay { position: absolute; top: 0; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--sub); white-space: nowrap; }
+.tlWeekend { color: var(--empty-text); }
+.tlToday { color: var(--accent-text); font-weight: 600; }
+.tlShade { position: absolute; background: var(--pg); }
+.tlRow { position: absolute; left: 0; border-bottom: 1px solid var(--bd); box-sizing: border-box; cursor: pointer; }
+.tlSel { background: var(--accent-bg); }
+.tlTodayLine { position: absolute; width: 2px; margin-left: -1px; background: var(--brand-gold); opacity: 0.8; pointer-events: none; }
+.tlBar {
+  position: absolute; height: 22px; border-radius: 999px; border: 0; padding: 0 8px; box-sizing: border-box;
+  font: 500 11px var(--font-sans); color: #18181B; text-align: left; white-space: nowrap; overflow: hidden; cursor: pointer;
+}
+.tlParent { height: 8px; border-radius: 3px; background: var(--label-text); padding: 0; }
+.b-todo { background: #E4E4E7; }
+.b-in_progress { background: #BFDBFE; }
+.b-blocked { background: #FED7AA; }
+.b-waiting { background: #FDE68A; }
+.b-review { background: #DDD6FE; }
+.b-done { background: #BBF7D0; }
+.tlLinks { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--bd); background: var(--pnl); font: 500 13px var(--font-sans); color: var(--tx); cursor: pointer; }
+.knob { position: relative; width: 28px; height: 16px; border-radius: 999px; background: var(--bd); }
+.knob > span { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--pnl); transition: left 0.15s ease; }
+.knobOn { background: var(--brand-gold); }
+.knobOn > span { left: 14px; }
+@media (min-width: 900px) {
+  .tlNames { flex-basis: 260px; width: 260px; }
+}
+
 /* The task panel */
 .panel {
   position: fixed; inset: 0; z-index: 60; background: var(--pnl); overflow-y: auto;

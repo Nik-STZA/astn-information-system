@@ -216,3 +216,84 @@ export function boardColumns(tasks: Task[], { showDone = false } = {}): BoardCol
         .map((t) => ({ ...t, parentTitle: t.parent_id ? byId.get(t.parent_id)?.title ?? null : null })),
     }));
 }
+
+// ── Timeline ──────────────────────────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+const dayNum = (ymd: string) => Math.round(Date.parse(`${ymd.slice(0, 10)}T00:00:00Z`) / DAY_MS);
+const ymdOf = (n: number) => new Date(n * DAY_MS).toISOString().slice(0, 10);
+
+export interface TimelineBar {
+  id: string;
+  row: number;
+  from: number; // day index from the timeline's first day
+  to: number;   // inclusive
+  parent: boolean;
+  dated: boolean; // false: the bar is drawn from its sub-tasks' dates
+}
+
+export interface TimelineLayout {
+  first: string;          // the first day shown (YYYY-MM-DD)
+  days: string[];         // every day shown
+  todayIndex: number | null;
+  bars: TimelineBar[];
+  links: Array<{ from: string; to: string }>; // blocking task -> task waiting on it
+}
+
+// Where each row's bar sits. A task runs from its start to its due date. With
+// a due date and no start it runs from the day after the tasks blocking it are
+// due (it cannot start before), else from the day it was created; one day
+// long if that is after the due date. With a start only it is one day; with
+// neither it has no bar. A parent
+// with no dates spans its sub-tasks. The range runs from three days before the
+// earliest bar (or today) to three days after the latest, at most 120 days.
+export function timelineLayout(rows: TreeRow[], allTasks: Task[], today: string): TimelineLayout {
+  const kids = new Map<string, Task[]>();
+  for (const t of allTasks) if (t.parent_id) kids.set(t.parent_id, [...(kids.get(t.parent_id) ?? []), t]);
+  const byId = new Map(allTasks.map((t) => [t.id, t]));
+  const own = (t: Task, depth = 0): [number, number] | null => {
+    const e = t.due_on ?? t.start_on;
+    if (!e) return null;
+    if (t.start_on) return [dayNum(t.start_on), dayNum(e)];
+    const end = dayNum(e);
+    // After the latest end of the open tasks blocking it.
+    const after = depth > 20 ? [] : t.blockers
+      .filter((b) => b.open && b.kind === "task" && b.task && byId.has(b.task.id))
+      .map((b) => own(byId.get(b.task!.id)!, depth + 1)?.[1])
+      .filter((n): n is number => n !== undefined);
+    const created = t.created_at ? dayNum(t.created_at) : end;
+    const start = after.length ? Math.max(...after) + 1 : created;
+    return [Math.min(start, end), end];
+  };
+  const span = (t: Task, seen = new Set<string>()): [number, number] | null => {
+    const mine = own(t);
+    if (mine) return mine;
+    if (seen.has(t.id)) return null;
+    seen.add(t.id);
+    const parts = (kids.get(t.id) ?? []).map((k) => span(k, seen)).filter(Boolean) as Array<[number, number]>;
+    if (!parts.length) return null;
+    return [Math.min(...parts.map((p) => p[0])), Math.max(...parts.map((p) => p[1]))];
+  };
+
+  const spans = rows.map((r) => ({ r, s: span(r.task) }));
+  const t0 = dayNum(today);
+  const dated = spans.filter((x) => x.s) as Array<{ r: TreeRow; s: [number, number] }>;
+  let lo = Math.min(t0, ...dated.map((x) => x.s[0])) - 3;
+  let hi = Math.max(t0, ...dated.map((x) => x.s[1])) + 3;
+  if (hi - lo > 119) { lo = Math.max(lo, t0 - 30); hi = lo + 119; }
+
+  const bars: TimelineBar[] = [];
+  spans.forEach(({ r, s }, row) => {
+    if (!s) return;
+    const from = Math.max(s[0], lo) - lo;
+    const to = Math.min(s[1], hi) - lo;
+    if (to < 0 || from > hi - lo) return;
+    bars.push({ id: r.task.id, row, from, to, parent: r.hasChildren, dated: !!own(r.task) });
+  });
+  const shown = new Set(bars.map((b) => b.id));
+  const links = rows.flatMap((r) => r.task.blockers
+    .filter((b) => b.open && b.kind === "task" && b.task && shown.has(b.task.id) && shown.has(r.task.id))
+    .map((b) => ({ from: b.task!.id, to: r.task.id })));
+  const days = Array.from({ length: hi - lo + 1 }, (_, i) => ymdOf(lo + i));
+  return { first: days[0], days, todayIndex: t0 >= lo && t0 <= hi ? t0 - lo : null, bars, links };
+}
