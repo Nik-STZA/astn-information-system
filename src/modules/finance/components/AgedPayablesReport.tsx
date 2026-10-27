@@ -15,6 +15,8 @@ import type {
   AgedSupplierRow,
   BucketAmounts,
 } from "@/modules/finance/lib/api";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
+import styles from "./Page.module.css";
 
 const BUCKETS: Array<{ key: AgeBucket; label: string }> = [
   { key: "current", label: "Current" },
@@ -23,8 +25,6 @@ const BUCKETS: Array<{ key: AgeBucket; label: string }> = [
   { key: "61-90", label: "61–90" },
   { key: "90+", label: "90+" },
 ];
-
-const FONT = "var(--font-sans)";
 
 function money(n: number): string {
   if (!n) return "–";
@@ -90,23 +90,19 @@ function downloadCsv(filename: string, rows: AgedInvoiceRow[]) {
 }
 
 const TH: React.CSSProperties = {
-  fontFamily: FONT,
-  fontSize: 10.5,
-  fontWeight: 700,
-  letterSpacing: ".05em",
-  textTransform: "uppercase",
+  fontSize: 12,
+  fontWeight: 500,
   color: "var(--sub)",
   textAlign: "right",
-  padding: "8px 10px",
+  padding: "10px 12px",
   borderBottom: "1px solid var(--bd)",
   whiteSpace: "nowrap",
 };
 const TD: React.CSSProperties = {
-  fontFamily: FONT,
-  fontSize: 12.5,
+  fontSize: 13,
   color: "var(--tx)",
   textAlign: "right",
-  padding: "8px 10px",
+  padding: "10px 12px",
   borderBottom: "1px solid var(--bd)",
   fontVariantNumeric: "tabular-nums",
   whiteSpace: "nowrap",
@@ -114,40 +110,11 @@ const TD: React.CSSProperties = {
 const LEFT: React.CSSProperties = { textAlign: "left", whiteSpace: "normal" };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontFamily: FONT,
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: ".08em",
-        textTransform: "uppercase",
-        color: "var(--sub)",
-        margin: "26px 0 8px",
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <div className={styles.listHead}><h2>{children}</h2></div>;
 }
 
 function IcBadge() {
-  return (
-    <span
-      style={{
-        marginLeft: 6,
-        fontSize: 9.5,
-        fontWeight: 700,
-        letterSpacing: ".05em",
-        padding: "2px 5px",
-        borderRadius: 3,
-        border: "1px solid var(--warning-amber)",
-        color: "var(--warning-amber)",
-      }}
-    >
-      INTERCO
-    </span>
-  );
+  return <span className={`${styles.status} ${styles["s-amber"]}`} style={{ height: 20, fontSize: 11 }}>Intercompany</span>;
 }
 
 export default function AgedPayablesReport({
@@ -184,60 +151,35 @@ export default function AgedPayablesReport({
   return (
     <div>
       {!report.complete && (
-        <div
-          style={{
-            padding: "12px 16px",
-            border: "1px solid var(--alert-red)",
-            borderRadius: 8,
-            fontFamily: FONT,
-            fontSize: 13,
-            lineHeight: 1.6,
-            color: "var(--tx)",
-            marginBottom: 16,
-          }}
-        >
-          <b style={{ color: "var(--alert-red)" }}>Incomplete.</b> These entities could not be read
-          from Xero, so the totals below leave them out:{" "}
+        <div className={styles.error} role="alert" style={{ marginBottom: 16 }}>
+          <div className={styles.errorTitle}>Incomplete</div>
+          These companies could not be read from Xero, so the totals below leave them out:{" "}
           {failed.map((e) => `${e.name} (${e.error ?? "error"})`).join("; ")}
         </div>
       )}
       {report.truncated && (
-        <div style={{ fontFamily: FONT, fontSize: 13, color: "var(--alert-red)", marginBottom: 12 }}>
-          More than 5,000 bills on at least one entity; only the first 5,000 were read.
+        <div className={styles.warn} style={{ marginBottom: 12 }}>
+          More than 5,000 bills on at least one company; only the first 5,000 were read.
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+      <div className={styles.controls}>
         {isGroupView && hasIc && (
-          <label
-            style={{ fontFamily: FONT, fontSize: 12.5, color: "var(--tx)", display: "flex", gap: 6 }}
-          >
+          <label className={styles.label} style={{ display: "inline-flex", gap: 6, alignItems: "center", color: "var(--tx)" }}>
             <input type="checkbox" checked={excludeIc} onChange={(e) => setExcludeIc(e.target.checked)} />
             Exclude intercompany
           </label>
         )}
         <button
           type="button"
-          onClick={() =>
-            downloadCsv(`aged-payables-${slug}-${report.scope}-${report.asAt}.csv`, invoices)
-          }
+          className="btn-secondary"
+          onClick={() => downloadCsv(`aged-payables-${slug}-${report.scope}-${report.asAt}.csv`, invoices)}
           disabled={invoices.length === 0}
-          style={{
-            fontFamily: FONT,
-            fontSize: 12,
-            fontWeight: 700,
-            padding: "7px 12px",
-            borderRadius: 6,
-            border: "1px solid #C5A059",
-            background: "transparent",
-            color: "var(--tx)",
-            cursor: invoices.length ? "pointer" : "default",
-          }}
         >
-          Download CSV
+          <Download size={15} aria-hidden="true" />Download CSV
         </button>
         {notConnected.length > 0 && (
-          <span style={{ fontFamily: FONT, fontSize: 11.5, color: "var(--sub)" }}>
+          <span className={styles.small}>
             Not connected to Xero, not included: {notConnected.map((e) => e.name).join(", ")}
           </span>
         )}
@@ -245,12 +187,10 @@ export default function AgedPayablesReport({
 
       <SectionTitle>Summary</SectionTitle>
       {currencies.length === 0 ? (
-        <p style={{ fontFamily: FONT, fontSize: 13, color: "var(--sub)" }}>
-          Nothing owed to suppliers.
-        </p>
+        <div className={`${styles.card} ${styles.empty}`}>Nothing owed to suppliers.</div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", minWidth: 640 }}>
+        <div className={styles.card} style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
             <thead>
               <tr>
                 <th style={{ ...TH, ...LEFT }}>Currency</th>
@@ -268,11 +208,11 @@ export default function AgedPayablesReport({
                 return (
                   <Fragment key={cur}>
                     <tr>
-                      <td style={{ ...TD, ...LEFT, fontWeight: 700 }}>{cur}</td>
+                      <td style={{ ...TD, ...LEFT, fontWeight: 600 }}>{cur}</td>
                       {BUCKETS.map((b) => (
                         <td key={b.key} style={TD}>{money(shown[b.key])}</td>
                       ))}
-                      <td style={{ ...TD, fontWeight: 700 }}>{money(shown.total)}</td>
+                      <td style={{ ...TD, fontWeight: 600 }}>{money(shown.total)}</td>
                       <td style={TD}>
                         {exclude
                           ? invoices.filter((i) => i.currency === cur).length
@@ -281,15 +221,15 @@ export default function AgedPayablesReport({
                     </tr>
                     {showIcRow && (
                       <tr>
-                        <td style={{ ...TD, ...LEFT, color: "var(--sub)", fontSize: 11.5 }}>
+                        <td style={{ ...TD, ...LEFT, color: "var(--sub)", fontSize: 12 }}>
                           of which intercompany
                         </td>
                         {BUCKETS.map((b) => (
-                          <td key={b.key} style={{ ...TD, color: "var(--sub)", fontSize: 11.5 }}>
+                          <td key={b.key} style={{ ...TD, color: "var(--sub)", fontSize: 12 }}>
                             {money(c.intercompany[b.key])}
                           </td>
                         ))}
-                        <td style={{ ...TD, color: "var(--sub)", fontSize: 11.5 }}>
+                        <td style={{ ...TD, color: "var(--sub)", fontSize: 12 }}>
                           {money(c.intercompany.total)}
                         </td>
                         <td style={TD} />
@@ -306,13 +246,13 @@ export default function AgedPayablesReport({
       {suppliers.length > 0 && (
         <>
           <SectionTitle>By supplier ({suppliers.length})</SectionTitle>
-          <div style={{ overflowX: "auto" }}>
+          <div className={styles.card} style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
               <thead>
                 <tr>
                   <th style={{ ...TH, ...LEFT }}>Supplier</th>
-                  {isGroupView && <th style={{ ...TH, ...LEFT }}>Entity</th>}
-                  <th style={{ ...TH, ...LEFT }}>Cur</th>
+                  {isGroupView && <th style={{ ...TH, ...LEFT }}>Company</th>}
+                  <th style={{ ...TH, ...LEFT }}>Currency</th>
                   {BUCKETS.map((b) => (
                     <th key={b.key} style={TH}>{b.label}</th>
                   ))}
@@ -336,11 +276,13 @@ export default function AgedPayablesReport({
                         title="Show bills"
                       >
                         <td style={{ ...TD, ...LEFT }}>
-                          <span style={{ color: "var(--sub)", marginRight: 6 }}>{isOpen ? "▾" : "▸"}</span>
-                          {s.contact}
-                          {s.intercompany && <IcBadge />}
-                          <span style={{ color: "var(--sub)", fontSize: 11, marginLeft: 6 }}>
-                            ({s.invoiceCount})
+                          <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span style={{ color: "var(--sub)", display: "inline-flex" }}>
+                              {isOpen ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
+                            </span>
+                            {s.contact}
+                            <span style={{ color: "var(--sub)", fontSize: 12 }}>({s.invoiceCount})</span>
+                            {s.intercompany && <IcBadge />}
                           </span>
                         </td>
                         {isGroupView && <td style={{ ...TD, ...LEFT, color: "var(--sub)" }}>{s.entityName}</td>}
@@ -348,7 +290,7 @@ export default function AgedPayablesReport({
                         {BUCKETS.map((b) => (
                           <td key={b.key} style={TD}>{money(s.buckets[b.key])}</td>
                         ))}
-                        <td style={{ ...TD, fontWeight: 700 }}>{money(s.total)}</td>
+                        <td style={{ ...TD, fontWeight: 600 }}>{money(s.total)}</td>
                       </tr>
                       {isOpen && (
                         <tr>
@@ -375,6 +317,7 @@ export default function AgedPayablesReport({
                                       style={{
                                         ...TD,
                                         color: i.daysOverdue > 60 ? "var(--alert-red)" : i.daysOverdue > 30 ? "var(--warning-amber)" : "var(--tx)",
+                                        fontWeight: i.daysOverdue > 30 ? 600 : 400,
                                       }}
                                     >
                                       {i.daysOverdue || "–"}

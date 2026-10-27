@@ -5,8 +5,10 @@
 // is plain links so each view has its own URL and can be shared.
 
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
 import AgedPayablesReport from "@/modules/finance/components/AgedPayablesReport";
+import styles from "@/modules/finance/components/Page.module.css";
 import {
   FinanceApiError,
   fetchAgedPayables,
@@ -17,26 +19,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const fmtDate = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
 function Choice({ href, label, active }: { href: string; label: string; active: boolean }) {
-  return (
-    <Link
-      href={href}
-      style={{
-        fontFamily: "var(--font-sans)",
-        fontSize: 12,
-        fontWeight: active ? 700 : 500,
-        padding: "6px 10px",
-        borderRadius: 6,
-        textDecoration: "none",
-        border: `1px solid ${active ? "#C5A059" : "var(--bd)"}`,
-        color: active ? "var(--tx)" : "var(--sub)",
-        background: active ? "var(--pnl)" : "transparent",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </Link>
-  );
+  return <Link href={href} className={active ? "seg-on" : undefined} aria-current={active ? "page" : undefined}>{label}</Link>;
 }
 
 export default async function AgedPayablesPage({
@@ -76,7 +62,7 @@ export default async function AgedPayablesPage({
   const base = `/finance/clients/${slug}/reports/aged-payables`;
   const scopeLabel =
     scope === "all"
-      ? "All entities"
+      ? "All companies"
       : (connected.find((e) => e.slug === scope)?.legalName ??
         connected.find((e) => e.slug === scope)?.name ??
         scope);
@@ -85,61 +71,29 @@ export default async function AgedPayablesPage({
     <div>
       <PageHeader title="AP ageing" sub="What is owed to suppliers, by how long it has been due." />
 
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 14,
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        <Link
-          href={`/finance/clients/${slug}/reports`}
-          style={{ fontSize: 12, color: "var(--sub)", textDecoration: "none", marginRight: 8 }}
-        >
-          ← Reports
-        </Link>
-        {isGroup && <Choice href={`${base}?entity=all`} label="Group (all entities)" active={scope === "all"} />}
-        {connected.map((e) => (
-          <Choice
-            key={e.slug}
-            href={`${base}?entity=${encodeURIComponent(e.slug)}`}
-            label={e.legalName ? `${e.name} · ${e.legalName}` : e.name}
-            active={scope === e.slug}
-          />
-        ))}
-      </div>
+      <Link href={`/finance/clients/${slug}/reports`} className={styles.back}>
+        <ArrowLeft size={15} aria-hidden="true" />Reports
+      </Link>
 
-      <p
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 13,
-          color: "var(--sub)",
-          margin: "0 0 20px",
-        }}
-      >
-        {scopeLabel}. As at {report?.asAt ?? new Date().toISOString().slice(0, 10)}, amounts due
+      {(isGroup || connected.length > 1) && (
+        <div style={{ overflowX: "auto", maxWidth: "100%", marginBottom: 12 }}>
+          <div className="seg" role="group" aria-label="Company">
+            {isGroup && <Choice href={`${base}?entity=all`} label="Group (all companies)" active={scope === "all"} />}
+            {connected.map((e) => (
+              <Choice key={e.slug} href={`${base}?entity=${encodeURIComponent(e.slug)}`} label={e.name} active={scope === e.slug} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className={styles.intro}>
+        {scopeLabel}. As at {fmtDate(report?.asAt ?? new Date().toISOString().slice(0, 10))}, amounts due
         per Xero now. Authorised bills only; drafts and bills awaiting approval are excluded.
       </p>
 
       {error ? (
-        <div
-          style={{
-            padding: "16px 18px",
-            border: "1px solid var(--alert-red)",
-            borderRadius: 8,
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-            color: "var(--tx)",
-            maxWidth: 760,
-            lineHeight: 1.6,
-          }}
-        >
-          <div style={{ fontWeight: 700, color: "var(--alert-red)", marginBottom: 4 }}>
-            Could not load the report
-          </div>
+        <div className={styles.error} role="alert">
+          <div className={styles.errorTitle}>Could not load the report</div>
           {error}
         </div>
       ) : report ? (

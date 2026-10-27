@@ -5,8 +5,10 @@
 // either way a draft is saved to the Finance shared drive.
 
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
 import ManagementPackPanel from "@/modules/finance/components/ManagementPackPanel";
+import styles from "@/modules/finance/components/Page.module.css";
 import {
   FinanceApiError,
   fetchReportRuns,
@@ -39,46 +41,19 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
     <div>
       <PageHeader title="Management pack" sub="Build the monthly pack from Xero and download it." />
 
-      <div style={{ marginBottom: 14, fontFamily: "var(--font-sans)" }}>
-        <Link
-          href={`/finance/clients/${slug}/reports`}
-          style={{ fontSize: 12, color: "var(--sub)", textDecoration: "none" }}
-        >
-          ← Reports
-        </Link>
-      </div>
+      <Link href={`/finance/clients/${slug}/reports`} className={styles.back}>
+        <ArrowLeft size={15} aria-hidden="true" />Reports
+      </Link>
 
-      <p
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: "var(--sub)",
-          margin: "0 0 20px",
-          maxWidth: 760,
-        }}
-      >
+      <p className={styles.intro}>
         Builds the month-end management pack and board pack with the same pipeline as the monthly
         close, then saves both to the Finance shared drive under Month-end, in a Drafts folder for
         that month.
       </p>
 
       {error ? (
-        <div
-          style={{
-            padding: "16px 18px",
-            border: "1px solid var(--alert-red)",
-            borderRadius: 8,
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-            color: "var(--tx)",
-            maxWidth: 760,
-            lineHeight: 1.6,
-          }}
-        >
-          <div style={{ fontWeight: 700, color: "var(--alert-red)", marginBottom: 4 }}>
-            Could not load past builds
-          </div>
+        <div className={styles.error} role="alert">
+          <div className={styles.errorTitle}>Could not load past builds</div>
           {error}
         </div>
       ) : (
