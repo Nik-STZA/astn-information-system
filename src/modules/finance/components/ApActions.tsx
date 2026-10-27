@@ -1,11 +1,11 @@
 "use client";
 
 // What the CFO can do with a queue item (phase3-design.md, step 3).
-//   clean or approved  Send to Xero: a dry run shows what will be created, then
-//                      a confirmed send creates the bill at Awaiting approval
-//                      with its document attached. Approval stays in Xero.
-//   exception          choose the supplier and each line's account and VAT,
-//                      then approve (it can then be sent) or reject with a reason.
+//   clean or approved  one tap, "Send GBP 1,234.00 to Xero", creates the bill
+//                      (or updates Xero's draft) at Awaiting approval with its
+//                      document attached. Approval stays in Xero.
+//   exception          choose the supplier, due date and each line's account and
+//                      VAT, then approve and send, approve only, or reject.
 // Every send names the one bill it is for: nothing is sent in bulk unseen.
 
 import { useRouter } from "next/navigation";
@@ -38,86 +38,77 @@ export default function ApActions({ slug, entity, item }: { slug: string; entity
   return null;
 }
 
+// One send to Xero. finance-api runs every check (supplier, accounts, VAT,
+// duplicate number, the draft unchanged) before it writes, so there is no
+// separate dry run: the button names the bill and its amount, and that tap is
+// the confirmation (Nik, 27 Oct 2026: too many clicks). A refusal comes back
+// as issues, in Xero's own words where Xero refused it.
+export async function sendToXero(slug: string, entity: string, id: string): Promise<ApSendResult> {
+  const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${id}/send`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dry_run: false }),
+  });
+  const body = (await res.json().catch(() => ({}))) as ApSendResult;
+  if (body.xero_errors?.length) return { ...body, validation: "FAIL", issues: body.xero_errors };
+  if (!res.ok && !body.issues) throw new Error(body.error ?? `The send failed (${res.status})`);
+  return body;
+}
+
+export function sendLabel(item: ApActionsItem): string {
+  return `Send ${money(item.total, item.currency)} to Xero`;
+}
+
 function SendPanel({ slug, entity, item }: { slug: string; entity: string; item: ApActionsItem }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [check, setCheck] = useState<ApSendResult | null>(null);
   const [result, setResult] = useState<ApSendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recoding, setRecoding] = useState(false);
   const [saved, setSaved] = useState(false);
-  const url = `/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${item.id}/send`;
 
-  async function post(dryRun: boolean): Promise<ApSendResult> {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dry_run: dryRun }) });
-    const body = (await res.json().catch(() => ({}))) as ApSendResult;
-    if (!res.ok && !body.issues) throw new Error(body.error ?? `The send failed (${res.status})`);
-    return body;
-  }
-
-  async function dryRun() {
+  async function send() {
     setBusy(true); setError(null); setResult(null);
-    try { setCheck(await post(true)); } catch (e) { setError(e instanceof Error ? e.message : "The check failed"); } finally { setBusy(false); }
-  }
-
-  async function confirm() {
-    setBusy(true); setError(null);
     try {
-      const r = await post(false);
+      const r = await sendToXero(slug, entity, item.id);
       setResult(r);
-      setCheck(null);
       if (r.validation === "PASS") router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "The send failed"); } finally { setBusy(false); }
   }
 
   return (
     <div className={styles.actions}>
-      {!check && !result && !recoding && (
-        <div className={styles.buttonRow}>
-          <button type="button" className={styles.button} onClick={dryRun} disabled={busy}>
-            {busy ? "Checking..." : "Send to Xero"}
-          </button>
-          <button type="button" className={styles.buttonSecondary} onClick={() => { setSaved(false); setRecoding(true); }} disabled={busy}>Change coding</button>
-        </div>
+      {!result && !recoding && (
+        <>
+          <p className={styles.status}>
+            {item.fromDraft ? "Updates Xero's draft bill" : "Creates a bill"} from {item.contactName}{item.number ? `, ${item.number}` : ""},
+            due {shortDate(item.dueDate)}, at Awaiting approval with the document attached. You then approve it in Xero.
+          </p>
+          <div className={styles.buttonRow}>
+            <button type="button" className={styles.button} onClick={send} disabled={busy}>
+              {busy ? "Sending..." : sendLabel(item)}
+            </button>
+            <button type="button" className={styles.buttonSecondary} onClick={() => { setSaved(false); setRecoding(true); }} disabled={busy}>Change coding</button>
+          </div>
+        </>
       )}
-      {saved && !recoding && !check && !result && <p className={styles.done} aria-live="polite">Coding saved. Check the bill above, then send it.</p>}
+      {saved && !recoding && !result && <p className={styles.done} aria-live="polite">Coding saved.</p>}
       {recoding && <DecidePanel slug={slug} entity={entity} item={item} recode onCancel={() => setRecoding(false)}
         onSaved={() => { setRecoding(false); setSaved(true); }} />}
 
-      {check?.validation === "PASS" && (
-        <div className={styles.confirm}>
-          <p className={styles.confirmText}>
-            This {item.fromDraft ? "updates Xero's draft bill" : "creates a bill"} from <strong>{item.contactName}</strong>{item.number ? `, ${item.number}` : ""}, for{" "}
-            <strong>{money(item.total, item.currency)}</strong>, due <strong>{shortDate(item.dueDate)}</strong>, to <strong>Awaiting approval</strong>, with the document attached.
-            You then approve it in Xero.
-          </p>
-          <ul className={styles.codingList}>
-            {item.lines.map((l, i) => (
-              <li key={i}>
-                <span className={styles.lineDesc}>{l.description}</span> <strong>{money(l.amount, null)}</strong>
-                <div className={styles.lineCoding}>{l.accountName ?? l.account} · {l.taxName ?? l.tax}</div>
-              </li>
-            ))}
-          </ul>
-          <div className={styles.buttonRow}>
-            <button type="button" className={styles.button} onClick={confirm} disabled={busy}>{busy ? "Sending..." : "Confirm and send"}</button>
-            <button type="button" className={styles.buttonSecondary} onClick={() => setCheck(null)} disabled={busy}>Cancel</button>
-          </div>
-        </div>
+      {result?.validation === "FAIL" && (
+        <Issues title="Xero would not take it yet" issues={result.issues ?? []} onClose={() => setResult(null)} />
       )}
-
-      {(check?.validation === "FAIL" || result?.validation === "FAIL") && (
-        <Issues title="Xero would not take it yet" issues={(check ?? result)?.issues ?? []} onClose={() => { setCheck(null); setResult(null); }} />
-      )}
-
-      {result?.validation === "PASS" && (
-        <p className={styles.done}>
-          Sent: bill {result.InvoiceNumber || result.InvoiceID} is in Xero, {String(result.xero_status || "").toLowerCase().replace("submitted", "awaiting approval")}.
-          {result.attached ? " The document is attached." : " The document could not be attached: attach it in Xero."}
-        </p>
-      )}
+      {result?.validation === "PASS" && <SentNote result={result} />}
       {error && <p className={styles.error} role="alert">{error}</p>}
     </div>
+  );
+}
+
+export function SentNote({ result }: { result: ApSendResult }) {
+  return (
+    <p className={styles.done}>
+      Sent: bill {result.InvoiceNumber || result.InvoiceID} is in Xero, {String(result.xero_status || "").toLowerCase().replace("submitted", "awaiting approval")}.
+      {result.attached ? " The document is attached." : " The document could not be attached: attach it in Xero."}
+    </p>
   );
 }
 
@@ -134,6 +125,7 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [issues, setIssues] = useState<string[]>([]);
+  const [sendIssues, setSendIssues] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const base = `/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}`;
 
@@ -144,8 +136,9 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
     return () => { live = false; };
   }, [base]);
 
-  async function decide(action: "approve" | "reject") {
-    setBusy(true); setError(null); setIssues([]);
+  // thenSend: save the decision, then send to Xero in the same tap.
+  async function decide(action: "approve" | "reject", thenSend = false) {
+    setBusy(true); setError(null); setIssues([]); setSendIssues([]);
     const supplier = options?.suppliers.find((s) => s.contact_id === contactId);
     const body = action === "reject" ? { action, note } : {
       action, note,
@@ -160,6 +153,14 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
       const out = await res.json().catch(() => ({}));
       if (res.status === 422) { setIssues(out.issues ?? [out.error]); return; }
       if (!res.ok) throw new Error(out.error ?? `The decision failed (${res.status})`);
+      if (thenSend) {
+        const sent = await sendToXero(slug, entity, item.id);
+        // Saved but refused: keep the form and Xero's reasons on screen; the
+        // page refreshes when they are closed.
+        if (sent.validation !== "PASS") { setSendIssues(sent.issues ?? ["Xero would not take it"]); return; }
+        router.refresh();
+        return;
+      }
       // Close the form so the saved bill above is what shows; it said nothing
       // before and looked unsaved (27 Oct 2026: saved seven times).
       onSaved?.();
@@ -204,8 +205,11 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
             <textarea className={styles.textarea} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
           <div className={styles.buttonRow}>
-            <button type="button" className={styles.button} onClick={() => decide("approve")} disabled={busy || !ready}>
-              {busy ? "Saving..." : recode ? "Save coding" : "Approve"}
+            <button type="button" className={styles.button} onClick={() => decide("approve", true)} disabled={busy || !ready}>
+              {busy ? "Working..." : recode ? "Save and send" : "Approve and send"}
+            </button>
+            <button type="button" className={styles.buttonSecondary} onClick={() => decide("approve")} disabled={busy || !ready}>
+              {recode ? "Save only" : "Approve only"}
             </button>
             <button type="button" className={styles.buttonSecondary} onClick={() => decide("reject")} disabled={busy || !note.trim()}>
               Reject
@@ -216,6 +220,9 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
         </>
       )}
       {issues.length > 0 && <Issues title="Not saved" issues={issues} onClose={() => setIssues([])} />}
+      {sendIssues.length > 0 && (
+        <Issues title="Saved, but Xero would not take it yet" issues={sendIssues} onClose={() => { setSendIssues([]); router.refresh(); }} />
+      )}
       {error && <p className={styles.error} role="alert">{error}</p>}
     </div>
   );
