@@ -54,6 +54,7 @@ const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
 const agentJob = require("./lib/agent-job");
 const financeOverview = require("./lib/overview");
+const work = require("./lib/work");
 const billReview = require("./lib/bill-review");
 const supplierPass = require("./lib/supplier-pass");
 const supplierDecision = require("./lib/supplier-decision");
@@ -4633,6 +4634,8 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/decision", route(
       payload: { note: d.note, edits: d.edits, from: item.state }, ip: req.get("X-Forwarded-For"),
     });
     await conn.query("COMMIT");
+    // A rejected bill is decided: tasks waiting on it move on (Work).
+    if (d.state === "rejected") await workBillDecided(item.id, "rejected");
     res.json(row);
   } catch (e) {
     await conn.query("ROLLBACK").catch(() => {});
@@ -4736,6 +4739,8 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
           `UPDATE finance.ap_items SET state = 'written', xero_invoice_id = $2, written_at = now(), write_error = $3,
                   decided_by_email = COALESCE(decided_by_email, $4), decided_at = COALESCE(decided_at, now())
             WHERE id = $1`, [item.id, saved.InvoiceID, attachError ? JSON.stringify({ attach: attachError }) : null, actorEmail]);
+        // The bill is in Xero: tasks waiting on it move on (Work).
+        await workBillDecided(item.id, "sent to Xero");
         return r;
       },
       describe: (s, raw) => ({ ...bill.describe(s, raw), done, attached: done.some((x) => x.startsWith("document")) }),
@@ -4763,6 +4768,259 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id/file", route(async
   res.set("Content-Disposition", `inline; filename="${item.file_name.replace(/["\\\r\n]/g, "_")}"`);
   res.send(Buffer.from(await r.arrayBuffer()));
 }));
+
+// ── Work: tasks, sub-tasks, blockers, history (migration 024) ────────────────
+//
+// lib/work.js holds the rules. Every change is the actor's, needs an
+// engagement role for the client, and writes its history row in the same
+// transaction. Marking a task done, deleting it, or deciding a bill in Bills
+// clears the blockers that pointed at it, with an "unblocked" history row on
+// each task that was waiting.
+
+async function workTx(req, res, fn) {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+    if (!role) { await conn.query("ROLLBACK"); return res.status(403).json({ error: `${actorEmail} holds no engagement role for this client` }); }
+    const out = await fn(conn, { client, actorEmail, role });
+    if (out.status >= 400) { await conn.query("ROLLBACK"); return res.status(out.status).json(out.body); }
+    await conn.query("COMMIT");
+    return res.status(out.status).json(out.body);
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+const taskEvent = (conn, clientId, taskId, actor, action, detail = {}) => conn.query(
+  "INSERT INTO finance.task_events (task_id, client_id, actor, action, detail) VALUES ($1,$2,$3,$4,$5)",
+  [taskId, clientId, actor, action, JSON.stringify(detail)]);
+
+// Clears the open blockers that pointed at these tasks or this bill, with an
+// "unblocked" history row on each task that was waiting.
+async function clearBlockers(conn, { taskIds = [], apItemId = null, reason, actor = "automatic" }) {
+  const { rows } = await conn.query(
+    `UPDATE finance.task_blockers b SET resolved_at = now(), resolved_by = $3
+       FROM finance.tasks t
+      WHERE t.id = b.task_id AND b.resolved_at IS NULL
+        AND (b.blocking_task_id = ANY($1::uuid[]) OR ($2::uuid IS NOT NULL AND b.ap_item_id = $2::uuid))
+      RETURNING b.id, b.task_id, b.kind, t.client_id`, [taskIds, apItemId, actor]);
+  for (const r of rows) await taskEvent(conn, r.client_id, r.task_id, actor, "unblocked", { blocker_id: r.id, kind: r.kind, reason });
+  return rows.length;
+}
+
+// A Bills item was decided (sent, rejected): the tasks waiting on it move on.
+// Never fails the Bills action that called it.
+async function workBillDecided(apItemId, outcome) {
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    await clearBlockers(conn, { apItemId, reason: `the bill was ${outcome}` });
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    console.error(`work: could not clear blockers for bill ${apItemId}: ${e.message}`);
+  } finally {
+    conn.release();
+  }
+}
+
+// GET /api/finance/clients/:slug/tasks   every task (not deleted), with its
+// blockers, the status it shows, and what it holds up.
+app.get("/api/finance/clients/:slug/tasks", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const [tasks, blockers] = await Promise.all([
+    pool.query(
+      `SELECT t.id, t.parent_id, t.entity_id, e.slug AS entity_slug, e.name AS entity_name, t.title, t.notes, t.status, t.priority,
+              t.owner_kind, t.owner, t.start_on::text, t.due_on::text, t.position, t.source, t.source_ref,
+              t.created_by, t.created_at, t.updated_at, t.closed_at
+         FROM finance.tasks t LEFT JOIN finance.entities e ON e.id = t.entity_id
+        WHERE t.client_id = $1 AND t.deleted_at IS NULL
+        ORDER BY t.position, t.created_at`, [client.id]),
+    pool.query(
+      `SELECT b.*, bt.title AS blocking_title, bt.status AS blocking_status, bt.deleted_at AS blocking_deleted,
+              ai.state AS ap_state, ai.proposed_bill->'Contact'->>'Name' AS ap_supplier, ai.proposed_bill->>'Total' AS ap_total,
+              ai.proposed_bill->>'CurrencyCode' AS ap_currency, ae.slug AS ap_entity_slug
+         FROM finance.task_blockers b
+         JOIN finance.tasks t ON t.id = b.task_id
+         LEFT JOIN finance.tasks bt ON bt.id = b.blocking_task_id
+         LEFT JOIN finance.ap_items ai ON ai.id = b.ap_item_id
+         LEFT JOIN finance.entities ae ON ae.id = ai.entity_id
+        WHERE t.client_id = $1 AND t.deleted_at IS NULL
+        ORDER BY b.since`, [client.id]),
+  ]);
+  const shaped = blockers.rows.map((b) => {
+    const open = work.blockerOpen(b, {
+      blockingTask: b.kind === "task" ? { status: b.blocking_status, deleted_at: b.blocking_deleted } : null,
+      apItem: b.kind === "ap_item" && b.ap_state ? { state: b.ap_state } : null,
+    });
+    return {
+      id: b.id, task_id: b.task_id, kind: b.kind, open, since: b.since, chase_on: b.chase_on, description: b.description,
+      resolved_at: b.resolved_at, resolved_by: b.resolved_by, party: b.party,
+      task: b.kind === "task" ? { id: b.blocking_task_id, title: b.blocking_title, status: b.blocking_status } : null,
+      bill: b.kind === "ap_item"
+        ? { id: b.ap_item_id, supplier: b.ap_supplier, total: b.ap_total, currency: b.ap_currency, state: b.ap_state, entity: b.ap_entity_slug }
+        : null,
+    };
+  });
+  const rows = tasks.rows.map((t) => {
+    const mine = shaped.filter((b) => b.task_id === t.id);
+    return {
+      ...t,
+      shown_status: work.shownStatus(t, mine.filter((b) => b.open)),
+      blockers: mine,
+      holds_up: shaped.filter((b) => b.kind === "task" && b.task.id === t.id && b.open).map((b) => b.task_id),
+    };
+  });
+  res.json({ count: rows.length, tasks: rows });
+}));
+
+// GET /api/finance/clients/:slug/tasks/:id/events   a task's history, newest first
+app.get("/api/finance/clients/:slug/tasks/:id/events", route(async (req, res) => {
+  if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a task id" });
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const { rows } = await pool.query(
+    `SELECT id, at, actor, action, detail FROM finance.task_events
+      WHERE client_id = $1 AND task_id = $2 ORDER BY at DESC, id DESC LIMIT 200`, [client.id, req.params.id]);
+  res.json({ count: rows.length, events: rows });
+}));
+
+// A parent and a company must be this client's.
+async function taskRefsIssues(conn, clientId, fields) {
+  const issues = [];
+  if (fields.parent_id) {
+    const p = (await conn.query("SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL", [fields.parent_id, clientId])).rows[0];
+    if (!p) issues.push("the parent task is not one of this client's");
+  }
+  if (fields.entity_id) {
+    const e = (await conn.query("SELECT id FROM finance.entities WHERE id = $1 AND client_id = $2", [fields.entity_id, clientId])).rows[0];
+    if (!e) issues.push("the company is not one of this client's");
+  }
+  return issues;
+}
+
+// POST /api/finance/clients/:slug/tasks   body: the task's fields
+app.post("/api/finance/clients/:slug/tasks", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  const { issues, fields } = work.taskInput(req.body || {});
+  if (!issues.length) issues.push(...await taskRefsIssues(conn, client.id, fields));
+  if (issues.length) return { status: 422, body: { issues } };
+  const cols = Object.keys(fields);
+  const done = fields.status === "done";
+  const row = (await conn.query(
+    `INSERT INTO finance.tasks (client_id, created_by, ${cols.join(", ")}${done ? ", closed_at" : ""})
+     VALUES ($1, $2, ${cols.map((_, i) => `$${i + 3}`).join(", ")}${done ? ", now()" : ""}) RETURNING *`,
+    [client.id, actorEmail, ...cols.map((c) => fields[c])])).rows[0];
+  await taskEvent(conn, client.id, row.id, actorEmail, "created", { fields });
+  return { status: 201, body: row };
+})));
+
+// PATCH /api/finance/clients/:slug/tasks/:id   body: only the fields to change
+app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
+  const current = (await conn.query(
+    "SELECT * FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL FOR UPDATE", [req.params.id, client.id])).rows[0];
+  if (!current) return { status: 404, body: { error: "task not found" } };
+  const { issues, fields } = work.taskInput(req.body || {}, { partial: true, current });
+  if (!issues.length) issues.push(...await taskRefsIssues(conn, client.id, fields));
+  if (!issues.length && fields.parent_id) {
+    const all = (await conn.query("SELECT id, parent_id FROM finance.tasks WHERE client_id = $1 AND deleted_at IS NULL", [client.id])).rows;
+    if (work.wouldNestLoop(current.id, fields.parent_id, all)) issues.push("that parent is one of this task's own sub-tasks");
+  }
+  if (issues.length) return { status: 422, body: { issues } };
+  const diff = work.changes(current, fields);
+  if (!Object.keys(diff).length) return { status: 200, body: current };
+  const cols = Object.keys(diff);
+  const sets = cols.map((c, i) => `${c} = $${i + 2}`);
+  if (diff.status) sets.push(diff.status.to === "done" ? "closed_at = now()" : "closed_at = NULL");
+  const row = (await conn.query(`UPDATE finance.tasks SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
+    [current.id, ...cols.map((c) => fields[c])])).rows[0];
+  await taskEvent(conn, client.id, current.id, actorEmail, diff.status ? "status" : "changed", { changes: diff });
+  if (diff.status && diff.status.to === "done") await clearBlockers(conn, { taskIds: [current.id], reason: `${current.title} is done` });
+  return { status: 200, body: row };
+})));
+
+// DELETE /api/finance/clients/:slug/tasks/:id   hides the task and its
+// sub-tasks; their history is kept. Tasks waiting on them move on.
+app.delete("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
+  const { rows } = await conn.query(
+    `WITH RECURSIVE tree AS (
+       SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
+       UNION ALL
+       SELECT t.id FROM finance.tasks t JOIN tree ON t.parent_id = tree.id WHERE t.deleted_at IS NULL
+     )
+     UPDATE finance.tasks SET deleted_at = now(), deleted_by = $3 WHERE id IN (SELECT id FROM tree) RETURNING id`,
+    [req.params.id, client.id, actorEmail]);
+  if (!rows.length) return { status: 404, body: { error: "task not found" } };
+  for (const r of rows) await taskEvent(conn, client.id, r.id, actorEmail, "deleted", { with_parent: r.id !== req.params.id });
+  await clearBlockers(conn, { taskIds: rows.map((r) => r.id), reason: "the task it waited on was deleted" });
+  return { status: 200, body: { deleted: rows.length } };
+})));
+
+// POST /api/finance/clients/:slug/tasks/:id/blockers
+//   body: { kind: "task", blocking_task_id } | { kind: "ap_item", ap_item_id } | { kind: "external", party },
+//         plus description?, chase_on?
+app.post("/api/finance/clients/:slug/tasks/:id/blockers", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
+  const task = (await conn.query("SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL", [req.params.id, client.id])).rows[0];
+  if (!task) return { status: 404, body: { error: "task not found" } };
+  const { issues, fields } = work.blockerInput(req.body || {});
+  if (!issues.length && fields.kind === "task") {
+    const b = (await conn.query("SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL", [fields.blocking_task_id, client.id])).rows[0];
+    if (!b) issues.push("the blocking task is not one of this client's");
+    else {
+      const edges = (await conn.query(
+        `SELECT b.task_id, b.blocking_task_id FROM finance.task_blockers b JOIN finance.tasks t ON t.id = b.task_id
+          WHERE t.client_id = $1 AND b.kind = 'task' AND b.resolved_at IS NULL`, [client.id])).rows;
+      if (work.wouldLoop(task.id, fields.blocking_task_id, edges)) issues.push("that would make the two tasks wait for each other");
+    }
+  }
+  if (!issues.length && fields.kind === "ap_item") {
+    const a = (await conn.query("SELECT id FROM finance.ap_items WHERE id = $1 AND client_id = $2", [fields.ap_item_id, client.id])).rows[0];
+    if (!a) issues.push("the Bills item is not one of this client's");
+  }
+  if (issues.length) return { status: 422, body: { issues } };
+  const cols = Object.keys(fields);
+  const row = (await conn.query(
+    `INSERT INTO finance.task_blockers (task_id, created_by, ${cols.join(", ")}) VALUES ($1, $2, ${cols.map((_, i) => `$${i + 3}`).join(", ")}) RETURNING *`,
+    [task.id, actorEmail, ...cols.map((c) => fields[c])])).rows[0];
+  await taskEvent(conn, client.id, task.id, actorEmail, "blocked", { blocker_id: row.id, ...fields });
+  return { status: 201, body: row };
+})));
+
+// POST /api/finance/clients/:slug/tasks/:id/blockers/:bid/resolve   body: { note? }
+app.post("/api/finance/clients/:slug/tasks/:id/blockers/:bid/resolve", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  if (!work.isGuid(req.params.id) || !work.isGuid(req.params.bid)) return { status: 400, body: { error: "ids must be ids" } };
+  const row = (await conn.query(
+    `UPDATE finance.task_blockers b SET resolved_at = now(), resolved_by = $4
+       FROM finance.tasks t
+      WHERE b.id = $1 AND b.task_id = $2 AND t.id = b.task_id AND t.client_id = $3 AND b.resolved_at IS NULL
+      RETURNING b.*`, [req.params.bid, req.params.id, client.id, actorEmail])).rows[0];
+  if (!row) return { status: 404, body: { error: "open blocker not found" } };
+  await taskEvent(conn, client.id, req.params.id, actorEmail, "unblocked",
+    { blocker_id: row.id, kind: row.kind, note: req.body?.note ? String(req.body.note).slice(0, 1000) : null });
+  return { status: 200, body: row };
+})));
+
+// POST /api/finance/clients/:slug/tasks/:id/notes   body: { text }   a note in the history
+app.post("/api/finance/clients/:slug/tasks/:id/notes", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+  if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
+  const text = String(req.body?.text ?? "").trim();
+  if (!text) return { status: 422, body: { issues: ["the note is empty"] } };
+  const task = (await conn.query("SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL", [req.params.id, client.id])).rows[0];
+  if (!task) return { status: 404, body: { error: "task not found" } };
+  await taskEvent(conn, client.id, task.id, actorEmail, "comment", { text: text.slice(0, 4000) });
+  return { status: 201, body: { ok: true } };
+})));
 
 // ── Supplier master: the CFO's decisions ─────────────────────────────────────
 //
