@@ -176,6 +176,7 @@ export interface AgentRunRow {
 }
 
 export interface FinanceEntity {
+  id: string;
   slug: string;
   name: string;
   legalName: string | null;
