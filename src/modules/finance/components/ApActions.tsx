@@ -45,6 +45,7 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
   const [result, setResult] = useState<ApSendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recoding, setRecoding] = useState(false);
+  const [saved, setSaved] = useState(false);
   const url = `/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${item.id}/send`;
 
   async function post(dryRun: boolean): Promise<ApSendResult> {
@@ -76,10 +77,12 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
           <button type="button" className={styles.button} onClick={dryRun} disabled={busy}>
             {busy ? "Checking..." : "Send to Xero"}
           </button>
-          <button type="button" className={styles.buttonSecondary} onClick={() => setRecoding(true)} disabled={busy}>Change coding</button>
+          <button type="button" className={styles.buttonSecondary} onClick={() => { setSaved(false); setRecoding(true); }} disabled={busy}>Change coding</button>
         </div>
       )}
-      {recoding && <DecidePanel slug={slug} entity={entity} item={item} recode onCancel={() => setRecoding(false)} />}
+      {saved && !recoding && !check && !result && <p className={styles.done} aria-live="polite">Coding saved. Check the bill above, then send it.</p>}
+      {recoding && <DecidePanel slug={slug} entity={entity} item={item} recode onCancel={() => setRecoding(false)}
+        onSaved={() => { setRecoding(false); setSaved(true); }} />}
 
       {check?.validation === "PASS" && (
         <div className={styles.confirm}>
@@ -120,8 +123,8 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
 
 // For an exception, the decision. For a clean bill (recode), the same form to
 // change its coding before it is sent; saving makes it approved.
-function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
-  slug: string; entity: string; item: ApActionsItem; recode?: boolean; onCancel?: () => void;
+function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: {
+  slug: string; entity: string; item: ApActionsItem; recode?: boolean; onCancel?: () => void; onSaved?: () => void;
 }) {
   const router = useRouter();
   const [options, setOptions] = useState<ApOptions | null>(null);
@@ -157,6 +160,9 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel }: {
       const out = await res.json().catch(() => ({}));
       if (res.status === 422) { setIssues(out.issues ?? [out.error]); return; }
       if (!res.ok) throw new Error(out.error ?? `The decision failed (${res.status})`);
+      // Close the form so the saved bill above is what shows; it said nothing
+      // before and looked unsaved (27 Oct 2026: saved seven times).
+      onSaved?.();
       router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "The decision failed"); } finally { setBusy(false); }
   }
