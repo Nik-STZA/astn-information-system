@@ -152,6 +152,15 @@ export function eventText(e: TaskEvent): string {
   }
 }
 
+// Who a change came through, when not the person directly: " via FM1",
+// " via Claude" (finance-api's X-Work-Via, stored on the history row).
+export function viaText(e: TaskEvent): string {
+  const v = (e.detail as { via?: { kind?: string; agent?: string } }).via;
+  if (v?.kind === "claude") return " via Claude";
+  if (v?.kind === "agent") return ` via ${AGENTS.find((a) => a.value === v.agent)?.label ?? "an agent"}`;
+  return "";
+}
+
 // ── Server only ──────────────────────────────────────────────────────────────
 
 const BASE_URL = process.env.FINANCE_API_URL ?? "http://127.0.0.1:8080";

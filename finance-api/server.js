@@ -4799,9 +4799,15 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id/file", route(async
 // clears the blockers that pointed at it, with an "unblocked" history row on
 // each task that was waiting.
 
-async function workTx(req, res, fn) {
+// An agent run or a Claude conversation acts as the person who asked and says
+// so in X-Work-Via (lib/work.js viaInput); every history row it writes carries
+// it. peopleOnly routes (delete, the register import) refuse it.
+async function workTx(req, res, fn, { peopleOnly = false } = {}) {
   const actorEmail = (req.get("X-Actor-Email") || "").trim();
   if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const origin = work.viaInput(req.get("X-Work-Via"), req.get("X-Work-Ref"));
+  if (origin.issues.length) return res.status(400).json({ issues: origin.issues });
+  if (peopleOnly && origin.via) return res.status(403).json({ error: "only a person can do this, in os.stza.io" });
   const client = await clientIdFromSlug(req.params.slug);
   if (!client) return res.status(404).json({ error: "client not found" });
   const conn = await pool.connect();
@@ -4809,7 +4815,9 @@ async function workTx(req, res, fn) {
     await conn.query("BEGIN");
     const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
     if (!role) { await conn.query("ROLLBACK"); return res.status(403).json({ error: `${actorEmail} holds no engagement role for this client` }); }
-    const out = await fn(conn, { client, actorEmail, role });
+    const log = (taskId, action, detail = {}) =>
+      taskEvent(conn, client.id, taskId, actorEmail, action, origin.via ? { ...detail, via: origin.via } : detail);
+    const out = await fn(conn, { client, actorEmail, role, origin, log });
     if (out.status >= 400) { await conn.query("ROLLBACK"); return res.status(out.status).json(out.body); }
     await conn.query("COMMIT");
     return res.status(out.status).json(out.body);
@@ -4932,22 +4940,31 @@ async function taskRefsIssues(conn, clientId, fields) {
 }
 
 // POST /api/finance/clients/:slug/tasks   body: the task's fields
-app.post("/api/finance/clients/:slug/tasks", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+//   X-Work-Via sets where it came from (agent, claude); with X-Work-Ref, an item
+//   already sent comes back as it is, with existing: true, instead of twice.
+app.post("/api/finance/clients/:slug/tasks", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, origin, log }) => {
   const { issues, fields } = work.taskInput(req.body || {});
   if (!issues.length) issues.push(...await taskRefsIssues(conn, client.id, fields));
   if (issues.length) return { status: 422, body: { issues } };
+  if (origin.ref) {
+    const had = (await conn.query(
+      "SELECT * FROM finance.tasks WHERE client_id = $1 AND source = $2 AND source_ref = $3", [client.id, origin.source, origin.ref])).rows[0];
+    if (had) return { status: 200, body: { ...had, existing: true } };
+  }
+  if (origin.source) Object.assign(fields, { source: origin.source, source_ref: origin.ref });
   const cols = Object.keys(fields);
   const done = fields.status === "done";
   const row = (await conn.query(
     `INSERT INTO finance.tasks (client_id, created_by, ${cols.join(", ")}${done ? ", closed_at" : ""})
      VALUES ($1, $2, ${cols.map((_, i) => `$${i + 3}`).join(", ")}${done ? ", now()" : ""}) RETURNING *`,
     [client.id, actorEmail, ...cols.map((c) => fields[c])])).rows[0];
-  await taskEvent(conn, client.id, row.id, actorEmail, "created", { fields });
+  const { source, source_ref, ...set } = fields;
+  await log(row.id, "created", { fields: set });
   return { status: 201, body: row };
 })));
 
 // PATCH /api/finance/clients/:slug/tasks/:id   body: only the fields to change
-app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, log }) => {
   if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
   const current = (await conn.query(
     "SELECT * FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL FOR UPDATE", [req.params.id, client.id])).rows[0];
@@ -4966,7 +4983,7 @@ app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => work
   if (diff.status) sets.push(diff.status.to === "done" ? "closed_at = now()" : "closed_at = NULL");
   const row = (await conn.query(`UPDATE finance.tasks SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
     [current.id, ...cols.map((c) => fields[c])])).rows[0];
-  await taskEvent(conn, client.id, current.id, actorEmail, diff.status ? "status" : "changed", { changes: diff });
+  await log(current.id, diff.status ? "status" : "changed", { changes: diff });
   if (diff.status && diff.status.to === "done") await clearBlockers(conn, { taskIds: [current.id], reason: `${current.title} is done` });
   return { status: 200, body: row };
 })));
@@ -4987,12 +5004,12 @@ app.delete("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => wor
   for (const r of rows) await taskEvent(conn, client.id, r.id, actorEmail, "deleted", { with_parent: r.id !== req.params.id });
   await clearBlockers(conn, { taskIds: rows.map((r) => r.id), reason: "the task it waited on was deleted" });
   return { status: 200, body: { deleted: rows.length } };
-})));
+}, { peopleOnly: true })));
 
 // POST /api/finance/clients/:slug/tasks/:id/blockers
 //   body: { kind: "task", blocking_task_id } | { kind: "ap_item", ap_item_id } | { kind: "external", party },
 //         plus description?, chase_on?
-app.post("/api/finance/clients/:slug/tasks/:id/blockers", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+app.post("/api/finance/clients/:slug/tasks/:id/blockers", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, log }) => {
   if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
   const task = (await conn.query("SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL", [req.params.id, client.id])).rows[0];
   if (!task) return { status: 404, body: { error: "task not found" } };
@@ -5016,12 +5033,12 @@ app.post("/api/finance/clients/:slug/tasks/:id/blockers", route(async (req, res)
   const row = (await conn.query(
     `INSERT INTO finance.task_blockers (task_id, created_by, ${cols.join(", ")}) VALUES ($1, $2, ${cols.map((_, i) => `$${i + 3}`).join(", ")}) RETURNING *`,
     [task.id, actorEmail, ...cols.map((c) => fields[c])])).rows[0];
-  await taskEvent(conn, client.id, task.id, actorEmail, "blocked", { blocker_id: row.id, ...fields });
+  await log(task.id, "blocked", { blocker_id: row.id, ...fields });
   return { status: 201, body: row };
 })));
 
 // POST /api/finance/clients/:slug/tasks/:id/blockers/:bid/resolve   body: { note? }
-app.post("/api/finance/clients/:slug/tasks/:id/blockers/:bid/resolve", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+app.post("/api/finance/clients/:slug/tasks/:id/blockers/:bid/resolve", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, log }) => {
   if (!work.isGuid(req.params.id) || !work.isGuid(req.params.bid)) return { status: 400, body: { error: "ids must be ids" } };
   const row = (await conn.query(
     `UPDATE finance.task_blockers b SET resolved_at = now(), resolved_by = $4
@@ -5029,19 +5046,19 @@ app.post("/api/finance/clients/:slug/tasks/:id/blockers/:bid/resolve", route(asy
       WHERE b.id = $1 AND b.task_id = $2 AND t.id = b.task_id AND t.client_id = $3 AND b.resolved_at IS NULL
       RETURNING b.*`, [req.params.bid, req.params.id, client.id, actorEmail])).rows[0];
   if (!row) return { status: 404, body: { error: "open blocker not found" } };
-  await taskEvent(conn, client.id, req.params.id, actorEmail, "unblocked",
+  await log(req.params.id, "unblocked",
     { blocker_id: row.id, kind: row.kind, note: req.body?.note ? String(req.body.note).slice(0, 1000) : null });
   return { status: 200, body: row };
 })));
 
 // POST /api/finance/clients/:slug/tasks/:id/notes   body: { text }   a note in the history
-app.post("/api/finance/clients/:slug/tasks/:id/notes", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+app.post("/api/finance/clients/:slug/tasks/:id/notes", route(async (req, res) => workTx(req, res, async (conn, { client, log }) => {
   if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
   const text = String(req.body?.text ?? "").trim();
   if (!text) return { status: 422, body: { issues: ["the note is empty"] } };
   const task = (await conn.query("SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL", [req.params.id, client.id])).rows[0];
   if (!task) return { status: 404, body: { error: "task not found" } };
-  await taskEvent(conn, client.id, task.id, actorEmail, "comment", { text: text.slice(0, 4000) });
+  await log(task.id, "comment", { text: text.slice(0, 4000) });
   return { status: 201, body: { ok: true } };
 })));
 
@@ -5089,7 +5106,7 @@ app.post("/api/finance/clients/:slug/tasks/import-open-items", route(async (req,
     }
   }
   return { status: 201, body: summary };
-})));
+}, { peopleOnly: true })));
 
 // Approvals waiting on the CFO appear in Work as tasks that close themselves
 // once decided (Nik, 27 Oct 2026). Run whenever Work is read: a task is opened

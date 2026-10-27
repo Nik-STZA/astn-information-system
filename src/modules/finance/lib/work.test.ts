@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockerText, eventText, ownerInitials, taskTree, type Task, type TaskBlocker } from "./work";
+import { blockerText, eventText, ownerInitials, taskTree, viaText, type Task, type TaskBlocker } from "./work";
 
 let n = 0;
 const t = (id: string, parent: string | null, extra: Partial<Task> = {}): Task => ({
@@ -127,5 +127,15 @@ describe("timelineLayout scheduling", () => {
     const day = (id: string) => l.days[l.bars.find((b) => b.id === id)!.from];
     expect(day("payroll")).toBe("2026-10-27");
     expect(day("pack")).toBe("2026-11-04");
+  });
+});
+
+describe("viaText", () => {
+  const ev = (detail: Record<string, unknown>) => ({ id: "1", at: "2026-10-28T09:00:00Z", actor: "nik@stza.io", action: "created", detail });
+  it("names the agent or Claude a change came through", () => {
+    expect(viaText(ev({}))).toBe("");
+    expect(viaText(ev({ via: { kind: "agent", agent: "fm1", run_id: "x" } }))).toBe(" via FM1");
+    expect(viaText(ev({ via: { kind: "agent", agent: "general" } }))).toBe(" via an agent");
+    expect(viaText(ev({ via: { kind: "claude" } }))).toBe(" via Claude");
   });
 });

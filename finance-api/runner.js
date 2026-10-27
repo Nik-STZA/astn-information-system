@@ -299,6 +299,7 @@ function buildTools(clientSlug, entities) {
         required: ["entity", "date", "narration", "lines"],
       },
     },
+    ...work.tools(entityEnum),
   ];
 }
 
@@ -439,6 +440,12 @@ async function billsTool(job, name, input) {
   return { error: `Unknown tool: ${name}` };
 }
 
+// ── Work ─────────────────────────────────────────────────────────────────────
+//
+// The client's task list in os.stza.io: lib/agent-work.js.
+
+const work = require("./lib/agent-work").agentWork({ apiCall, apiRequest, requesterOf });
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS. You have access to live Xero accounting data via tools. You are acting on behalf of a qualified Chartered Accountant (CA(SA)) with Big 4 experience.
@@ -464,7 +471,12 @@ The Bills queue:
 - "Bills" means the Bills tab in os.stza.io, not Xero's bills list. Read it with list_bills_queue and get_bill_item. Draft bills in Xero do not appear in aged payables, so never look for a Bills item there.
 - To review coding, read the item (the document's own lines, addressee and dates) and get_bill_coding_options, then save your view with recommend_bill_coding: one account and VAT type per line, each with a one-sentence reason, and a note for anything else to check.
 - Code from the document, not the supplier's habit. A charge for a later period is a prepayment. A document addressed to another group company belongs to that company: say so in the note rather than coding around it. VAT follows the supplier's position (a non-UK supplier of services is usually reverse charge) and what the document can support.
-- You cannot approve, change or send a bill. The CFO accepts or changes your recommendation in the Bills tab; say that when you finish.`;
+- You cannot approve, change or send a bill. The CFO accepts or changes your recommendation in the Bills tab; say that when you finish.
+
+Work (the client's task list in os.stza.io):
+- When you find something that needs doing later (a break to clear, a document to chase, a journal to review), read list_tasks, then add_task if it is not already there. One task per thing, with the evidence in the notes.
+- When you finish or progress a task in Work, update_task with a note of what you did. Mark it done only when you have checked it is done; use review when a person should check it.
+- You cannot delete tasks. At the end, list any tasks you added or changed.`;
 
 const AGENT_PROMPTS = {
   fc: `${SYSTEM_BASE}
@@ -609,6 +621,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
         } else if (["list_bills_queue", "get_bill_item", "get_bill_coding_options", "recommend_bill_coding"].includes(tu.name)) {
           result = await billsTool(job, tu.name, tu.input);
           if (tu.name === "recommend_bill_coding") console.log(`    Recommendation: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
+        } else if (work.names.includes(tu.name)) {
+          result = await work.call(job, connectedEntities, tu.name, tu.input);
+          if (tu.name !== "list_tasks") console.log(`    Work: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
         } else if (tu.name === "create_draft_journal") {
           result = await createDraftJournal(job, tu.input);
           console.log(`    Draft journal: ${result.created ? `created ${result.journal_number ?? ""}` : `refused (${result.status ?? "no approval"})`}`);
