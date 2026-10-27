@@ -142,6 +142,9 @@ export function practiceTools({ apiUrl, apiKey, actorEmail, log }) {
     throw new Error(`${args.entity} is in more than one client; pass client. Available: ${names}`);
   }
   const X = (e) => `/api/finance/clients/${e.client}/xero/${e.entity}`;
+  // The read routes answer { entity, resource, data }, with Xero's own reply
+  // under data. Anything that looks inside a reply must look there.
+  const xero = (body) => body?.data ?? {};
 
   // ── reads ─────────────────────────────────────────────────────────────────
   const read = async (args, resource, params) => get(`${X(await at(args))}/read/${resource}`, params);
@@ -155,7 +158,7 @@ export function practiceTools({ apiUrl, apiKey, actorEmail, log }) {
     let page = 1;
     for (; page <= Math.max(1, maxPages); page++) {
       const body = await get(`${X(e)}/read/${resource}`, { ...params, page });
-      const got = body[key] || [];
+      const got = xero(body)[key] || [];
       items.push(...got);
       if (got.length < 100) break;
     }
@@ -272,7 +275,8 @@ export function practiceTools({ apiUrl, apiKey, actorEmail, log }) {
   def(tool("search_contacts", "Contacts whose name contains a term", { search_term: s("Text to find"), max_results: n("Default 50") }, ["search_term"]),
     async (a) => {
       const r = await read(a, "contacts", { searchTerm: a.search_term });
-      return { ...r, Contacts: (r.Contacts || []).slice(0, a.max_results || 50) };
+      const found = xero(r).Contacts || [];
+      return { entity: r.entity, count: Math.min(found.length, a.max_results || 50), Contacts: found.slice(0, a.max_results || 50) };
     });
   def(tool("get_invoices", "Bills (ACCPAY) and sales invoices (ACCREC)", {
     invoice_type: s("ACCPAY or ACCREC"), status: s("Status"), from_date: s("YYYY-MM-DD"), to_date: s("YYYY-MM-DD"), contact_id: s("ContactID"), max_pages: n("Pages of 100, default 10"),
@@ -317,7 +321,8 @@ export function practiceTools({ apiUrl, apiKey, actorEmail, log }) {
   def(tool("get_cis_settings", "Construction Industry Scheme settings, for the organisation or a contact", { contact_id: s("ContactID") }),
     async (a) => {
       if (a.contact_id) return readOne(a, "contacts", a.contact_id, "cis");
-      const org = (await read(a, "organisation")).Organisations?.[0];
+      const org = xero(await read(a, "organisation")).Organisations?.[0];
+      if (!org) throw new Error("Xero returned no organisation");
       return readOne(a, "organisation", org.OrganisationID, "cis");
     });
   const SCHEDULES = { repeating_invoices: "repeating-invoices", budgets: "budgets", batch_payments: "batch-payments", linked_transactions: "linked-transactions", invoice_reminders: "invoice-reminders" };
@@ -350,7 +355,7 @@ export function practiceTools({ apiUrl, apiKey, actorEmail, log }) {
     async (a) => {
       const what = a.what || "files";
       if (what === "content") {
-        const meta = await readOne(a, "files", a.record_id);
+        const meta = xero(await readOne(a, "files", a.record_id));
         return saveBinary(`${X(await at(a))}/read/files/${a.record_id}/content`, a.out_dir || "_xero_documents", `${a.record_id.slice(0, 8)}_${basename(meta.Name || "file.bin")}`);
       }
       if (what === "file") return readOne(a, "files", a.record_id);
