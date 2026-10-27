@@ -6,7 +6,6 @@
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import { fetchOpenItems, type OpenItemRow } from "@/modules/finance/lib/api";
 import { isDoneStatus } from "@/modules/finance/lib/parse-open-items";
 import NoteThread from "@/modules/finance/components/NoteThread";
@@ -129,9 +128,8 @@ export default async function OpenItemsPage({
   );
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Open items" />
-      <ClientTabs slug={params.slug} active="open-items" />
+    <div>
+      <PageHeader title="Open items" sub="The old open-items register, kept as an archive. Open items now live in Work." />
       {/* Work is the master for open items (Nik, 27 Oct 2026); this is the register as it stood. */}
       <div className="card" style={{ padding: "14px 16px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 14 }}>Open items now live in <strong>Work</strong>, where you can add, change, block and close them. This page is the register as it stood, kept as an archive.</span>

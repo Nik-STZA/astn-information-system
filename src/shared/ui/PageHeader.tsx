@@ -1,52 +1,23 @@
-// Section label above page title, the convention used across the platform.
-// Reads theme tokens rather than hard-coding colours, so it works in light,
-// dark and auto.
+// A page's title, one line on what it is for, and its actions on the right,
+// as on Overview and Work (redesign, 27 Oct 2026). The h1 takes the global
+// heading scale; colours come from theme tokens, so it works light and dark.
 
 export default function PageHeader({
-  section,
   title,
+  sub,
   actions,
 }: {
-  section: string;
   title: string;
+  sub?: React.ReactNode;
   actions?: React.ReactNode;
 }) {
   return (
-    <div style={{ marginBottom: 24 }}>
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: ".08em",
-          textTransform: "uppercase",
-          color: "var(--sub)",
-        }}
-      >
-        {section}
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 20 }}>
+      <div style={{ minWidth: 0 }}>
+        <h1>{title}</h1>
+        {sub && <p style={{ color: "var(--sub)", fontSize: 13, margin: "4px 0 0" }}>{sub}</p>}
       </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 16,
-          marginTop: 4,
-        }}
-      >
-        <h1
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: 26,
-            fontWeight: 800,
-            color: "var(--tx)",
-            margin: 0,
-          }}
-        >
-          {title}
-        </h1>
-        {actions}
-      </div>
+      {actions && <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{actions}</div>}
     </div>
   );
 }

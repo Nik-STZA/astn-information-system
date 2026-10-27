@@ -6,7 +6,6 @@
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import AgedPayablesReport from "@/modules/finance/components/AgedPayablesReport";
 import {
   FinanceApiError,
@@ -83,9 +82,8 @@ export default async function AgedPayablesPage({
         scope);
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="AP ageing" />
-      <ClientTabs slug={slug} active="reports" />
+    <div>
+      <PageHeader title="AP ageing" sub="What is owed to suppliers, by how long it has been due." />
 
       <div
         style={{

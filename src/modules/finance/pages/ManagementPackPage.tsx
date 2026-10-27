@@ -6,7 +6,6 @@
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import ManagementPackPanel from "@/modules/finance/components/ManagementPackPanel";
 import {
   FinanceApiError,
@@ -37,9 +36,8 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
   }
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Management pack" />
-      <ClientTabs slug={slug} active="reports" />
+    <div>
+      <PageHeader title="Management pack" sub="Build the monthly pack from Xero and download it." />
 
       <div style={{ marginBottom: 14, fontFamily: "var(--font-sans)" }}>
         <Link

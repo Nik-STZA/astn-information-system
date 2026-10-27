@@ -5,7 +5,6 @@
 // never by reading its value.
 
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import SensitiveField from "@/modules/finance/components/SensitiveField";
 import OrganisationPicker from "@/modules/finance/components/OrganisationPicker";
 import { fetchXeroStatus, type XeroConnection } from "@/modules/finance/lib/secrets";
@@ -221,9 +220,8 @@ export default async function XeroPage({
   const status = await fetchXeroStatus(params.slug);
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Xero connections" />
-      <ClientTabs slug={params.slug} active="xero" />
+    <div>
+      <PageHeader title="Xero connections" sub="Which Xero organisation each company uses, and whether the connection is live." />
 
       {searchParams?.connected && (
         <Banner tone="good">Connected to {searchParams.connected}.</Banner>

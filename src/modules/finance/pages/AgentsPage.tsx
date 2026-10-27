@@ -4,8 +4,8 @@
 // that only answered a question still read client data.
 
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import AgentPanel from "@/modules/finance/components/AgentPanel";
+import styles from "@/modules/finance/components/Agents.module.css";
 import { fetchAgentRuns, type AgentRunRow } from "@/modules/finance/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -21,19 +21,11 @@ export default async function AgentsPage({ params }: { params: { slug: string } 
   }
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Agents" />
-      <ClientTabs slug={params.slug} active="agents" />
+    <div>
+      <PageHeader title="Agents" sub="Ask an agent to look into something. Each conversation is kept, with its follow-ups." />
 
       {error ? (
-        <div
-          style={{
-            padding: "12px 14px", borderRadius: 8, border: "1px solid var(--warning-amber)",
-            color: "var(--warning-amber)", fontFamily: "var(--font-sans)", fontSize: 13,
-          }}
-        >
-          {error}
-        </div>
+        <div className={styles.error} role="alert">{error}</div>
       ) : (
         <AgentPanel slug={params.slug} initialRuns={runs} />
       )}
