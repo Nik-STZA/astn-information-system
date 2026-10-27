@@ -112,10 +112,11 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
             ? item.state_reason
             : [item.number, shortDate(item.date)].filter((x) => x && x !== "-").join(" · ") || item.file_name}
         </div>
-        {item.state === "exception" && reasons.length > 0 && (
+        {(item.source === "ledger_draft" || (item.state === "exception" && reasons.length > 0)) && (
           <div className={styles.reasonsShort}>
-            {reasons.slice(0, 3).map((r) => <span key={r.check} className={styles.tagWarn}>{checkLabel(r.check)}</span>)}
-            {reasons.length > 3 && <span className={styles.tag}>+{reasons.length - 3} more</span>}
+            {item.source === "ledger_draft" && <span className={styles.tag}>Xero draft</span>}
+            {item.state === "exception" && reasons.slice(0, 3).map((r) => <span key={r.check} className={styles.tagWarn}>{checkLabel(r.check)}</span>)}
+            {item.state === "exception" && reasons.length > 3 && <span className={styles.tag}>+{reasons.length - 3} more</span>}
           </div>
         )}
       </Link>
@@ -126,6 +127,9 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
 function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug: string; entity: string; back: string; names: CodingNames }) {
   const bill = item.proposed_bill;
   const reasons = item.review?.reasons ?? [];
+  // Coding the engine changes from Xero's draft. A different bill (supplier,
+  // number, date, total) is already a reason above.
+  const coding = item.review?.draft_differences?.coding ?? [];
   const fileUrl = `/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${item.id}/file`;
   const isPdf = (item.mime_type || "").includes("pdf");
   const isImage = (item.mime_type || "").startsWith("image/");
@@ -139,6 +143,12 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
           {documentTypeLabel(item.extraction?.document_type)} · {item.file_name}
           {item.matched_by ? ` · supplier matched by ${item.matched_by}` : ""}
         </div>
+
+        {item.source === "ledger_draft" && (
+          <div className={styles.note}>
+            Xero keyed this as a draft bill from its bills email. Sending updates that draft with the bill below; the document is already attached.
+          </div>
+        )}
 
         {item.state_reason && <div className={styles.note}>{item.state_reason}</div>}
 
@@ -160,6 +170,18 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
               <div key={`${r.check}-${n}`} className={styles.reason}>
                 <div className={styles.reasonLabel}>{checkLabel(r.check)}</div>
                 <div className={styles.reasonDetail}>{r.detail}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {coding.length > 0 && (
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Changed from Xero&apos;s draft</h3>
+            {coding.map((d) => (
+              <div key={d.field} className={styles.reason}>
+                <div className={styles.reasonLabel}>{d.field[0].toUpperCase() + d.field.slice(1)}</div>
+                <div className={styles.reasonDetail}>Xero: {String(d.keyed ?? "blank")} · Sent: {String(d.proposed ?? "blank")}</div>
               </div>
             ))}
           </div>

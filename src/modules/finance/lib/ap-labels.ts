@@ -37,6 +37,11 @@ const CHECKS: Record<string, string> = {
   no_due_date: "No due date",
   no_currency: "Currency not read",
   same_file_twice: "Same file on two bills",
+  draft_differs: "Xero's draft differs from the document",
+  coding_from_xero: "Coding suggested by Xero",
+  no_document: "No document on the Xero draft",
+  several_attachments: "Several files on the Xero draft",
+  several_documents: "Several documents in one file",
 };
 
 export function checkLabel(check: string): string {

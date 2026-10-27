@@ -28,7 +28,18 @@ export interface ApItemRow {
   decided_by_email: string | null;
   decided_at: string | null;
   xero_invoice_id: string | null;
+  source: ApSource;
   created_at: string;
+}
+
+// Where the document came from: the Documents inbox, or a draft bill Xero keyed
+// from its bills email (sending updates that draft).
+export type ApSource = "files_inbox" | "ledger_draft";
+
+export interface ApDraftDifference {
+  field: string;
+  keyed: string | number | null;
+  proposed: string | number | null;
 }
 
 export interface ApBillLine {
@@ -59,13 +70,15 @@ export interface ApItemDetail {
   state_reason: string | null;
   matched_by: string | null;
   proposed_bill: ApProposedBill | null;
-  review: { reasons?: ApReason[] } | null;
+  review: { reasons?: ApReason[]; draft_differences?: { blocking: ApDraftDifference[]; coding: ApDraftDifference[] } } | null;
+  source: ApSource;
   extraction: { document_type?: string; supplier_name?: string | null } | null;
   created_at: string;
 }
 
 export interface IntakeResult {
   inbox_files: number;
+  xero_drafts: number;
   read_now: number;
   remaining: number;
   results: Array<{ file: string; state?: ApState; skipped?: string; error?: string }>;

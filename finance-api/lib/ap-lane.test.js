@@ -194,3 +194,77 @@ describe("step 3", () => {
     expect(applyEdits(bill, { lines: [{ index: 9, account_code: "1" }] }).issues).toEqual(["there is no line 9"]);
   });
 });
+
+// Drafts Xero keyed from documents emailed to its bills address (FSL, 27 Oct
+// 2026): the engine reads the attachment, proposes its own bill, and sending
+// updates the draft in place.
+import { draftVersion, billFromDraft, draftDifferences } from "./ap-lane";
+
+describe("drafts Xero keyed", () => {
+  // What Xero's own extraction keyed from the same document: the right
+  // supplier and total, no number, one VAT-inclusive line on another account.
+  const draft = {
+    InvoiceID: "00000000-0000-4000-8000-0000000000d1", Type: "ACCPAY", Status: "DRAFT", InvoiceNumber: "",
+    Contact: { ContactID: link.xero_contact_id, Name: "Amazon" }, DateString: "2026-09-29T00:00:00", CurrencyCode: "GBP",
+    LineAmountTypes: "Inclusive", Total: 14.99,
+    LineItems: [{ Description: "Invoice from Cable Matters", LineAmount: 14.99, AccountCode: "429", TaxType: "INPUT2" }],
+    UpdatedDateUTC: "/Date(1793099040013+0000)/", UpdatedDateUTCString: "2026-10-27T11:04:00Z",
+  };
+
+  it("versions a draft by its last-changed stamp", () => {
+    expect(draftVersion(draft)).toBe("1793099040013");
+    expect(draftVersion({ UpdatedDateUTCString: "2026-10-27T11:04:00Z" })).toBe(String(Date.parse("2026-10-27T11:04:00Z")));
+    expect(draftVersion({})).toBeNull();
+  });
+
+  it("keeps the engine's bill and takes only blanks from the draft", () => {
+    const { bill, filled } = billFromDraft(buildBill({ doc: invoice, match: { link }, entity }), draft);
+    expect(bill.InvoiceID).toBe(draft.InvoiceID);
+    expect(bill.InvoiceNumber).toBe("GB6AYHTG9AEUD");
+    expect(bill.LineItems.map((l) => l.AccountCode)).toEqual(["454", "454"]);
+    expect(filled).toEqual([]);
+  });
+
+  it("carries over the draft's supplier, number and coding where the master has none, as a suggestion", () => {
+    const doc = { ...invoice, document_number: null, lines: [{ description: "USB to Ethernet Adapter", net: 14.99, vat: null }], net_total: null, vat_total: null };
+    const { bill, filled } = billFromDraft(buildBill({ doc, match: null, entity }), { ...draft, InvoiceNumber: "K-1" });
+    expect(bill.Contact).toEqual({ ContactID: link.xero_contact_id, Name: "Amazon" });
+    expect(bill.InvoiceNumber).toBe("K-1");
+    expect(bill.LineItems[0]).toMatchObject({ AccountCode: "429", TaxType: "INPUT2" });
+    expect(filled).toEqual(["line 1 account 429", "line 1 VAT INPUT2"]);
+  });
+
+  it("separates a different bill from different coding", () => {
+    const { bill } = billFromDraft(buildBill({ doc: invoice, match: { link }, entity }), draft);
+    expect(draftDifferences(bill, draft)).toEqual({
+      blocking: [],
+      coding: [{ field: "lines", keyed: 1, proposed: 2 }, { field: "amounts are", keyed: "Inclusive", proposed: "Exclusive" }],
+    });
+    const wrong = { ...draft, Total: 149.9, DateString: "2026-09-30T00:00:00", InvoiceNumber: "OTHER" };
+    expect(draftDifferences(bill, wrong).blocking.map((d) => d.field)).toEqual(["number", "date", "total"]);
+  });
+
+  it("sends a draft that differs, or coding taken from Xero, to the CFO", () => {
+    const { bill } = billFromDraft(buildBill({ doc: invoice, match: { link }, entity }), draft);
+    const clean = triage({ review: { flags: [] }, doc: invoice, match: { link }, bill,
+      draft: { differences: draftDifferences(bill, draft), filled: [], attachments: 1, documents: 1 } });
+    expect(clean).toEqual({ state: "clean", reasons: [] });
+    const t = triage({ review: { flags: [] }, doc: invoice, match: { link }, bill, draft: {
+      differences: draftDifferences(bill, { ...draft, Total: 149.9 }), filled: ["line 1 account 429"], attachments: 2, documents: 2 } });
+    expect(t.state).toBe("exception");
+    expect(t.reasons.map((r) => r.check)).toEqual(["draft_differs", "coding_from_xero", "several_attachments", "several_documents"]);
+    expect(t.reasons[0].detail).toBe("Xero keyed the total as 149.9; the document says 14.99");
+  });
+
+  it("sends a draft item as an update of that draft", () => {
+    const { bill } = billFromDraft(buildBill({ doc: invoice, match: { link }, entity }), draft);
+    const item = { state: "clean", file_name: "inv.pdf", proposed_bill: bill, source: "ledger_draft", ledger_draft_id: draft.InvoiceID };
+    const { body, issues } = sendRequest(item);
+    expect(issues).toEqual([]);
+    expect(body).toMatchObject({ id: draft.InvoiceID, status: "SUBMITTED", number: "GB6AYHTG9AEUD" });
+    expect(body.audit_note).toMatch(/^Draft keyed by Xero from inv\.pdf/);
+    expect(sendRequest({ ...item, ledger_draft_id: null }).issues).toContain("the Xero draft this item came from is not recorded");
+    // An inbox item still creates a new bill.
+    expect(sendRequest({ ...item, source: "files_inbox" }).body.id).toBeUndefined();
+  });
+});

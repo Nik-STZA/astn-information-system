@@ -1,8 +1,8 @@
 "use client";
 
-// Reads new Documents-inbox files into the queue: three files a call (each file
-// is one model read, about 15-30 seconds), repeated while the inbox has more,
-// up to ten calls a press. Nothing is written to Xero.
+// Reads new Xero draft bills and Documents-inbox files into the queue: three a
+// call (each is one model read, about 15-30 seconds), repeated while there are
+// more, up to ten calls a press. Nothing is written to Xero.
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -24,10 +24,10 @@ export default function FetchDocuments({ slug, entity }: { slug: string; entity:
     let setAside = 0;
     try {
       for (let call = 0; call < MAX_CALLS; call += 1) {
-        setStatus(read ? `Reading documents: ${read} done so far...` : "Checking the inbox...");
+        setStatus(read ? `Reading documents: ${read} done so far...` : "Checking Xero drafts and the inbox...");
         const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/intake`, { method: "POST" });
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error ?? `The inbox could not be read (${res.status})`);
+        if (!res.ok) throw new Error(body.error ?? `New documents could not be read (${res.status})`);
         for (const r of body.results ?? []) {
           read += 1;
           if (r.skipped) setAside += 1;
@@ -38,9 +38,9 @@ export default function FetchDocuments({ slug, entity }: { slug: string; entity:
       }
       setStatus(read
         ? `${read} file${read === 1 ? "" : "s"} read: ${queued} queued, ${setAside} set aside.`
-        : "Nothing new in the inbox.");
+        : "Nothing new in Xero drafts or the inbox.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The inbox could not be read");
+      setError(e instanceof Error ? e.message : "New documents could not be read");
       setStatus(null);
     } finally {
       setBusy(false);

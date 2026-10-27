@@ -4276,16 +4276,18 @@ app.post("/api/finance/clients/:slug/xero/:entity/bills/review", route(async (re
 
 // ── AP lane phase 3: the queue ───────────────────────────────────────────────
 //
-// docs/ap-lane/phase3-design.md. Intake reads the entity's Documents inbox and
-// queues one proposed bill per document found (finance.ap_items); the CFO
-// decides in the portal. Nothing in this section writes to Xero.
+// docs/ap-lane/phase3-design.md. Intake reads the entity's Documents inbox, and
+// the draft bills Xero keyed from its bills email, and queues one proposed bill
+// per document found (finance.ap_items); the CFO decides in the portal. Only
+// the send route writes to Xero.
 
 const AP_INTAKE_MAX_FILES = 10;
 
 // POST /api/finance/clients/:slug/xero/:entity/ap/intake
 //   body: { max_files? }   (default 3, at most 10: one model read per file,
 //                           inside the Cloud Run timeout and the Vertex quota)
-// Oldest unread inbox file first. A file already in the queue is not read
+// Unread Xero draft bills first (documents emailed to the bills address), then
+// the oldest unread inbox file. A file already in the queue is not read
 // again; one that is not a document is recorded as skipped so it is not listed
 // again either. A file the model could not read is reported and left for the
 // next run.
@@ -4311,7 +4313,23 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
   const known = new Set((await pool.query(
     "SELECT DISTINCT xero_file_id FROM finance.ap_items WHERE entity_id = $1", [entity.id])).rows.map((r) => r.xero_file_id));
   const unread = inboxFiles.filter((f) => !known.has(f.Id)).reverse();
-  const todo = unread.slice(0, maxFiles);
+
+  // Drafts Xero keyed from documents emailed to its bills address (lib/ap-lane.js,
+  // "Drafts Xero keyed itself"). Read first, from the same budget; a draft is
+  // read again only when it has changed in Xero since.
+  const drafts = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const got = (await get("/Invoices", { where: 'Type=="ACCPAY" AND Status=="DRAFT"', page })).Invoices ?? [];
+    drafts.push(...got);
+    if (got.length < 100) break;
+  }
+  const draftsRead = new Set((await pool.query(
+    `SELECT ledger_draft_id || ':' || ledger_draft_version AS v FROM finance.ap_items
+      WHERE entity_id = $1 AND source = 'ledger_draft'`, [entity.id])).rows.map((r) => r.v));
+  const unreadDrafts = drafts.filter((d) => !draftsRead.has(`${d.InvoiceID}:${apLane.draftVersion(d)}`))
+    .sort((a, b) => Number(apLane.draftVersion(a)) - Number(apLane.draftVersion(b)));
+  const todoDrafts = unreadDrafts.slice(0, maxFiles);
+  const todo = unread.slice(0, maxFiles - todoDrafts.length);
 
   const runId = crypto.randomUUID();
   const facts = await buyingEntityFacts(ctx);
@@ -4322,14 +4340,97 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
   const insert = (f, i, cols) => pool.query(
     `INSERT INTO finance.ap_items
        (client_id, entity_id, xero_file_id, file_name, mime_type, file_sha256, file_received_at, document_index, run_id,
-        model, model_location, extraction, usage, supplier_entity_id, matched_by, proposed_bill, review, state, state_reason)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        model, model_location, extraction, usage, supplier_entity_id, matched_by, proposed_bill, review, state, state_reason,
+        source, ledger_draft_id, ledger_draft_version, ledger_attachment_id, ledger_draft)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
      ON CONFLICT (entity_id, xero_file_id, document_index) DO NOTHING RETURNING id`,
-    [client.id, entity.id, f.Id, f.Name, f.MimeType || null, cols.sha256 || null, f.CreatedDateUtc ? `${f.CreatedDateUtc}Z` : null, i, runId,
+    [client.id, entity.id, f.Id, f.Name, f.MimeType || null, cols.sha256 || null,
+      cols.received || (f.CreatedDateUtc ? `${f.CreatedDateUtc}Z` : null), i, runId,
       cols.model || null, cols.location || null, cols.extraction ?? null, cols.usage ?? null, cols.link?.id || null, cols.matched_by || null,
-      cols.bill ?? null, cols.review ?? null, cols.state, cols.reason || null]);
+      cols.bill ?? null, cols.review ?? null, cols.state, cols.reason || null,
+      cols.draft ? "ledger_draft" : "files_inbox", cols.draft?.InvoiceID || null, cols.draft ? apLane.draftVersion(cols.draft) : null,
+      cols.attachment_id || null, cols.draft ?? null]);
+
+  // Bills a proposed bill may already be: in Xero, or earlier in the queue.
+  // A draft is not a duplicate of itself, nor of earlier reads of itself.
+  const xeroRows = (b) => ({ source: "xero", id: b.InvoiceID, contact_id: b.Contact?.ContactID, number: b.InvoiceNumber,
+    date: (b.DateString || "").slice(0, 10), total: b.Total, status: b.Status });
+  async function possibleDuplicates(bill, draftId = null) {
+    // Credit notes are a separate Xero resource: only bills are looked up in Xero for now.
+    const live = 'AND Status!="DELETED" AND Status!="VOIDED"';
+    const quote = (s) => String(s).replace(/["\\]/g, "");
+    const xero = (bill.Type !== "ACCPAY" ? [] : [
+      ...(bill.InvoiceNumber ? (await get("/Invoices", { where: `Type=="ACCPAY" AND InvoiceNumber=="${quote(bill.InvoiceNumber)}" ${live}`, page: 1 })).Invoices ?? [] : []),
+      ...(bill.Contact.ContactID ? (await get("/Invoices", { where: `Type=="ACCPAY" AND Contact.ContactID==guid("${bill.Contact.ContactID}") ${live}`, page: 1 })).Invoices ?? [] : []),
+    ].map(xeroRows)).filter((x) => x.id !== draftId);
+    const queued = !bill.Contact.ContactID ? [] : (await pool.query(
+      `SELECT id, proposed_bill FROM finance.ap_items WHERE entity_id = $1 AND state NOT IN ('skipped', 'rejected', 'superseded')
+         AND proposed_bill->'Contact'->>'ContactID' = $2 AND ledger_draft_id IS DISTINCT FROM $3`,
+      [entity.id, bill.Contact.ContactID, draftId])).rows;
+    const others = [
+      ...xero,
+      ...queued.map((q) => ({ source: "queue", id: q.id, contact_id: bill.Contact.ContactID, number: q.proposed_bill.InvoiceNumber,
+        date: (q.proposed_bill.DateString || "").slice(0, 10), total: q.proposed_bill.Total })),
+    ];
+    return { xero, duplicates: apLane.duplicatesOf(bill, others) };
+  }
 
   const results = [];
+  for (const d of todoDrafts) {
+    const label = `Xero draft: ${d.Contact?.Name || "no supplier"} ${d.InvoiceNumber || ""}`.trim();
+    try {
+      // A changed draft replaces any unsent read of its earlier version.
+      await pool.query(
+        `UPDATE finance.ap_items SET state = 'superseded'
+          WHERE entity_id = $1 AND ledger_draft_id = $2 AND state IN ('clean', 'exception', 'approved')`, [entity.id, d.InvoiceID]);
+      const fileId = `draft:${d.InvoiceID}:${apLane.draftVersion(d)}`;
+      const received = d.UpdatedDateUTCString || null;
+      const atts = (await get(`/Invoices/${d.InvoiceID}/Attachments`)).Attachments ?? [];
+      const readable = atts.filter((a) => !apLane.screenFile({ MimeType: a.MimeType, Size: a.ContentLength }));
+      if (!readable.length) {
+        const detail = atts.length
+          ? `the Xero draft has no readable document attached (${atts.map((a) => a.FileName).join(", ")})`
+          : "the Xero draft has no document attached";
+        const row = (await insert({ Id: fileId, Name: atts[0]?.FileName || "(no document)", MimeType: atts[0]?.MimeType }, 0, {
+          received, draft: d, bill: d, review: { reasons: [{ check: "no_document", detail }] }, state: "exception" })).rows[0];
+        results.push({ file: label, item_id: row?.id || null, state: "exception", reasons: ["no_document"] });
+        continue;
+      }
+      const a = readable[0];
+      const r = await xeroFetch(ctx.accessToken, ctx.tenantId, `/Invoices/${d.InvoiceID}/Attachments/${a.AttachmentID}`, {}, { accept: a.MimeType });
+      const bytes = Buffer.from(await r.arrayBuffer());
+      const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+      const out = await vertex.generate(billReview.buildExtractRequest({ document: bytes, mimeType: a.MimeType }));
+      const extraction = billReview.parseExtraction(out.text);
+      const pages = /pdf/.test(a.MimeType) ? billReview.pdfPageCount(bytes) : null;
+      const f = { Id: fileId, Name: a.FileName, MimeType: a.MimeType };
+      const read = { received, draft: d, attachment_id: a.AttachmentID, sha256, model: out.model, location: out.location, usage: out.usage };
+      const docs = extraction.documents.filter((x) => !apLane.notADocument(x));
+      if (!docs.length) {
+        const row = (await insert(f, 0, { ...read, extraction, bill: d,
+          review: { reasons: [{ check: "no_document", detail: `${a.FileName} attached to the Xero draft is not a purchase document` }] },
+          state: "exception" })).rows[0];
+        results.push({ file: label, item_id: row?.id || null, state: "exception", reasons: ["no_document"] });
+        continue;
+      }
+      const doc = docs[0];
+      const match = apLane.matchSupplier(doc, links);
+      const { bill, filled } = apLane.billFromDraft(apLane.buildBill({ doc, match, entity: facts }), d);
+      const differences = apLane.draftDifferences(bill, d);
+      const { duplicates } = await possibleDuplicates(bill, d.InvoiceID);
+      const review = billReview.reviewBill({ bill, file: { name: a.FileName, sha256, pages }, extraction: { documents: [doc] },
+        entity: facts, supplier: match?.link?.supplier || null, link: match?.link || null, today });
+      const { state, reasons } = apLane.triage({ review, doc, match, bill, duplicates,
+        draft: { differences, filled, attachments: atts.length, documents: docs.length } });
+      const row = (await insert(f, 0, { ...read, extraction: doc, link: match?.link, matched_by: match?.matched_by, bill,
+        review: { ...review, reasons, draft_differences: differences }, state })).rows[0];
+      results.push({ file: label, item_id: row?.id || null, state, supplier: bill.Contact.Name, total: bill.Total,
+        currency: bill.CurrencyCode, reasons: reasons.map((x) => x.check) });
+    } catch (e) {
+      // One draft's failure is reported against it and left for the next run.
+      results.push({ file: label, error: e.message.slice(0, 300) });
+    }
+  }
   for (const f of todo) {
     const skip = apLane.screenFile(f);
     if (skip) {
@@ -4368,16 +4469,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
         }
         const match = apLane.matchSupplier(doc, links);
         const bill = apLane.buildBill({ doc, match, entity: facts });
-        // Bills it may already be. Credit notes are a separate Xero resource:
-        // only bills are looked up in Xero for now.
-        const xeroRows = (b) => ({ source: "xero", id: b.InvoiceID, contact_id: b.Contact?.ContactID, number: b.InvoiceNumber,
-          date: (b.DateString || "").slice(0, 10), total: b.Total, status: b.Status });
-        const live = 'AND Status!="DELETED" AND Status!="VOIDED"';
-        const quote = (s) => String(s).replace(/["\\]/g, "");
-        const xero = bill.Type !== "ACCPAY" ? [] : [
-          ...(bill.InvoiceNumber ? (await get("/Invoices", { where: `Type=="ACCPAY" AND InvoiceNumber=="${quote(bill.InvoiceNumber)}" ${live}`, page: 1 })).Invoices ?? [] : []),
-          ...(bill.Contact.ContactID ? (await get("/Invoices", { where: `Type=="ACCPAY" AND Contact.ContactID==guid("${bill.Contact.ContactID}") ${live}`, page: 1 })).Invoices ?? [] : []),
-        ].map(xeroRows);
+        const { xero, duplicates } = await possibleDuplicates(bill);
         const billed = apLane.alreadyBilled(bill, xero);
         if (billed) {
           const reason = `already in Xero: bill ${billed.number}, ${billed.status}, ${billed.date}, ${billed.total}`;
@@ -4386,15 +4478,6 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
           results.push({ file: f.Name, document: i, item_id: row?.id || null, skipped: reason });
           continue;
         }
-        const queued = !bill.Contact.ContactID ? [] : (await pool.query(
-          `SELECT id, proposed_bill FROM finance.ap_items WHERE entity_id = $1 AND state NOT IN ('skipped', 'rejected', 'superseded')
-             AND proposed_bill->'Contact'->>'ContactID' = $2`, [entity.id, bill.Contact.ContactID])).rows;
-        const others = [
-          ...xero,
-          ...queued.map((q) => ({ source: "queue", id: q.id, contact_id: bill.Contact.ContactID, number: q.proposed_bill.InvoiceNumber,
-            date: (q.proposed_bill.DateString || "").slice(0, 10), total: q.proposed_bill.Total })),
-        ];
-        const duplicates = apLane.duplicatesOf(bill, others);
         const review = billReview.reviewBill({ bill, file: { name: f.Name, sha256, pages }, extraction: { documents: [doc] },
           entity: facts, supplier: match?.link?.supplier || null, link: match?.link || null, today });
         const { state, reasons } = apLane.triage({ review, doc, match, bill, duplicates });
@@ -4408,8 +4491,9 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
       results.push({ file: f.Name, error: e.message.slice(0, 300) });
     }
   }
-  res.json({ entity: entity.name, run_id: runId, inbox_files: inboxFiles.length, read_now: todo.length,
-    remaining: unread.length - todo.length, results });
+  res.json({ entity: entity.name, run_id: runId, inbox_files: inboxFiles.length, xero_drafts: drafts.length,
+    read_now: todoDrafts.length + todo.length,
+    remaining: (unreadDrafts.length - todoDrafts.length) + (unread.length - todo.length), results });
 }));
 
 // GET /api/finance/clients/:slug/xero/:entity/ap/items?state=clean|exception|...
@@ -4422,7 +4506,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items", route(async (req, re
     `SELECT i.id, i.file_name, i.file_received_at, i.document_index, i.state, i.state_reason, i.matched_by,
             i.proposed_bill->'Contact'->>'Name' AS supplier, i.proposed_bill->>'InvoiceNumber' AS number,
             i.proposed_bill->>'DateString' AS date, i.proposed_bill->>'Total' AS total, i.proposed_bill->>'CurrencyCode' AS currency,
-            i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.created_at
+            i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.source, i.created_at
        FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
       WHERE i.client_id = $1 AND e.slug = $2 AND i.state = ANY($3::text[])
       ORDER BY i.created_at DESC, i.document_index LIMIT 500`, [client.id, req.params.entity, states]);
@@ -4508,7 +4592,8 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/decision", route(
 //   body: { dry_run? }   (dry run unless dry_run is false)
 // A clean item, or an exception the CFO approved, becomes a bill in Xero at
 // SUBMITTED, with its inbox document attached, through the same checks as every
-// bill write (documentPlan: contact, accounts, VAT types, duplicate number).
+// bill write (documentPlan: contact, accounts, VAT types, duplicate number). An
+// item read from a Xero draft updates that draft instead, if it is unchanged.
 // The CFO approves it in Xero: one approval per bill (Nik, 26 Oct 2026).
 app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
   gatedWrite("send_ap_bill", "draft", async (ctx, b, req) => {
@@ -4519,7 +4604,19 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
     const item = (await pool.query("SELECT * FROM finance.ap_items WHERE entity_id = $1 AND id = $2", [ctx.entity.id, req.params.id])).rows[0];
     if (!item) return { issues: ["item not found"], operation: "create" };
     const { body, issues } = apLane.sendRequest(item);
-    if (issues.length) return { issues, operation: "create", extra: { item_state: item.state } };
+    const fromDraft = item.source === "ledger_draft";
+    const operation = fromDraft ? "update" : "create";
+    if (issues.length) return { issues, operation, extra: { item_state: item.state } };
+    // The draft must be the one that was read: changed or approved in Xero since,
+    // it is read again (intake) before anything is sent over it.
+    if (fromDraft) {
+      const now = ((await xeroGetOrNull(ctx, `/Invoices/${item.ledger_draft_id}`))?.Invoices ?? [])[0];
+      if (!now) return { issues: ["the Xero draft no longer exists"], operation, extra: { item_state: item.state } };
+      if (now.Status !== "DRAFT") return { issues: [`the Xero draft is now ${now.Status}`], operation, extra: { item_state: item.state } };
+      if (apLane.draftVersion(now) !== item.ledger_draft_version) {
+        return { issues: ["the Xero draft was changed after it was read: fetch new documents to read it again"], operation, extra: { item_state: item.state } };
+      }
+    }
     const bill = await documentPlan("invoice")(ctx, body);
     if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
     const done = [];
@@ -4533,14 +4630,19 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
         const r = await bill.send(key);
         const saved = bill.saved(r.body);
         if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors) return r;
-        done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} created ${saved.Status}`);
+        done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} ${fromDraft ? "updated" : "created"} ${saved.Status}`);
         let attachError = null;
-        const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
-          json: { ObjectId: saved.InvoiceID, ObjectGroup: "Invoice" },
-          key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: saved.InvoiceID }),
-        });
-        if (a.ok) done.push(`document ${item.file_name} attached`);
-        else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
+        if (fromDraft) {
+          // Xero attached the document when it keyed the draft.
+          done.push(`document ${item.file_name} already attached`);
+        } else {
+          const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
+            json: { ObjectId: saved.InvoiceID, ObjectGroup: "Invoice" },
+            key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: saved.InvoiceID }),
+          });
+          if (a.ok) done.push(`document ${item.file_name} attached`);
+          else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
+        }
         await pool.query(
           `UPDATE finance.ap_items SET state = 'written', xero_invoice_id = $2, written_at = now(), write_error = $3,
                   decided_by_email = COALESCE(decided_by_email, $4), decided_at = COALESCE(decided_at, now())
@@ -4559,11 +4661,15 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id/file", route(async
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
   if (ctx.error) return erpUnavailable(res, ctx);
   const item = (await pool.query(
-    "SELECT xero_file_id, file_name, mime_type FROM finance.ap_items WHERE entity_id = $1 AND id = $2",
+    `SELECT xero_file_id, file_name, mime_type, source, ledger_draft_id, ledger_attachment_id
+       FROM finance.ap_items WHERE entity_id = $1 AND id = $2`,
     [ctx.entity.id, req.params.id])).rows[0];
   if (!item) return res.status(404).json({ error: "item not found" });
-  const r = await xeroFetch(ctx.accessToken, ctx.tenantId, `${XERO_FILES_API}/Files/${item.xero_file_id}/Content`, {},
-    { accept: item.mime_type || "application/octet-stream" });
+  if (item.source === "ledger_draft" && !item.ledger_attachment_id) return res.status(404).json({ error: "no document is attached to this draft" });
+  const url = item.source === "ledger_draft"
+    ? `/Invoices/${item.ledger_draft_id}/Attachments/${item.ledger_attachment_id}`
+    : `${XERO_FILES_API}/Files/${item.xero_file_id}/Content`;
+  const r = await xeroFetch(ctx.accessToken, ctx.tenantId, url, {}, { accept: item.mime_type || "application/octet-stream" });
   res.set("Content-Type", item.mime_type || "application/octet-stream");
   res.set("Content-Disposition", `inline; filename="${item.file_name.replace(/["\\\r\n]/g, "_")}"`);
   res.send(Buffer.from(await r.arrayBuffer()));
