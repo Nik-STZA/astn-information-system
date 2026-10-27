@@ -310,6 +310,7 @@ export interface FinanceOverviewClient {
   open_items: { open: number; p1: number; overdue: number };
   agents: { in_flight: number; last: { agent: string | null; status: string; at: string } | null };
   pack: { period: string; status: string; at: string } | null;
+  work: { open: number; blocked: number; waiting: number; overdue: number };
 }
 
 export interface FinanceOverview {
@@ -323,7 +324,7 @@ export interface FinanceOverview {
     agents_in_flight: number;
   };
   clients: FinanceOverviewClient[];
-  blocked: Array<{ client: string; slug: string; kind: "waiting" | "overdue"; title: string; why: string; since: string | null; href: string }>;
+  blocked: Array<{ client: string; slug: string; kind: "waiting" | "overdue" | "blocked"; title: string; why: string; since: string | null; href: string }>;
   activity: Array<{ id: string; client: string; slug: string; agent: string | null; status: string; instruction: string; at: string }>;
 }
 

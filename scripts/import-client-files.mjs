@@ -139,7 +139,12 @@ async function main() {
       }
     }
 
-    for (const i of openItems) {
+    // Once a client's open items are in Work, Work is the master (Nik, 27 Oct
+    // 2026): the register file is an archive and is no longer mirrored.
+    const inWork = (await client.query(
+      "SELECT 1 FROM finance.tasks WHERE client_id = $1 AND source = 'open_item' LIMIT 1", [clientId])).rows.length > 0;
+    if (inWork) console.log("\nOpen items live in Work for this client: open-items.md is not mirrored.");
+    for (const i of inWork ? [] : openItems) {
       await client.query(
         `INSERT INTO finance.open_items
            (client_id, ref, title, category, owner_label, priority, status,
@@ -164,9 +169,9 @@ async function main() {
       );
     }
 
-    // Drop items that have gone from the register.
+    // Drop items that have gone from the register (not once Work is the master).
     const refs = openItems.map((i) => i.ref);
-    const removed = await client.query(
+    const removed = inWork ? { rowCount: 0, rows: [] } : await client.query(
       `DELETE FROM finance.open_items
        WHERE client_id = $1 AND source_file = 'open-items.md'
          AND NOT (ref = ANY($2::text[]))
@@ -176,7 +181,7 @@ async function main() {
 
     await client.query("COMMIT");
 
-    console.log(`\nWrote ${diaryRows} diary entries and ${openItems.length} open items.`);
+    console.log(`\nWrote ${diaryRows} diary entries and ${inWork ? 0 : openItems.length} open items.`);
     if (removed.rowCount) {
       console.log(`Removed ${removed.rowCount} open item(s) no longer in the file: ` +
         removed.rows.map((r) => r.ref).join(", "));

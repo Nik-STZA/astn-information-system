@@ -166,3 +166,51 @@ module.exports = {
   STATUSES, PRIORITIES, AGENTS, BILL_DECIDED,
   taskInput, blockerInput, blockerOpen, shownStatus, wouldLoop, wouldNestLoop, changes, isGuid,
 };
+
+// ── Bringing open items in (Nik, 27 Oct 2026: Work is the master) ────────────
+//
+// The open-items register (open-items.md, mirrored in finance.open_items) is
+// imported once as tasks. Its statuses are free text; what they say decides
+// the task's status and any outside blocker. Anything the register says that
+// has no field of its own goes into the task's notes, so nothing is lost.
+
+const DONE_RE = /^\s*done([^a-z0-9]|$)/i;
+
+// What one open item becomes, or null when it is already done.
+//   o  a finance.open_items row
+function openItemTask(o) {
+  const status = String(o.status ?? "").trim();
+  if (o.is_closed || DONE_RE.test(status)) return null;
+  let taskStatus = "todo";
+  if (/^in progress/i.test(status) || /^partially done/i.test(status)) taskStatus = "in_progress";
+  const blockers = [];
+  const ext = /awaiting external \(([^)]+)\)/i.exec(status);
+  const decision = /pending ([A-Za-z]+) decision/i.exec(status);
+  if (ext) blockers.push({ kind: "external", party: ext[1].trim().slice(0, 120), description: status.slice(0, 1000) });
+  else if (decision) blockers.push({ kind: "external", party: decision[1].trim(), description: status.slice(0, 1000) });
+  const lines = [
+    o.notes ? String(o.notes).trim() : null,
+    "From the open-items register:",
+    o.ref ? `Ref: ${o.ref}` : null,
+    status ? `Status: ${status}` : null,
+    o.owner_label ? `Owner: ${o.owner_label}` : null,
+    o.category ? `Category: ${o.category}` : null,
+    o.raised_at ? `Raised: ${String(o.raised_at instanceof Date ? o.raised_at.toISOString() : o.raised_at).slice(0, 10)}` : null,
+    o.amount_gbp != null ? `Amount: GBP ${Number(o.amount_gbp).toLocaleString("en-GB", { minimumFractionDigits: 2 })}` : null,
+  ].filter(Boolean);
+  return {
+    task: {
+      title: String(o.title).trim().slice(0, 300),
+      notes: lines.join("\n").slice(0, 10000),
+      status: taskStatus,
+      priority: PRIORITIES.includes(o.priority) ? o.priority : null,
+      due_on: o.due_at ? String(o.due_at instanceof Date ? o.due_at.toISOString() : o.due_at).slice(0, 10) : null,
+      entity_id: o.entity_id || null,
+      source: "open_item",
+      source_ref: o.id,
+    },
+    blockers,
+  };
+}
+
+module.exports.openItemTask = openItemTask;

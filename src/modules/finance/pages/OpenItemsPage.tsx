@@ -4,6 +4,7 @@
 // this is the CFO's own working view, but nothing on this page may be reused in
 // board or exec-visible output without anonymising (Feldspar CLAUDE.md rule 8).
 
+import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
 import ClientTabs from "@/modules/finance/components/ClientTabs";
 import { fetchOpenItems, type OpenItemRow } from "@/modules/finance/lib/api";
@@ -131,6 +132,11 @@ export default async function OpenItemsPage({
     <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       <PageHeader section="STZA · Finance" title="Open items" />
       <ClientTabs slug={params.slug} active="open-items" />
+      {/* Work is the master for open items (Nik, 27 Oct 2026); this is the register as it stood. */}
+      <div className="card" style={{ padding: "14px 16px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 14 }}>Open items now live in <strong>Work</strong>, where you can add, change, block and close them. This page is the register as it stood, kept as an archive.</span>
+        <Link href={`/finance/clients/${params.slug}/work`} className="btn-primary">Open Work</Link>
+      </div>
 
       <p
         style={{

@@ -55,7 +55,6 @@ const CLIENT_WORK: Array<{ seg: string; label: string; icon: LucideIcon }> = [
   { seg: "close", label: "Close", icon: ClipboardList },
   { seg: "reports", label: "Reports", icon: FileBarChart },
   { seg: "diary", label: "Diary", icon: NotebookPen },
-  { seg: "open-items", label: "Open items", icon: Inbox },
 ];
 const CLIENT_SETUP: Array<{ seg: string; label: string; icon: LucideIcon }> = [
   { seg: "xero", label: "Xero", icon: Network },

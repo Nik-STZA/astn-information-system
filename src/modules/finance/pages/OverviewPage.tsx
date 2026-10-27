@@ -109,7 +109,7 @@ export default async function OverviewPage() {
                 <th scope="col">Bills for you</th>
                 <th scope="col">Ready to send</th>
                 <th scope="col">Approvals</th>
-                <th scope="col">Open items</th>
+                <th scope="col">Work</th>
                 <th scope="col">Last pack</th>
                 <th scope="col">Last agent run</th>
               </tr>
@@ -130,10 +130,10 @@ export default async function OverviewPage() {
                       {c.approvals.blocked > 0 && <span className={styles.muted}> · {c.approvals.blocked} blocked</span>}
                     </td>
                     <td>
-                      <Count n={c.open_items.open} href={`${base}/open-items`} />
-                      {(c.open_items.p1 > 0 || c.open_items.overdue > 0) && (
+                      <Count n={c.work.open} href={`${base}/work`} />
+                      {(c.work.blocked + c.work.waiting > 0 || c.work.overdue > 0) && (
                         <span className={styles.muted}>
-                          {c.open_items.p1 > 0 ? ` · ${c.open_items.p1} P1` : ""}{c.open_items.overdue > 0 ? ` · ${c.open_items.overdue} overdue` : ""}
+                          {c.work.blocked + c.work.waiting > 0 ? ` · ${c.work.blocked + c.work.waiting} held up` : ""}{c.work.overdue > 0 ? ` · ${c.work.overdue} overdue` : ""}
                         </span>
                       )}
                     </td>
@@ -155,8 +155,8 @@ export default async function OverviewPage() {
           {o.blocked.length === 0 && <div className={styles.empty}>Nothing is blocked or overdue.</div>}
           {o.blocked.map((b, i) => (
             <Link key={`${b.slug}-${i}`} href={b.href} className={styles.row}>
-              <span className={`${styles.status} ${b.kind === "overdue" ? styles.sBlocked : styles.sWaiting}`} style={{ flex: "0 0 auto" }}>
-                <span className={styles.dot} />{b.kind === "overdue" ? "Overdue" : "Waiting"}
+              <span className={`${styles.status} ${b.kind === "waiting" ? styles.sWaiting : styles.sBlocked}`} style={{ flex: "0 0 auto" }}>
+                <span className={styles.dot} />{b.kind === "overdue" ? "Overdue" : b.kind === "blocked" ? "Blocked" : "Waiting"}
               </span>
               <div className={styles.rowBody}>
                 <div className={styles.rowTitle}>{b.title}</div>
