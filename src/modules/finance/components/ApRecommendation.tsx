@@ -10,6 +10,8 @@ import { useState } from "react";
 import styles from "./ApQueue.module.css";
 import { shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApRecommendation as Rec, ApState } from "@/modules/finance/lib/ap-queue";
+import { SentNote, sendToXero } from "./ApActions";
+import type { ApSendResult } from "@/modules/finance/lib/ap-queue";
 
 export default function ApRecommendation({ slug, entity, itemId, state, rec, lines, labels }: {
   slug: string;
@@ -25,11 +27,14 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<string[]>([]);
+  const [sendIssues, setSendIssues] = useState<string[]>([]);
+  const [sent, setSent] = useState<ApSendResult | null>(null);
   const open = ["exception", "clean", "approved"].includes(state);
   const inUse = rec.lines.every((l) => lines[l.index]?.account === l.account_code && lines[l.index]?.tax === l.tax_type);
 
-  async function use() {
-    setBusy(true); setError(null); setIssues([]);
+  // thenSend: approve with this coding and send to Xero in the same tap.
+  async function use(thenSend = false) {
+    setBusy(true); setError(null); setIssues([]); setSendIssues([]);
     try {
       const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/items/${itemId}/decision`, {
         method: "POST",
@@ -46,6 +51,11 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
       const out = await res.json().catch(() => ({}));
       if (res.status === 422) { setIssues(out.issues ?? [out.error]); return; }
       if (!res.ok) throw new Error(out.error ?? `Not saved (${res.status})`);
+      if (thenSend) {
+        const r = await sendToXero(slug, entity, itemId);
+        if (r.validation !== "PASS") { setSendIssues(r.issues ?? ["Xero would not take it"]); return; }
+        setSent(r);
+      }
       router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Not saved"); } finally { setBusy(false); }
   }
@@ -70,11 +80,21 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
       ))}
       {rec.due_date && <div className={styles.meta}>Due date: {shortDate(rec.due_date)}</div>}
       <div className={styles.meta}>Suggested {shortDate(rec.at)} for {rec.by_email}</div>
-      {open && !inUse && (
+      {open && !inUse && !sent && (
         <div className={styles.buttonRow}>
-          <button type="button" className={styles.button} onClick={use} disabled={busy}>
-            {busy ? "Saving..." : state === "exception" ? "Approve with this coding" : "Use this coding"}
+          <button type="button" className={styles.button} onClick={() => use(true)} disabled={busy}>
+            {busy ? "Working..." : state === "exception" ? "Approve and send" : "Use and send"}
           </button>
+          <button type="button" className={styles.buttonSecondary} onClick={() => use(false)} disabled={busy}>
+            {state === "exception" ? "Approve only" : "Use only"}
+          </button>
+        </div>
+      )}
+      {sent && <SentNote result={sent} />}
+      {sendIssues.length > 0 && (
+        <div className={styles.reason} role="alert">
+          <div className={styles.reasonLabel}>Coding saved, but Xero would not take it yet</div>
+          <ul className={styles.issueList}>{sendIssues.map((x) => <li key={x}>{x}</li>)}</ul>
         </div>
       )}
       {open && inUse && <p className={styles.done}>This coding is on the bill.</p>}

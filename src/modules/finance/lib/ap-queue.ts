@@ -179,6 +179,8 @@ export interface ApSendResult {
   done?: string[];
   attached?: boolean;
   file?: string;
+  // Xero's own words when it refused the bill (HTTP 502 from finance-api).
+  xero_errors?: string[];
   error?: string;
 }
 
