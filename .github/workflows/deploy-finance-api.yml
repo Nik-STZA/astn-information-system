@@ -60,6 +60,7 @@ jobs:
             PACK_ENGINE_JOB=pack-engine
             PACK_ENGINE_CLIENTS=stza
             LOCAL_PACK_CLIENTS=feldspar-sport-group
+            AGENT_JOB_NAME=agent-runner
           secrets: |
             DB_PASSWORD=db-password:latest
             FINANCE_API_KEY=finance-api-key:latest
@@ -84,3 +85,30 @@ jobs:
             --ingress=all
             --allow-unauthenticated
             --add-cloudsql-instances=africanstn-research:europe-west1:africastn-db
+
+      # The agent runner: the same image, run as a Cloud Run Job that finance-api
+      # starts when an agent run is queued (lib/agent-job.js). It claims every
+      # queued run, executes it and exits, so it costs only the seconds it runs.
+      # It runs as agent-runner@, which reads two secrets and nothing else: it
+      # reaches Xero and the database only through finance-api.
+      # No retries: a retried task would claim the next run, not redo a failed one.
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy the agent runner job
+        run: |
+          IMAGE=$(gcloud run services describe stza-finance-api --region=europe-west1 \
+            --format='value(spec.template.spec.containers[0].image)')
+          gcloud run jobs deploy agent-runner \
+            --region=europe-west1 \
+            --image="$IMAGE" \
+            --command=node --args=runner.js \
+            --service-account=agent-runner@africanstn-research.iam.gserviceaccount.com \
+            --set-env-vars=RUNNER_ONCE=1,FINANCE_API_URL=https://stza-finance-api-782190795609.europe-west1.run.app \
+            --set-secrets=FINANCE_API_KEY=finance-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest \
+            --tasks=1 --max-retries=0 --task-timeout=1800 \
+            --memory=512Mi --cpu=1
+          # finance-api may start this job (no overrides), and nothing more.
+          gcloud run jobs add-iam-policy-binding agent-runner --region=europe-west1 \
+            --member=serviceAccount:stza-finance-api@africanstn-research.iam.gserviceaccount.com \
+            --role=roles/run.jobsExecutor

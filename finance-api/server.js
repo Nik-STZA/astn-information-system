@@ -52,6 +52,7 @@ const confirmedRules = require("./lib/xero-confirmed");
 const billChecks = require("./lib/bill-checks");
 const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
+const agentJob = require("./lib/agent-job");
 const billReview = require("./lib/bill-review");
 const supplierPass = require("./lib/supplier-pass");
 const supplierDecision = require("./lib/supplier-decision");
@@ -1197,9 +1198,10 @@ app.post("/api/finance/clients/:slug/notes", route(async (req, res) => {
 
 // ── Agent runs ──────────────────────────────────────────────────────────────
 //
-// The portal queues work; a runner on the operator's machine executes it. The
-// portal never executes anything itself, because the agents need the client
-// folder and the accounting MCP, both of which are local.
+// The portal queues work and a runner executes it: the Cloud Run Job
+// agent-runner, started here when a run is queued (lib/agent-job.js), or a
+// polling runner on the operator's machine (runner.js), which claims the same
+// queue. finance-api itself never runs an agent.
 //
 // Every run is recorded whether or not it produces work to approve: a run that
 // only answered a question still read client data.
@@ -1248,7 +1250,19 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
       agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null,
     ]
   );
-  res.status(201).json(rows[0]);
+  // Start the agent runner in Google Cloud (lib/agent-job.js). If it cannot be
+  // started, the run stays queued for a polling runner: nothing is lost.
+  let runner = "queued";
+  const cloud = agentJob.agentJobConfig();
+  if (cloud) {
+    try {
+      await agentJob.startAgentJob(cloud);
+      runner = "cloud";
+    } catch (e) {
+      console.error(`agent-runner not started for run ${rows[0].id}: ${e.message}`);
+    }
+  }
+  res.status(201).json({ ...rows[0], runner });
 }));
 
 app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
