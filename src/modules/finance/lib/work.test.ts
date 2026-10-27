@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockerText, eventText, ownerInitials, taskTree, viaText, type Task, type TaskBlocker } from "./work";
+import { blockerText, eventText, ownerInitials, taskTree, viaText, isWorkPath, type Task, type TaskBlocker } from "./work";
 
 let n = 0;
 const t = (id: string, parent: string | null, extra: Partial<Task> = {}): Task => ({
@@ -137,5 +137,15 @@ describe("viaText", () => {
     expect(viaText(ev({ via: { kind: "agent", agent: "fm1", run_id: "x" } }))).toBe(" via FM1");
     expect(viaText(ev({ via: { kind: "agent", agent: "general" } }))).toBe(" via an agent");
     expect(viaText(ev({ via: { kind: "claude" } }))).toBe(" via Claude");
+  });
+});
+
+describe("isWorkPath", () => {
+  it("lets the portal reach the task routes and the month-end template, nothing else", () => {
+    expect(isWorkPath("tasks")).toBe(true);
+    expect(isWorkPath("tasks/month-end")).toBe(true);
+    expect(isWorkPath("tasks/00000000-0000-4000-8000-000000000001/notes")).toBe(true);
+    expect(isWorkPath("tasks/import-open-items")).toBe(false);
+    expect(isWorkPath("tasks/month-end/x")).toBe(false);
   });
 });

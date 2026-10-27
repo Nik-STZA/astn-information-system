@@ -175,7 +175,7 @@ export async function fetchTasks(slug: string): Promise<Task[]> {
 
 // The task paths the portal may reach on finance-api, and nothing else.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const WORK_PATH = new RegExp(`^tasks(/${UUID}(/(events|notes|blockers(/${UUID}/resolve)?))?)?$`, "i");
+const WORK_PATH = new RegExp(`^tasks(/month-end|/${UUID}(/(events|notes|blockers(/${UUID}/resolve)?))?)?$`, "i");
 export const isWorkPath = (path: string) => WORK_PATH.test(path);
 
 // Passes one call through to finance-api as the signed-in person, returning
