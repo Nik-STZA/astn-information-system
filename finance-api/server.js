@@ -55,6 +55,7 @@ const supplierProposal = require("./lib/supplier-proposal");
 const agentJob = require("./lib/agent-job");
 const financeOverview = require("./lib/overview");
 const work = require("./lib/work");
+const monthEndPlan = require("./lib/month-end");
 const billReview = require("./lib/bill-review");
 const supplierPass = require("./lib/supplier-pass");
 const supplierDecision = require("./lib/supplier-decision");
@@ -5106,6 +5107,53 @@ app.post("/api/finance/clients/:slug/tasks/import-open-items", route(async (req,
     }
   }
   return { status: 201, body: summary };
+}, { peopleOnly: true })));
+
+// POST /api/finance/clients/:slug/tasks/month-end   body: { period: "2026-09", vat?, dry_run? }
+// The month-end template (lib/month-end.js): the close for a month as a task
+// with a sub-task per step, owners, working-day due dates and the waits
+// between steps. The person starting it owns the close and the sign-off. A dry
+// run unless dry_run is false. Once only per month: every task's source_ref
+// names the month and step, so a second start is refused.
+app.post("/api/finance/clients/:slug/tasks/month-end", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, log }) => {
+  const entities = (await conn.query(
+    "SELECT id, name FROM finance.entities WHERE client_id = $1 ORDER BY name", [client.id])).rows;
+  const plan = monthEndPlan.closePlan({ period: req.body?.period, entities, vat: req.body?.vat === true, cfo: actorEmail });
+  if (plan.issues.length) return { status: 422, body: { issues: plan.issues } };
+  const had = (await conn.query(
+    "SELECT id FROM finance.tasks WHERE client_id = $1 AND source = 'template' AND source_ref = $2 AND deleted_at IS NULL",
+    [client.id, plan.tasks[0].source_ref])).rows[0];
+  if (had) return { status: 409, body: { error: `The close for ${plan.label} is already in Work`, task_id: had.id } };
+  const shape = (t) => ({ title: t.title, owner: t.owner, due_on: t.due_on, entity_id: t.entity_id });
+  if (req.body?.dry_run !== false) {
+    const byKey = new Map(plan.tasks.map((t) => [t.key, t]));
+    return { status: 200, body: { dry_run: true, label: plan.label, tasks: plan.tasks.map((t) => ({
+      ...shape(t), parent: t.parent_key, waits_for: plan.blockers.filter((b) => b.task_key === t.key).map((b) => byKey.get(b.blocking_key).title),
+    })) } };
+  }
+  // A month deleted from Work can be started again: its old rows keep their
+  // history but give up the month's source_ref.
+  await conn.query(
+    `UPDATE finance.tasks SET source_ref = source_ref || ':deleted:' || id
+      WHERE client_id = $1 AND source = 'template' AND source_ref LIKE $2 AND deleted_at IS NOT NULL`,
+    [client.id, `${plan.tasks[0].source_ref}%`]);
+  const ids = new Map();
+  for (const t of plan.tasks) {
+    const row = (await conn.query(
+      `INSERT INTO finance.tasks (client_id, created_by, parent_id, entity_id, title, notes, owner_kind, owner, start_on, due_on, position, source, source_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'template', $12) RETURNING id`,
+      [client.id, actorEmail, t.parent_key ? ids.get(t.parent_key) : null, t.entity_id, t.title, t.notes, t.owner_kind, t.owner,
+        t.start_on, t.due_on, t.position, t.source_ref])).rows[0];
+    ids.set(t.key, row.id);
+    await log(row.id, "created", { template: "month-end", period: req.body.period });
+  }
+  for (const b of plan.blockers) {
+    const row = (await conn.query(
+      "INSERT INTO finance.task_blockers (task_id, kind, blocking_task_id, created_by) VALUES ($1, 'task', $2, $3) RETURNING id",
+      [ids.get(b.task_key), ids.get(b.blocking_key), actorEmail])).rows[0];
+    await log(ids.get(b.task_key), "blocked", { blocker_id: row.id, kind: "task", blocking_task_id: ids.get(b.blocking_key) });
+  }
+  return { status: 201, body: { label: plan.label, task_id: ids.get("close"), created: plan.tasks.length, waits: plan.blockers.length } };
 }, { peopleOnly: true })));
 
 // Approvals waiting on the CFO appear in Work as tasks that close themselves

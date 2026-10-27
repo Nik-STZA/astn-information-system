@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Plus, X } from "lucide-react";
+import { CalendarCheck, ChevronRight, Plus, X } from "lucide-react";
 import styles from "./Work.module.css";
 import {
   AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree, timelineLayout, viaText,
@@ -36,6 +36,7 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(initialTask);
   const [creating, setCreating] = useState<{ parent_id: string | null } | null>(null);
+  const [closing, setClosing] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showDone, setShowDone] = useState(false);
   const [view, setView] = useState<View>(initialView ?? "list");
@@ -84,9 +85,14 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
           <h1>Work</h1>
           <p className={styles.sub}>Tasks and sub-tasks, what holds them up, and what happened to each.</p>
         </div>
-        <button type="button" className="btn-primary" onClick={() => { setSelected(null); setCreating({ parent_id: null }); }}>
-          <Plus size={15} aria-hidden="true" />New task
-        </button>
+        <div className={styles.headActions}>
+          <button type="button" className="btn-secondary" onClick={() => { setSelected(null); setCreating(null); setClosing(true); }}>
+            <CalendarCheck size={15} aria-hidden="true" />Start month-end
+          </button>
+          <button type="button" className="btn-primary" onClick={() => { setSelected(null); setClosing(false); setCreating({ parent_id: null }); }}>
+            <Plus size={15} aria-hidden="true" />New task
+          </button>
+        </div>
       </div>
 
       <div className={styles.bar}>
@@ -109,11 +115,11 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
         <div className={styles.listPane}>
           {view === "timeline" && (
             <Timeline rows={rows} tasks={tasks} links={links} selected={selected}
-              onOpen={(id) => { setCreating(null); setSelected(id); }} onToggle={toggle} />
+              onOpen={(id) => { setCreating(null); setClosing(false); setSelected(id); }} onToggle={toggle} />
           )}
           {view === "board" && (
             <Board tasks={tasks} showDone={showDone} selected={selected} issues={boardIssues}
-              onOpen={(id) => { setCreating(null); setSelected(id); }} onMove={moveTo} />
+              onOpen={(id) => { setCreating(null); setClosing(false); setSelected(id); }} onMove={moveTo} />
           )}
           {view === "list" && <section className={`${styles.card} ${styles.scroll}`} aria-label="Tasks">
             {rows.length === 0 ? (
@@ -131,7 +137,7 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
                     const late = t.due_on && t.status !== "done" && t.due_on < today();
                     return (
                       <tr key={t.id} className={`${styles.row} ${t.id === selected ? styles.sel : ""} ${t.status === "done" ? styles.done : ""}`}
-                        onClick={() => { setCreating(null); setSelected(t.id); }}>
+                        onClick={() => { setCreating(null); setClosing(false); setSelected(t.id); }}>
                         <td>
                           <div className={styles.title} style={{ paddingLeft: depth * 22 }}>
                             {hasChildren ? (
@@ -165,11 +171,15 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
           </section>}
         </div>
 
+        {closing && !creating && (
+          <MonthEnd base={base} onClose={() => setClosing(false)}
+            onCreated={(id) => { setClosing(false); setSelected(id); router.refresh(); }} />
+        )}
         {creating && (
           <NewTask base={base} entities={entities} tasks={tasks} people={people} parentId={creating.parent_id}
             onClose={() => setCreating(null)} onCreated={(id) => { setCreating(null); setSelected(id); router.refresh(); }} />
         )}
-        {!creating && task && (
+        {!creating && !closing && task && (
           <TaskPanel key={task.id} base={base} task={task} tasks={tasks} entities={entities} bills={bills} people={people}
             onClose={() => setSelected(null)} onAddSub={() => setCreating({ parent_id: task.id })}
             onDeleted={() => { setSelected(null); router.refresh(); }} />
@@ -375,6 +385,78 @@ function parentOptions(tasks: Task[], selfId: string | null) {
 function Issues({ issues }: { issues: string[] }) {
   return issues.length ? <ul className={styles.issues} role="alert">{issues.map((i) => <li key={i}>{i}</li>)}</ul> : null;
 }
+
+// ── Month-end ────────────────────────────────────────────────────────────────
+
+interface ClosePreview { label: string; tasks: Array<{ title: string; owner: string; due_on: string; parent: string | null; waits_for: string[] }> }
+
+// The close for a month from the template: pick the month, see every step
+// with its owner, due date and what it waits for, then create it.
+function MonthEnd({ base, onClose, onCreated }: { base: string; onClose: () => void; onCreated: (id: string) => void }) {
+  const [period, setPeriod] = useState(lastMonth());
+  const [vat, setVat] = useState(false);
+  const [preview, setPreview] = useState<ClosePreview | null>(null);
+  const [issues, setIssues] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function run(dryRun: boolean) {
+    setBusy(true);
+    const r = await send(`${base}/tasks/month-end`, "POST", { period, vat, dry_run: dryRun });
+    setBusy(false);
+    setIssues(r.issues);
+    if (!r.ok) { setPreview(null); return; }
+    const data = r.data as unknown as ClosePreview & { task_id?: string };
+    if (dryRun) setPreview(data); else if (data.task_id) onCreated(data.task_id);
+  }
+  useEffect(() => { setPreview(null); setIssues([]); }, [period, vat]);
+
+  return (
+    <aside className={styles.panel} aria-label="Start month-end">
+      <div className={styles.panelTop}>
+        <h2>Start month-end</h2>
+        <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>
+      </div>
+      <p className={styles.small}>Adds the close for a month as tasks: who does each step, when it is due (working days after the month end) and what it waits for. You own the close and the sign-off.</p>
+      <div className={styles.grid}>
+        <label className={styles.label} htmlFor="me-month">Month</label>
+        <input id="me-month" type="month" className={styles.input} value={period} onChange={(e) => setPeriod(e.target.value)} />
+        <span className={styles.label}>VAT</span>
+        <label className={styles.check}><input type="checkbox" checked={vat} onChange={(e) => setVat(e.target.checked)} />Include a VAT return</label>
+      </div>
+      {preview && (
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>{preview.label}: {preview.tasks.length} tasks</h3>
+          <div className={styles.subList}>
+            {preview.tasks.slice(1).map((t, i) => (
+              <div key={i} className={styles.planItem} style={t.parent && t.parent !== "close" ? { marginLeft: 16 } : undefined}>
+                <div>{t.title}</div>
+                <div className={styles.small}>
+                  {AGENTS.find((a) => a.value === t.owner)?.label ?? t.owner} · due {fmtDay(t.due_on)}
+                  {t.waits_for.length > 0 && <> · after {t.waits_for.join(", ")}</>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <Issues issues={issues} />
+      <div className={styles.foot}>
+        {preview
+          ? <button type="button" className="btn-primary" disabled={busy} onClick={() => run(false)}>{busy ? "Adding..." : `Add the ${preview.label} close`}</button>
+          : <button type="button" className="btn-primary" disabled={busy || !period} onClick={() => run(true)}>{busy ? "Checking..." : "Preview"}</button>}
+        <button type="button" className="btn-text" onClick={onClose}>Cancel</button>
+      </div>
+    </aside>
+  );
+}
+
+// "2026-09" when it is October 2026.
+function lastMonth(now = new Date()): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+const fmtDay = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 // ── New task ──────────────────────────────────────────────────────────────────
 
