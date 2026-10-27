@@ -33,7 +33,7 @@ export default async function ApprovalsPage({ params }: { params: { slug: string
             borderRadius: 8,
             border: "1px solid var(--warning-amber)",
             color: "var(--warning-amber)",
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
           }}
         >
@@ -43,7 +43,7 @@ export default async function ApprovalsPage({ params }: { params: { slug: string
         <>
           <p
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 13,
               color: "var(--sub)",
               margin: "0 0 18px",

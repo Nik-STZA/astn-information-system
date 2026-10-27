@@ -15,7 +15,7 @@ const CARD: React.CSSProperties = {
   border: "1px solid var(--bd)",
   borderRadius: 10,
   background: "var(--pnl)",
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   textDecoration: "none",
   color: "var(--tx)",
 };

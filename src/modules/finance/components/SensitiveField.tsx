@@ -43,7 +43,7 @@ const buttonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 5,
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 11,
   fontWeight: 600,
   padding: "5px 8px",
@@ -151,7 +151,7 @@ export default function SensitiveField({
         flexWrap: "wrap",
         padding: "10px 0",
         borderTop: "1px solid var(--bd)",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       <div style={{ width: 150, fontSize: 12, color: "var(--sub)", flexShrink: 0 }}>

@@ -13,7 +13,7 @@ export default function BlockedPage() {
       minHeight: "100vh", display: "flex", flexDirection: "column",
       alignItems: "center", justifyContent: "center",
       background: "#0F1113", padding: 24,
-      fontFamily: "'Manrope', sans-serif",
+      fontFamily: "var(--font-sans)",
     }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", maxWidth: 440, width: "100%" }}>
         <Image

@@ -15,7 +15,7 @@ export default function PageHeader({
     <div style={{ marginBottom: 24 }}>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 11,
           fontWeight: 600,
           letterSpacing: ".08em",
@@ -36,7 +36,7 @@ export default function PageHeader({
       >
         <h1
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 26,
             fontWeight: 800,
             color: "var(--tx)",

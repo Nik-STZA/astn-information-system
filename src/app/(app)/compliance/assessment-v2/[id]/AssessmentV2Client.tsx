@@ -56,12 +56,12 @@ const SEV: Record<string, { color: string; bg: string; border: string }> = {
 
 /* ── Inline style objects ────── */
 const S = {
-  sectionHead: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
+  sectionHead: { fontFamily: "var(--font-sans)", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
   sectionRule: { flex: 1, height: 1, background: "#E7DFCE" },
   bodySerif: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 13, lineHeight: "1.7", color: "#33322E" },
   bodySerifSm: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 12, lineHeight: "1.55", color: "#4A4842" },
   bodySerifXs: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 11.5, lineHeight: "1.55", color: "#4A4842" },
-  labelSm: { fontFamily: "'Manrope', sans-serif", fontWeight: 600 as const, fontSize: 9.5, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase" as const, color: "#9A968B" },
+  labelSm: { fontFamily: "var(--font-sans)", fontWeight: 600 as const, fontSize: 9.5, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase" as const, color: "#9A968B" },
 };
 
 /* ═══════════════════════════════════════════════════════════════════════ */
@@ -105,7 +105,7 @@ export default function AssessmentV2Client({ detail }: Props) {
       <div ref={containerRef} style={{ background: "#E8E2D6", minHeight: "100vh", padding: "24px 0" }}>
         {/* Back link */}
         <div style={{ maxWidth: 820, margin: "0 auto 12px", padding: "0 24px" }}>
-          <Link href="/compliance" style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 12, color: "#B08D3F", textDecoration: "none" }}>
+          <Link href="/compliance" style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 12, color: "#B08D3F", textDecoration: "none" }}>
             &larr; Back to compliance tracker
           </Link>
         </div>
@@ -117,18 +117,18 @@ export default function AssessmentV2Client({ detail }: Props) {
             {/* Header band */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 36 }}>
               <div>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 11, letterSpacing: ".2em", textTransform: "uppercase", color: "#C5A059", marginBottom: 4 }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 11, letterSpacing: ".2em", textTransform: "uppercase", color: "#C5A059", marginBottom: 4 }}>
                   African Sports Technology Network
                 </div>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 300, fontSize: 10.5, letterSpacing: ".08em", color: "#A29C8E" }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 300, fontSize: 10.5, letterSpacing: ".08em", color: "#A29C8E" }}>
                   Data protection compliance assessment
                 </div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 10, color: "#A29C8E", letterSpacing: ".06em" }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 10, color: "#A29C8E", letterSpacing: ".06em" }}>
                   {refCode}
                 </div>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 400, fontSize: 10, color: "#BFBAB0", marginTop: 2 }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: 10, color: "#BFBAB0", marginTop: 2 }}>
                   {today}
                 </div>
               </div>
@@ -150,16 +150,16 @@ export default function AssessmentV2Client({ detail }: Props) {
                 <span style={{ width: 10, height: 10, borderRadius: "50%", background: exp.dot }} />
                 <div>
                   <div style={{ ...S.labelSm, marginBottom: 3 }}>Exposure level</div>
-                  <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 15, color: exp.color }}>{exp.label}</div>
+                  <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 15, color: exp.color }}>{exp.label}</div>
                 </div>
               </div>
               <div style={{ background: "#FFFDF8", border: "1px solid #E7DFCE", borderRadius: 10, padding: "14px 20px", display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 28, color: scoreColor(assessment.overall_score) }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 28, color: scoreColor(assessment.overall_score) }}>
                   {Math.round(assessment.overall_score)}
                 </div>
                 <div>
                   <div style={{ ...S.labelSm, marginBottom: 3 }}>Overall score</div>
-                  <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 12, color: scoreColor(assessment.overall_score) }}>
+                  <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 12, color: scoreColor(assessment.overall_score) }}>
                     {scoreLabel(assessment.overall_score).text} / 100
                   </div>
                 </div>
@@ -173,13 +173,13 @@ export default function AssessmentV2Client({ detail }: Props) {
                   const sl = scoreLabel(ds.score);
                   return (
                     <div key={code} style={{ textAlign: "center", padding: "10px 6px", borderRadius: 8, border: "1px solid #E7DFCE", background: "#FFFDF8" }}>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 18, color: scoreColor(ds.score) }}>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 18, color: scoreColor(ds.score) }}>
                         {Math.round(ds.score)}
                       </div>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 8.5, color: sl.color, background: sl.bg, borderRadius: 3, padding: "2px 6px", display: "inline-block", marginTop: 3 }}>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 8.5, color: sl.color, background: sl.bg, borderRadius: 3, padding: "2px 6px", display: "inline-block", marginTop: 3 }}>
                         {sl.text}
                       </div>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 8.5, color: "#9A968B", marginTop: 5, lineHeight: "1.3" }}>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 8.5, color: "#9A968B", marginTop: 5, lineHeight: "1.3" }}>
                         {ds.name}
                       </div>
                     </div>
@@ -245,14 +245,14 @@ export default function AssessmentV2Client({ detail }: Props) {
                     return (
                       <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                         <span style={{
-                          fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 9, padding: "3px 8px",
+                          fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 9, padding: "3px 8px",
                           borderRadius: 4, color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`,
                           textTransform: "uppercase", letterSpacing: ".08em", whiteSpace: "nowrap", marginTop: 2,
                         }}>
                           {rf.level}
                         </span>
                         <div>
-                          <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 12, color: "#1A1A1A" }}>
+                          <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 12, color: "#1A1A1A" }}>
                             {rf.factor}
                           </div>
                           <div style={S.bodySerifXs}>{rf.note}</div>
@@ -288,7 +288,7 @@ export default function AssessmentV2Client({ detail }: Props) {
                           <td style={{ ...S.bodySerifXs, padding: "6px", verticalAlign: "top" }}>{kf.requirement}</td>
                           <td style={{ padding: "6px", verticalAlign: "top" }}>
                             <span style={{
-                              fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 8.5, padding: "2px 6px",
+                              fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 8.5, padding: "2px 6px",
                               borderRadius: 3, color: sev.color, background: sev.bg, textTransform: "uppercase",
                             }}>
                               {kf.severity}
@@ -316,13 +316,13 @@ export default function AssessmentV2Client({ detail }: Props) {
                   {recommendations.map((r, i) => (
                     <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                       <span style={{
-                        fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 11, color: "#C5A059",
+                        fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 11, color: "#C5A059",
                         minWidth: 20, textAlign: "center", marginTop: 2,
                       }}>
                         {r.priority ?? i + 1}
                       </span>
                       <div>
-                        <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 12, color: "#1A1A1A" }}>
+                        <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 12, color: "#1A1A1A" }}>
                           {r.action}
                         </div>
                         {r.rationale && <div style={S.bodySerifXs}>{r.rationale}</div>}
@@ -355,27 +355,27 @@ export default function AssessmentV2Client({ detail }: Props) {
                       <div key={f.id} style={{ border: "1px solid #E7DFCE", borderRadius: 8, padding: "12px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, color: "#1A1A1A" }}>
+                            <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 11, color: "#1A1A1A" }}>
                               {f.requirement_code}
                             </span>
                             <span style={{
-                              fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 8.5, padding: "2px 6px",
+                              fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 8.5, padding: "2px 6px",
                               borderRadius: 3, color: sev.color, background: sev.bg, textTransform: "uppercase",
                             }}>
                               {f.severity}
                             </span>
                             <span style={{
-                              fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 8.5, padding: "2px 6px",
+                              fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 8.5, padding: "2px 6px",
                               borderRadius: 3, color: statusSev.color, background: statusSev.bg, textTransform: "uppercase",
                             }}>
                               {f.status}
                             </span>
                           </div>
-                          <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 9, color: "#9A968B" }}>
+                          <span style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 9, color: "#9A968B" }}>
                             Score: {Math.round(f.score)}/100 · {f.evidence_count} evidence
                           </span>
                         </div>
-                        <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11.5, color: "#33322E", marginBottom: 4 }}>
+                        <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 11.5, color: "#33322E", marginBottom: 4 }}>
                           {f.domain_name} &rsaquo; {f.requirement_name}
                         </div>
                         <p style={{ ...S.bodySerifXs, margin: "0 0 4px" }}>{f.finding_text}</p>
@@ -447,7 +447,7 @@ export default function AssessmentV2Client({ detail }: Props) {
                     { label: "External verification", value: wp.evidence_summary.external_evidence },
                   ].map((item) => (
                     <div key={item.label} style={{ textAlign: "center", padding: 10, borderRadius: 8, border: "1px solid #E7DFCE" }}>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 20, color: "#1A1A1A" }}>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 20, color: "#1A1A1A" }}>
                         {item.value}
                       </div>
                       <div style={{ ...S.labelSm, marginTop: 4 }}>{item.label}</div>
@@ -469,8 +469,8 @@ export default function AssessmentV2Client({ detail }: Props) {
                     const sc = SEV[sev.toLowerCase()] ?? SEV.medium;
                     return (
                       <div key={sev} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 6, background: sc.bg, border: `1px solid ${sc.border}` }}>
-                        <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 16, color: sc.color }}>{count}</span>
-                        <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 10, color: sc.color, textTransform: "uppercase" }}>{sev}</span>
+                        <span style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 16, color: sc.color }}>{count}</span>
+                        <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 10, color: sc.color, textTransform: "uppercase" }}>{sev}</span>
                       </div>
                     );
                   })}
@@ -495,10 +495,10 @@ export default function AssessmentV2Client({ detail }: Props) {
 
             {/* Footer */}
             <div style={{ marginTop: 32, display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 16, borderTop: "1px solid #E7DFCE" }}>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "#C5A059" }}>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, letterSpacing: ".12em", textTransform: "uppercase", color: "#C5A059" }}>
                 African Sports Technology Network
               </div>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 400, fontSize: 9, color: "#BFBAB0" }}>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: 9, color: "#BFBAB0" }}>
                 {refCode} · {today} · Confidential
               </div>
             </div>

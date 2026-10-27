@@ -29,7 +29,7 @@ export default async function AgentsPage({ params }: { params: { slug: string } 
         <div
           style={{
             padding: "12px 14px", borderRadius: 8, border: "1px solid var(--warning-amber)",
-            color: "var(--warning-amber)", fontFamily: "Manrope, sans-serif", fontSize: 13,
+            color: "var(--warning-amber)", fontFamily: "var(--font-sans)", fontSize: 13,
           }}
         >
           {error}

@@ -121,14 +121,14 @@ function buildRisks(p: Prospect): Array<{ severity: string; title: string; descr
 /* ── Inline style objects (TS doesn’t support CSS shorthand `font`) ────── */
 const S = {
   /* Section heading */
-  sectionHead: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
+  sectionHead: { fontFamily: "var(--font-sans)", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
   sectionRule: { flex: 1, height: 1, background: "#E7DFCE" },
   /* Body serif */
   bodySerif: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 13, lineHeight: "1.7", color: "#33322E" },
   bodySerifSm: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 12, lineHeight: "1.55", color: "#4A4842" },
   bodySerifXs: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 11.5, lineHeight: "1.55", color: "#4A4842" },
   /* Labels */
-  labelSm: { fontFamily: "'Manrope', sans-serif", fontWeight: 600 as const, fontSize: 9.5, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase" as const, color: "#9A968B" },
+  labelSm: { fontFamily: "var(--font-sans)", fontWeight: 600 as const, fontSize: 9.5, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase" as const, color: "#9A968B" },
 };
 
 /* ═══════════════════════════════════════════════════════════════════════ */
@@ -146,7 +146,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
 
   if (error && !prospect) {
     return (
-      <div style={{ fontFamily: "'Manrope', sans-serif", padding: 32 }}>
+      <div style={{ fontFamily: "var(--font-sans)", padding: 32 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--tx)", margin: "0 0 16px" }}>Assessment unavailable</h1>
         <p style={{ color: "#CC0000" }}>{error}</p>
       </div>
@@ -155,7 +155,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
 
   if (!prospect) {
     return (
-      <div style={{ fontFamily: "'Manrope', sans-serif", padding: 32 }}>
+      <div style={{ fontFamily: "var(--font-sans)", padding: 32 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--tx)", margin: "0 0 16px" }}>Prospect not found</h1>
         <p style={{ color: "#A29C8E" }}>No prospect matched this ID. Return to the compliance tracker.</p>
       </div>
@@ -241,7 +241,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
       `}</style>
 
       {/* Back nav bar — hidden when printing */}
-      <div className="popia-nav-bar" style={{ fontFamily: "'Manrope', sans-serif", padding: "16px 0 8px", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <div className="popia-nav-bar" style={{ fontFamily: "var(--font-sans)", padding: "16px 0 8px", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <a href="/compliance" style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", textDecoration: "none" }}>
           &larr; Back to compliance
         </a>
@@ -262,11 +262,11 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
           {/* Running header */}
           <div slot="header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0 12px", margin: "0 0 6px", borderBottom: "1px solid #E7DFCE" }}>
             <img src="/logos/stza-logo-dark-crop.png" alt="STZA" style={{ height: 16, width: "auto", display: "block" }} />
-            <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".16em", textTransform: "uppercase", color: "#9C7C2E" }}>POPIA Compliance Assessment</span>
+            <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".16em", textTransform: "uppercase", color: "#9C7C2E" }}>POPIA Compliance Assessment</span>
           </div>
 
           {/* Running footer */}
-          <div slot="footer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 3px", margin: "6px 0 0", borderTop: "1px solid #E7DFCE", fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 8.5, lineHeight: "1.3", color: "#9A968B" }}>
+          <div slot="footer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 3px", margin: "6px 0 0", borderTop: "1px solid #E7DFCE", fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 8.5, lineHeight: "1.3", color: "#9A968B" }}>
             <span>STZA&reg; &middot; Sports Tech Africa Ltd &nbsp;|&nbsp; Information Officer service by African Sports Technology Network</span>
             <span style={{ color: "#B4432C" }}>Confidential &mdash; {prospect.company_name}</span>
           </div>
@@ -275,14 +275,14 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
           <div style={{ background: "#141414", borderRadius: 8, padding: "26px 28px 24px", margin: "0 0 26px", breakInside: "avoid" as const }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 20px" }}>
               <img src="/logos/stza-logo-white-crop.png" alt="STZA" style={{ height: 26, width: "auto", display: "block" }} />
-              <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 15, lineHeight: "1", letterSpacing: ".01em", color: "#EDE7DA" }}>
+              <span style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 15, lineHeight: "1", letterSpacing: ".01em", color: "#EDE7DA" }}>
                 African<span style={{ color: "#C6A24E" }}>STN</span>
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24 }}>
               <div>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".22em", textTransform: "uppercase", color: "#C6A24E", margin: "0 0 10px" }}>POPIA Compliance Assessment</div>
-                <h1 style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 30, lineHeight: "1.05", color: "#FFFFFF", margin: "0 0 7px", letterSpacing: "-.01em" }}>{prospect.company_name}</h1>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".22em", textTransform: "uppercase", color: "#C6A24E", margin: "0 0 10px" }}>POPIA Compliance Assessment</div>
+                <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 30, lineHeight: "1.05", color: "#FFFFFF", margin: "0 0 7px", letterSpacing: "-.01em" }}>{prospect.company_name}</h1>
                 <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1", color: "#B7B2A6" }}>
                   {prospect.sector ?? "Technology"} &middot; {prospect.company_country ?? "International"}
                 </div>
@@ -290,9 +290,9 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: exp.bg, border: `1px solid ${exp.border}`, borderRadius: 5, padding: "6px 11px", margin: "0 0 12px" }}>
                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: exp.dot, display: "block" }} />
-                  <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase", color: exp.color }}>Overall exposure &middot; {exp.label}</span>
+                  <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase", color: exp.color }}>Overall exposure &middot; {exp.label}</span>
                 </div>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 10, lineHeight: "1.5", color: "#8C877B" }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 10, lineHeight: "1.5", color: "#8C877B" }}>
                   Prepared {today}<br />Reference {refCode}
                 </div>
               </div>
@@ -325,7 +325,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
           <div style={{ display: "flex", gap: 0, border: "1px solid #E7DFCE", borderRadius: 8, overflow: "hidden", margin: "0 0 26px", breakInside: "avoid" as const }}>
             <div style={{ width: 6, background: "#C6A24E", flexShrink: 0 }} />
             <div style={{ padding: "16px 20px", background: "#F9F5EC", flex: 1 }}>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".16em", textTransform: "uppercase", color: "#9C7C2E", margin: "0 0 8px" }}>Proposed engagement</div>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".16em", textTransform: "uppercase", color: "#9C7C2E", margin: "0 0 8px" }}>Proposed engagement</div>
               <p style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1.65", color: "#33322E", margin: 0 }}>
                 <strong style={{ fontWeight: 600 }}>STZA</strong> contracts with {prospect.company_name} for POPIA representation and advisory. <strong style={{ fontWeight: 600 }}>African Sports Technology Network</strong> is appointed as your registered <strong style={{ fontWeight: 600 }}>Information Officer and local representative</strong> in South Africa, recharged to STZA under the engagement &mdash; satisfying the Section 55&ndash;56 obligation with a single accountable point of contact.
               </p>
@@ -343,14 +343,14 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 {/* Status banner */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", background: prospect.ir_registered === true ? "rgba(46,125,50,.08)" : prospect.ir_registered === false ? "rgba(180,67,44,.08)" : "#FAF7F0" }}>
                   <span style={{ width: 9, height: 9, borderRadius: "50%", background: prospect.ir_registered === true ? "#2E7D32" : prospect.ir_registered === false ? "#E06A4E" : "#9A968B", display: "block", flexShrink: 0 }} />
-                  <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A" }}>
+                  <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A" }}>
                     {prospect.ir_registered === true ? "Registered with the Information Regulator" : prospect.ir_registered === false ? "Not registered with the Information Regulator" : "Registration status unknown"}
                   </span>
                   {prospect.ir_verification_method && prospect.ir_verification_method !== "assumed" && (
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#2E7D53", background: "#E7F1EA", border: "1px solid #C7E1D1", borderRadius: 3, padding: "4px 7px" }}>Verified</span>
+                    <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#2E7D53", background: "#E7F1EA", border: "1px solid #C7E1D1", borderRadius: 3, padding: "4px 7px" }}>Verified</span>
                   )}
                   {(!prospect.ir_verification_method || prospect.ir_verification_method === "assumed") && (
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#A67514", background: "#FBF1DE", border: "1px solid #E6D5A3", borderRadius: 3, padding: "4px 7px" }}>Unverified</span>
+                    <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#A67514", background: "#FBF1DE", border: "1px solid #E6D5A3", borderRadius: 3, padding: "4px 7px" }}>Unverified</span>
                   )}
                 </div>
                 {/* Detail grid */}
@@ -411,11 +411,11 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               </div>
               {/* Overall score banner */}
               <div style={{ display: "flex", gap: 14, alignItems: "center", background: "#141414", borderRadius: 8, padding: "18px 22px", margin: "0 0 14px", breakInside: "avoid" as const }}>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 42, lineHeight: "1", color: "#C6A24E", fontVariantNumeric: "tabular-nums" }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 42, lineHeight: "1", color: "#C6A24E", fontVariantNumeric: "tabular-nums" }}>
                   {Number(assessment.score_overall ?? 0).toFixed(1)}
                 </div>
                 <div>
-                  <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, lineHeight: "1.2", letterSpacing: ".1em", textTransform: "uppercase", color: exp.color, margin: "0 0 4px" }}>
+                  <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 11, lineHeight: "1.2", letterSpacing: ".1em", textTransform: "uppercase", color: exp.color, margin: "0 0 4px" }}>
                     Overall exposure &middot; {exp.label}
                   </div>
                   <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#8C877B" }}>
@@ -430,13 +430,13 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                   const sl = scoreLabel(numScore);
                   return (
                     <div key={d.label} style={{ border: "1px solid #E7DFCE", borderRadius: 6, padding: "14px 16px", textAlign: "center", breakInside: "avoid" as const }}>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 28, lineHeight: "1", color: "#1A1A1A", fontVariantNumeric: "tabular-nums", margin: "0 0 6px" }}>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 28, lineHeight: "1", color: "#1A1A1A", fontVariantNumeric: "tabular-nums", margin: "0 0 6px" }}>
                         {numScore}
                       </div>
-                      <span style={{ display: "inline-block", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: sl.color, background: sl.bg, borderRadius: 3, padding: "4px 8px", margin: "0 0 8px" }}>
+                      <span style={{ display: "inline-block", fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: sl.color, background: sl.bg, borderRadius: 3, padding: "4px 8px", margin: "0 0 8px" }}>
                         {sl.text}
                       </span>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 10, lineHeight: "1.3", letterSpacing: ".06em", textTransform: "uppercase", color: "#9A968B" }}>{d.label}</div>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 10, lineHeight: "1.3", letterSpacing: ".06em", textTransform: "uppercase", color: "#9A968B" }}>{d.label}</div>
                     </div>
                   );
                 })}
@@ -451,15 +451,15 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 <h2 style={S.sectionHead}>Analysis findings</h2>
                 <div style={S.sectionRule} />
               </div>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 11, lineHeight: "1.4", color: "#9A968B", margin: "0 0 10px" }}>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 11, lineHeight: "1.4", color: "#9A968B", margin: "0 0 10px" }}>
                 {sortedFindings.length} finding{sortedFindings.length !== 1 ? "s" : ""} across {documents.length} document{documents.length !== 1 ? "s" : ""} analysed
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse", margin: "0 0 26px", fontFamily: "'Manrope', sans-serif" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", margin: "0 0 26px", fontFamily: "var(--font-sans)" }}>
                 <thead style={{ display: "table-header-group" }}>
                   <tr>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px 0", borderBottom: "1.5px solid #C6A24E", whiteSpace: "nowrap" }}>Severity</th>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px", borderBottom: "1.5px solid #C6A24E" }}>Category</th>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 0 8px 10px", borderBottom: "1.5px solid #C6A24E" }}>Finding</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px 0", borderBottom: "1.5px solid #C6A24E", whiteSpace: "nowrap" }}>Severity</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px", borderBottom: "1.5px solid #C6A24E" }}>Category</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 0 8px 10px", borderBottom: "1.5px solid #C6A24E" }}>Finding</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -469,9 +469,9 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                     return (
                       <tr key={f.id} style={{ breakInside: "avoid" as const }}>
                         <td style={{ padding: "10px 10px 10px 0", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>
-                          <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap" }}>{f.severity}</span>
+                          <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap" }}>{f.severity}</span>
                         </td>
-                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11, lineHeight: "1.4", color: "#1A1A1A", padding: "10px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top", whiteSpace: "nowrap" }}>{f.check_category}</td>
+                        <td style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 11, lineHeight: "1.4", color: "#1A1A1A", padding: "10px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top", whiteSpace: "nowrap" }}>{f.check_category}</td>
                         <td style={{ ...S.bodySerifXs, padding: "10px 0 10px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>
                           {f.finding}
                           {f.evidence_quote && (
@@ -495,9 +495,9 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
             {hasPipeline && riskFactors.length > 0 ? (
               riskFactors.map((rf, i) => (
                 <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", background: "#FAF7F0", border: "1px solid #EFE7D6", borderRadius: 6, padding: "13px 15px", breakInside: "avoid" as const }}>
-                  <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: "50%", background: rf.level === "critical" ? "#CC0000" : "#E06A4E", color: "#FFFFFF", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, lineHeight: "22px", textAlign: "center" }}>{i + 1}</span>
+                  <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: "50%", background: rf.level === "critical" ? "#CC0000" : "#E06A4E", color: "#FFFFFF", fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 11, lineHeight: "22px", textAlign: "center" }}>{i + 1}</span>
                   <div>
-                    <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 3px" }}>{rf.factor}</div>
+                    <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 3px" }}>{rf.factor}</div>
                     <div style={S.bodySerifSm}>{rf.note}</div>
                   </div>
                 </div>
@@ -507,9 +507,9 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 const sev = SEV[r.severity] ?? SEV.Medium;
                 return (
                   <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", background: "#FAF7F0", border: "1px solid #EFE7D6", borderRadius: 6, padding: "13px 15px", breakInside: "avoid" as const }}>
-                    <span style={{ flexShrink: 0, fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 4, padding: "6px 9px" }}>{r.severity}</span>
+                    <span style={{ flexShrink: 0, fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 9, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: sev.color, background: sev.bg, border: `1px solid ${sev.border}`, borderRadius: 4, padding: "6px 9px" }}>{r.severity}</span>
                     <div>
-                      <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 13, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 3px" }}>{r.title}</div>
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 13, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 3px" }}>{r.title}</div>
                       <div style={S.bodySerifSm}>{r.description}</div>
                     </div>
                   </div>
@@ -526,21 +526,21 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
           <div style={{ display: "flex", gap: 12, margin: "0 0 14px", breakInside: "avoid" as const }}>
             {/* DPMI tier */}
             <div style={{ flex: 1, border: "1px solid #E7DFCE", borderRadius: 8, padding: 16, textAlign: "center" }}>
-              <span style={{ display: "inline-block", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 11, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: "#2E7D53", background: "#E7F1EA", border: "1px solid #C7E1D1", borderRadius: 20, padding: "6px 14px", margin: "0 0 10px" }}>
+              <span style={{ display: "inline-block", fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 11, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: "#2E7D53", background: "#E7F1EA", border: "1px solid #C7E1D1", borderRadius: 20, padding: "6px 14px", margin: "0 0 10px" }}>
                 {sa.tier ?? "Leader"}
               </span>
               <div style={S.labelSm}>DPMI tier</div>
             </div>
             {/* Score */}
             <div style={{ flex: 1, border: "1px solid #E7DFCE", borderRadius: 8, padding: 16, textAlign: "center" }}>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 30, lineHeight: "1", color: "#1A1A1A", fontVariantNumeric: "tabular-nums", margin: "0 0 6px" }}>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 30, lineHeight: "1", color: "#1A1A1A", fontVariantNumeric: "tabular-nums", margin: "0 0 6px" }}>
                 {sa.overall_score != null ? Number(sa.overall_score).toFixed(1) : "8.8"}
               </div>
               <div style={S.labelSm}>DPMI score / 10</div>
             </div>
             {/* Law */}
             <div style={{ flex: 1.4, border: "1px solid #E7DFCE", borderRadius: 8, padding: 16, textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 13, lineHeight: "1.35", color: "#1A1A1A", margin: "0 0 5px" }}>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 13, lineHeight: "1.35", color: "#1A1A1A", margin: "0 0 5px" }}>
                 {sa.law_name ?? "Protection of Personal Information Act"}
               </div>
               <div style={S.labelSm}>POPIA &middot; {sa.law_year ?? 2013}</div>
@@ -573,13 +573,13 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 <h2 style={S.sectionHead}>Recent enforcement actions &mdash; South Africa</h2>
                 <div style={S.sectionRule} />
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse", margin: "0 0 26px", fontFamily: "'Manrope', sans-serif" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", margin: "0 0 26px", fontFamily: "var(--font-sans)" }}>
                 <thead style={{ display: "table-header-group" }}>
                   <tr>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px 0", borderBottom: "1.5px solid #C6A24E", whiteSpace: "nowrap" }}>Date</th>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px", borderBottom: "1.5px solid #C6A24E" }}>Entity</th>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px", borderBottom: "1.5px solid #C6A24E", whiteSpace: "nowrap" }}>Type</th>
-                    <th style={{ textAlign: "left", fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 0 8px 10px", borderBottom: "1.5px solid #C6A24E" }}>Description</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px 0", borderBottom: "1.5px solid #C6A24E", whiteSpace: "nowrap" }}>Date</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px", borderBottom: "1.5px solid #C6A24E" }}>Entity</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 10px 8px", borderBottom: "1.5px solid #C6A24E", whiteSpace: "nowrap" }}>Type</th>
+                    <th style={{ textAlign: "left", fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9.5, lineHeight: "1", letterSpacing: ".08em", textTransform: "uppercase", color: "#9A968B", padding: "0 0 8px 10px", borderBottom: "1.5px solid #C6A24E" }}>Description</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -587,10 +587,10 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                     const tp = typePill(e.action_type);
                     return (
                       <tr key={e.id} style={{ breakInside: "avoid" as const }}>
-                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 11, lineHeight: "1.4", color: "#4A4842", padding: "11px 10px 11px 0", borderBottom: "1px solid #EDE7D8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", verticalAlign: "top" }}>{e.action_date?.slice(0, 10) ?? "—"}</td>
-                        <td style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11.5, lineHeight: "1.4", color: "#1A1A1A", padding: "11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>{e.target_entity ?? "—"}</td>
+                        <td style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 11, lineHeight: "1.4", color: "#4A4842", padding: "11px 10px 11px 0", borderBottom: "1px solid #EDE7D8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", verticalAlign: "top" }}>{e.action_date?.slice(0, 10) ?? "—"}</td>
+                        <td style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 11.5, lineHeight: "1.4", color: "#1A1A1A", padding: "11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>{e.target_entity ?? "—"}</td>
                         <td style={{ padding: "11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>
-                          <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", textTransform: "uppercase", letterSpacing: ".06em", color: tp.color, background: tp.bg, borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap" }}>{e.action_type}</span>
+                          <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, lineHeight: "1", textTransform: "uppercase", letterSpacing: ".06em", color: tp.color, background: tp.bg, borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap" }}>{e.action_type}</span>
                         </td>
                         <td style={{ ...S.bodySerifXs, padding: "11px 0 11px 10px", borderBottom: "1px solid #EDE7D8", verticalAlign: "top" }}>{e.description}</td>
                       </tr>
@@ -616,13 +616,13 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               { title: "Special categories", body: "Biometric, children’s and health data require explicit consent and additional safeguards." },
             ].map((o) => (
               <div key={o.title} style={{ background: "#F9F5EC", border: "1px solid #EFE7D6", borderRadius: 6, padding: "14px 16px", breakInside: "avoid" as const }}>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 5px" }}>{o.title}</div>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 5px" }}>{o.title}</div>
                 <div style={S.bodySerifXs}>{o.body}</div>
               </div>
             ))}
             {/* Juristic persons — full width with gold border */}
             <div style={{ gridColumn: "1 / -1", background: "#F9F5EC", border: "1px solid #EFE7D6", borderLeft: "4px solid #C6A24E", borderRadius: 6, padding: "14px 16px", breakInside: "avoid" as const }}>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 5px" }}>Juristic persons</div>
+              <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12, lineHeight: "1.3", color: "#1A1A1A", margin: "0 0 5px" }}>Juristic persons</div>
               <div style={S.bodySerifXs}>Unusually, POPIA protects the personal information of <strong style={{ fontWeight: 600 }}>juristic persons</strong> (companies and other legal entities) as well as natural persons &mdash; so business-to-business data, not only individuals&rsquo; data, falls within scope.</div>
             </div>
           </div>
@@ -636,7 +636,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
             {hasPipeline && recommendations.length > 0 ? (
               recommendations.map((rec, i) => (
                 <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", breakInside: "avoid" as const }}>
-                  <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: "#C6A24E", color: "#141414", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "24px", textAlign: "center" }}>{i + 1}</span>
+                  <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: "#C6A24E", color: "#141414", fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12, lineHeight: "24px", textAlign: "center" }}>{i + 1}</span>
                   <div style={{ paddingTop: 2 }}>
                     <span style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1.5", color: "#4A4842" }}>{rec.action}</span>
                   </div>
@@ -650,9 +650,9 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
                 { n: 4, title: "Ongoing compliance.", body: "Establish breach-notification procedures and data-subject request handling processes." },
               ].map((s) => (
                 <div key={s.n} style={{ display: "flex", gap: 14, alignItems: "flex-start", breakInside: "avoid" as const }}>
-                  <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: "#C6A24E", color: "#141414", fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "24px", textAlign: "center" }}>{s.n}</span>
+                  <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: "#C6A24E", color: "#141414", fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12, lineHeight: "24px", textAlign: "center" }}>{s.n}</span>
                   <div style={{ paddingTop: 2 }}>
-                    <strong style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 12.5, lineHeight: "1.4", color: "#1A1A1A" }}>{s.title} </strong>
+                    <strong style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 12.5, lineHeight: "1.4", color: "#1A1A1A" }}>{s.title} </strong>
                     <span style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1.5", color: "#4A4842" }}>{s.body}</span>
                   </div>
                 </div>
@@ -670,12 +670,12 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
               <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "0 0 26px" }}>
                 {documents.map((doc) => (
                   <div key={doc.id} style={{ display: "flex", gap: 10, alignItems: "baseline", breakInside: "avoid" as const }}>
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: "#9C7C2E", background: "#F4ECD9", borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap", flexShrink: 0 }}>{doc.document_type}</span>
+                    <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".06em", textTransform: "uppercase", color: "#9C7C2E", background: "#F4ECD9", borderRadius: 3, padding: "4px 7px", whiteSpace: "nowrap", flexShrink: 0 }}>{doc.document_type}</span>
                     <span style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12, lineHeight: "1.4", color: "#33322E" }}>
                       {doc.document_title ?? doc.source_url ?? "Untitled document"}
                     </span>
                     {doc.snapshot_date && (
-                      <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 10, color: "#9A968B", whiteSpace: "nowrap" }}>
+                      <span style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 10, color: "#9A968B", whiteSpace: "nowrap" }}>
                         {doc.snapshot_date.slice(0, 10)}
                       </span>
                     )}
@@ -689,7 +689,7 @@ export default function AssessmentClient({ prospect, saCountry, enforcement, pip
           <div style={{ borderTop: "2px solid #141414", padding: "14px 0 0", breakInside: "avoid" as const }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, margin: "0 0 10px" }}>
               <img src="/logos/stza-logo-dark-crop.png" alt="STZA" style={{ height: 18, width: "auto", display: "block" }} />
-              <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 10, lineHeight: "1.4", color: "#9A968B", textAlign: "right" }}>POPIA Representative Services &middot; delivered with African Sports Technology Network</span>
+              <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 10, lineHeight: "1.4", color: "#9A968B", textAlign: "right" }}>POPIA Representative Services &middot; delivered with African Sports Technology Network</span>
             </div>
             <p style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 9.5, lineHeight: "1.5", fontStyle: "italic", color: "#9A968B", margin: 0 }}>
               This document is for informational purposes only and does not constitute legal advice. STZA recommends engaging qualified legal counsel for jurisdiction-specific compliance guidance.

@@ -45,7 +45,7 @@ function Entry({ entry }: { entry: DiaryEntryRow }) {
         borderRadius: 10,
         padding: "16px 18px",
         marginBottom: 12,
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       <div
@@ -147,7 +147,7 @@ export default async function DiaryPage({ params }: { params: { slug: string } }
 
       <p
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 13,
           color: "var(--sub)",
           margin: "0 0 20px",
@@ -165,7 +165,7 @@ export default async function DiaryPage({ params }: { params: { slug: string } }
             borderRadius: 10,
             background: "var(--empty-bg)",
             color: "var(--empty-text)",
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
           }}
         >

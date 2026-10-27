@@ -3,28 +3,32 @@
 @tailwind utilities;
 
 /**
- * Global styles for AfricanSTN information system — reskin July 2026.
+ * Global styles for the STZA OS: redesign, 27 Oct 2026.
  *
- * Theme system: CSS custom properties with light/dark palettes.
- * Light is the default; the toggle (deferred) will swap to dark via JS.
- * Variable names match the Index design file exactly:
- *   --pg    page background
- *   --pnl   panel / card background
- *   --bd    border colour
- *   --tx    primary text
- *   --sub   subtitle / muted text
- *   --cardhover  card hover surface
+ * Neutral surfaces, one typeface (Inter) on one scale, slim pill buttons. The
+ * brand gold is an accent only: where you are (active menu item, focus, today).
+ * Every page reads these variables, so a page changes look with them:
+ *   --pg    page background        --pnl   panel / card background
+ *   --bd    border                 --tx    primary text
+ *   --sub   secondary text         --cardhover  hover surface
+ *   --accent-bg / --accent-text    the gold accent as a background / as text
+ * Light is the default; dark and auto (System: follow the device) are set by
+ * data-theme on <html>, from the switch in the sidebar.
  */
 
 @layer base {
-  /* ── Light palette (default for app pages) ── */
+  /* ── Light palette ── */
   :root {
-    --pg: #EFE8DA;
+    --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+    --pg: #FAFAF9;
     --pnl: #FFFFFF;
-    --bd: #E4D9C4;
-    --tx: #1A1C1E;
-    --sub: #6E6A62;
-    --cardhover: #FAF6EE;
+    --bd: #E7E5E4;
+    --tx: #18181B;
+    --sub: #71717A;
+    --cardhover: #F5F5F4;
+    --accent-bg: #F5F0E6;
+    --accent-text: #7A5F2A;
 
     /* Static brand tokens (not theme-switched) */
     --brand-dark: #1A1C1E;
@@ -37,14 +41,13 @@
     --warning-amber: #CC7700;
     --success-green: #2E7D32;
 
-    /* Reskin additions */
-    --card-border: #E4D9C4;
-    --empty-bg: #F7F2E9;
-    --empty-border: #D9CDB4;
-    --empty-text: #B9B2A2;
-    --gold-dark: #B08D3F;
-    --label-text: #55524C;
-    --table-header: #F6F1E7;
+    --card-border: #E7E5E4;
+    --empty-bg: #FAFAF9;
+    --empty-border: #E7E5E4;
+    --empty-text: #A1A1AA;
+    --gold-dark: #7A5F2A;
+    --label-text: #52525B;
+    --table-header: #FAFAF9;
     --risk-red: #B4432C;
     --status-blue: #3E6B8E;
   }
@@ -53,40 +56,46 @@
   :root[data-theme="dark"] {
     --pg: #0F1113;
     --pnl: #17191C;
-    --bd: rgba(197,160,89,.20);
-    --tx: #F4F1EA;
-    --sub: #94918A;
-    --cardhover: rgba(255,255,255,.04);
-    --card-border: rgba(197,160,89,.20);
-    --empty-bg: rgba(255,255,255,.03);
-    --empty-border: rgba(197,160,89,.15);
-    --empty-text: #5A574F;
-    --gold-dark: #C5A059;
-    --label-text: #94918A;
-    --table-header: rgba(255,255,255,.04);
+    --bd: #2A2E33;
+    --tx: #F4F4F5;
+    --sub: #A1A1AA;
+    --cardhover: #1F2226;
+    --accent-bg: #2A2416;
+    --accent-text: #D4B06A;
+    --card-border: #2A2E33;
+    --empty-bg: #15171A;
+    --empty-border: #2A2E33;
+    --empty-text: #71717A;
+    --gold-dark: #D4B06A;
+    --label-text: #D4D4D8;
+    --table-header: #1A1D20;
   }
 
-  /* ── Auto: follow OS preference ── */
+  /* ── System: follow the device ── */
   @media (prefers-color-scheme: dark) {
     :root[data-theme="auto"] {
       --pg: #0F1113;
       --pnl: #17191C;
-      --bd: rgba(197,160,89,.20);
-      --tx: #F4F1EA;
-      --sub: #94918A;
-      --cardhover: rgba(255,255,255,.04);
-      --card-border: rgba(197,160,89,.20);
-      --empty-bg: rgba(255,255,255,.03);
-      --empty-border: rgba(197,160,89,.15);
-      --empty-text: #5A574F;
-      --gold-dark: #C5A059;
-      --label-text: #94918A;
-      --table-header: rgba(255,255,255,.04);
+      --bd: #2A2E33;
+      --tx: #F4F4F5;
+      --sub: #A1A1AA;
+      --cardhover: #1F2226;
+      --accent-bg: #2A2416;
+      --accent-text: #D4B06A;
+      --card-border: #2A2E33;
+      --empty-bg: #15171A;
+      --empty-border: #2A2E33;
+      --empty-text: #71717A;
+      --gold-dark: #D4B06A;
+      --label-text: #D4D4D8;
+      --table-header: #1A1D20;
     }
   }
 
   html {
-    font-family: 'Manrope', sans-serif;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
     color: var(--tx);
     background-color: var(--pg);
     -webkit-font-smoothing: antialiased;
@@ -102,24 +111,29 @@
     background: rgba(197, 160, 89, 0.28);
   }
 
-  /* Headings */
+  :focus-visible {
+    outline: 2px solid var(--brand-gold);
+    outline-offset: 2px;
+  }
+
+  /* Headings: one scale (24 / 16 / 14). */
   h1 {
-    font-weight: 800;
-    font-size: 27px;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
+    font-weight: 600;
+    font-size: 24px;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
     color: var(--tx);
     margin: 0;
   }
   h2 {
-    font-weight: 700;
-    font-size: 18px;
+    font-weight: 600;
+    font-size: 16px;
     line-height: 1.4;
     color: var(--tx);
     margin: 0;
   }
   h3 {
-    font-weight: 700;
+    font-weight: 600;
     font-size: 14px;
     line-height: 1.4;
     color: var(--tx);
@@ -128,34 +142,70 @@
 }
 
 @layer components {
-  /* ── Buttons ── */
-  .btn-primary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-brand
-           bg-brand-gold text-brand-dark font-bold text-body-app
-           transition-all duration-150
-           hover:brightness-95 hover:shadow-brand-card-hover
-           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2
-           disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .btn-secondary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-brand
-           font-bold text-body-app border
-           transition-all duration-150
-           hover:bg-card-hover
-           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
-    background: var(--pnl);
-    color: var(--gold-dark);
-    border-color: var(--card-border);
-  }
-
+  /* ── Buttons: slim pills. One dark pill per area: the main action. ── */
+  .btn-primary,
+  .btn-secondary,
   .btn-text {
-    @apply inline-flex items-center justify-center px-3 py-1.5 rounded-brand
-           text-brand-gold font-bold text-body-app
-           transition-colors duration-150
-           hover:bg-card-hover
-           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font: 500 13px var(--font-sans);
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
+  .btn-primary {
+    background: var(--tx);
+    color: var(--pnl);
+    border: 1px solid var(--tx);
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-secondary {
+    background: var(--pnl);
+    color: var(--tx);
+    border: 1px solid var(--bd);
+  }
+  .btn-secondary:hover { background: var(--cardhover); }
+  .btn-text {
+    background: transparent;
+    color: var(--label-text);
+    border: 1px solid transparent;
+  }
+  .btn-text:hover { background: var(--cardhover); color: var(--tx); }
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-text:disabled { opacity: 0.5; cursor: not-allowed; }
+  @media (max-width: 899px) {
+    .btn-primary, .btn-secondary, .btn-text { height: 40px; padding: 0 16px; font-size: 14px; }
+  }
+
+  /* ── Segmented control (Light / Dark / System, view switches) ── */
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--bd);
+    border-radius: 999px;
+    background: var(--pg);
+    box-sizing: border-box;
+  }
+  .seg > button {
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    font: 500 12px var(--font-sans);
+    color: var(--sub);
+    cursor: pointer;
+  }
+  .seg > button:hover { color: var(--tx); }
+  .seg > button.seg-on { background: var(--tx); color: var(--pnl); }
 
   /* ── Cards ── */
   .card {
@@ -293,11 +343,25 @@
     color: var(--label-text);
   }
 
-  /* ── Page layout ── */
+  /* ── Page layout: the sidebar beside the page; on a phone the sidebar is a
+     drawer under a top bar, so the shell stacks. ── */
+  .app-shell {
+    display: flex;
+    align-items: flex-start;
+    min-height: 100vh;
+    background: var(--pg);
+  }
+  .app-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  @media (max-width: 899px) {
+    .app-shell { display: block; }
+  }
   .page-container {
     max-width: 1320px;
     margin: 0 auto;
-    padding: 24px 26px 48px;
+    padding: 28px 28px 48px;
   }
 
   /* ── Page header pattern ── */
@@ -415,10 +479,11 @@
   nav,
   header,
   .popia-nav-bar,
-  [class*="TopNav"],
+  [class*="Sidebar_"],
   [data-topnav] {
     display: none !important;
   }
+  .app-shell { display: block !important; }
 
   /* Reset page background and container constraints */
   html, body {

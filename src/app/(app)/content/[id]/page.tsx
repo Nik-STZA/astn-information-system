@@ -55,7 +55,7 @@ export default async function EditionDetailPage({ params }: Props) {
   const iso = edition.country_name ? COUNTRY_ISO[edition.country_name] : null;
 
   return (
-    <div style={{ fontFamily: "'Manrope', sans-serif" }}>
+    <div style={{ fontFamily: "var(--font-sans)" }}>
       {/* Breadcrumb */}
       <div style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", marginBottom: 8 }}>
         <Link href="/content" style={{ color: "#B08D3F", textDecoration: "none" }}>Content engine</Link>
@@ -73,7 +73,7 @@ export default async function EditionDetailPage({ params }: Props) {
         </div>
         <span style={{
           flexShrink: 0,
-          fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 11, lineHeight: "1",
+          fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 11, lineHeight: "1",
           textTransform: "uppercase", letterSpacing: ".04em",
           color: sm.text, background: sm.bg, border: `1px solid ${sm.border}`,
           borderRadius: 6, padding: "7px 12px", whiteSpace: "nowrap",

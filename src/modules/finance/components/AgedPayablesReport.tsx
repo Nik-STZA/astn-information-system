@@ -24,7 +24,7 @@ const BUCKETS: Array<{ key: AgeBucket; label: string }> = [
   { key: "90+", label: "90+" },
 ];
 
-const FONT = "Manrope, sans-serif";
+const FONT = "var(--font-sans)";
 
 function money(n: number): string {
   if (!n) return "–";

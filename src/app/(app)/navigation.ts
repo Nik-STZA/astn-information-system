@@ -13,6 +13,9 @@ import { FINANCE_NAV } from "@/modules/finance/config/nav";
 // definitions stay here until they are relocated.
 const SHELL_NAV: NavGroup[] = [
   { label: "Home", items: [{ href: "/dashboard", label: "Dashboard" }] },
+  // Finance second: it is the daily work, and the chosen client's sections
+  // hang under it in the sidebar, so they must not sit below the fold.
+  FINANCE_NAV,
   {
     label: "Registry",
     module: "registry",
@@ -52,7 +55,6 @@ const SHELL_NAV: NavGroup[] = [
       { href: "/reports", label: "Reports" },
     ],
   },
-  FINANCE_NAV,
 ];
 
 // Groups with no module are shell furniture and always render.

@@ -16,7 +16,7 @@ export default async function AssessmentV2Page({ params }: Props) {
 
   if (isNaN(assessmentId)) {
     return (
-      <div style={{ fontFamily: "'Manrope', sans-serif", padding: 32 }}>
+      <div style={{ fontFamily: "var(--font-sans)", padding: 32 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--tx)", margin: "0 0 16px" }}>Invalid assessment ID</h1>
         <p style={{ color: "#A29C8E" }}>Return to the compliance tracker.</p>
       </div>
@@ -27,7 +27,7 @@ export default async function AssessmentV2Page({ params }: Props) {
 
   if (res.error || !res.data) {
     return (
-      <div style={{ fontFamily: "'Manrope', sans-serif", padding: 32 }}>
+      <div style={{ fontFamily: "var(--font-sans)", padding: 32 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--tx)", margin: "0 0 16px" }}>Assessment unavailable</h1>
         <p style={{ color: "#CC0000" }}>{res.error ?? "Assessment not found."}</p>
       </div>

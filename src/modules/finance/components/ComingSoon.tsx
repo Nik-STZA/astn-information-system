@@ -29,7 +29,7 @@ export default function ComingSoon({
           border: "1px dashed var(--empty-border)",
           borderRadius: 10,
           background: "var(--empty-bg)",
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           maxWidth: 620,
         }}
       >

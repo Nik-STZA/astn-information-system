@@ -41,7 +41,7 @@ const flowLabel = (f: string | null | undefined) => (f ? f.replace(/_/g, " ") : 
 const dateLabel = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 
-const font: CSSProperties = { fontFamily: "Manrope, sans-serif" };
+const font: CSSProperties = { fontFamily: "var(--font-sans)" };
 const input: CSSProperties = {
   ...font, fontSize: 12, padding: "5px 7px", borderRadius: 6,
   border: "1px solid var(--bd)", background: "var(--pg)", color: "var(--tx)",

@@ -72,7 +72,7 @@ export default function JurisdictionsClient({ jurisdictions }: Props) {
   const selectedJurisdiction = jurisdictions.find((j) => j.id === selected);
 
   return (
-    <div style={{ fontFamily: "'Manrope', sans-serif", padding: "24px 32px", maxWidth: 1200, margin: "0 auto" }}>
+    <div style={{ fontFamily: "var(--font-sans)", padding: "24px 32px", maxWidth: 1200, margin: "0 auto" }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
