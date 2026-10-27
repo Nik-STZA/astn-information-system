@@ -290,3 +290,42 @@ describe("due date before a send", () => {
       .toEqual(["the due date must be a date (YYYY-MM-DD)"]);
   });
 });
+
+// The AP Clerk's suggested coding (Nik, 27 Oct 2026: asked the agent to review
+// a Bills item line by line). Advice only; checked against the company's own
+// accounts and VAT treatments.
+import { recommendation } from "./ap-lane";
+
+describe("recommendation", () => {
+  const bill = buildBill({ doc: invoice, match: { link }, entity });
+  const item = { state: "exception", proposed_bill: bill };
+  const allowed = { accounts: new Set(["454", "620"]), taxes: new Set(["INPUT2", "REVERSECHARGES"]) };
+
+  it("keeps a recommendation that names real accounts and VAT treatments", () => {
+    const r = recommendation(item, {
+      lines: [{ index: 0, account_code: "620", tax_type: "INPUT2", reason: "service period after the bill date" }],
+      due_date: "2026-10-30", note: "Prepay: the retainer covers next month.",
+    }, allowed);
+    expect(r).toEqual({ issues: [], recommendation: {
+      lines: [{ index: 0, account_code: "620", tax_type: "INPUT2", reason: "service period after the bill date" }],
+      due_date: "2026-10-30", note: "Prepay: the retainer covers next month.",
+    } });
+  });
+
+  it("refuses unknown codes, missing lines, a bad due date, no note, and a sent item", () => {
+    const r = recommendation({ ...item, state: "written" }, {
+      lines: [{ index: 0, account_code: "999", tax_type: "NOPE" }, { index: 0, account_code: "454", tax_type: "INPUT2" }, { index: 7 }],
+      due_date: "2026-01-01",
+    }, allowed);
+    expect(r.recommendation).toBeNull();
+    expect(r.issues).toEqual([
+      "only an unsent item takes a recommendation; this item is written",
+      "line 0: 999 is not an active account in this company",
+      "line 0: NOPE is not an active VAT treatment in this company",
+      "line 0 is recommended twice",
+      "there is no line 7",
+      "the due date is before the bill's date",
+      "a note explaining the recommendation is required",
+    ]);
+  });
+});

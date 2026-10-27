@@ -4509,7 +4509,8 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items", route(async (req, re
     `SELECT i.id, i.file_name, i.file_received_at, i.document_index, i.state, i.state_reason, i.matched_by,
             i.proposed_bill->'Contact'->>'Name' AS supplier, i.proposed_bill->>'InvoiceNumber' AS number,
             i.proposed_bill->>'DateString' AS date, i.proposed_bill->>'Total' AS total, i.proposed_bill->>'CurrencyCode' AS currency,
-            i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.source, i.created_at
+            i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.source,
+            i.recommendation IS NOT NULL AS recommended, i.created_at
        FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
       WHERE i.client_id = $1 AND e.slug = $2 AND i.state = ANY($3::text[])
       ORDER BY i.created_at DESC, i.document_index LIMIT 500`, [client.id, req.params.entity, states]);
@@ -4589,6 +4590,39 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/decision", route(
   } finally {
     conn.release();
   }
+}));
+
+// POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/recommendation
+//   body: { lines: [{ index, account_code, tax_type, reason? }], due_date?, note, agent?, run_id? }
+// An agent's suggested coding for a queue item, for the CFO to accept or change
+// in the Bills tab. It changes nothing else: not the item's state, not its
+// proposed bill, not Xero. A later recommendation replaces an earlier one.
+app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/recommendation", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!writeRules.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a uuid" });
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [ctx.client.id, actorEmail])).rows[0].role;
+  if (!role) return res.status(403).json({ error: `${actorEmail} holds no engagement role for this client` });
+  const item = (await pool.query("SELECT * FROM finance.ap_items WHERE entity_id = $1 AND id = $2", [ctx.entity.id, req.params.id])).rows[0];
+  if (!item) return res.status(404).json({ error: "item not found" });
+  const [accounts, taxRates] = await Promise.all([xeroRef(ctx, "Accounts"), xeroRef(ctx, "TaxRates")]);
+  const b = req.body || {};
+  const r = apLane.recommendation(item, b, {
+    accounts: new Set(accounts.filter((a) => a.Status === "ACTIVE" && a.Code && a.Type !== "BANK").map((a) => a.Code)),
+    taxes: new Set(taxRates.filter((t) => t.Status === "ACTIVE").map((t) => t.TaxType)),
+  });
+  if (r.issues.length) return res.status(422).json({ issues: r.issues });
+  const rec = { ...r.recommendation, agent: b.agent ? String(b.agent).slice(0, 40) : null, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null,
+    by_email: actorEmail, at: new Date().toISOString() };
+  await pool.query("UPDATE finance.ap_items SET recommendation = $2 WHERE id = $1", [item.id, JSON.stringify(rec)]);
+  await audit(pool, {
+    actorEmail, actorRole: role, action: "ap_item_recommended", targetType: "ap_item", targetId: item.id, clientId: ctx.client.id,
+    payload: rec, ip: req.get("X-Forwarded-For"),
+  });
+  res.json({ item_id: item.id, state: item.state, recommendation: rec });
 }));
 
 // POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/send

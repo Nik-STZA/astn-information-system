@@ -285,10 +285,9 @@ function applyEdits(bill, edits = {}) {
   // Xero refuses a bill awaiting approval with no due date; a document with
   // none (FSL, 27 Oct 2026: a retainer invoice) needs the CFO to set it.
   if (edits.due_date !== undefined && edits.due_date !== null && edits.due_date !== "") {
-    const d = String(edits.due_date);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`))) issues.push("the due date must be a date (YYYY-MM-DD)");
-    else if (out.DateString && d < out.DateString.slice(0, 10)) issues.push("the due date is before the bill's date");
-    else out.DueDateString = `${d}T00:00:00`;
+    const problem = dueDateIssue(edits.due_date, out);
+    if (problem) issues.push(problem);
+    else out.DueDateString = `${edits.due_date}T00:00:00`;
   }
   for (const e of edits.lines || []) {
     const line = Number.isInteger(e.index) ? out.LineItems[e.index] : null;
@@ -297,6 +296,47 @@ function applyEdits(bill, edits = {}) {
     if (e.tax_type !== undefined) line.TaxType = String(e.tax_type || "").trim() || null;
   }
   return { bill: out, issues };
+}
+
+// Why a due date cannot go on this bill, or null.
+function dueDateIssue(value, bill) {
+  const d = String(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`))) return "the due date must be a date (YYYY-MM-DD)";
+  if (bill?.DateString && d < bill.DateString.slice(0, 10)) return "the due date is before the bill's date";
+  return null;
+}
+
+// An agent's suggested coding for a queue item (the AP Clerk, through its Bills
+// tools). Advice only: it changes neither the item's state nor its proposed
+// bill. The CFO accepts it in the portal, which is the decision.
+//   body     { lines: [{ index, account_code, tax_type, reason? }], due_date?, note }
+//   allowed  { accounts: Set of active account codes, taxes: Set of active VAT types }
+function recommendation(item, body = {}, { accounts = new Set(), taxes = new Set() } = {}) {
+  const issues = [];
+  if (!["clean", "exception", "approved"].includes(item.state)) issues.push(`only an unsent item takes a recommendation; this item is ${item.state}`);
+  const billLines = item.proposed_bill?.LineItems || [];
+  const asked = Array.isArray(body.lines) ? body.lines : [];
+  if (!asked.length) issues.push("recommend coding for at least one line");
+  const seen = new Set();
+  const lines = [];
+  for (const l of asked) {
+    if (!Number.isInteger(l.index) || !billLines[l.index]) { issues.push(`there is no line ${l.index}`); continue; }
+    if (seen.has(l.index)) issues.push(`line ${l.index} is recommended twice`);
+    seen.add(l.index);
+    const code = String(l.account_code ?? "").trim();
+    const tax = String(l.tax_type ?? "").trim();
+    if (!accounts.has(code)) issues.push(`line ${l.index}: ${code || "(blank)"} is not an active account in this company`);
+    if (!taxes.has(tax)) issues.push(`line ${l.index}: ${tax || "(blank)"} is not an active VAT treatment in this company`);
+    lines.push({ index: l.index, account_code: code, tax_type: tax, reason: String(l.reason ?? "").trim().slice(0, 500) || null });
+  }
+  const due = body.due_date ? String(body.due_date) : null;
+  if (due) {
+    const problem = dueDateIssue(due, item.proposed_bill);
+    if (problem) issues.push(problem);
+  }
+  const note = String(body.note ?? "").trim().slice(0, 2000);
+  if (!note) issues.push("a note explaining the recommendation is required");
+  return { issues, recommendation: issues.length ? null : { lines, due_date: due, note } };
 }
 
 // What the CFO's decision on a queue item does to it, or why it cannot.
@@ -359,5 +399,5 @@ function sendRequest(item) {
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences,
+  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences, recommendation,
 };
