@@ -2269,7 +2269,7 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
   if (!client) return res.status(404).json({ error: "client not found" });
 
   const { rows } = await pool.query(
-    `SELECT slug, name, legal_name, accounting_system, accounting_system_config,
+    `SELECT id, slug, name, legal_name, accounting_system, accounting_system_config,
             role, year_end
      FROM finance.entities WHERE client_id = $1 ORDER BY name`,
     [client.id]
@@ -2278,6 +2278,7 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
   res.json({
     count: rows.length,
     data: rows.map((e) => ({
+      id: e.id,
       slug: e.slug,
       name: e.name,
       legalName: e.legal_name,

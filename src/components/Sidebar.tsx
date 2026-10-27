@@ -13,7 +13,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BadgeCheck, BookOpen, Bot, Building2, ChevronDown, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
-  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Settings, Share2, ShieldCheck, Table2, Users, X,
+  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -49,6 +49,7 @@ const ICONS: Record<string, LucideIcon> = {
 // A client's own sections, as ClientTabs lists them.
 const CLIENT_WORK: Array<{ seg: string; label: string; icon: LucideIcon }> = [
   { seg: "bills", label: "Bills", icon: Receipt },
+  { seg: "work", label: "Work", icon: SquareKanban },
   { seg: "approvals", label: "Approvals", icon: ListChecks },
   { seg: "agents", label: "Agents", icon: Bot },
   { seg: "close", label: "Close", icon: ClipboardList },
