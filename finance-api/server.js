@@ -53,6 +53,7 @@ const billChecks = require("./lib/bill-checks");
 const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
 const agentJob = require("./lib/agent-job");
+const financeOverview = require("./lib/overview");
 const billReview = require("./lib/bill-review");
 const supplierPass = require("./lib/supplier-pass");
 const supplierDecision = require("./lib/supplier-decision");
@@ -178,6 +179,41 @@ app.get("/api/finance/clients", route(async (_req, res) => {
     ORDER BY c.name
   `);
   res.json({ count: rows.length, data: rows });
+}));
+
+// GET /api/finance/overview   every client on one page (lib/overview.js): what
+// needs the CFO, what is blocked or overdue, the last agent run and pack.
+// Read-only, one round of queries for all clients.
+app.get("/api/finance/overview", route(async (_req, res) => {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const [clients, entities, ap, wip, openItems, runs, packs] = await Promise.all([
+    pool.query(`SELECT c.id, c.slug, c.name, f.reporting_currency FROM shared.clients c
+                  JOIN finance.client_finance_config f ON f.client_id = c.id ORDER BY c.name`),
+    pool.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities GROUP BY client_id"),
+    pool.query(`SELECT client_id, state, written_at FROM finance.ap_items
+                 WHERE state IN ('exception', 'clean', 'approved') OR (state = 'written' AND written_at > now() - interval '8 days')`),
+    pool.query(`SELECT client_id, title, panel, blocked_on, updated_at FROM finance.wip_items
+                 WHERE panel IN ('awaiting-decision', 'blocked-external')`),
+    pool.query(`SELECT client_id, title, status, is_closed, priority, due_at, owner_role FROM finance.open_items
+                 WHERE is_closed = false`),
+    pool.query(`SELECT r.client_id, r.id, r.agent, r.status, r.instruction, r.queued_at, r.finished_at, c.name AS client_name, c.slug
+                  FROM finance.agent_runs r JOIN shared.clients c ON c.id = r.client_id
+                 WHERE r.queued_at > now() - interval '30 days' ORDER BY r.queued_at DESC`),
+    pool.query(`SELECT DISTINCT ON (client_id) client_id, period, status, queued_at, finished_at
+                  FROM finance.report_runs ORDER BY client_id, queued_at DESC`),
+  ]);
+  const of = (q, id) => q.rows.filter((r) => r.client_id === id);
+  const body = financeOverview.overview(clients.rows.map((client) => ({
+    client,
+    entities: entities.rows.find((e) => e.client_id === client.id)?.n ?? 0,
+    apItems: of(ap, client.id), wip: of(wip, client.id), openItems: of(openItems, client.id),
+    runs: of(runs, client.id), packs: of(packs, client.id),
+  })), today);
+  body.activity = runs.rows.slice(0, 8).map((r) => ({
+    id: r.id, client: r.client_name, slug: r.slug, agent: r.agent, status: r.status,
+    instruction: String(r.instruction || "").slice(0, 140), at: r.finished_at || r.queued_at,
+  }));
+  res.json(body);
 }));
 
 app.get("/api/finance/clients/:slug", route(async (req, res) => {
