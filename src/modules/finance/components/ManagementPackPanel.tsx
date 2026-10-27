@@ -104,7 +104,7 @@ function RunRow({ run }: { run: ReportRunRow }) {
         padding: "11px 13px",
         marginBottom: 8,
         background: "var(--pnl)",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 12.5,
         lineHeight: 1.55,
       }}
@@ -261,7 +261,7 @@ export default function ManagementPackPanel({
           padding: "14px 16px",
           background: "var(--pnl)",
           marginBottom: 20,
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           maxWidth: 760,
         }}
       >
@@ -274,7 +274,7 @@ export default function ManagementPackPanel({
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
             style={{
-              fontFamily: "Manrope, sans-serif", fontSize: 12.5, padding: "6px 8px", borderRadius: 6,
+              fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "6px 8px", borderRadius: 6,
               border: "1px solid var(--bd)", background: "var(--pg)", color: "var(--tx)",
             }}
           >
@@ -323,7 +323,7 @@ export default function ManagementPackPanel({
 
       <div
         style={{
-          fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700,
+          fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700,
           letterSpacing: ".07em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8,
         }}
       >
@@ -335,7 +335,7 @@ export default function ManagementPackPanel({
           style={{
             padding: 24, textAlign: "center", border: "1px dashed var(--empty-border)",
             borderRadius: 10, background: "var(--empty-bg)", color: "var(--empty-text)",
-            fontFamily: "Manrope, sans-serif", fontSize: 13, maxWidth: 760,
+            fontFamily: "var(--font-sans)", fontSize: 13, maxWidth: 760,
           }}
         >
           No management pack has been built from here yet.

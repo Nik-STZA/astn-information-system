@@ -152,7 +152,7 @@ function CustomTick({ x = 0, y = 0, payload }: CustomTickProps) {
         dominantBaseline="central"
         fill={LABEL_LIGHT}
         fontSize={11}
-        fontFamily="Manrope, sans-serif"
+        fontFamily="var(--font-sans)"
         fontWeight={500}
       >
         {payload?.value ?? ""}
@@ -189,7 +189,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
         border: `1px solid ${WARM_GREY}`,
         borderRadius: 8,
         padding: "8px 12px",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 12,
       }}
     >
@@ -215,7 +215,7 @@ function Legend() {
         gap: 20,
         justifyContent: "center",
         marginTop: 8,
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 11,
         fontWeight: 500,
       }}
@@ -300,7 +300,7 @@ export default function ComplianceRadar({
         background: BRAND_DARK,
         borderRadius: 14,
         padding: "24px 20px 16px",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       {/* Header row */}
@@ -420,7 +420,7 @@ export default function ComplianceRadar({
             borderRadius: 6,
             color: LABEL_LIGHT,
             fontSize: 11,
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontWeight: 500,
             padding: "6px 14px",
             cursor: "pointer",
@@ -440,7 +440,7 @@ export default function ComplianceRadar({
             background: "#0F1113",
             borderRadius: 10,
             border: `1px solid ${WARM_GREY}33`,
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 11,
             lineHeight: 1.6,
             color: LABEL_LIGHT,

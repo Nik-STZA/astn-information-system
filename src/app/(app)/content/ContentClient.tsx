@@ -43,7 +43,7 @@ export default function ContentClient({ editions, error }: Props) {
   const totalWords = editions.reduce((sum, e) => sum + (e.word_count ?? 0), 0);
 
   return (
-    <div style={{ fontFamily: "'Manrope', sans-serif" }}>
+    <div style={{ fontFamily: "var(--font-sans)" }}>
       {/* Breadcrumb + header */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", marginBottom: 8 }}>
@@ -314,7 +314,7 @@ function EditionForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
     backgroundColor: "var(--pnl)",
     color: "var(--tx)",
     outline: "none",
-    fontFamily: "'Manrope', sans-serif",
+    fontFamily: "var(--font-sans)",
   };
   const labelStyle: React.CSSProperties = {
     display: "block",

@@ -131,7 +131,7 @@ function Pill({ status, meta }: { status: string; meta: Record<string, { color: 
   return (
     <span
       style={{
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 9,
         fontWeight: 700,
         textTransform: "uppercase",
@@ -167,7 +167,7 @@ function toDateInput(d: string | null | undefined): string {
 // ─── Shared styles ──────────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 13,
   fontWeight: 500,
   color: "#1A1C1E",
@@ -180,7 +180,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 const btnPrimary: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 12,
   fontWeight: 600,
   color: "#141414",
@@ -192,7 +192,7 @@ const btnPrimary: React.CSSProperties = {
 };
 
 const btnSecondary: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 12,
   fontWeight: 600,
   color: "#55524C",
@@ -204,7 +204,7 @@ const btnSecondary: React.CSSProperties = {
 };
 
 const btnDanger: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 12,
   fontWeight: 600,
   color: "#fff",
@@ -216,7 +216,7 @@ const btnDanger: React.CSSProperties = {
 };
 
 const btnIcon: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 11,
   fontWeight: 600,
   color: "#8E9196",
@@ -229,7 +229,7 @@ const btnIcon: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 10,
   fontWeight: 700,
   letterSpacing: ".08em",
@@ -240,7 +240,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 const sectionLabel: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 9,
   fontWeight: 600,
   letterSpacing: ".08em",
@@ -292,10 +292,10 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, loading }: {
 }) {
   return (
     <ModalBackdrop onClose={onCancel}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 12 }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 12 }}>
         {title}
       </div>
-      <p style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 500, lineHeight: 1.5, color: "#55524C", margin: "0 0 20px" }}>
+      <p style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, lineHeight: 1.5, color: "#55524C", margin: "0 0 20px" }}>
         {message}
       </p>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -342,7 +342,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
       <div>
         <div style={sectionLabel}>{label}</div>
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
           {value}
         </div>
       </div>
@@ -356,7 +356,7 @@ function EngagementCard({ e, onEdit, onDelete }: { e: Engagement; onEdit: () => 
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "15px 17px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
-        <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, lineHeight: 1.2, color: "#1A1C1E" }}>
+        <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, lineHeight: 1.2, color: "#1A1C1E" }}>
           {e.service_tier === "representative" ? "Representative service" : "Authorised IO service"}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -367,19 +367,19 @@ function EngagementCard({ e, onEdit, onDelete }: { e: Engagement; onEdit: () => 
       <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         <div>
           <div style={sectionLabel}>Start</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
             {fmtDate(e.start_date)}
           </div>
         </div>
         <div>
           <div style={sectionLabel}>Annual fee</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
             {gbp(e.annual_fee_gbp)}
           </div>
         </div>
         <div>
           <div style={sectionLabel}>Frequency</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
             {e.payment_frequency ? e.payment_frequency.charAt(0).toUpperCase() + e.payment_frequency.slice(1) : "—"}
           </div>
         </div>
@@ -387,11 +387,11 @@ function EngagementCard({ e, onEdit, onDelete }: { e: Engagement; onEdit: () => 
           <div style={sectionLabel}>Agreement</div>
           {e.agreement_document_url ? (
             <a href={e.agreement_document_url} target="_blank" rel="noopener noreferrer"
-              style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#9C7C2E" }}>
+              style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#9C7C2E" }}>
               View PDF
             </a>
           ) : (
-            <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#8E9196" }}>—</span>
+            <span style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#8E9196" }}>—</span>
           )}
         </div>
       </div>
@@ -403,7 +403,7 @@ function RegistrationCard({ r, onEdit, onDelete }: { r: IORegistration; onEdit: 
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "15px 17px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
-        <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, lineHeight: 1.2, color: "#1A1C1E" }}>
+        <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, lineHeight: 1.2, color: "#1A1C1E" }}>
           {r.registration_type === "information_officer" ? "Information Officer" : "Deputy IO"} — {r.registrant_name}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -414,25 +414,25 @@ function RegistrationCard({ r, onEdit, onDelete }: { r: IORegistration; onEdit: 
       <div className="r-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         <div>
           <div style={sectionLabel}>Type</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
             {r.registration_type === "information_officer" ? "Information Officer" : "Deputy IO"}
           </div>
         </div>
         <div>
           <div style={sectionLabel}>Portal</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
             {r.portal_used === "eservices" ? "eServices" : r.portal_used === "bizportal" ? "BizPortal" : r.portal_used ?? "—"}
           </div>
         </div>
         <div>
           <div style={sectionLabel}>Submitted</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
             {fmtDate(r.submitted_date)}
           </div>
         </div>
         <div>
           <div style={sectionLabel}>IR reference</div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: r.ir_reference_number ? "#1A1C1E" : "#8E9196" }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: r.ir_reference_number ? "#1A1C1E" : "#8E9196" }}>
             {r.ir_reference_number ?? "Pending"}
           </div>
         </div>
@@ -445,10 +445,10 @@ function TaskCard({ t, onEdit, onDelete }: { t: ComplianceTask; onEdit: () => vo
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: "1px solid #EFE7D6", borderRadius: 9, padding: "13px 16px", background: "#FAF7F0" }}>
       <div>
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E", marginBottom: 2 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E", marginBottom: 2 }}>
           {t.title}
         </div>
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.3, color: "#8E9196" }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, lineHeight: 1.3, color: "#8E9196" }}>
           {t.due_date ? `Due ${fmtDate(t.due_date)}` : "No due date"} · assigned to {t.assigned_to ?? "unassigned"}
         </div>
       </div>
@@ -468,12 +468,12 @@ function BreachCard({ b, onEdit, onDelete }: { b: BreachIncident; onEdit: () => 
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "15px 17px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
-        <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, lineHeight: 1.2, color: "#1A1C1E" }}>
+        <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, lineHeight: 1.2, color: "#1A1C1E" }}>
           {b.incident_type ?? "Breach incident"} — {fmtDate(b.incident_date)}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{
-            fontFamily: "Manrope, sans-serif", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
+            fontFamily: "var(--font-sans)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
             color: severityColor[b.severity ?? "low"] ?? "#8E9196",
             background: (severityColor[b.severity ?? "low"] ?? "#8E9196") + "18",
             border: `1px solid ${severityColor[b.severity ?? "low"] ?? "#8E9196"}40`,
@@ -484,10 +484,10 @@ function BreachCard({ b, onEdit, onDelete }: { b: BreachIncident; onEdit: () => 
           <CardActions onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#55524C", marginBottom: 8 }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#55524C", marginBottom: 8 }}>
         {b.description ?? "No description provided."}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#6B6760" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "var(--font-sans)", fontSize: 11, color: "#6B6760" }}>
         <span>IR notification: <span style={{ fontWeight: 700, color: irColor }}>{irStatus}</span></span>
         {b.notification_deadline && <span>Deadline: {fmtDate(b.notification_deadline)}</span>}
         <span>Data subjects notified: <span style={{ fontWeight: 700, color: b.data_subjects_notified ? "#2E7D32" : "#8E9196" }}>{b.data_subjects_notified ? "Yes" : "No"}</span></span>
@@ -501,12 +501,12 @@ function CorrespondenceCard({ c, onEdit, onDelete }: { c: Correspondence; onEdit
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "13px 16px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 4 }}>
-        <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
+        <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 600, lineHeight: 1.3, color: "#1A1C1E" }}>
           {c.subject}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{
-            fontFamily: "Manrope, sans-serif", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
+            fontFamily: "var(--font-sans)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
             color: c.direction === "inbound" ? "#3E6B8E" : "#A67514",
             background: c.direction === "inbound" ? "#E5EDF3" : "#FBF1DE",
             border: `1px solid ${c.direction === "inbound" ? "#C5D6E4" : "#EAD6A6"}`,
@@ -517,7 +517,7 @@ function CorrespondenceCard({ c, onEdit, onDelete }: { c: Correspondence; onEdit
           <CardActions onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.3, color: "#8E9196" }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, lineHeight: 1.3, color: "#8E9196" }}>
         {c.correspondent} · {fmtDate(c.received_date)}
         {c.response_due_date && ` · response due ${fmtDate(c.response_due_date)}`}
       </div>
@@ -614,10 +614,10 @@ function SpecialCategoryCard({ sc, onEdit }: { sc: SpecialCategory; onEdit: () =
 function EmptyTab({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className="card-empty" style={{ padding: "36px 20px", textAlign: "center" }}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 14, fontWeight: 700, lineHeight: 1.3, color: "#8E9196", marginBottom: 4 }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 700, lineHeight: 1.3, color: "#8E9196", marginBottom: 4 }}>
         {title}
       </div>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#B9B2A2" }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "#B9B2A2" }}>
         {subtitle}
       </div>
     </div>
@@ -663,10 +663,10 @@ function EngagementFormModal({ clientId, initial, onClose, onSaved }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>
         {isEdit ? "Edit engagement" : "Add engagement"}
       </div>
-      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
+      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
@@ -771,10 +771,10 @@ function RegistrationFormModal({ clientId, initial, onClose, onSaved }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>
         {isEdit ? "Edit IO registration" : "Add IO registration"}
       </div>
-      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
+      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
@@ -892,10 +892,10 @@ function BreachFormModal({ clientId, initial, onClose, onSaved }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>
         {isEdit ? "Edit breach record" : "Log breach incident"}
       </div>
-      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
+      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
@@ -951,7 +951,7 @@ function BreachFormModal({ clientId, initial, onClose, onSaved }: {
           </div>
           {/* ─── POPIA s22 data subject notification fields ─── */}
           <div style={{ gridColumn: "1 / -1", borderTop: "1px solid #EFE7D6", paddingTop: 12, marginTop: 4 }}>
-            <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, color: "#8E9196", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>
+            <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 700, color: "#8E9196", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>
               Data subject notification (POPIA s22)
             </div>
           </div>
@@ -973,7 +973,7 @@ function BreachFormModal({ clientId, initial, onClose, onSaved }: {
           {initial?.notification_deadline && (
             <div>
               <label style={labelStyle}>IR notification deadline</label>
-              <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: new Date(initial.notification_deadline) < new Date() && !initial.reported_to_ir ? "#CC0000" : "#2E7D32", padding: "8px 0" }}>
+              <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, color: new Date(initial.notification_deadline) < new Date() && !initial.reported_to_ir ? "#CC0000" : "#2E7D32", padding: "8px 0" }}>
                 {fmtDate(initial.notification_deadline)}
                 {new Date(initial.notification_deadline) < new Date() && !initial.reported_to_ir && " — OVERDUE"}
               </div>
@@ -1020,8 +1020,8 @@ function TaskFormModal({ clientId, initial, onClose, onSaved }: {
   }
   return (
     <ModalBackdrop onClose={onClose}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>{isEdit ? "Edit task" : "Add task"}</div>
-      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>{isEdit ? "Edit task" : "Add task"}</div>
+      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div style={{ gridColumn: "1 / -1" }}>
@@ -1087,8 +1087,8 @@ function CorrespondenceFormModal({ clientId, initial, onClose, onSaved }: {
   }
   return (
     <ModalBackdrop onClose={onClose}>
-      <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>{isEdit ? "Edit correspondence" : "Log correspondence"}</div>
-      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", marginBottom: 20 }}>{isEdit ? "Edit correspondence" : "Log correspondence"}</div>
+      {error && <div style={{ background: "#FDF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "9px 14px", marginBottom: 16, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
@@ -1455,12 +1455,12 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
   const statusMeta = REMEDIATION_STATUS_META[item.status] ?? REMEDIATION_STATUS_META.open;
   const overdue = item.due_date && new Date(item.due_date) < new Date() && !["resolved", "verified", "not_applicable", "accepted_risk"].includes(item.status);
   const isResolved = ["resolved", "verified", "not_applicable", "accepted_risk"].includes(item.status);
-  const inputStyle = { fontFamily: "Manrope, sans-serif", fontSize: 12, width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #D4C5A9", background: "#FFFDF8" };
+  const inputStyle = { fontFamily: "var(--font-sans)", fontSize: 12, width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #D4C5A9", background: "#FFFDF8" };
   return (
     <div style={{ border: "1px solid #EFE7D6", borderRadius: 9, padding: "14px 16px", background: "#FAF7F0" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
         <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpanded(!expanded)}>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, color: "#1A1C1E", lineHeight: 1.3 }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, color: "#1A1C1E", lineHeight: 1.3 }}>
             <span style={{ marginRight: 6, fontSize: 10, color: "#8E9196" }}>{expanded ? "▼" : "▶"}</span>
             {item.title}
             {item.popia_reference && <span style={{ fontWeight: 500, color: "#8E9196", marginLeft: 6, fontSize: 11 }}>POPIA {item.popia_reference}</span>}
@@ -1468,7 +1468,7 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
           <span style={{
-            fontFamily: "Manrope, sans-serif", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
+            fontFamily: "var(--font-sans)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em",
             color: sevColor, background: sevColor + "18", border: `1px solid ${sevColor}40`,
             borderRadius: 20, padding: "4px 9px", whiteSpace: "nowrap",
           }}>{item.severity}</span>
@@ -1482,7 +1482,7 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
               if (newStatus === "resolved" || newStatus === "in_progress") setExpanded(true);
             }}
             style={{
-              fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+              fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, textTransform: "uppercase",
               color: statusMeta.color, background: statusMeta.bg, border: `1px solid ${statusMeta.border}`,
               borderRadius: 20, padding: "4px 10px", cursor: "pointer", appearance: "auto",
             }}
@@ -1497,17 +1497,17 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
         </div>
       </div>
       {item.description && (
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11.5, fontWeight: 500, lineHeight: 1.5, color: "#55524C", marginBottom: 6 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, lineHeight: 1.5, color: "#55524C", marginBottom: 6 }}>
           {expanded ? item.description : (item.description.length > 200 ? item.description.slice(0, 200) + "…" : item.description)}
         </div>
       )}
       {item.recommendation && (
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#F0F7F1", borderRadius: 6, padding: "6px 10px", marginBottom: 6 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#F0F7F1", borderRadius: 6, padding: "6px 10px", marginBottom: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Recommendation: </span>
           {expanded ? item.recommendation : (item.recommendation.length > 200 ? item.recommendation.slice(0, 200) + "…" : item.recommendation)}
         </div>
       )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#8E9196" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontFamily: "var(--font-sans)", fontSize: 11, color: "#8E9196" }}>
         {item.assigned_to && <span>Assigned to: {item.assigned_to}</span>}
         {item.due_date && <span style={{ color: overdue ? "#CC0000" : undefined, fontWeight: overdue ? 700 : undefined }}>Due: {fmtDate(item.due_date)}{overdue ? " — OVERDUE" : ""}</span>}
         {item.resolved_date && <span>Resolved: {fmtDate(item.resolved_date)}</span>}
@@ -1517,7 +1517,7 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
       {expanded && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E7D9BE" }}>
           <div style={{ marginBottom: 8 }}>
-            <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#6B6760", display: "block", marginBottom: 4 }}>Resolution summary</label>
+            <label style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#6B6760", display: "block", marginBottom: 4 }}>Resolution summary</label>
             <textarea
               value={resolutionSummary}
               onChange={(e) => setResolutionSummary(e.target.value)}
@@ -1527,7 +1527,7 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
             />
           </div>
           <div style={{ marginBottom: 8 }}>
-            <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#6B6760", display: "block", marginBottom: 4 }}>Evidence / supporting documents</label>
+            <label style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#6B6760", display: "block", marginBottom: 4 }}>Evidence / supporting documents</label>
             <textarea
               value={evidenceDesc}
               onChange={(e) => setEvidenceDesc(e.target.value)}
@@ -1542,13 +1542,13 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
                 onUpdate({ resolution_summary: resolutionSummary || null, evidence_description: evidenceDesc || null } as Partial<RemediationItem>);
                 setExpanded(false);
               }}
-              style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#FFF", background: "#C5A059", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer" }}
+              style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#FFF", background: "#C5A059", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer" }}
             >
               Save
             </button>
           </div>
           {item.resolution_summary && !expanded && (
-            <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, color: "#2E7D32", marginTop: 4 }}>
+            <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: "#2E7D32", marginTop: 4 }}>
               Resolution: {item.resolution_summary}
             </div>
           )}
@@ -1556,13 +1556,13 @@ function RemediationCard({ item, onUpdate }: { item: RemediationItem; onUpdate: 
       )}
       {/* Show resolution summary inline when collapsed and resolved */}
       {!expanded && item.resolution_summary && (
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#E8F5E9", borderRadius: 6, padding: "6px 10px", marginTop: 6 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#2E7D32", background: "#E8F5E9", borderRadius: 6, padding: "6px 10px", marginTop: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Resolution: </span>
           {item.resolution_summary.length > 150 ? item.resolution_summary.slice(0, 150) + "…" : item.resolution_summary}
         </div>
       )}
       {!expanded && item.evidence_description && (
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#1565C0", background: "#E3F2FD", borderRadius: 6, padding: "6px 10px", marginTop: 4 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, lineHeight: 1.4, color: "#1565C0", background: "#E3F2FD", borderRadius: 6, padding: "6px 10px", marginTop: 4 }}>
           <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" }}>Evidence: </span>
           {item.evidence_description.length > 150 ? item.evidence_description.slice(0, 150) + "…" : item.evidence_description}
         </div>
@@ -1595,11 +1595,11 @@ function RemediationTab({ items, clientId, onRefresh }: { items: RemediationItem
   if (items.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: 32 }}>
-        <p style={{ fontFamily: "Manrope, sans-serif", color: "#8E9196", fontSize: 13, marginBottom: 12 }}>No remediation items yet.</p>
+        <p style={{ fontFamily: "var(--font-sans)", color: "#8E9196", fontSize: 13, marginBottom: 12 }}>No remediation items yet.</p>
         <button
           onClick={handleGenerate}
           disabled={generating}
-          style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "8px 16px", cursor: "pointer", opacity: generating ? 0.6 : 1 }}
+          style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "8px 16px", cursor: "pointer", opacity: generating ? 0.6 : 1 }}
         >
           {generating ? "Generating…" : "Generate from assessment"}
         </button>
@@ -1611,19 +1611,19 @@ function RemediationTab({ items, clientId, onRefresh }: { items: RemediationItem
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#6B6760" }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, color: "#6B6760" }}>
           {openCount} open · {resolvedCount} resolved · {items.length} total
         </div>
         <button
           onClick={handleGenerate}
           disabled={generating}
-          style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", opacity: generating ? 0.6 : 1 }}
+          style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", opacity: generating ? 0.6 : 1 }}
         >
           {generating ? "Regenerating…" : "Regenerate"}
         </button>
       </div>
       {genError && <p style={{ color: "#CC0000", fontSize: 12, marginBottom: 8 }}>{genError}</p>}
-      <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "Manrope, sans-serif", color: "#4A4637", lineHeight: 1.6, marginBottom: 10 }}>
+      <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "var(--font-sans)", color: "#4A4637", lineHeight: 1.6, marginBottom: 10 }}>
         <strong style={{ color: "#1A1C1E" }}>Remediation workflow</strong><br />
         Each item below is a compliance gap identified from the POPIA assessment. Click the arrow to expand an item, then record what action you took in &quot;Resolution summary&quot; and reference supporting evidence (e.g. privacy policy URL, IR registration number). Change the status to &quot;Resolved&quot; once addressed, or &quot;Accepted risk&quot; with justification. Resolving items improves your Governance score.
       </div>
@@ -1669,7 +1669,7 @@ function DSARCard({ d, onEdit, onDelete }: { d: DataSubjectRequest; onEdit: () =
     <div style={{ background: "#fff", border: "1px solid #E7E3DB", borderRadius: 8, padding: "14px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div>
-          <div style={{ fontFamily: "Manrope, sans-serif", fontWeight: 700, fontSize: 13, color: "#1A1C1E", marginBottom: 2 }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 13, color: "#1A1C1E", marginBottom: 2 }}>
             {DSAR_TYPE_LABELS[d.request_type] ?? d.request_type} — {d.data_subject_name}
           </div>
           <div style={{ fontSize: 11, color: "#8E9196" }}>
@@ -1677,8 +1677,8 @@ function DSARCard({ d, onEdit, onDelete }: { d: DataSubjectRequest; onEdit: () =
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {d.priority !== "normal" && <span style={{ fontSize: 10, fontWeight: 600, fontFamily: "Manrope, sans-serif", padding: "2px 7px", borderRadius: 4, background: pm.bg, color: pm.color }}>{d.priority}</span>}
-          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: "Manrope, sans-serif", padding: "2px 7px", borderRadius: 4, background: sm.bg, color: sm.color, border: `1px solid ${sm.border}` }}>{d.status.replace(/_/g, " ")}</span>
+          {d.priority !== "normal" && <span style={{ fontSize: 10, fontWeight: 600, fontFamily: "var(--font-sans)", padding: "2px 7px", borderRadius: 4, background: pm.bg, color: pm.color }}>{d.priority}</span>}
+          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: "var(--font-sans)", padding: "2px 7px", borderRadius: 4, background: sm.bg, color: sm.color, border: `1px solid ${sm.border}` }}>{d.status.replace(/_/g, " ")}</span>
           <button onClick={onEdit} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#8E9196" }}>Edit</button>
           <button onClick={onDelete} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#CC0000" }}>Del</button>
         </div>
@@ -1760,14 +1760,14 @@ function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: stri
     if (!res.error) onSaved();
   }
 
-  const inputStyle: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12, padding: "7px 10px", border: "1px solid #D4C5A9", borderRadius: 6, width: "100%", boxSizing: "border-box" };
-  const labelStyle: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#1A1C1E", marginBottom: 4, display: "block" };
-  const sectionTitle: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 700, color: "#C5A059", marginBottom: 8, marginTop: 14, borderBottom: "1px solid #E7E3DB", paddingBottom: 4 };
+  const inputStyle: React.CSSProperties = { fontFamily: "var(--font-sans)", fontSize: 12, padding: "7px 10px", border: "1px solid #D4C5A9", borderRadius: 6, width: "100%", boxSizing: "border-box" };
+  const labelStyle: React.CSSProperties = { fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#1A1C1E", marginBottom: 4, display: "block" };
+  const sectionTitle: React.CSSProperties = { fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 700, color: "#C5A059", marginBottom: 8, marginTop: 14, borderBottom: "1px solid #E7E3DB", paddingBottom: 4 };
 
   return (
     <ModalBackdrop onClose={onClose}>
       <div style={{ maxWidth: 520, width: "100%", maxHeight: "85vh", overflowY: "auto", background: "#fff", borderRadius: 10, padding: "20px 24px" }}>
-        <div style={{ fontFamily: "Manrope, sans-serif", fontWeight: 800, fontSize: 15, color: "#1A1C1E", marginBottom: 14 }}>{isEdit ? "Edit DSAR" : "Log data subject request"}</div>
+        <div style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 15, color: "#1A1C1E", marginBottom: 14 }}>{isEdit ? "Edit DSAR" : "Log data subject request"}</div>
 
         <div style={sectionTitle}>Request details</div>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -1786,7 +1786,7 @@ function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: stri
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div><label style={labelStyle}>ID type</label><select value={dsIdType} onChange={(e) => setDsIdType(e.target.value)} style={inputStyle}><option value="">—</option><option value="id_number">SA ID number</option><option value="passport">Passport</option><option value="other">Other</option></select></div>
           <div><label style={labelStyle}>ID ref (masked)</label><input value={dsIdRef} onChange={(e) => setDsIdRef(e.target.value)} style={inputStyle} placeholder="e.g. ***1234" /></div>
-          <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}><label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={identityVerified} onChange={(e) => setIdentityVerified(e.target.checked)} /> Identity verified</label></div>
+          <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}><label style={{ fontFamily: "var(--font-sans)", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={identityVerified} onChange={(e) => setIdentityVerified(e.target.checked)} /> Identity verified</label></div>
         </div>
 
         <div style={sectionTitle}>Workflow</div>
@@ -1808,7 +1808,7 @@ function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: stri
             {status === "refused" && <div style={{ marginBottom: 10 }}><label style={labelStyle}>Refusal reason (POPIA s18 exemption)</label><textarea value={refusalReason} onChange={(e) => setRefusalReason(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>}
             {(requestType === "correction" || requestType === "deletion") && (
               <div style={{ marginBottom: 10 }}>
-                <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><input type="checkbox" checked={thirdPartiesNotified} onChange={(e) => setThirdPartiesNotified(e.target.checked)} /> Third parties notified (s25)</label>
+                <label style={{ fontFamily: "var(--font-sans)", fontSize: 11, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><input type="checkbox" checked={thirdPartiesNotified} onChange={(e) => setThirdPartiesNotified(e.target.checked)} /> Third parties notified (s25)</label>
                 {thirdPartiesNotified && <textarea value={thirdPartyDetails} onChange={(e) => setThirdPartyDetails(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} placeholder="Which third parties were notified?" />}
               </div>
             )}
@@ -1818,8 +1818,8 @@ function DSARFormModal({ clientId, initial, onClose, onSaved }: { clientId: stri
         <div style={{ marginBottom: 10 }}><label style={labelStyle}>Notes</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-          <button onClick={onClose} style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, padding: "7px 16px", border: "1px solid #D4C5A9", borderRadius: 6, background: "#fff", cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving || !dsName.trim()} style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 700, padding: "7px 16px", border: "none", borderRadius: 6, background: "#1A1C1E", color: "#fff", cursor: saving ? "wait" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : isEdit ? "Update" : "Log request"}</button>
+          <button onClick={onClose} style={{ fontFamily: "var(--font-sans)", fontSize: 12, padding: "7px 16px", border: "1px solid #D4C5A9", borderRadius: 6, background: "#fff", cursor: "pointer" }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving || !dsName.trim()} style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 700, padding: "7px 16px", border: "none", borderRadius: 6, background: "#1A1C1E", color: "#fff", cursor: saving ? "wait" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : isEdit ? "Update" : "Log request"}</button>
         </div>
       </div>
     </ModalBackdrop>
@@ -1924,8 +1924,8 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
   }
 
   const flag = flagUrl(client.company_country);
-  const tabBase: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 12.5, fontWeight: 700, background: "none", border: "none", padding: "14px 14px", cursor: "pointer", marginBottom: -1, whiteSpace: "nowrap" };
-  const addBtnSmall: React.CSSProperties = { fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" };
+  const tabBase: React.CSSProperties = { fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 700, background: "none", border: "none", padding: "14px 14px", cursor: "pointer", marginBottom: -1, whiteSpace: "nowrap" };
+  const addBtnSmall: React.CSSProperties = { fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" };
   const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", pipeline: "", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "", dsars: "+ DSAR" };
 
   return (
@@ -1936,19 +1936,19 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {flag && <span style={{ width: 34, height: 34, borderRadius: "50%", overflow: "hidden", display: "block", border: "1px solid #E4D9C4", flexShrink: 0 }}><img src={flag} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /></span>}
             <div>
-              <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, lineHeight: 1.2, color: "#1A1C1E" }}>{client.company_name}</div>
-              <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11.5, fontWeight: 500, lineHeight: 1, color: "#8E9196", marginTop: 3 }}>{[client.company_country, client.company_website].filter(Boolean).join(" · ")}</div>
+              <div style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, lineHeight: 1.2, color: "#1A1C1E" }}>{client.company_name}</div>
+              <div style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, lineHeight: 1, color: "#8E9196", marginTop: 3 }}>{[client.company_country, client.company_website].filter(Boolean).join(" · ")}</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             {client.annual_fee_gbp != null && client.annual_fee_gbp > 0 && (
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 16, fontWeight: 800, lineHeight: 1, color: "#1A1C1E", fontVariantNumeric: "tabular-nums" }}>{gbp(client.annual_fee_gbp)}</div>
-                <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 9.5, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: "#8E9196", marginTop: 4 }}>Annual fee</div>
+                <div style={{ fontFamily: "var(--font-sans)", fontSize: 16, fontWeight: 800, lineHeight: 1, color: "#1A1C1E", fontVariantNumeric: "tabular-nums" }}>{gbp(client.annual_fee_gbp)}</div>
+                <div style={{ fontFamily: "var(--font-sans)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: "#8E9196", marginTop: 4 }}>Annual fee</div>
               </div>
             )}
             <Pill status={client.status} meta={CLIENT_STATUS_META} />
-            <button onClick={() => setShowEditClient(true)} style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "#8E9196", background: "none", border: "1px solid #D4C5A9", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" }} title="Edit client details">Edit</button>
+            <button onClick={() => setShowEditClient(true)} style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "#8E9196", background: "none", border: "1px solid #D4C5A9", borderRadius: 6, padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" }} title="Edit client details">Edit</button>
           </div>
         </div>
       </div>
@@ -1957,25 +1957,25 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
       {client.prospect_ir_registered != null && (
         <div style={{ margin: "0 24px 14px", padding: "12px 16px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--table-header)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>IR verification</span>
-            <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 700, color: client.prospect_ir_registered ? "var(--success-green)" : "var(--risk-red)" }}>
+            <span style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)" }}>IR verification</span>
+            <span style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 700, color: client.prospect_ir_registered ? "var(--success-green)" : "var(--risk-red)" }}>
               {client.prospect_ir_registered ? "Registered" : "Not registered"}
             </span>
             {client.prospect_ir_registration_no && (
-              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "var(--tx)", fontVariantNumeric: "tabular-nums" }}>No. {client.prospect_ir_registration_no}</span>
+              <span style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, color: "var(--tx)", fontVariantNumeric: "tabular-nums" }}>No. {client.prospect_ir_registration_no}</span>
             )}
             {client.prospect_ir_io_name && (
-              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "var(--label-text)" }}>
+              <span style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "var(--label-text)" }}>
                 IO: {client.prospect_ir_io_name}{client.prospect_ir_io_designation ? ` (${client.prospect_ir_io_designation})` : ""}
               </span>
             )}
             {client.prospect_ir_verified_date && (
-              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 11.5, fontWeight: 500, color: "var(--sub)" }}>
+              <span style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, color: "var(--sub)" }}>
                 Verified {new Date(client.prospect_ir_verified_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
               </span>
             )}
           </div>
-          <a href="/compliance" style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none", whiteSpace: "nowrap" }}>
+          <a href="/compliance" style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, color: "var(--gold-dark)", textDecoration: "none", whiteSpace: "nowrap" }}>
             View compliance pipeline →
           </a>
         </div>
@@ -2003,7 +2003,7 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
       <div style={{ padding: "20px 24px" }}>
         {!loading && TAB_ADD[tab] && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}><button onClick={() => setModal({ type: "add", entity: tab })} style={addBtnSmall}>{TAB_ADD[tab]}</button></div>}
         {loading ? (
-          <div style={{ padding: "36px 20px", textAlign: "center", fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 500, color: "#8E9196" }}>Loading…</div>
+          <div style={{ padding: "36px 20px", textAlign: "center", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "#8E9196" }}>Loading…</div>
         ) : (
           <>
             {tab === "pipeline" && (!client.prospect_id
@@ -2011,7 +2011,7 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
               : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                   <div>
-                    <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Assessments ({pipelineAssessments.length})</div>
+                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Assessments ({pipelineAssessments.length})</div>
                     {pipelineAssessments.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--empty-text)" }}>None yet.</div> : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {pipelineAssessments.slice(0, 5).map((a) => (
@@ -2027,7 +2027,7 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
                     )}
                   </div>
                   <div>
-                    <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Findings ({pipelineFindings.length})</div>
+                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Findings ({pipelineFindings.length})</div>
                     {pipelineFindings.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--empty-text)" }}>None yet.</div> : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {pipelineFindings.slice(0, 10).map((f) => (
@@ -2040,7 +2040,7 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
                     )}
                   </div>
                   <div>
-                    <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Documents ({pipelineDocs.length})</div>
+                    <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8 }}>Documents ({pipelineDocs.length})</div>
                     {pipelineDocs.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--empty-text)" }}>None yet.</div> : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {pipelineDocs.map((d) => (
@@ -2073,13 +2073,13 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
             {tab === "data_mapping" && (processingActivities.length === 0
               ? <EmptyTab title="No processing activities" subtitle="Document what personal data the client processes (ROPA)." />
               : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "Manrope, sans-serif", color: "#4A4637", lineHeight: 1.6 }}>
+                  <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "var(--font-sans)", color: "#4A4637", lineHeight: 1.6 }}>
                     <strong style={{ color: "#1A1C1E" }}>POPIA s14 — Record of Processing Activities (ROPA)</strong><br />
                     Document each way this client processes personal data. For each activity, specify the legal basis, purpose, data types collected, retention period, and any cross-border transfers. Adding 5+ active activities brings the ROPA score to 100%. Use &quot;Export ROPA&quot; to generate the statutory document for the Information Regulator.
                   </div>
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
                     <button
-                      style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#1A1C1E", background: "#F5F0E8", border: "1px solid #D4C5A9", borderRadius: 6, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                      style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, color: "#1A1C1E", background: "#F5F0E8", border: "1px solid #D4C5A9", borderRadius: 6, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
                       onClick={() => exportROPA({ clientName: client.company_name, activities: processingActivities, specialCategories })}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg> Export ROPA
@@ -2089,14 +2089,14 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
                 </div>)}
             {tab === "special_categories" && (
               <div>
-                <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "Manrope, sans-serif", color: "#4A4637", lineHeight: 1.6, marginBottom: 12 }}>
+                <div style={{ background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 8, padding: "12px 16px", fontSize: 12, fontFamily: "var(--font-sans)", color: "#4A4637", lineHeight: 1.6, marginBottom: 12 }}>
                   <strong style={{ color: "#1A1C1E" }}>POPIA s26-33 — Special personal information</strong><br />
                   POPIA defines 9 categories of special personal information (religious beliefs, race/ethnicity, trade union membership, political persuasion, health, sex life, biometric data, criminal behaviour, and children&apos;s data). Initialise all 9 categories below, then for each one record whether the client processes it, the legal basis, and safeguards in place. Some categories require prior authorisation from the Information Regulator.
                 </div>
                 {specialCategories.length === 0 ? (
                   <div style={{ textAlign: "center", padding: 32 }}>
                     <p style={{ color: "#8E9196", fontSize: 13, marginBottom: 12 }}>No special categories initialised yet.</p>
-                    <button style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "8px 16px", cursor: "pointer" }} onClick={async () => { await initSpecialCategories(cid); refresh(); }}>Initialise all 9 POPIA categories</button>
+                    <button style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 600, color: "#9C7C2E", background: "#FAF6EE", border: "1px solid #E7D9BE", borderRadius: 6, padding: "8px 16px", cursor: "pointer" }} onClick={async () => { await initSpecialCategories(cid); refresh(); }}>Initialise all 9 POPIA categories</button>
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{specialCategories.map((sc) => <SpecialCategoryCard key={sc.id} sc={sc} onEdit={() => setModal({ type: "edit", entity: "special_categories", item: sc })} />)}</div>
@@ -2139,10 +2139,10 @@ export default function ClientsClient({ initialClients, summary }: { initialClie
     <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196" }}>AfricanSTN · Commercial</div>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196" }}>AfricanSTN · Commercial</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-          <h1 style={{ fontFamily: "Manrope, sans-serif", fontSize: 26, fontWeight: 800, color: "#1A1C1E", margin: 0 }}>Clients</h1>
-          <button onClick={() => setShowAddForm(true)} style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: 700, color: "#fff", background: "#C5A059", border: "none", borderRadius: 8, padding: "9px 18px", cursor: "pointer" }}>+ Add client</button>
+          <h1 style={{ fontFamily: "var(--font-sans)", fontSize: 26, fontWeight: 800, color: "#1A1C1E", margin: 0 }}>Clients</h1>
+          <button onClick={() => setShowAddForm(true)} style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, color: "#fff", background: "#C5A059", border: "none", borderRadius: 8, padding: "9px 18px", cursor: "pointer" }}>+ Add client</button>
         </div>
       </div>
       {/* Body */}
@@ -2154,16 +2154,16 @@ export default function ClientsClient({ initialClients, summary }: { initialClie
               const active = c.id === selectedId;
               return (
                 <button key={c.id} onClick={() => setSelectedId(c.id)} style={{ display: "block", width: "100%", textAlign: "left", border: "none", borderBottom: "1px solid #F0E8D8", padding: "14px 16px", cursor: "pointer", background: active ? "#FAF6EE" : "#fff", borderLeft: active ? "3px solid #C5A059" : "3px solid transparent" }}>
-                  <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 13, fontWeight: active ? 800 : 600, color: "#1A1C1E", lineHeight: 1.3 }}>{c.company_name}</div>
-                  <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 11, fontWeight: 500, color: "#8E9196", marginTop: 2 }}>{c.company_country ?? "—"}</div>
+                  <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: active ? 800 : 600, color: "#1A1C1E", lineHeight: 1.3 }}>{c.company_name}</div>
+                  <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, color: "#8E9196", marginTop: 2 }}>{c.company_country ?? "—"}</div>
                 </button>
               );
             })}
-            {clients.length === 0 && <div style={{ padding: "24px 16px", fontFamily: "Manrope, sans-serif", fontSize: 13, color: "#8E9196", textAlign: "center" }}>No clients yet</div>}
+            {clients.length === 0 && <div style={{ padding: "24px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "#8E9196", textAlign: "center" }}>No clients yet</div>}
           </div>
         </div>
         {/* Detail */}
-        {selected ? <ClientDetail client={selected} onClientUpdated={() => window.location.reload()} /> : <div style={{ flex: 1, padding: "60px 20px", textAlign: "center", fontFamily: "Manrope, sans-serif", fontSize: 14, color: "#8E9196" }}>Select a client</div>}
+        {selected ? <ClientDetail client={selected} onClientUpdated={() => window.location.reload()} /> : <div style={{ flex: 1, padding: "60px 20px", textAlign: "center", fontFamily: "var(--font-sans)", fontSize: 14, color: "#8E9196" }}>Select a client</div>}
       </div>
       {showAddForm && <AddClientModal onClose={() => setShowAddForm(false)} />}
     </div>
@@ -2200,8 +2200,8 @@ function AddClientModal({ onClose }: { onClose: () => void }) {
 
   return (
     <ModalBackdrop onClose={onClose}>
-      <h2 style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Add client</h2>
-      {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "Manrope, sans-serif", fontSize: 12, color: "#CC0000" }}>{error}</div>}
+      <h2 style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Add client</h2>
+      {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "var(--font-sans)", fontSize: 12, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
           <div><label style={labelStyle}>Company name *</label><input name="company_name" required style={inputStyle} /></div>
@@ -2264,8 +2264,8 @@ function EditClientModal({ client, onClose, onSaved }: { client: Client; onClose
 
   return (
     <ModalBackdrop onClose={onClose}>
-      <h2 style={{ fontFamily: "Manrope, sans-serif", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Edit client</h2>
-      {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "Manrope, sans-serif", fontSize: 12, color: "#CC0000" }}>{error}</div>}
+      <h2 style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Edit client</h2>
+      {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "var(--font-sans)", fontSize: 12, color: "#CC0000" }}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
           <div><label style={labelStyle}>Company name *</label><input name="company_name" required defaultValue={client.company_name} style={inputStyle} /></div>

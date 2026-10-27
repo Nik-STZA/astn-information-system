@@ -215,7 +215,7 @@ function ReplyBox({
         rows={2}
         placeholder="Ask a follow-up. The agent sees this conversation so far."
         style={{
-          width: "100%", fontFamily: "Manrope, sans-serif", fontSize: 12.5, lineHeight: 1.5,
+          width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.5,
           padding: "8px 10px", borderRadius: 6, border: "1px solid var(--bd)",
           background: "var(--pg)", color: "var(--tx)", resize: "vertical",
         }}
@@ -262,7 +262,7 @@ function Conversation({
         padding: "11px 13px",
         marginBottom: 8,
         background: "var(--pnl)",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       <div
@@ -379,7 +379,7 @@ export default function AgentPanel({
           padding: "14px 16px",
           background: "var(--pnl)",
           marginBottom: 20,
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
         }}
       >
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
@@ -412,7 +412,7 @@ export default function AgentPanel({
           rows={3}
           placeholder="What should it do? For example: review the July bank reconciliation and tell me what is still outstanding."
           style={{
-            width: "100%", fontFamily: "Manrope, sans-serif", fontSize: 12.5, lineHeight: 1.5,
+            width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.5,
             padding: "9px 11px", borderRadius: 6, border: "1px solid var(--bd)",
             background: "var(--pg)", color: "var(--tx)", resize: "vertical",
           }}
@@ -444,7 +444,7 @@ export default function AgentPanel({
 
       <div
         style={{
-          fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700,
+          fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700,
           letterSpacing: ".07em", textTransform: "uppercase", color: "var(--sub)", marginBottom: 8,
         }}
       >
@@ -456,7 +456,7 @@ export default function AgentPanel({
           style={{
             padding: 24, textAlign: "center", border: "1px dashed var(--empty-border)",
             borderRadius: 10, background: "var(--empty-bg)", color: "var(--empty-text)",
-            fontFamily: "Manrope, sans-serif", fontSize: 13,
+            fontFamily: "var(--font-sans)", fontSize: 13,
           }}
         >
           Nothing has been run for this client yet.

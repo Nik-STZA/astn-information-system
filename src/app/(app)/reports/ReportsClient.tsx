@@ -77,7 +77,7 @@ export default function ReportsClient({ prospects, clients, opportunities, stats
     .reduce((sum, o) => sum + (o.value_gbp ?? 0), 0);
 
   return (
-    <div style={{ fontFamily: "'Manrope', sans-serif" }}>
+    <div style={{ fontFamily: "var(--font-sans)" }}>
       {/* Breadcrumb + header */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", marginBottom: 8 }}>

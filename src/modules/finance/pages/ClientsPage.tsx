@@ -15,7 +15,7 @@ function Count({ n, label, urgent }: { n: number; label: string; urgent?: boolea
     <div style={{ minWidth: 72 }}>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontWeight: 800,
           fontSize: 20,
           lineHeight: 1.1,
@@ -26,7 +26,7 @@ function Count({ n, label, urgent }: { n: number; label: string; urgent?: boolea
       </div>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 10,
           fontWeight: 600,
           letterSpacing: ".06em",
@@ -62,7 +62,7 @@ function ClientRow({ client }: { client: FinanceClientSummary }) {
       <div>
         <div
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 16,
             fontWeight: 800,
             color: "var(--tx)",
@@ -72,7 +72,7 @@ function ClientRow({ client }: { client: FinanceClientSummary }) {
         </div>
         <div
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 12,
             color: "var(--sub)",
             marginTop: 3,
@@ -113,7 +113,7 @@ export default async function ClientsPage() {
             borderRadius: 8,
             border: "1px solid var(--warning-amber)",
             color: "var(--warning-amber)",
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
             marginBottom: 18,
           }}
@@ -131,7 +131,7 @@ export default async function ClientsPage() {
             borderRadius: 10,
             background: "var(--empty-bg)",
             color: "var(--empty-text)",
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
           }}
         >

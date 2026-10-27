@@ -31,7 +31,7 @@ function gbp(n: number | null | undefined): string {
 // ─── Style constants ─────────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 13,
   fontWeight: 500,
   color: "#1A1C1E",
@@ -44,7 +44,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 const btnPrimary: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 12,
   fontWeight: 600,
   color: "#141414",
@@ -56,7 +56,7 @@ const btnPrimary: React.CSSProperties = {
 };
 
 const btnSecondary: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 12,
   fontWeight: 600,
   color: "#55524C",
@@ -82,7 +82,7 @@ function StatCard({ value, label, dashed }: { value: string; label: string; dash
     >
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 26,
           fontWeight: 800,
           lineHeight: 1,
@@ -95,7 +95,7 @@ function StatCard({ value, label, dashed }: { value: string; label: string; dash
       </div>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 11,
           fontWeight: 600,
           lineHeight: 1.3,
@@ -125,7 +125,7 @@ function StageCard({ count, label, color }: { count: number; label: string; colo
     >
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 22,
           fontWeight: 800,
           lineHeight: 1,
@@ -148,7 +148,7 @@ function StageCard({ count, label, color }: { count: number; label: string; colo
         />
         <span
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 11,
             fontWeight: 600,
             lineHeight: 1.2,
@@ -169,7 +169,7 @@ function StagePill({ stage }: { stage: string }) {
   return (
     <span
       style={{
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 9,
         fontWeight: 700,
         textTransform: "uppercase",
@@ -208,7 +208,7 @@ function SummaryCard({
     >
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 13.5,
           fontWeight: 700,
           lineHeight: 1.2,
@@ -231,7 +231,7 @@ function SummaryCard({
         >
           <span
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 12,
               fontWeight: 500,
               lineHeight: 1,
@@ -242,7 +242,7 @@ function SummaryCard({
           </span>
           <span
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 12.5,
               fontWeight: 700,
               lineHeight: 1,
@@ -327,7 +327,7 @@ function OpportunityForm({
       >
         <div
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 18,
             fontWeight: 800,
             color: "#1A1C1E",
@@ -344,7 +344,7 @@ function OpportunityForm({
               borderRadius: 8,
               padding: "9px 14px",
               marginBottom: 16,
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 12,
               fontWeight: 500,
               color: "#CC0000",
@@ -356,13 +356,13 @@ function OpportunityForm({
         <form onSubmit={handleSubmit}>
           <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Opportunity name *
               </label>
               <input name="opportunity_name" required defaultValue={initial?.opportunity_name ?? ""} style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Service type
               </label>
               <select name="service_type" defaultValue={initial?.service_type ?? ""} style={inputStyle}>
@@ -376,7 +376,7 @@ function OpportunityForm({
               </select>
             </div>
             <div>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Stage *
               </label>
               <select name="stage" required defaultValue={initial?.stage ?? "identified"} style={inputStyle}>
@@ -386,29 +386,29 @@ function OpportunityForm({
               </select>
             </div>
             <div>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Value (GBP)
               </label>
               <input name="value_gbp" type="number" defaultValue={initial?.value_gbp ?? ""} style={inputStyle} placeholder="0" />
             </div>
             <div>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Expected close
               </label>
               <input name="expected_close_date" type="date" defaultValue={initial?.expected_close_date ?? ""} style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Owner
               </label>
               <input name="owner" defaultValue={initial?.owner ?? ""} style={inputStyle} placeholder="e.g. nik@stza.io" />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 18 }}>
               <input name="value_recurring" type="checkbox" defaultChecked={initial?.value_recurring ?? false} />
-              <span style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, fontWeight: 500, color: "#55524C" }}>Recurring value</span>
+              <span style={{ fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "#55524C" }}>Recurring value</span>
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontFamily: "Manrope, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
+              <label style={{ fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196", display: "block", marginBottom: 5 }}>
                 Notes
               </label>
               <textarea name="notes" rows={3} defaultValue={initial?.notes ?? ""} style={{ ...inputStyle, resize: "vertical" }} />
@@ -492,7 +492,7 @@ export default function PipelineClient({
         <div>
           <div
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 10,
               fontWeight: 700,
               letterSpacing: ".2em",
@@ -505,7 +505,7 @@ export default function PipelineClient({
           </div>
           <h1
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 27,
               fontWeight: 800,
               lineHeight: 1.1,
@@ -518,7 +518,7 @@ export default function PipelineClient({
           </h1>
           <p
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 13,
               fontWeight: 500,
               lineHeight: 1.4,
@@ -559,7 +559,7 @@ export default function PipelineClient({
       {/* Stage breakdown */}
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: ".06em",
@@ -579,7 +579,7 @@ export default function PipelineClient({
       {/* Opportunities table or empty state */}
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: ".06em",
@@ -602,7 +602,7 @@ export default function PipelineClient({
         >
           <div
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 16,
               fontWeight: 700,
               lineHeight: 1.3,
@@ -614,7 +614,7 @@ export default function PipelineClient({
           </div>
           <p
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 12.5,
               fontWeight: 500,
               lineHeight: 1.5,
@@ -657,7 +657,7 @@ export default function PipelineClient({
                   <th
                     key={h}
                     style={{
-                      fontFamily: "Manrope, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontSize: 10,
                       fontWeight: 700,
                       letterSpacing: ".08em",
@@ -690,7 +690,7 @@ export default function PipelineClient({
                 >
                   <td
                     style={{
-                      fontFamily: "Manrope, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontSize: 13,
                       fontWeight: 600,
                       color: "#1A1C1E",
@@ -701,7 +701,7 @@ export default function PipelineClient({
                   </td>
                   <td
                     style={{
-                      fontFamily: "Manrope, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontSize: 12,
                       fontWeight: 500,
                       color: "#55524C",
@@ -715,7 +715,7 @@ export default function PipelineClient({
                   </td>
                   <td
                     style={{
-                      fontFamily: "Manrope, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontSize: 12,
                       fontWeight: 600,
                       color: "#1A1C1E",
@@ -732,7 +732,7 @@ export default function PipelineClient({
                   </td>
                   <td
                     style={{
-                      fontFamily: "Manrope, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontSize: 12,
                       fontWeight: 500,
                       color: "#55524C",
@@ -749,7 +749,7 @@ export default function PipelineClient({
                   </td>
                   <td
                     style={{
-                      fontFamily: "Manrope, sans-serif",
+                      fontFamily: "var(--font-sans)",
                       fontSize: 12,
                       fontWeight: 500,
                       color: "#8E9196",
@@ -768,7 +768,7 @@ export default function PipelineClient({
       {/* Cross-module summary */}
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: ".06em",

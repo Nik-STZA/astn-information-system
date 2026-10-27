@@ -23,7 +23,7 @@ function Card({ label, value }: { label: string; value: string }) {
     >
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontWeight: 600,
           fontSize: 11,
           letterSpacing: ".06em",
@@ -35,7 +35,7 @@ function Card({ label, value }: { label: string; value: string }) {
       </div>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontWeight: 800,
           fontSize: 20,
           lineHeight: 1.1,
@@ -55,7 +55,7 @@ export default function OverviewPage() {
 
       <p
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 14,
           lineHeight: 1.6,
           color: "var(--sub)",

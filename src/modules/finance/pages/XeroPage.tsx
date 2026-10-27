@@ -19,7 +19,7 @@ function StatusDot({ connected }: { connected: boolean }) {
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 11,
         fontWeight: 700,
         letterSpacing: ".04em",
@@ -46,7 +46,7 @@ function Meta({ label, value }: { label: string; value: string }) {
     <div>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 10,
           fontWeight: 600,
           letterSpacing: ".07em",
@@ -58,7 +58,7 @@ function Meta({ label, value }: { label: string; value: string }) {
       </div>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 12.5,
           color: "var(--tx)",
           marginTop: 2,
@@ -76,7 +76,7 @@ function ConnectButton({ slug, conn }: { slug: string; conn: XeroConnection }) {
     <a
       href={`/api/finance/${encodeURIComponent(slug)}/xero/${encodeURIComponent(conn.slug)}/connect`}
       style={{
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 12,
         fontWeight: 700,
         padding: "7px 14px",
@@ -117,7 +117,7 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
         <div>
           <div
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 15,
               fontWeight: 800,
               color: "var(--tx)",
@@ -132,7 +132,7 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
             )}
           </div>
           {conn.legalName && (
-            <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12, color: "var(--sub)" }}>
+            <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--sub)" }}>
               {conn.legalName}
             </div>
           )}
@@ -201,7 +201,7 @@ function Banner({ tone, children }: { tone: "good" | "bad"; children: React.Reac
         borderRadius: 8,
         border: `1px solid ${colour}`,
         color: colour,
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 13,
         marginBottom: 18,
       }}
@@ -237,7 +237,7 @@ export default async function XeroPage({
             borderRadius: 8,
             border: "1px solid var(--warning-amber)",
             color: "var(--warning-amber)",
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
             marginBottom: 18,
           }}
@@ -254,7 +254,7 @@ export default async function XeroPage({
             border: "1px dashed var(--empty-border)",
             background: "var(--empty-bg)",
             color: "var(--sub)",
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
             lineHeight: 1.6,
             marginBottom: 18,

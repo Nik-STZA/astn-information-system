@@ -47,7 +47,7 @@ function Tag({ children, tone }: { children: React.ReactNode; tone?: "entity" | 
   return (
     <span
       style={{
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 9.5,
         fontWeight: 700,
         letterSpacing: ".05em",
@@ -92,7 +92,7 @@ function PanelRow({
         padding: "8px 14px",
         cursor: "pointer",
         fontSize: 11.5,
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         borderBottom: "1px solid var(--bd)",
         background: selected ? "rgba(197,160,89,.12)" : "transparent",
         borderLeft: selected ? `2px solid ${GOLD}` : "2px solid transparent",
@@ -148,7 +148,7 @@ function BatchBanner({ items }: { items: WipItemRow[] }) {
     >
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 11,
           fontWeight: 700,
           color: "var(--tx)",
@@ -207,7 +207,7 @@ function StatePanel({
           </span>
           <span
             style={{
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 11,
               fontWeight: 700,
               letterSpacing: ".05em",
@@ -220,7 +220,7 @@ function StatePanel({
         </div>
         <span
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 10,
             fontWeight: 700,
             padding: "1px 7px",
@@ -245,7 +245,7 @@ function StatePanel({
                 padding: "7px 14px",
                 borderTop: "1px solid var(--bd)",
                 borderBottom: "1px solid var(--bd)",
-                fontFamily: "Manrope, sans-serif",
+                fontFamily: "var(--font-sans)",
                 fontSize: 10,
                 fontWeight: 700,
                 letterSpacing: ".06em",
@@ -297,7 +297,7 @@ function IndependenceNote({ item }: { item: WipItemRow }) {
         borderRadius: 7,
         padding: "9px 11px",
         marginBottom: 12,
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 11.5,
         lineHeight: 1.5,
         color: s.colour,
@@ -323,7 +323,7 @@ function Detail({
         type="button"
         onClick={onBack}
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 11.5,
           fontWeight: 600,
           color: "var(--sub)",
@@ -345,7 +345,7 @@ function Detail({
 
       <h2
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 20,
           fontWeight: 800,
           color: "var(--tx)",
@@ -358,7 +358,7 @@ function Detail({
       {item.amountTotal && (
         <div
           style={{
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 24,
             fontWeight: 800,
             color: "var(--tx)",
@@ -375,7 +375,7 @@ function Detail({
           gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
           gap: 12,
           fontSize: 12,
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           padding: "14px 0",
           borderTop: "1px solid var(--bd)",
           borderBottom: "1px solid var(--bd)",
@@ -407,7 +407,7 @@ function Detail({
 
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 10,
           fontWeight: 700,
           letterSpacing: ".07em",
@@ -422,7 +422,7 @@ function Detail({
       <IndependenceNote item={item} />
 
       {item.reviews.length === 0 ? (
-        <div style={{ fontFamily: "Manrope, sans-serif", fontSize: 12.5, color: "var(--sub)" }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--sub)" }}>
           No reviews recorded yet.
         </div>
       ) : (
@@ -435,7 +435,7 @@ function Detail({
               borderRadius: 7,
               padding: "10px 12px",
               marginBottom: 8,
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 12.5,
             }}
           >
@@ -464,7 +464,7 @@ function Detail({
 
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 10,
           fontWeight: 700,
           letterSpacing: ".07em",
@@ -477,7 +477,7 @@ function Detail({
       </div>
       <NoteThread slug={slug} targetType="wip_item" targetId={item.id} />
 
-      <div style={{ marginTop: 18, fontFamily: "Manrope, sans-serif", fontSize: 11, color: "var(--sub)" }}>
+      <div style={{ marginTop: 18, fontFamily: "var(--font-sans)", fontSize: 11, color: "var(--sub)" }}>
         {item.folderPath}
       </div>
     </div>
@@ -533,7 +533,7 @@ export default function ApprovalsBoard({
           <>
             <div
               style={{
-                fontFamily: "Manrope, sans-serif",
+                fontFamily: "var(--font-sans)",
                 fontSize: 10,
                 fontWeight: 700,
                 letterSpacing: ".07em",
@@ -553,7 +553,7 @@ export default function ApprovalsBoard({
                   borderRadius: 10,
                   background: "var(--empty-bg)",
                   color: "var(--empty-text)",
-                  fontFamily: "Manrope, sans-serif",
+                  fontFamily: "var(--font-sans)",
                   fontSize: 13,
                 }}
               >
@@ -580,7 +580,7 @@ export default function ApprovalsBoard({
                     gap: 10,
                     padding: "11px 12px",
                     cursor: "pointer",
-                    fontFamily: "Manrope, sans-serif",
+                    fontFamily: "var(--font-sans)",
                     fontSize: 12.5,
                     borderBottom: "1px solid var(--bd)",
                   }}

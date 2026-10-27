@@ -5,7 +5,7 @@
   max-width: 1320px;
   margin: 0 auto;
   padding: 16px 16px 48px;
-  font-family: Manrope, sans-serif;
+  font-family: var(--font-sans);
   color: var(--tx);
 }
 
@@ -27,25 +27,25 @@
 
 .chip {
   flex-shrink: 0;
-  min-height: 40px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 0 14px;
-  border-radius: 20px;
+  border-radius: 999px;
   border: 1px solid var(--bd);
   background: var(--pnl);
   color: var(--sub);
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
 }
 .chipActive {
   composes: chip;
-  background: var(--brand-gold);
-  border-color: var(--brand-gold);
-  color: var(--near-black);
+  background: var(--tx);
+  border-color: var(--tx);
+  color: var(--pnl);
 }
 .count {
   font-variant-numeric: tabular-nums;
@@ -53,14 +53,17 @@
 }
 
 .button {
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 8px;
-  border: 1px solid var(--brand-gold);
-  background: var(--brand-gold);
-  color: var(--near-black);
-  font: 700 14px Manrope, sans-serif;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--tx);
+  background: var(--tx);
+  color: var(--pnl);
+  font: 500 13px var(--font-sans);
   cursor: pointer;
+}
+@media (max-width: 899px) {
+  .chip, .button { min-height: 40px; }
 }
 .button:disabled { opacity: 0.6; cursor: progress; }
 
@@ -102,8 +105,8 @@
 .card:hover { background: var(--cardhover); }
 .cardActive {
   composes: card;
-  border-color: var(--brand-gold);
-  box-shadow: inset 3px 0 0 var(--brand-gold);
+  border-color: var(--tx);
+  background: var(--cardhover);
 }
 .cardTop {
   display: flex;
@@ -323,7 +326,7 @@
   border: 1px solid var(--bd);
   background: transparent;
   color: var(--tx);
-  font: 600 14px Manrope, sans-serif;
+  font: 600 14px var(--font-sans);
   cursor: pointer;
 }
 .buttonSecondary:disabled, .button:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -333,7 +336,7 @@
   border: none;
   padding: 0;
   color: var(--gold-dark);
-  font: 600 13px Manrope, sans-serif;
+  font: 600 13px var(--font-sans);
   cursor: pointer;
 }
 .confirm {
@@ -372,7 +375,7 @@
   border: 1px solid var(--bd);
   background: var(--pnl);
   color: var(--tx);
-  font: 500 15px Manrope, sans-serif;
+  font: 500 15px var(--font-sans);
 }
 .textarea { min-height: 64px; resize: vertical; }
 .combo { position: relative; }
@@ -397,7 +400,7 @@
   display: flex;
   align-items: center;
   padding: 8px 12px;
-  font: 500 15px Manrope, sans-serif;
+  font: 500 15px var(--font-sans);
   color: var(--tx);
   cursor: pointer;
   overflow-wrap: anywhere;

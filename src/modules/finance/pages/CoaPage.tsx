@@ -36,7 +36,7 @@ export default async function CoaPage({
 
       <p
         style={{
-          fontFamily: "Manrope, sans-serif", fontSize: 13, lineHeight: 1.6, color: "var(--sub)",
+          fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.6, color: "var(--sub)",
           margin: "0 0 20px", maxWidth: 820,
         }}
       >
@@ -50,7 +50,7 @@ export default async function CoaPage({
         <div
           style={{
             padding: "16px 18px", border: "1px solid var(--alert-red)", borderRadius: 8,
-            fontFamily: "Manrope, sans-serif", fontSize: 13, color: "var(--tx)", maxWidth: 760, lineHeight: 1.6,
+            fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--tx)", maxWidth: 760, lineHeight: 1.6,
           }}
         >
           <div style={{ fontWeight: 700, color: "var(--alert-red)", marginBottom: 4 }}>

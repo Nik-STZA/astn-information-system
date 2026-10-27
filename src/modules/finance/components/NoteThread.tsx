@@ -114,7 +114,7 @@ export default function NoteThread({
         type="button"
         onClick={() => setOpen(true)}
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 11,
           fontWeight: 600,
           padding: "4px 8px",
@@ -138,7 +138,7 @@ export default function NoteThread({
         padding: "12px 14px",
         marginTop: 8,
         background: "var(--pg)",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
@@ -171,7 +171,7 @@ export default function NoteThread({
         placeholder="What was decided, and why. For example: payment run loaded, three vendors held pending contract review."
         style={{
           width: "100%",
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 12.5,
           lineHeight: 1.5,
           padding: "8px 10px",

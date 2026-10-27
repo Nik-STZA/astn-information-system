@@ -27,10 +27,10 @@ const CONF: Record<string, { color: string; bg: string; border: string; dot: str
 
 /* ── Inline style objects ────────────────────────────────────────────────── */
 const S = {
-  sectionHead: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
+  sectionHead: { fontFamily: "var(--font-sans)", fontWeight: 700 as const, fontSize: 13, lineHeight: "1.2", letterSpacing: ".16em", textTransform: "uppercase" as const, color: "#1A1A1A", margin: 0 },
   sectionRule: { flex: 1, height: 1, background: "#E7DFCE" },
   bodySerif: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 13, lineHeight: "1.7", color: "#33322E" },
-  labelSm: { fontFamily: "'Manrope', sans-serif", fontWeight: 600 as const, fontSize: 9.5, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase" as const, color: "#9A968B" },
+  labelSm: { fontFamily: "var(--font-sans)", fontWeight: 600 as const, fontSize: 9.5, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase" as const, color: "#9A968B" },
   valueMd: { fontFamily: "'Newsreader', serif", fontWeight: 400 as const, fontSize: 12.5, lineHeight: "1.45", color: "#33322E" },
 };
 
@@ -105,7 +105,7 @@ export default function ProfileReportClient({ org }: { org: OrganizationDetail }
       `}</style>
 
       {/* Back nav bar — hidden when printing */}
-      <div className="profile-nav-bar" style={{ fontFamily: "'Manrope', sans-serif", padding: "16px 0 8px", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <div className="profile-nav-bar" style={{ fontFamily: "var(--font-sans)", padding: "16px 0 8px", display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <a href={`/registry/${org.id}`} style={{ fontSize: 12.5, fontWeight: 500, color: "#A29C8E", textDecoration: "none" }}>
           &larr; Back to organisation
         </a>
@@ -138,11 +138,11 @@ export default function ProfileReportClient({ org }: { org: OrganizationDetail }
           {/* Running header */}
           <div slot="header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0 12px", margin: "0 0 6px", borderBottom: "1px solid #E7DFCE" }}>
             <img src="/logos/stza-logo-dark-crop.png" alt="STZA" style={{ height: 16, width: "auto", display: "block" }} />
-            <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".16em", textTransform: "uppercase", color: "#9C7C2E" }}>Organisation profile</span>
+            <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 9, lineHeight: "1", letterSpacing: ".16em", textTransform: "uppercase", color: "#9C7C2E" }}>Organisation profile</span>
           </div>
 
           {/* Running footer */}
-          <div slot="footer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 3px", margin: "6px 0 0", borderTop: "1px solid #E7DFCE", fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 8.5, lineHeight: "1.3", color: "#9A968B" }}>
+          <div slot="footer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 3px", margin: "6px 0 0", borderTop: "1px solid #E7DFCE", fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 8.5, lineHeight: "1.3", color: "#9A968B" }}>
             <span>STZA&reg; &middot; Sports Tech Africa Ltd &nbsp;|&nbsp; AfricanSTN information system</span>
             <span>Internal use only</span>
           </div>
@@ -151,14 +151,14 @@ export default function ProfileReportClient({ org }: { org: OrganizationDetail }
           <div style={{ background: "#141414", borderRadius: 8, padding: "26px 28px 24px", margin: "0 0 26px", breakInside: "avoid" as const }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 20px" }}>
               <img src="/logos/stza-logo-white-crop.png" alt="STZA" style={{ height: 26, width: "auto", display: "block" }} />
-              <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 15, lineHeight: "1", letterSpacing: ".01em", color: "#EDE7DA" }}>
+              <span style={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 15, lineHeight: "1", letterSpacing: ".01em", color: "#EDE7DA" }}>
                 African<span style={{ color: "#C6A24E" }}>STN</span>
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".22em", textTransform: "uppercase", color: "#C6A24E", margin: "0 0 10px" }}>Organisation profile</div>
-                <h1 style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 28, lineHeight: "1.1", color: "#FFFFFF", margin: "0 0 7px", letterSpacing: "-.01em" }}>{org.organization_name ?? "Untitled organisation"}</h1>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".22em", textTransform: "uppercase", color: "#C6A24E", margin: "0 0 10px" }}>Organisation profile</div>
+                <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 28, lineHeight: "1.1", color: "#FFFFFF", margin: "0 0 7px", letterSpacing: "-.01em" }}>{org.organization_name ?? "Untitled organisation"}</h1>
                 {breadcrumb && (
                   <div style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 12.5, lineHeight: "1.3", color: "#B7B2A6" }}>
                     {breadcrumb}
@@ -169,15 +169,15 @@ export default function ProfileReportClient({ org }: { org: OrganizationDetail }
                 {conf && (
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: conf.bg, border: `1px solid ${conf.border}`, borderRadius: 5, padding: "6px 11px", margin: "0 0 12px" }}>
                     <span style={{ width: 7, height: 7, borderRadius: "50%", background: conf.dot, display: "block" }} />
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase", color: conf.color }}>{band} confidence</span>
+                    <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase", color: conf.color }}>{band} confidence</span>
                   </div>
                 )}
                 {!conf && (
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.15)", borderRadius: 5, padding: "6px 11px", margin: "0 0 12px" }}>
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase", color: "#8C877B" }}>Unverified</span>
+                    <span style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 10, lineHeight: "1", letterSpacing: ".1em", textTransform: "uppercase", color: "#8C877B" }}>Unverified</span>
                   </div>
                 )}
-                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 500, fontSize: 10, lineHeight: "1.5", color: "#8C877B" }}>
+                <div style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 10, lineHeight: "1.5", color: "#8C877B" }}>
                   Generated {today}
                 </div>
               </div>
@@ -264,7 +264,7 @@ export default function ProfileReportClient({ org }: { org: OrganizationDetail }
           <div style={{ borderTop: "2px solid #141414", padding: "14px 0 0", breakInside: "avoid" as const }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, margin: "0 0 10px" }}>
               <img src="/logos/stza-logo-dark-crop.png" alt="STZA" style={{ height: 18, width: "auto", display: "block" }} />
-              <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 600, fontSize: 10, lineHeight: "1.4", color: "#9A968B", textAlign: "right" }}>AfricanSTN information system &middot; African Sports Technology Network</span>
+              <span style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 10, lineHeight: "1.4", color: "#9A968B", textAlign: "right" }}>AfricanSTN information system &middot; African Sports Technology Network</span>
             </div>
             <p style={{ fontFamily: "'Newsreader', serif", fontWeight: 400, fontSize: 9.5, lineHeight: "1.5", fontStyle: "italic", color: "#9A968B", margin: 0 }}>
               This document is generated from the AfricanSTN registry and is for internal use only. Data is sourced from public records and third-party databases; verification status is indicated above. STZA&reg; is a trading name of Sports Tech Africa Limited (Companies House No. 16850337 &middot; ICO No. C1880558), United Kingdom.

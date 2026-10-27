@@ -22,7 +22,7 @@ function Pill({ text, colour }: { text: string; colour: string }) {
   return (
     <span
       style={{
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 10,
         fontWeight: 700,
         letterSpacing: ".04em",
@@ -49,7 +49,7 @@ function Row({ item, slug }: { item: OpenItemRow; slug: string }) {
         alignItems: "start",
         padding: "12px 0",
         borderTop: "1px solid var(--bd)",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 13,
         color: "var(--tx)",
       }}
@@ -91,7 +91,7 @@ function Group({ title, items, slug }: { title: string; items: OpenItemRow[]; sl
     <div style={{ marginBottom: 28 }}>
       <div
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 11,
           fontWeight: 700,
           letterSpacing: ".08em",
@@ -134,7 +134,7 @@ export default async function OpenItemsPage({
 
       <p
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 13,
           color: "var(--sub)",
           margin: "0 0 22px",

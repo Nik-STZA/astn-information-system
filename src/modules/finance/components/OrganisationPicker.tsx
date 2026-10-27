@@ -20,7 +20,7 @@ interface Organisation {
 }
 
 const buttonStyle: React.CSSProperties = {
-  fontFamily: "Manrope, sans-serif",
+  fontFamily: "var(--font-sans)",
   fontSize: 11,
   fontWeight: 600,
   padding: "5px 9px",
@@ -106,7 +106,7 @@ export default function OrganisationPicker({
         borderRadius: 8,
         padding: "12px 14px",
         background: "var(--pg)",
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         minWidth: 280,
       }}
     >
@@ -132,7 +132,7 @@ export default function OrganisationPicker({
               display: "block",
               width: "100%",
               textAlign: "left",
-              fontFamily: "Manrope, sans-serif",
+              fontFamily: "var(--font-sans)",
               fontSize: 12.5,
               fontWeight: isCurrent ? 700 : 500,
               padding: "7px 9px",

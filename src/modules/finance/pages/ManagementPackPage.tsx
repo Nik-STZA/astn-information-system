@@ -41,7 +41,7 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
       <PageHeader section="STZA · Finance" title="Management pack" />
       <ClientTabs slug={slug} active="reports" />
 
-      <div style={{ marginBottom: 14, fontFamily: "Manrope, sans-serif" }}>
+      <div style={{ marginBottom: 14, fontFamily: "var(--font-sans)" }}>
         <Link
           href={`/finance/clients/${slug}/reports`}
           style={{ fontSize: 12, color: "var(--sub)", textDecoration: "none" }}
@@ -52,7 +52,7 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
 
       <p
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 13,
           lineHeight: 1.6,
           color: "var(--sub)",
@@ -71,7 +71,7 @@ export default async function ManagementPackPage({ params }: { params: { slug: s
             padding: "16px 18px",
             border: "1px solid var(--alert-red)",
             borderRadius: 8,
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
             color: "var(--tx)",
             maxWidth: 760,

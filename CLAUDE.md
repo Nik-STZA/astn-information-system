@@ -85,8 +85,10 @@ and no Supabase client files in `src/` any more.
 - Data-fetching functions live in `src/lib/data/`, and reach the database through
   `src/lib/cloud-run.ts`. **The Next.js app has no database driver.** Every query
   goes through the Express API on Cloud Run with an `X-API-Key` header.
-- Navigation is a horizontal grouped top nav in `src/components/TopNav.tsx`
-  (Home / Registry / Regulatory / Commercial / Publishing). There is no sidebar.
+- Navigation is a left sidebar, `src/components/Sidebar.tsx` (Home / Finance /
+  Registry / Regulatory / Commercial / Publishing), with a client switcher at the
+  top and the chosen client's sections under Finance. It collapses to icons on a
+  computer and is a drawer behind a top bar on a phone.
 
 ### Module structure (added July 2026 for the Finance module)
 
@@ -122,7 +124,8 @@ and existed nowhere else. Do not run it from there.
 
 ## Brand rules (STZA Brand Guidelines v1.0) — apply everywhere
 
-- **Font:** Manrope, set in `src/styles/globals.css`. (The brand guideline names Calibri; the app shipped with Manrope and has stayed there.)
+- **Font:** Inter, one scale (24 / 16 / 14 / 13 / 12 / 11), as `var(--font-sans)` in `src/styles/globals.css`. Never hard-code a font name in a component (redesign, 27 Oct 2026: Manrope was hard-coded in 38 files).
+- **Look (redesign, 27 Oct 2026):** neutral greys, gold only as an accent (`--accent-bg`, `--accent-text`: active item, focus, today); slim pill buttons (`.btn-primary` dark, `.btn-secondary` outline, `.btn-text`); `.seg` segmented controls; Lucide icons (`lucide-react`), never emoji. Light, Dark and System (data-theme light/dark/auto). Mock-ups: claude.ai artifact "STZA OS redesign".
 - **Colours** (defined as Tailwind tokens in `tailwind.config.ts` and CSS vars in `globals.css` — always reference the token, never hard-code a hex):
   - Brand Dark `#1A1C1E`, Brand Gold `#C5A059`, Warm Grey `#8E9196`, Near Black `#0F1113`, Warm Light `#F5F0E8`, Gold Border `#D4C5A9`, Alert Red `#CC0000`, Warning Amber `#CC7700`, Success Green `#2E7D32`.
 - **Naming:** "African Sports Technology Network" on first reference (login/hero only), "AfricanSTN" everywhere else. **Never** "ASTN" (that is the Australian network).

@@ -23,7 +23,7 @@ function Choice({ href, label, active }: { href: string; label: string; active: 
     <Link
       href={href}
       style={{
-        fontFamily: "Manrope, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 12,
         fontWeight: active ? 700 : 500,
         padding: "6px 10px",
@@ -94,7 +94,7 @@ export default async function AgedPayablesPage({
           alignItems: "center",
           flexWrap: "wrap",
           marginBottom: 14,
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
         }}
       >
         <Link
@@ -116,7 +116,7 @@ export default async function AgedPayablesPage({
 
       <p
         style={{
-          fontFamily: "Manrope, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 13,
           color: "var(--sub)",
           margin: "0 0 20px",
@@ -132,7 +132,7 @@ export default async function AgedPayablesPage({
             padding: "16px 18px",
             border: "1px solid var(--alert-red)",
             borderRadius: 8,
-            fontFamily: "Manrope, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 13,
             color: "var(--tx)",
             maxWidth: 760,
