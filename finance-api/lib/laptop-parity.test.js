@@ -87,7 +87,7 @@ describe("laptop parity", () => {
       if (u.pathname === "/api/finance/clients") return json({ data: [{ slug: "stza" }] });
       if (u.pathname.endsWith("/entities")) return json({ data: [{ slug: "stza", name: "STZA", connected: true }] });
       if (/\/(pdf|content|attachments\/[^/]+)$/.test(u.pathname)) return new Response(Buffer.from("%PDF"), { status: 200 });
-      if (u.pathname.endsWith("/read/organisation")) return json({ Organisations: [{ OrganisationID: GUID }] });
+      if (u.pathname.endsWith("/read/organisation")) return json({ entity: "STZA", resource: "/Organisation", data: { Organisations: [{ OrganisationID: GUID }] } });
       return json({});
     };
     const sample = (tool, key, schema) => {
