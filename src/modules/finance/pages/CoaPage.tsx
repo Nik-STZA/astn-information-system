@@ -2,7 +2,6 @@
 // approved here and used by the pack engine for every build.
 
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import CoaMappingPanel from "@/modules/finance/components/CoaMappingPanel";
 import { fetchCoaMapping, fetchReportingCategories } from "@/modules/finance/lib/coa";
 
@@ -30,9 +29,8 @@ export default async function CoaPage({
       : null;
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Chart of accounts" />
-      <ClientTabs slug={slug} active="coa" />
+    <div>
+      <PageHeader title="Chart of accounts" sub="How each company's accounts map to the reporting lines in the pack." />
 
       <p
         style={{

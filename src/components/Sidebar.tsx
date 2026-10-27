@@ -46,7 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/finance/clients": Users,
 };
 
-// A client's own sections, as ClientTabs lists them.
+// A client's own sections.
 const CLIENT_WORK: Array<{ seg: string; label: string; icon: LucideIcon }> = [
   { seg: "bills", label: "Bills", icon: Receipt },
   { seg: "work", label: "Work", icon: SquareKanban },

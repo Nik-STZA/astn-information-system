@@ -5,7 +5,6 @@
 // exec-visible output without anonymising (Feldspar CLAUDE.md rule 8).
 
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import { fetchDiary, type DiaryEntryRow } from "@/modules/finance/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -141,9 +140,8 @@ export default async function DiaryPage({ params }: { params: { slug: string } }
   const entries = await fetchDiary(params.slug);
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Diary" />
-      <ClientTabs slug={params.slug} active="diary" />
+    <div>
+      <PageHeader title="Diary" sub="Notes and decisions for this client, newest first." />
 
       <p
         style={{

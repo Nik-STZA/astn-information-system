@@ -10,20 +10,37 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
+import { ArrowLeft, CalendarClock, CircleDot, CornerDownRight, History, Hourglass, type LucideIcon } from "lucide-react";
 import type { WipItemRow } from "@/modules/finance/lib/api";
 import NoteThread from "@/modules/finance/components/NoteThread";
+import styles from "./Approvals.module.css";
 
 type Panel = WipItemRow["panel"];
 
-const PANELS: Array<{ key: Panel; title: string; glyph: string; attention?: boolean }> = [
-  { key: "awaiting-decision", title: "Awaiting decision", glyph: "●", attention: true },
-  { key: "blocked-external", title: "Blocked on external", glyph: "○" },
-  { key: "in-progress-upstream", title: "In progress upstream", glyph: "↳" },
-  { key: "upcoming", title: "Upcoming", glyph: "▲" },
-  { key: "activity", title: "Activity", glyph: "·" },
+const PANELS: Array<{ key: Panel; title: string; icon: LucideIcon; attention?: boolean }> = [
+  { key: "awaiting-decision", title: "Awaiting your decision", icon: CircleDot, attention: true },
+  { key: "blocked-external", title: "Waiting on someone outside", icon: Hourglass },
+  { key: "in-progress-upstream", title: "In progress below you", icon: CornerDownRight },
+  { key: "upcoming", title: "Upcoming", icon: CalendarClock },
+  { key: "activity", title: "Recently finished", icon: History },
 ];
 
-const GOLD = "#C5A059";
+// The folder state in words, and how it looks. pending-cfo is the CFO's own
+// queue, so it reads "Awaiting you".
+const STATUS: Record<string, { label: string; tone: string }> = {
+  drafting: { label: "Drafting", tone: "s-neutral" },
+  "pending-fm": { label: "With the FM", tone: "s-review" },
+  "pending-fc": { label: "With the FC", tone: "s-review" },
+  "pending-cfo": { label: "Awaiting you", tone: "s-you" },
+  "sent-back": { label: "Sent back", tone: "s-back" },
+  posted: { label: "Posted", tone: "s-done" },
+  rejected: { label: "Rejected", tone: "s-neutral" },
+};
+
+function Status({ status }: { status: string }) {
+  const s = STATUS[status] ?? { label: status, tone: "s-neutral" };
+  return <span className={`${styles.status} ${styles[s.tone]}`}><span className={styles.dot} />{s.label}</span>;
+}
 
 function money(amount: string | null): string {
   if (!amount) return "";
@@ -34,90 +51,34 @@ function money(amount: string | null): string {
 
 function when(iso: string | null): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-function Tag({ children, tone }: { children: React.ReactNode; tone?: "entity" | "type" | "p1" }) {
-  const colour =
-    tone === "p1" ? "var(--alert-red)" : tone === "entity" ? GOLD : "var(--sub)";
-  return (
-    <span
-      style={{
-        fontFamily: "var(--font-sans)",
-        fontSize: 9.5,
-        fontWeight: 700,
-        letterSpacing: ".05em",
-        textTransform: "uppercase",
-        padding: "2px 5px",
-        borderRadius: 3,
-        border: `1px solid ${colour}`,
-        color: colour,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
-  );
+const sentence = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, " ") : s);
+
+const TYPE_LABEL: Record<string, string> = {
+  ap: "AP", ar: "AR", vat: "VAT", fpa: "FP&A", tax: "Tax", "month-end": "Month-end", reconciliation: "Reconciliation",
+};
+
+function onKey(fn: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      fn();
+    }
+  };
 }
 
-function PanelRow({
-  item,
-  selected,
-  onSelect,
-}: {
-  item: WipItemRow;
-  selected: boolean;
-  onSelect: (ref: string) => void;
-}) {
+function PanelRow({ item, selected, onSelect }: { item: WipItemRow; selected: boolean; onSelect: (ref: string) => void }) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelect(item.ref)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect(item.ref);
-        }
-      }}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "60px 1fr auto",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 14px",
-        cursor: "pointer",
-        fontSize: 11.5,
-        fontFamily: "var(--font-sans)",
-        borderBottom: "1px solid var(--bd)",
-        background: selected ? "rgba(197,160,89,.12)" : "transparent",
-        borderLeft: selected ? `2px solid ${GOLD}` : "2px solid transparent",
-      }}
-    >
-      <span style={{ color: GOLD, fontWeight: 700, fontSize: 9.5, letterSpacing: ".05em" }}>
-        {item.entityLabel}
-      </span>
-      <span
-        style={{
-          color: "var(--tx)",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {item.title}
-      </span>
-      <span style={{ color: "var(--sub)", whiteSpace: "nowrap" }}>
-        {money(item.amountTotal) || (item.type === "month-end" ? "Pack" : "")}
-      </span>
+    <div role="button" tabIndex={0} onClick={() => onSelect(item.ref)} onKeyDown={onKey(() => onSelect(item.ref))}
+      className={`${styles.row} ${styles.compact} ${selected ? styles.rowSel : ""}`}>
+      <span className={styles.chip}>{item.entityLabel}</span>
+      <span className={styles.rowTitle} title={item.title}>{item.title}</span>
+      <span className={styles.amount}>{money(item.amountTotal) || (item.type === "month-end" ? "Pack" : "")}</span>
     </div>
   );
 }
-
 
 // Sums for display without going through a float. The rest of the module keeps
 // money as strings for exactly this reason, and a total that is a penny out on
@@ -139,25 +100,12 @@ function sumPence(items: WipItemRow[]): number {
 function BatchBanner({ items }: { items: WipItemRow[] }) {
   const total = sumPence(items);
   return (
-    <div
-      style={{
-        padding: "9px 14px",
-        borderBottom: "1px solid var(--bd)",
-        background: "color-mix(in srgb, var(--pg) 60%, transparent)",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 11,
-          fontWeight: 700,
-          color: "var(--tx)",
-        }}
-      >
+    <div className={styles.batch}>
+      <div className={styles.batchTitle}>
         Batch of {items.length} item{items.length === 1 ? "" : "s"}
         {total !== 0 && `, ${money((total / 100).toFixed(2))} total`}
       </div>
-      <div style={{ fontSize: 10.5, color: "var(--sub)", marginTop: 3, lineHeight: 1.45 }}>
+      <div className={styles.small}>
         Mechanical and below threshold, reconciling clean. Approving here attests
         to the population, not to each line. Anything carrying judgement is listed
         separately below and is not part of this batch.
@@ -166,331 +114,122 @@ function BatchBanner({ items }: { items: WipItemRow[] }) {
   );
 }
 
-function StatePanel({
-  panel,
-  items,
-  selectedRef,
-  onSelect,
-}: {
-  panel: (typeof PANELS)[number];
-  items: WipItemRow[];
-  selectedRef: string | null;
-  onSelect: (ref: string) => void;
+function StatePanel({ panel, items, selectedRef, onSelect }: {
+  panel: (typeof PANELS)[number]; items: WipItemRow[]; selectedRef: string | null; onSelect: (ref: string) => void;
 }) {
   // Only the decision panel splits. Everywhere else the class is irrelevant,
   // because nothing is being approved.
   const batchable = items.filter((i) => i.routingClass === "mechanical");
   const individual = items.filter((i) => i.routingClass !== "mechanical");
+  const Icon = panel.icon;
+  const row = (i: WipItemRow) => <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />;
 
   return (
-    <section
-      style={{
-        background: "var(--pnl)",
-        border: "1px solid var(--bd)",
-        borderRadius: 8,
-        marginBottom: 10,
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 14px",
-          borderBottom: items.length ? "1px solid var(--bd)" : "none",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <span style={{ color: panel.attention ? GOLD : "var(--sub)", fontSize: 11 }}>
-            {panel.glyph}
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-sans)",
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: ".05em",
-              textTransform: "uppercase",
-              color: "var(--tx)",
-            }}
-          >
-            {panel.title}
-          </span>
-        </div>
-        <span
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: 10,
-            fontWeight: 700,
-            padding: "1px 7px",
-            borderRadius: 9,
-            color: panel.attention && items.length ? "#141414" : "var(--sub)",
-            background: panel.attention && items.length ? GOLD : "transparent",
-            border: panel.attention && items.length ? "none" : "1px solid var(--bd)",
-          }}
-        >
-          {items.length}
-        </span>
+    <section className={styles.card} aria-label={panel.title}>
+      <div className={styles.cardHead} style={items.length ? undefined : { borderBottom: 0 }}>
+        <span className={styles.cardTitle}><Icon size={15} aria-hidden="true" />{panel.title}</span>
+        <span className={`${styles.count} ${panel.attention && items.length ? styles.countOn : ""}`}>{items.length}</span>
       </div>
       {panel.key === "awaiting-decision" ? (
         <>
           {batchable.length > 0 && <BatchBanner items={batchable} />}
-          {batchable.map((i) => (
-            <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />
-          ))}
-          {individual.length > 0 && batchable.length > 0 && (
-            <div
-              style={{
-                padding: "7px 14px",
-                borderTop: "1px solid var(--bd)",
-                borderBottom: "1px solid var(--bd)",
-                fontFamily: "var(--font-sans)",
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: ".06em",
-                textTransform: "uppercase",
-                color: GOLD,
-              }}
-            >
-              Read individually
-            </div>
-          )}
-          {individual.map((i) => (
-            <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />
-          ))}
+          {batchable.map(row)}
+          {individual.length > 0 && batchable.length > 0 && <div className={styles.divider}>Read individually</div>}
+          {individual.map(row)}
         </>
-      ) : (
-        items.map((i) => (
-          <PanelRow key={i.ref} item={i} selected={i.ref === selectedRef} onSelect={onSelect} />
-        ))
-      )}
+      ) : items.map(row)}
     </section>
   );
 }
-
 
 // States the segregation position rather than letting four role labels imply
 // independence that may not exist. "Cannot tell" is shown as its own state,
 // never folded into either answer.
 function IndependenceNote({ item }: { item: WipItemRow }) {
   const map = {
-    independent: {
-      colour: "var(--success-green)",
-      text: "Reviewed by someone other than the preparer.",
-    },
+    independent: { tone: "s-done", text: "Reviewed by someone other than the preparer." },
     "same-person": {
-      colour: "var(--warning-amber)",
+      tone: "s-you",
       text: "Prepared and reviewed by the same person. The tiers below are a workflow record, not independent review.",
     },
     "not-recorded": {
-      colour: "var(--sub)",
+      tone: "s-neutral",
       text: "Who performed each step was not recorded, so independence cannot be established from this record.",
     },
   } as const;
   const s = map[item.reviewIndependence] ?? map["not-recorded"];
+  return <div className={`${styles.note} ${styles[s.tone]}`}>{s.text}</div>;
+}
 
+function Detail({ item, slug, onBack }: { item: WipItemRow; slug: string; onBack: () => void }) {
   return (
-    <div
-      style={{
-        border: `1px solid ${s.colour}`,
-        borderRadius: 7,
-        padding: "9px 11px",
-        marginBottom: 12,
-        fontFamily: "var(--font-sans)",
-        fontSize: 11.5,
-        lineHeight: 1.5,
-        color: s.colour,
-      }}
-    >
-      {s.text}
-    </div>
+    <section className={styles.card} aria-label={item.title}>
+      <div className={styles.detail}>
+        <button type="button" className={styles.back} onClick={onBack}>
+          <ArrowLeft size={15} aria-hidden="true" />All activity
+        </button>
+
+        <div className={styles.section}>
+          <div className={styles.chips}>
+            <span className={styles.chip}>{item.entityLabel}</span>
+            <span className={styles.chip}>{TYPE_LABEL[item.type] ?? sentence(item.type)}</span>
+            {item.priority && <span className={`${styles.chip} ${item.priority === "P1" ? styles.chipP1 : ""}`}>{item.priority}</span>}
+            <Status status={item.status} />
+          </div>
+          <h2 className={styles.detailTitle}>{item.title}</h2>
+          {item.amountTotal && <div className={styles.bigAmount}>{money(item.amountTotal)}</div>}
+        </div>
+
+        <div className={styles.facts}>
+          {[
+            ["Drafted by", item.drafterRole ?? "-"],
+            ["Company", item.entityLabel],
+            ["Stage", (STATUS[item.status]?.label ?? item.status) + (item.tier ? ` (${item.tier.toUpperCase()})` : "")],
+            ["Drafted", when(item.draftedAt) || "-"],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <div className={styles.factLabel}>{label}</div>
+              <div>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>Review chain</h3>
+          <IndependenceNote item={item} />
+          {item.reviews.length === 0 ? (
+            <div className={styles.small}>No reviews recorded yet.</div>
+          ) : (
+            item.reviews.map((r, i) => (
+              <div key={i} className={styles.review}>
+                <div className={styles.reviewHead}>
+                  <strong>{r.reviewerRole}</strong>
+                  <span className={styles.small}>{sentence(r.outcome ?? "")} · {when(r.reviewedAt)}</span>
+                </div>
+                {r.findings.length > 0 && (
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    {r.findings.map((f, j) => <li key={j}>{f}</li>)}
+                  </ul>
+                )}
+                {r.notes && <div className={styles.reviewBody}>{r.notes}</div>}
+                {r.nextStep && <div className={styles.reviewBody}>Next: {r.nextStep}</div>}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>Notes</h3>
+          <NoteThread slug={slug} targetType="wip_item" targetId={item.id} />
+        </div>
+
+        <div className={styles.path}>{item.folderPath}</div>
+      </div>
+    </section>
   );
 }
 
-function Detail({
-  item,
-  slug,
-  onBack,
-}: {
-  item: WipItemRow;
-  slug: string;
-  onBack: () => void;
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onBack}
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 11.5,
-          fontWeight: 600,
-          color: "var(--sub)",
-          background: "none",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          marginBottom: 14,
-        }}
-      >
-        &larr; Back to activity
-      </button>
-
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-        <Tag tone="entity">{item.entityLabel}</Tag>
-        <Tag tone="type">{item.type}</Tag>
-        {item.priority && <Tag tone={item.priority === "P1" ? "p1" : "type"}>{item.priority}</Tag>}
-      </div>
-
-      <h2
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 20,
-          fontWeight: 800,
-          color: "var(--tx)",
-          margin: "0 0 8px",
-        }}
-      >
-        {item.title}
-      </h2>
-
-      {item.amountTotal && (
-        <div
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: 24,
-            fontWeight: 800,
-            color: "var(--tx)",
-            marginBottom: 16,
-          }}
-        >
-          {money(item.amountTotal)}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: 12,
-          fontSize: 12,
-          fontFamily: "var(--font-sans)",
-          padding: "14px 0",
-          borderTop: "1px solid var(--bd)",
-          borderBottom: "1px solid var(--bd)",
-          marginBottom: 16,
-        }}
-      >
-        {[
-          ["Drafted by", item.drafterRole ?? "-"],
-          ["Entity", item.entityLabel],
-          ["State", item.status + (item.tier ? ` (${item.tier})` : "")],
-          ["Drafted", when(item.draftedAt) || "-"],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                letterSpacing: ".06em",
-                textTransform: "uppercase",
-                color: "var(--sub)",
-              }}
-            >
-              {label}
-            </div>
-            <div style={{ color: "var(--tx)", marginTop: 2 }}>{value}</div>
-          </div>
-        ))}
-      </div>
-
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: ".07em",
-          textTransform: "uppercase",
-          color: "var(--sub)",
-          marginBottom: 8,
-        }}
-      >
-        Review chain
-      </div>
-
-      <IndependenceNote item={item} />
-
-      {item.reviews.length === 0 ? (
-        <div style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--sub)" }}>
-          No reviews recorded yet.
-        </div>
-      ) : (
-        item.reviews.map((r, i) => (
-          <div
-            key={i}
-            style={{
-              background: "var(--pnl)",
-              border: "1px solid var(--bd)",
-              borderRadius: 7,
-              padding: "10px 12px",
-              marginBottom: 8,
-              fontFamily: "var(--font-sans)",
-              fontSize: 12.5,
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <strong style={{ color: "var(--tx)" }}>{r.reviewerRole}</strong>
-              <span style={{ color: "var(--sub)", fontSize: 11 }}>
-                {r.outcome} · {when(r.reviewedAt)}
-              </span>
-            </div>
-            {r.findings.length > 0 && (
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "var(--tx)" }}>
-                {r.findings.map((f, j) => (
-                  <li key={j}>{f}</li>
-                ))}
-              </ul>
-            )}
-            {r.notes && (
-              <div style={{ marginTop: 6, color: "var(--sub)", lineHeight: 1.5 }}>{r.notes}</div>
-            )}
-            {r.nextStep && (
-              <div style={{ marginTop: 6, color: "var(--sub)" }}>Next: {r.nextStep}</div>
-            )}
-          </div>
-        ))
-      )}
-
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: ".07em",
-          textTransform: "uppercase",
-          color: "var(--sub)",
-          margin: "20px 0 8px",
-        }}
-      >
-        Notes
-      </div>
-      <NoteThread slug={slug} targetType="wip_item" targetId={item.id} />
-
-      <div style={{ marginTop: 18, fontFamily: "var(--font-sans)", fontSize: 11, color: "var(--sub)" }}>
-        {item.folderPath}
-      </div>
-    </div>
-  );
-}
-
-export default function ApprovalsBoard({
-  slug,
-  items,
-}: {
-  slug: string;
-  items: WipItemRow[];
-}) {
+export default function ApprovalsBoard({ slug, items }: { slug: string; items: WipItemRow[] }) {
   const router = useRouter();
   const params = useSearchParams();
   const selectedRef = params.get("item");
@@ -517,96 +256,30 @@ export default function ApprovalsBoard({
   const selected = items.find((i) => i.ref === selectedRef) ?? null;
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 380px",
-        gap: 18,
-        alignItems: "start",
-      }}
-      className="finance-two-pane"
-    >
-      <div>
-        {selected ? (
-          <Detail item={selected} slug={slug} onBack={() => select(null)} />
-        ) : (
-          <>
-            <div
-              style={{
-                fontFamily: "var(--font-sans)",
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: ".07em",
-                textTransform: "uppercase",
-                color: "var(--sub)",
-                marginBottom: 8,
-              }}
-            >
-              All activity
-            </div>
-            {items.length === 0 ? (
-              <div
-                style={{
-                  padding: 28,
-                  textAlign: "center",
-                  border: "1px dashed var(--empty-border)",
-                  borderRadius: 10,
-                  background: "var(--empty-bg)",
-                  color: "var(--empty-text)",
-                  fontFamily: "var(--font-sans)",
-                  fontSize: 13,
-                }}
-              >
-                Nothing in progress for this client.
+    <div className={styles.layout}>
+      {selected ? (
+        <Detail item={selected} slug={slug} onBack={() => select(null)} />
+      ) : (
+        <section className={styles.card} aria-label="All activity">
+          <div className={styles.cardHead}><h2>All activity</h2><span className={styles.count}>{items.length}</span></div>
+          {items.length === 0 ? (
+            <div className={styles.empty}>Nothing in progress for this client.</div>
+          ) : (
+            items.map((i) => (
+              <div key={i.ref} role="button" tabIndex={0} onClick={() => select(i.ref)} onKeyDown={onKey(() => select(i.ref))} className={styles.row}>
+                <span className={styles.chip}>{i.entityLabel}</span>
+                <span className={styles.rowTitle}>{i.title}</span>
+                <Status status={i.status} />
+                <span className={styles.amount}>{money(i.amountTotal)}</span>
               </div>
-            ) : (
-              items.map((i) => (
-                <div
-                  key={i.ref}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => select(i.ref)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      select(i.ref);
-                    }
-                  }}
-                  className="r-row"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "70px 1fr auto auto",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "11px 12px",
-                    cursor: "pointer",
-                    fontFamily: "var(--font-sans)",
-                    fontSize: 12.5,
-                    borderBottom: "1px solid var(--bd)",
-                  }}
-                >
-                  <Tag tone="entity">{i.entityLabel}</Tag>
-                  <span style={{ color: "var(--tx)" }}>{i.title}</span>
-                  <span style={{ color: "var(--sub)", fontSize: 11 }}>{i.status}</span>
-                  <span style={{ color: "var(--tx)", fontWeight: 600, whiteSpace: "nowrap" }}>
-                    {money(i.amountTotal)}
-                  </span>
-                </div>
-              ))
-            )}
-          </>
-        )}
-      </div>
+            ))
+          )}
+        </section>
+      )}
 
-      <div>
+      <div className={styles.panels}>
         {PANELS.map((p) => (
-          <StatePanel
-            key={p.key}
-            panel={p}
-            items={byPanel.get(p.key) ?? []}
-            selectedRef={selectedRef}
-            onSelect={select}
-          />
+          <StatePanel key={p.key} panel={p} items={byPanel.get(p.key) ?? []} selectedRef={selectedRef} onSelect={select} />
         ))}
       </div>
     </div>

@@ -3,7 +3,6 @@
 // to approve there, and exceptions come here first. Mobile first.
 
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import ApQueue from "@/modules/finance/components/ApQueue";
 import styles from "@/modules/finance/components/ApQueue.module.css";
 import { fetchEntities } from "@/modules/finance/lib/api";
@@ -57,8 +56,7 @@ export default async function ApQueuePage({
 
   return (
     <div className={styles.page}>
-      <PageHeader section="STZA · Finance" title="Bills" />
-      <ClientTabs slug={params.slug} active="bills" />
+      <PageHeader title="Bills" sub="Supplier documents read and coded, waiting for your decision before they go to Xero." />
       {error ? (
         <div className={styles.error} role="alert">{error}</div>
       ) : !entity ? (

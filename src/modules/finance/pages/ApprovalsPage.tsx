@@ -3,8 +3,8 @@
 
 import { Suspense } from "react";
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 import ApprovalsBoard from "@/modules/finance/components/ApprovalsBoard";
+import styles from "@/modules/finance/components/Approvals.module.css";
 import { fetchWipItems, type WipItemRow } from "@/modules/finance/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -22,35 +22,14 @@ export default async function ApprovalsPage({ params }: { params: { slug: string
   const awaiting = items.filter((i) => i.panel === "awaiting-decision").length;
 
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Approvals" />
-      <ClientTabs slug={params.slug} active="approvals" />
+    <div>
+      <PageHeader title="Approvals" sub="Work that has come up the review chain for your decision, and where everything else stands." />
 
       {error ? (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 8,
-            border: "1px solid var(--warning-amber)",
-            color: "var(--warning-amber)",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-          }}
-        >
-          {error}
-        </div>
+        <div className={styles.error} role="alert">{error}</div>
       ) : (
         <>
-          <p
-            style={{
-              fontFamily: "var(--font-sans)",
-              fontSize: 13,
-              color: "var(--sub)",
-              margin: "0 0 18px",
-            }}
-          >
-            {awaiting} awaiting your decision, {items.length} in progress.
-          </p>
+          <p className={styles.summary}>{awaiting} awaiting your decision, {items.length} in progress.</p>
           <Suspense fallback={null}>
             <ApprovalsBoard slug={params.slug} items={items} />
           </Suspense>

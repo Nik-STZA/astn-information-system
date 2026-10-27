@@ -5,7 +5,6 @@
 // what is coming is honest; a 404 just looks broken.
 
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 
 export default function ComingSoon({
   slug,
@@ -19,9 +18,8 @@ export default function ComingSoon({
   summary: string;
 }) {
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title={title} />
-      <ClientTabs slug={slug} active={tab} />
+    <div>
+      <PageHeader title={title} />
 
       <div
         style={{

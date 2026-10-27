@@ -1,0 +1,77 @@
+/* Approvals (redesign step 4, 28 Oct 2026): the Work vocabulary - cards,
+   status pills with a dot, neutral chips, sentence-case labels. */
+
+.summary { color: var(--sub); font-size: 13px; margin: 0 0 16px; }
+.error { padding: 12px 14px; border-radius: 10px; background: #FFF1E6; color: #9A3412; font-size: 13px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.card { background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; }
+.cardHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--bd); }
+.cardHead h2 { font-size: 14px; }
+.cardTitle { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--tx); }
+.cardTitle svg { color: var(--sub); }
+.count { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 999px; background: var(--cardhover); color: var(--label-text); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.countOn { background: var(--accent-bg); color: var(--accent-text); }
+.panels { display: flex; flex-direction: column; gap: 12px; }
+
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--bd); cursor: pointer; font-size: 13px; }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--cardhover); }
+.rowSel { background: var(--accent-bg); }
+.rowTitle { color: var(--tx); min-width: 0; overflow-wrap: anywhere; }
+.amount { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; }
+.compact { grid-template-columns: auto minmax(0, 1fr) auto; padding: 9px 16px; font-size: 13px; }
+.compact .rowTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact .amount { font-weight: 500; color: var(--sub); min-width: 0; }
+@media (max-width: 640px) {
+  .row { grid-template-columns: auto minmax(0, 1fr); }
+  .row .amount { grid-column: 2; text-align: left; min-width: 0; }
+  .row .status { grid-column: 2; justify-self: start; }
+}
+
+.chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 6px; background: var(--cardhover); border: 1px solid var(--bd); color: var(--label-text); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.chipP1 { background: #FFF1E6; border-color: #FED7AA; color: #9A3412; }
+
+.status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.s-neutral { background: var(--cardhover); color: var(--label-text); }
+.s-you { background: #FEF6DD; color: #854D0E; }
+.s-review { background: #E8F0FE; color: #1E40AF; }
+.s-back { background: #FFF1E6; color: #9A3412; }
+.s-done { background: #E7F5EC; color: #166534; }
+:global([data-theme="dark"]) .s-you { background: #422006; color: #FDE68A; }
+:global([data-theme="dark"]) .s-review { background: #172554; color: #BFDBFE; }
+:global([data-theme="dark"]) .s-back, :global([data-theme="dark"]) .chipP1, :global([data-theme="dark"]) .error { background: #431407; color: #FDBA74; border-color: #7C2D12; }
+:global([data-theme="dark"]) .s-done { background: #052E16; color: #BBF7D0; }
+@media (prefers-color-scheme: dark) {
+  :global([data-theme="auto"]) .s-you { background: #422006; color: #FDE68A; }
+  :global([data-theme="auto"]) .s-review { background: #172554; color: #BFDBFE; }
+  :global([data-theme="auto"]) .s-back, :global([data-theme="auto"]) .chipP1, :global([data-theme="auto"]) .error { background: #431407; color: #FDBA74; border-color: #7C2D12; }
+  :global([data-theme="auto"]) .s-done { background: #052E16; color: #BBF7D0; }
+}
+
+.batch { padding: 10px 16px; border-bottom: 1px solid var(--bd); background: var(--pg); }
+.batchTitle { font-size: 13px; font-weight: 600; color: var(--tx); }
+.small { font-size: 12px; color: var(--sub); line-height: 1.5; }
+.divider { padding: 8px 16px; border-bottom: 1px solid var(--bd); font-size: 12px; font-weight: 600; color: var(--label-text); background: var(--pg); }
+
+.empty { padding: 28px 16px; text-align: center; color: var(--sub); font-size: 13px; }
+
+/* The detail view */
+.detail { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 16px; }
+.back { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; border: 0; background: none; padding: 0; font: 500 13px var(--font-sans); color: var(--sub); cursor: pointer; }
+.back:hover { color: var(--tx); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.detailTitle { font-size: 16px; overflow-wrap: anywhere; }
+.bigAmount { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 12px 0; border-top: 1px solid var(--bd); border-bottom: 1px solid var(--bd); font-size: 13px; }
+.factLabel { font-size: 12px; color: var(--sub); }
+.section { display: flex; flex-direction: column; gap: 8px; }
+.sectionTitle { font-size: 13px; font-weight: 600; color: var(--tx); margin: 0; }
+.note { border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.review { border: 1px solid var(--bd); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.reviewHead { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.reviewBody { margin-top: 6px; color: var(--sub); line-height: 1.5; }
+.path { font-size: 12px; color: var(--sub); overflow-wrap: anywhere; }

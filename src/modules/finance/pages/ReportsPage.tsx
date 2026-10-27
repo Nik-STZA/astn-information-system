@@ -5,7 +5,6 @@
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
-import ClientTabs from "@/modules/finance/components/ClientTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +30,8 @@ const LABEL: React.CSSProperties = {
 export default function ReportsPage({ params }: { params: { slug: string } }) {
   const base = `/finance/clients/${params.slug}/reports`;
   return (
-    <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      <PageHeader section="STZA · Finance" title="Reports" />
-      <ClientTabs slug={params.slug} active="reports" />
+    <div>
+      <PageHeader title="Reports" sub="Packs and reports for this client." />
 
       <div
         style={{
