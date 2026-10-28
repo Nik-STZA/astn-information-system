@@ -54,6 +54,7 @@ const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
 const agentJob = require("./lib/agent-job");
 const financeOverview = require("./lib/overview");
+const billing = require("./lib/billing");
 const work = require("./lib/work");
 const monthEndPlan = require("./lib/month-end");
 const billReview = require("./lib/bill-review");
@@ -232,6 +233,28 @@ app.get("/api/finance/overview", route(async (_req, res) => {
     instruction: String(r.instruction || "").slice(0, 140), at: r.finished_at || r.queued_at,
   }));
   res.json(body);
+}));
+
+// GET /api/finance/costs   what the platform costs to run (lib/billing.js): Google
+// Cloud spend from the billing export, and Claude spend from the agent runs, for
+// this month and the two before it. Read-only. A Google failure is reported
+// beside the Claude figures rather than failing the page.
+app.get("/api/finance/costs", route(async (_req, res) => {
+  const months = 3;
+  const now = new Date();
+  const [google, agents] = await Promise.all([
+    billing.googleCosts({ now, months }).catch((e) => ({ ready: false, rows: [], error: e.message })),
+    pool.query(
+      `SELECT to_char(queued_at AT TIME ZONE 'Europe/London', 'YYYY-MM') AS month,
+              COALESCE(SUM(cost_usd), 0) AS usd,
+              COUNT(cost_usd)::int AS runs,
+              (COUNT(*) FILTER (WHERE cost_usd IS NULL AND status NOT IN ('queued', 'running')))::int AS uncosted
+         FROM finance.agent_runs
+        WHERE queued_at >= date_trunc('month', (now() AT TIME ZONE 'Europe/London') - interval '${months - 1} months') AT TIME ZONE 'Europe/London'
+        GROUP BY 1`
+    ),
+  ]);
+  res.json({ ...billing.shapeCosts({ now, months, google, agentRows: agents.rows }), googleError: google.error || null });
 }));
 
 app.get("/api/finance/clients/:slug", route(async (req, res) => {
