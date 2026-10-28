@@ -50,6 +50,7 @@ const {
 const writeRules = require("./lib/xero-write");
 const confirmedRules = require("./lib/xero-confirmed");
 const billChecks = require("./lib/bill-checks");
+const { versionsToDestroy } = require("./lib/secret-versions");
 const payrollChecks = require("./lib/payroll-checks");
 const supplierProposal = require("./lib/supplier-proposal");
 const agentJob = require("./lib/agent-job");
@@ -892,8 +893,8 @@ async function listXeroOrganisations(secretName) {
 }
 
 // Ensures a secret exists, then adds the value as a new version. Rotating a
-// token is therefore just another version, and the old one stays auditable
-// until explicitly destroyed.
+// token is therefore just another version; all but the newest two are then
+// destroyed, because Google bills every version kept (lib/secret-versions.js).
 async function storeSecret(name, value) {
   const sm = await secretManager();
   if (!(await secretExists(name))) {
@@ -913,6 +914,22 @@ async function storeSecret(name, value) {
   // four entities had reconnected. Refresh itself stores then re-caches, so this
   // never discards a fresh token.
   accessTokenCache.delete(name);
+  await pruneSecretVersions(name);
+}
+
+// Destroys the versions of a secret that versionsToDestroy says are spent. Best
+// effort: the new token is already stored, so a failure here costs pennies and
+// must never fail the refresh that called it.
+async function pruneSecretVersions(name) {
+  try {
+    const sm = await secretManager();
+    const [versions] = await sm.listSecretVersions({ parent: secretPath(name) });
+    for (const version of versionsToDestroy(versions)) {
+      await sm.destroySecretVersion({ name: version });
+    }
+  } catch (e) {
+    console.warn(`Could not prune old versions of ${name}: ${e.message}`);
+  }
 }
 
 app.post("/api/finance/clients/:slug/xero/:entity/callback", route(async (req, res) => {
