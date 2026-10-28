@@ -261,9 +261,10 @@ app.get("/api/finance/costs", route(async (_req, res) => {
 // ── Client master (migration 029, lib/clients.js) ────────────────────────────
 //
 // One record per client, shared by every service. Reads are open to the
-// portal; every change needs a person (never an agent) who leads at least one
-// client as CFO, and is written to shared.client_events in the same
-// transaction.
+// portal; every change needs a person (never an agent) who holds a current
+// engagement role on at least one client, and is written to
+// shared.client_events in the same transaction. Roles are free text
+// ("Fractional Finance Director"), so any current role counts.
 
 const CLIENT_COLUMNS = `c.id, c.slug, c.name, c.legal_name, c.jurisdiction, c.status, c.pipeline_stage,
   c.contact, c.lead_email, c.ended_reason, c.compliance_client_id, c.created_at, c.updated_at`;
@@ -288,7 +289,7 @@ async function clientView(conn, rows) {
   }));
 }
 
-// A change to the master: a person who leads a client as CFO, in one
+// A change to the master: a person with a current engagement role, in one
 // transaction with its history row.
 async function masterTx(req, res, fn) {
   const actorEmail = (req.get("X-Actor-Email") || "").trim();
@@ -299,10 +300,10 @@ async function masterTx(req, res, fn) {
     await conn.query("BEGIN");
     const lead = await conn.query(
       `SELECT 1 FROM finance.client_engagement_roles
-        WHERE actor_email = $1 AND role = 'cfo'
+        WHERE actor_email = $1
           AND (effective_from IS NULL OR effective_from <= CURRENT_DATE)
           AND (effective_to IS NULL OR effective_to >= CURRENT_DATE) LIMIT 1`, [actorEmail]);
-    if (!lead.rowCount) { await conn.query("ROLLBACK"); return res.status(403).json({ error: `${actorEmail} does not lead a client as CFO, so cannot change the client master` }); }
+    if (!lead.rowCount) { await conn.query("ROLLBACK"); return res.status(403).json({ error: `${actorEmail} holds no current engagement role, so cannot change the client master` }); }
     const log = (clientId, action, detail = {}) => conn.query(
       "INSERT INTO shared.client_events (client_id, action, detail, actor_email) VALUES ($1,$2,$3,$4)",
       [clientId, action, JSON.stringify(detail), actorEmail]);
