@@ -13,6 +13,5 @@ export const FINANCE_NAV: NavGroup = {
   module: "finance",
   items: [
     { href: "/finance/overview", label: "Overview" },
-    { href: "/finance/costs", label: "Platform costs" },
   ],
 };

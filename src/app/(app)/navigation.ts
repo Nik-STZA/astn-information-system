@@ -56,6 +56,13 @@ const SHELL_NAV: NavGroup[] = [
       { href: "/reports", label: "Reports" },
     ],
   },
+  // Admin last (28 Oct 2026): running the platform itself, not client work.
+  // Gated on finance for now because its one page reads finance-api.
+  {
+    label: "Admin",
+    module: "finance",
+    items: [{ href: "/admin/costs", label: "Platform costs" }],
+  },
 ];
 
 // Groups with no module are shell furniture and always render.
