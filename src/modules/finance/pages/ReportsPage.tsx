@@ -4,56 +4,37 @@
 // rather than disappearing, for the same reason the unbuilt tabs do.
 
 import Link from "next/link";
+import { FileSpreadsheet, Hourglass } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
+import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
-const CARD: React.CSSProperties = {
-  display: "block",
-  padding: "18px 20px",
-  border: "1px solid var(--bd)",
-  borderRadius: 10,
-  background: "var(--pnl)",
-  fontFamily: "var(--font-sans)",
-  textDecoration: "none",
-  color: "var(--tx)",
-};
-
-const LABEL: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: ".08em",
-  textTransform: "uppercase",
-  marginBottom: 8,
-};
-
 export default function ReportsPage({ params }: { params: { slug: string } }) {
   const base = `/finance/clients/${params.slug}/reports`;
+  const live = <span className={`${styles.status} ${styles["s-green"]}`}><span className={styles.dot} />Live</span>;
   return (
     <div>
       <PageHeader title="Reports" sub="Packs and reports for this client." />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-          gap: 14,
-          maxWidth: 980,
-        }}
-      >
-        <Link href={`${base}/aged-payables`} style={CARD}>
-          <div style={{ ...LABEL, color: "#C5A059" }}>Live</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>AP ageing</div>
-          <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--sub)", margin: 0 }}>
+      <div className={styles.tiles}>
+        <Link href={`${base}/aged-payables`} className={`${styles.card} ${styles.tile}`}>
+          <div className={styles.tileHead}>
+            <span className={styles.tileTitle}><Hourglass size={16} aria-hidden="true" />AP ageing</span>
+            {live}
+          </div>
+          <p className={styles.tileText}>
             Amounts owed to suppliers by age, for a single entity or combined across the
             group, straight from Xero. Export to CSV.
           </p>
         </Link>
 
-        <Link href={`${base}/management-pack`} style={CARD}>
-          <div style={{ ...LABEL, color: "#C5A059" }}>Live</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Management pack</div>
-          <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--sub)", margin: 0 }}>
+        <Link href={`${base}/management-pack`} className={`${styles.card} ${styles.tile}`}>
+          <div className={styles.tileHead}>
+            <span className={styles.tileTitle}><FileSpreadsheet size={16} aria-hidden="true" />Management pack</span>
+            {live}
+          </div>
+          <p className={styles.tileText}>
             Build the month-end management pack and board pack for a chosen month. Saved as a
             draft to the Finance shared drive, with past builds listed here.
           </p>

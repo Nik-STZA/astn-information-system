@@ -194,7 +194,12 @@
     background: var(--pg);
     box-sizing: border-box;
   }
-  .seg > button {
+  .seg > button,
+  .seg > a {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    text-decoration: none;
     height: 26px;
     padding: 0 10px;
     border: 0;
@@ -204,8 +209,8 @@
     color: var(--sub);
     cursor: pointer;
   }
-  .seg > button:hover { color: var(--tx); }
-  .seg > button.seg-on { background: var(--tx); color: var(--pnl); }
+  .seg > button:hover, .seg > a:hover { color: var(--tx); }
+  .seg > button.seg-on, .seg > a.seg-on { background: var(--tx); color: var(--pnl); }
 
   /* ── Cards ── */
   .card {
