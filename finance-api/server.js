@@ -371,9 +371,18 @@ app.patch("/api/clients/:slug", route((req, res) => masterTx(req, res, async (co
 
 // PUT /api/clients/:slug/services/:service {state: active|completed|null, started_on?, ended_on?, closing_note?}
 app.put("/api/clients/:slug/services/:service", route((req, res) => masterTx(req, res, async (conn, { actorEmail, log }) => {
-  const client = (await conn.query("SELECT id, slug FROM shared.clients WHERE slug = $1 FOR UPDATE", [req.params.slug])).rows[0];
+  const client = (await conn.query("SELECT id, slug, name, compliance_client_id FROM shared.clients WHERE slug = $1 FOR UPDATE", [req.params.slug])).rows[0];
   if (!client) return { status: 404, body: { error: "client not found" } };
   const ch = clientsLib.serviceChange(req.params.service, req.body);
+  // Data protection work lives in the compliance workspace, keyed by a
+  // public.compliance_clients record. Taking the service on for a client that
+  // has none creates it, so the client's menu has a workspace to open.
+  if (!ch.issues.length && req.params.service === "data_protection" && ch.state === "active" && !client.compliance_client_id) {
+    const created = (await conn.query(
+      "INSERT INTO public.compliance_clients (company_name, status) VALUES ($1, 'engaged') RETURNING id", [client.name])).rows[0];
+    await conn.query("UPDATE shared.clients SET compliance_client_id = $2, updated_at = now() WHERE id = $1", [client.id, created.id]);
+    await log(client.id, "linked", { compliance_client_id: created.id, created: true });
+  }
   if (ch.issues.length) return { status: 422, body: { issues: ch.issues } };
   const before = (await conn.query("SELECT state FROM shared.client_services WHERE client_id = $1 AND service = $2", [client.id, req.params.service])).rows[0]?.state ?? null;
   if (ch.state === null) {

@@ -224,7 +224,8 @@ The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `d
 | `/compliance/assessment/[id]` | V1 POPIA assessment report (printable) |
 | `/compliance/assessment-v2/[id]` | V2 multi-jurisdiction assessment report |
 | `/compliance/jurisdictions` | Knowledge base browser — jurisdictions and requirements |
-| `/clients` | Client management with edit modal, CRUD |
+| `/clients` | Redirects to the client master, `/clients/all` (28 Oct 2026) |
+| `/compliance/client/[id]/records` | One client's data protection records (engagements, IO registrations, data mapping, tasks, DSARs, correspondence, breaches), opened from the client's section in the sidebar |
 | `/dashboard` | Secondary dashboard view |
 | `/content` | Content/article management |
 | `/reports` | Report generation tools |

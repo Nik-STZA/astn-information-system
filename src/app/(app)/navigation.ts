@@ -40,9 +40,6 @@ const SHELL_NAV: NavGroup[] = [
     label: "Commercial",
     module: "compliance",
     items: [
-      // The commercial client workspace: engagements by service line, plus the
-      // data protection records, until the client master absorbs it.
-      { href: "/clients", label: "Engagements" },
       // The data protection pre-sales research on prospects (website analysis,
       // documents). The pipeline itself is the client master's, under Clients.
       { href: "/pipeline", label: "Prospect analysis" },

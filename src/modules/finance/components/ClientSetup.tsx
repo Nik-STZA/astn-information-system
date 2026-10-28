@@ -51,7 +51,7 @@ function ServiceRow({ client, svc, busy, onChange }: {
   ];
   const open =
     svc.service === "finance" ? { href: `/finance/clients/${client.slug}/work`, label: "Open Finance" }
-    : svc.service === "data_protection" && client.compliance_client_id ? { href: `/compliance/client/${client.compliance_client_id}`, label: "Open workspace" }
+    : svc.service === "data_protection" && client.compliance_client_id ? { href: `/compliance/client/${client.compliance_client_id}/records`, label: "Open records" }
     : null;
 
   return (
