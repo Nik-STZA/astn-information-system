@@ -1,3 +1,6 @@
-// Route binding only. The page itself lives in the Finance module so the
-// module stays self-contained and liftable.
-export { default, dynamic } from "@/modules/finance/pages/CostsPage";
+// Platform costs moved to Admin (28 Oct 2026); old links land there.
+import { redirect } from "next/navigation";
+
+export default function Page() {
+  redirect("/admin/costs");
+}

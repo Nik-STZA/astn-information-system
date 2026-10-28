@@ -47,7 +47,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/reports": FileBarChart,
   "/finance/overview": LayoutDashboard,
   "/finance/clients": Users,
-  "/finance/costs": Coins,
+  "/admin/costs": Coins,
 };
 
 // A client's own sections, by service.
