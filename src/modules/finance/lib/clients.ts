@@ -137,7 +137,8 @@ const stateWord = (s: unknown) => (s === "active" ? "active" : s === "completed"
 // One line of history, in words.
 export function eventText(e: ClientEvent): string {
   const d = e.detail as Record<string, { from?: unknown; to?: unknown } | unknown>;
-  if (e.action === "created") return "Added";
+  if (e.action === "created") return (e.detail as { from?: string }).from ? `Added from the ${(e.detail as { from: string }).from}` : "Added";
+  if (e.action === "linked") return "Linked to its data protection record";
   if (e.action === "service") {
     const x = e.detail as { service?: string; from?: unknown; to?: unknown };
     return `${serviceLabel(String(x.service))}: ${stateWord(x.from)} to ${stateWord(x.to)}`;
