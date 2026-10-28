@@ -85,9 +85,10 @@ and no Supabase client files in `src/` any more.
 - Data-fetching functions live in `src/lib/data/`, and reach the database through
   `src/lib/cloud-run.ts`. **The Next.js app has no database driver.** Every query
   goes through the Express API on Cloud Run with an `X-API-Key` header.
-- Navigation is a left sidebar, `src/components/Sidebar.tsx` (Home / Finance /
-  Registry / Regulatory / Commercial / Publishing), with a client switcher at the
-  top and the chosen client's sections under Finance. It collapses to icons on a
+- Navigation is a left sidebar, `src/components/Sidebar.tsx`, client-first (28 Oct
+  2026): Home, then Clients (All clients, Pipeline, then each client opening to its
+  own sections), then Finance / Registry / Regulatory / Commercial / Publishing.
+  No client dropdown. It collapses to icons from the button at the top on a
   computer and is a drawer behind a top bar on a phone.
 
 ### Module structure (added July 2026 for the Finance module)

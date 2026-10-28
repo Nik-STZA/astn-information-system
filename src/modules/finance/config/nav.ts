@@ -1,6 +1,7 @@
 // Finance navigation.
 //
-// Deliberately practice-level only. Every client-sensitive surface (Xero
+// Deliberately practice-level only. The client list itself is the sidebar's
+// Clients section (All clients, then each client and its sections). Every client-sensitive surface (Xero
 // connections, chart of accounts, per-client settings, approvals, close,
 // diary) lives INSIDE a client at /finance/clients/<slug>/*, never at practice
 // level. Do not add client-scoped entries here.
@@ -12,7 +13,6 @@ export const FINANCE_NAV: NavGroup = {
   module: "finance",
   items: [
     { href: "/finance/overview", label: "Overview" },
-    { href: "/finance/clients", label: "Clients", badge: "NEW" },
     { href: "/finance/costs", label: "Platform costs" },
   ],
 };
