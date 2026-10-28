@@ -40,9 +40,10 @@ const SHELL_NAV: NavGroup[] = [
     label: "Commercial",
     module: "compliance",
     items: [
-      // Pipeline sits in the sidebar's Clients section (28 Oct 2026); this is
-      // the data protection client list until the client master replaces it.
-      { href: "/clients", label: "Data protection clients" },
+      // Pipeline sits in the sidebar's Clients section (28 Oct 2026). This is
+      // the commercial client workspace: engagements by service line, plus the
+      // data protection records, until the client master absorbs it.
+      { href: "/clients", label: "Engagements" },
     ],
   },
   {
