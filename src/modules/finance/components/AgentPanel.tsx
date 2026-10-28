@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRunRow } from "@/modules/finance/lib/api";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import styles from "./Agents.module.css";
+import { monthSpend, usdText } from "@/modules/finance/lib/agent-spend";
 import { conversations } from "@/modules/finance/lib/conversations";
 
 const AGENTS = [
@@ -130,7 +131,7 @@ function Turn({ run, followUp }: { run: AgentRunRow; followUp: boolean }) {
             </ul>
           </div>
         )}
-        {run.cost_usd && <div>Cost: ${Number(run.cost_usd).toFixed(4)}</div>}
+        {run.cost_usd && <div>Cost: {usdText(Number(run.cost_usd))}</div>}
         {run.session_id && <div style={{ overflowWrap: "anywhere" }}>Session: {run.session_id}</div>}
       </div>
     </div>
@@ -271,6 +272,7 @@ export default function AgentPanel({
 
   const selected = AGENTS.find((a) => a.key === agent);
   const threads = conversations(runs);
+  const spend = monthSpend(runs);
 
   return (
     <div>
@@ -300,6 +302,13 @@ export default function AgentPanel({
       <div className={styles.listHead}>
         <h2>Conversations</h2>
         {pending && <span className={styles.updating}>Updating</span>}
+        {spend.costed + spend.uncosted > 0 && (
+          <span className={styles.updating} style={{ marginLeft: "auto" }}
+            title="What the model calls cost at list price, from each run's record">
+            This month: {usdText(spend.usd)} across {spend.costed} run{spend.costed === 1 ? "" : "s"}
+            {spend.uncosted ? `, ${spend.uncosted} without a cost` : ""}
+          </span>
+        )}
       </div>
 
       <section className={styles.card} aria-label="Conversations">
