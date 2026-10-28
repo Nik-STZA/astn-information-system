@@ -46,6 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/content": PenLine,
   "/reports": FileBarChart,
   "/finance/overview": LayoutDashboard,
+  "/clients/all": Users,
   "/finance/clients": Users,
   "/admin/costs": Coins,
 };
@@ -121,7 +122,7 @@ export default function Sidebar({ userEmail, groups, clients }: {
   const finance = groups.some((g) => g.module === "finance");
   const pipeline = groups.some((g) => g.module === "compliance");
   const clientLinks = [
-    ...(finance ? [{ href: "/finance/clients", label: "All clients" }] : []),
+    ...(finance ? [{ href: "/clients/all", label: "All clients" }] : []),
     ...(pipeline ? [{ href: "/pipeline", label: "Pipeline" }] : []),
   ];
   const hrefs = useMemo(

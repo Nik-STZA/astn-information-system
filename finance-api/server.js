@@ -55,6 +55,7 @@ const supplierProposal = require("./lib/supplier-proposal");
 const agentJob = require("./lib/agent-job");
 const financeOverview = require("./lib/overview");
 const billing = require("./lib/billing");
+const clientsLib = require("./lib/clients");
 const work = require("./lib/work");
 const monthEndPlan = require("./lib/month-end");
 const billReview = require("./lib/bill-review");
@@ -256,6 +257,142 @@ app.get("/api/finance/costs", route(async (_req, res) => {
   ]);
   res.json({ ...billing.shapeCosts({ now, months, google, agentRows: agents.rows }), googleError: google.error || null });
 }));
+
+// ── Client master (migration 029, lib/clients.js) ────────────────────────────
+//
+// One record per client, shared by every service. Reads are open to the
+// portal; every change needs a person (never an agent) who leads at least one
+// client as CFO, and is written to shared.client_events in the same
+// transaction.
+
+const CLIENT_COLUMNS = `c.id, c.slug, c.name, c.legal_name, c.jurisdiction, c.status, c.pipeline_stage,
+  c.contact, c.lead_email, c.ended_reason, c.compliance_client_id, c.created_at, c.updated_at`;
+
+async function clientServices(conn, ids) {
+  if (!ids.length) return [];
+  return (await conn.query(
+    `SELECT client_id, service, state, started_on::text, ended_on::text, closing_note
+       FROM shared.client_services WHERE client_id = ANY($1::uuid[])`, [ids])).rows;
+}
+
+async function clientView(conn, rows) {
+  const ids = rows.map((r) => r.id);
+  const [services, companies] = await Promise.all([
+    clientServices(conn, ids),
+    conn.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities WHERE client_id = ANY($1::uuid[]) GROUP BY client_id", [ids]),
+  ]);
+  return rows.map((r) => ({
+    ...r,
+    services: clientsLib.servicesView(services.filter((s) => s.client_id === r.id)),
+    companies: companies.rows.find((x) => x.client_id === r.id)?.n ?? 0,
+  }));
+}
+
+// A change to the master: a person who leads a client as CFO, in one
+// transaction with its history row.
+async function masterTx(req, res, fn) {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (req.get("X-Work-Via")) return res.status(403).json({ error: "only a person can change the client master, in os.stza.io" });
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const lead = await conn.query(
+      `SELECT 1 FROM finance.client_engagement_roles
+        WHERE actor_email = $1 AND role = 'cfo'
+          AND (effective_from IS NULL OR effective_from <= CURRENT_DATE)
+          AND (effective_to IS NULL OR effective_to >= CURRENT_DATE) LIMIT 1`, [actorEmail]);
+    if (!lead.rowCount) { await conn.query("ROLLBACK"); return res.status(403).json({ error: `${actorEmail} does not lead a client as CFO, so cannot change the client master` }); }
+    const log = (clientId, action, detail = {}) => conn.query(
+      "INSERT INTO shared.client_events (client_id, action, detail, actor_email) VALUES ($1,$2,$3,$4)",
+      [clientId, action, JSON.stringify(detail), actorEmail]);
+    const out = await fn(conn, { actorEmail, log });
+    if (out.status >= 400) { await conn.query("ROLLBACK"); return res.status(out.status).json(out.body); }
+    await conn.query("COMMIT");
+    return res.status(out.status).json(out.body);
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// GET /api/clients   every client, newest activity first within each status.
+app.get("/api/clients", route(async (_req, res) => {
+  const { rows } = await pool.query(`SELECT ${CLIENT_COLUMNS} FROM shared.clients c ORDER BY c.name`);
+  res.json({ data: await clientView(pool, rows) });
+}));
+
+// GET /api/clients/:slug   one client, its services and its history.
+app.get("/api/clients/:slug", route(async (req, res) => {
+  const { rows } = await pool.query(`SELECT ${CLIENT_COLUMNS} FROM shared.clients c WHERE c.slug = $1`, [req.params.slug]);
+  if (!rows.length) return res.status(404).json({ error: "client not found" });
+  const [client] = await clientView(pool, rows);
+  const events = await pool.query(
+    "SELECT action, detail, actor_email, at FROM shared.client_events WHERE client_id = $1 ORDER BY at DESC LIMIT 50", [client.id]);
+  res.json({ ...client, events: events.rows });
+}));
+
+// POST /api/clients {name, status?, pipeline_stage?, legal_name?, ...}
+app.post("/api/clients", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const status = req.body?.status ?? "prospect";
+  const { set, issues } = clientsLib.clientChanges({ status, ...req.body, name: req.body?.name ?? "" });
+  if (issues.length) return { status: 422, body: { issues } };
+  const base = clientsLib.slugify(set.name);
+  const taken = (await conn.query("SELECT slug FROM shared.clients WHERE slug = $1 OR slug LIKE $2", [base, `${base}-%`])).rows.map((r) => r.slug);
+  const slug = clientsLib.freeSlug(base, taken);
+  const cols = ["slug", ...Object.keys(set)];
+  const vals = [slug, ...Object.values(set)];
+  const { rows } = await conn.query(
+    `INSERT INTO shared.clients (${cols.join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})
+     RETURNING id, slug`, vals);
+  await log(rows[0].id, "created", { ...set, slug });
+  return { status: 201, body: rows[0] };
+})));
+
+// PATCH /api/clients/:slug {name?, legal_name?, jurisdiction?, contact?, lead_email?, status?, pipeline_stage?, ended_reason?}
+app.patch("/api/clients/:slug", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const cur = (await conn.query(`SELECT ${CLIENT_COLUMNS} FROM shared.clients c WHERE c.slug = $1 FOR UPDATE`, [req.params.slug])).rows[0];
+  if (!cur) return { status: 404, body: { error: "client not found" } };
+  const { set, issues } = clientsLib.clientChanges(req.body, cur);
+  if (issues.length) return { status: 422, body: { issues } };
+  const changed = clientsLib.diff(cur, set);
+  if (!Object.keys(changed).length) return { status: 200, body: { slug: cur.slug, changed: {} } };
+  const keys = Object.keys(changed);
+  await conn.query(
+    `UPDATE shared.clients SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() WHERE id = $1`,
+    [cur.id, ...keys.map((k) => set[k])]);
+  await log(cur.id, changed.status ? "status" : "updated", changed);
+  return { status: 200, body: { slug: cur.slug, changed } };
+})));
+
+// PUT /api/clients/:slug/services/:service {state: active|completed|null, started_on?, ended_on?, closing_note?}
+app.put("/api/clients/:slug/services/:service", route((req, res) => masterTx(req, res, async (conn, { actorEmail, log }) => {
+  const client = (await conn.query("SELECT id, slug FROM shared.clients WHERE slug = $1 FOR UPDATE", [req.params.slug])).rows[0];
+  if (!client) return { status: 404, body: { error: "client not found" } };
+  const ch = clientsLib.serviceChange(req.params.service, req.body);
+  if (ch.issues.length) return { status: 422, body: { issues: ch.issues } };
+  const before = (await conn.query("SELECT state FROM shared.client_services WHERE client_id = $1 AND service = $2", [client.id, req.params.service])).rows[0]?.state ?? null;
+  if (ch.state === null) {
+    await conn.query("DELETE FROM shared.client_services WHERE client_id = $1 AND service = $2", [client.id, req.params.service]);
+  } else {
+    await conn.query(
+      `INSERT INTO shared.client_services (client_id, service, state, started_on, ended_on, closing_note, updated_by)
+       VALUES ($1, $2, $3, COALESCE($4::date, CASE WHEN $3 = 'active' THEN CURRENT_DATE END), $5, $6, $7)
+       ON CONFLICT (client_id, service) DO UPDATE SET
+         state = EXCLUDED.state,
+         started_on = COALESCE($4::date, shared.client_services.started_on, EXCLUDED.started_on),
+         ended_on = CASE WHEN EXCLUDED.state = 'completed' THEN COALESCE(EXCLUDED.ended_on, CURRENT_DATE) END,
+         closing_note = EXCLUDED.closing_note,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()`,
+      [client.id, req.params.service, ch.state, ch.started_on, ch.ended_on, ch.closing_note, actorEmail]);
+  }
+  if (before !== ch.state) await log(client.id, "service", { service: req.params.service, from: before, to: ch.state, ...(ch.closing_note ? { closing_note: ch.closing_note } : {}) });
+  const rows = await clientServices(conn, [client.id]);
+  return { status: 200, body: { slug: client.slug, services: clientsLib.servicesView(rows) } };
+})));
 
 app.get("/api/finance/clients/:slug", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
