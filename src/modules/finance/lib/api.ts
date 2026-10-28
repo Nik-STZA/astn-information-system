@@ -331,3 +331,27 @@ export interface FinanceOverview {
 export async function fetchFinanceOverview(): Promise<FinanceOverview> {
   return get<FinanceOverview>("/api/finance/overview");
 }
+
+// What the platform costs to run (finance-api lib/billing.js): Google Cloud
+// spend from the billing export, net of credits, in the billing currency; and
+// Claude spend from the agent runs, in USD. Newest month first.
+export interface CostLine {
+  name: string;
+  net: number;
+}
+
+export interface CostMonth {
+  month: string; // YYYY-MM
+  google: { currency: string | null; total: number; byService: CostLine[]; byProject: CostLine[] };
+  claude: { usd: number; runs: number; uncosted: number };
+}
+
+export interface PlatformCosts {
+  exportReady: boolean;
+  googleError: string | null;
+  months: CostMonth[];
+}
+
+export async function fetchPlatformCosts(): Promise<PlatformCosts> {
+  return get<PlatformCosts>("/api/finance/costs");
+}

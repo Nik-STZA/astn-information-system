@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  BadgeCheck, BookOpen, Bot, Building2, ChevronDown, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
+  BadgeCheck, BookOpen, Bot, Building2, ChevronDown, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
   PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon,
@@ -44,6 +44,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/reports": FileBarChart,
   "/finance/overview": LayoutDashboard,
   "/finance/clients": Users,
+  "/finance/costs": Coins,
 };
 
 // A client's own sections.
