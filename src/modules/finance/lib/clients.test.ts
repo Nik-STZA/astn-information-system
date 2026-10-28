@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventText, filterClients, isMasterPath, mayHaveEnded, type ClientService, type MasterClient } from "./clients";
+import { eventText, filterClients, isMasterPath, mayHaveEnded, pipelineColumns, stageStep, type ClientService, type MasterClient } from "./clients";
 
 const svc = (service: ClientService["service"], state: ClientService["state"]): ClientService =>
   ({ service, state, started_on: null, ended_on: null, closing_note: null });
@@ -47,5 +47,22 @@ describe("eventText", () => {
     expect(eventText(e("updated", { pipeline_stage: { from: "lead", to: "proposal" } }))).toBe("Stage: Proposal sent");
     expect(eventText(e("service", { service: "data_protection", from: "active", to: "completed" }))).toBe("Data protection: active to completed");
     expect(eventText(e("updated", { legal_name: {}, contact: {} }))).toBe("Changed legal name, contact");
+  });
+});
+
+describe("pipelineColumns and stageStep", () => {
+  it("groups prospects by stage, oldest first, no stage counting as first contact", () => {
+    const a = { ...client("prospect"), pipeline_stage: "proposal" as const, created_at: "2026-10-02" };
+    const b = { ...client("prospect"), pipeline_stage: null, created_at: "2026-10-03" };
+    const c = { ...client("prospect"), pipeline_stage: "proposal" as const, created_at: "2026-10-01" };
+    const cols = pipelineColumns([a, b, c, client("engaged")]);
+    expect(cols.map((x) => x.clients.length)).toEqual([1, 0, 2, 0]);
+    expect(cols[2].clients.map((x) => x.id)).toEqual([c.id, a.id]);
+  });
+  it("steps between stages and stops at either end", () => {
+    expect(stageStep("lead", 1)).toBe("discussion");
+    expect(stageStep(null, 1)).toBe("discussion");
+    expect(stageStep("lead", -1)).toBeNull();
+    expect(stageStep("agreed", 1)).toBeNull();
   });
 });

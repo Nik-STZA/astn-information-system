@@ -25,7 +25,8 @@ const TD: React.CSSProperties = { fontSize: 13, color: "var(--tx)", padding: "12
 const chip: React.CSSProperties = { display: "inline-flex", alignItems: "center", height: 22, padding: "0 8px", borderRadius: 6, fontSize: 12, background: "var(--cardhover)", color: "var(--label-text)", margin: "2px 4px 2px 0", whiteSpace: "nowrap" };
 const pastChip: React.CSSProperties = { ...chip, background: "transparent", border: "1px dashed var(--bd)", color: "var(--sub)" };
 
-function NewClient({ onDone }: { onDone: () => void }) {
+// Adding a client opens its set-up. The pipeline adds prospects only (onlyProspect).
+export function NewClient({ onDone, onlyProspect = false }: { onDone: () => void; onlyProspect?: boolean }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [status, setStatus] = useState<ClientStatus>("prospect");
@@ -48,13 +49,13 @@ function NewClient({ onDone }: { onDone: () => void }) {
         <label className={styles.label} htmlFor="new-client">Name</label>
         <input id="new-client" className={styles.select} style={{ flex: "1 1 220px" }} value={name} autoFocus
           onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) add(); }} />
-        <div className="seg" role="group" aria-label="Start as">
+        {!onlyProspect && <div className="seg" role="group" aria-label="Start as">
           {(["prospect", "engaged"] as ClientStatus[]).map((s) => (
             <button key={s} type="button" aria-pressed={status === s} className={status === s ? "seg-on" : undefined} onClick={() => setStatus(s)}>
               {s === "prospect" ? "Prospect" : "Client"}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
       <div className={styles.controls}>
         <button type="button" className="btn-primary" disabled={busy || !name.trim()} onClick={add}>{busy ? "Adding..." : "Add and set up"}</button>

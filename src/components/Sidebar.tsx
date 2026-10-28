@@ -59,6 +59,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/compliance/jurisdictions": BookOpen,
   "/clients": Building2,
   "/pipeline": Filter,
+  "/clients/pipeline": Filter,
   "/content/review": Inbox,
   "/content/briefs": FileText,
   "/content/linkedin": Share2,
@@ -144,10 +145,9 @@ export default function Sidebar({ userEmail, groups, clients }: {
   }
 
   const finance = groups.some((g) => g.module === "finance");
-  const pipeline = groups.some((g) => g.module === "compliance");
   const clientLinks = [
     ...(finance ? [{ href: "/clients/all", label: "All clients" }] : []),
-    ...(pipeline ? [{ href: "/pipeline", label: "Pipeline" }] : []),
+    ...(finance ? [{ href: "/clients/pipeline", label: "Pipeline" }] : []),
   ];
   const hrefs = useMemo(
     () => [...clientLinks.map((l) => l.href), ...groups.flatMap((g) => g.items.map((i) => i.href))],
