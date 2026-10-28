@@ -154,3 +154,24 @@ export function eventText(e: ClientEvent): string {
   const fields = Object.keys(d).map((k) => k.replace(/_/g, " "));
   return fields.length ? `Changed ${fields.join(", ")}` : "Changed";
 }
+
+// ── Pipeline ──────────────────────────────────────────────────────────────────
+
+export interface PipelineColumn {
+  stage: PipelineStage;
+  label: string;
+  clients: MasterClient[];
+}
+
+// Prospects by stage, oldest first in each column; a prospect with no stage
+// counts as First contact.
+export function pipelineColumns(list: MasterClient[]): PipelineColumn[] {
+  const prospects = list.filter((c) => c.status === "prospect").sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return STAGES.map((s) => ({ stage: s.key, label: s.label, clients: prospects.filter((c) => (c.pipeline_stage ?? "lead") === s.key) }));
+}
+
+// The stage one step back or on, or null at either end.
+export function stageStep(stage: PipelineStage | null, dir: -1 | 1): PipelineStage | null {
+  const i = STAGES.findIndex((s) => s.key === (stage ?? "lead"));
+  return STAGES[i + dir]?.key ?? null;
+}
