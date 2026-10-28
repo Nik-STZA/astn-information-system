@@ -572,7 +572,7 @@ function ProspectDetail({
               <button
                 onClick={async () => {
                   const res = await convertProspectToClient(String(prospect.id));
-                  if (!res.error) window.location.href = "/clients";
+                  if (!res.error && res.data?.id) window.location.href = `/compliance/client/${res.data.id}/records`;
                 }}
                 style={btnSecondaryStyle}
                 title="Create a linked client record carrying over company details and IR verification"

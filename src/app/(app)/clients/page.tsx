@@ -1,30 +1,8 @@
-/**
- * Clients page — server component wrapper.
- * Fetches clients from the compliance API, plus summary data for the management tabs.
- */
+import { redirect } from "next/navigation";
 
-import { fetchClients } from "@/lib/data/compliance";
-import { fetchClientManagementSummary } from "@/lib/data/client-management";
-import ClientsClient from "./ClientsClient";
-
-export default async function ClientsPage() {
-  const [clientsRes, summaryRes] = await Promise.all([
-    fetchClients(),
-    fetchClientManagementSummary(),
-  ]);
-
-  const clients = clientsRes.data?.data ?? [];
-  const summary = summaryRes.data ?? null;
-
-  if (clientsRes.error) {
-    return (
-      <div className="p-8">
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-4">
-          <strong>API error:</strong> {clientsRes.error}
-        </div>
-      </div>
-    );
-  }
-
-  return <ClientsClient initialClients={clients} summary={summary} />;
+// The old Engagements page listed data protection clients on their own. The
+// client master (/clients/all) lists every client, and each one's data
+// protection records open from its section in the sidebar (28 Oct 2026).
+export default function ClientsPage() {
+  redirect("/clients/all");
 }

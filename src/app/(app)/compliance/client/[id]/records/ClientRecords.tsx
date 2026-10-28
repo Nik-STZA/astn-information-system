@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Client, ProspectDocument, AnalysisFinding, ProspectAssessment } from "@/lib/data/compliance";
 import { fetchClientAssessmentsV2 } from "@/lib/data/compliance";
-import { getProspectDocuments, getProspectAnalysis, getProspectAssessments } from "../compliance/actions";
+import { getProspectDocuments, getProspectAnalysis, getProspectAssessments } from "../../../actions";
 import { flagUrl } from "@/lib/country-iso";
 import type {
   Engagement,
@@ -11,7 +11,6 @@ import type {
   BreachIncident,
   ComplianceTask,
   Correspondence,
-  ClientManagementSummary,
   ProcessingActivity,
   SpecialCategory,
   RemediationItem,
@@ -53,7 +52,7 @@ import {
   updateDSAR,
   deleteDSAR,
 } from "./actions";
-import { createClientAction, updateClientAction } from "./actions";
+import { updateClientAction } from "./actions";
 import ComplianceRadar from "@/components/ComplianceRadar";
 import { exportROPA } from "@/lib/export-ropa";
 
@@ -1929,7 +1928,7 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
   const TAB_ADD: Record<TabKey, string> = { engagements: "+ Engagement", pipeline: "", io: "+ Registration", breaches: "+ Breach", tasks: "+ Task", correspondence: "+ Correspondence", data_mapping: "+ Activity", special_categories: "", remediation: "", dsars: "+ DSAR" };
 
   return (
-    <div style={{ flex: 1, minWidth: 420, background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, boxShadow: "0 1px 3px rgba(26,28,30,.05)", overflow: "hidden" }}>
+    <div style={{ flex: 1, minWidth: 0, background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, boxShadow: "0 1px 3px rgba(26,28,30,.05)", overflow: "hidden" }}>
       {/* Header */}
       <div style={{ padding: "20px 24px", borderBottom: "1px solid #F0E8D8" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
@@ -2129,108 +2128,14 @@ function ClientDetail({ client, onClientUpdated }: { client: Client; onClientUpd
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export default function ClientsClient({ initialClients, summary }: { initialClients: Client[]; summary: ClientManagementSummary | null }) {
-  const [clients] = useState<Client[]>(initialClients);
-  const [selectedId, setSelectedId] = useState<string | null>(clients[0]?.id ?? null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const selected = clients.find((c) => c.id === selectedId) ?? null;
-
+// One client's data protection records. Opened from the client's own section
+// in the sidebar; clients are listed and created in the client master
+// (/clients/all), which replaced this page's own client list on 28 Oct 2026.
+export default function ClientRecords({ client }: { client: Client }) {
   return (
     <div className="page-inner" style={{ maxWidth: 1320, margin: "0 auto", padding: "32px 24px" }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#8E9196" }}>AfricanSTN · Commercial</div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-          <h1 style={{ fontFamily: "var(--font-sans)", fontSize: 26, fontWeight: 800, color: "#1A1C1E", margin: 0 }}>Clients</h1>
-          <button onClick={() => setShowAddForm(true)} style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, color: "#fff", background: "#C5A059", border: "none", borderRadius: 8, padding: "9px 18px", cursor: "pointer" }}>+ Add client</button>
-        </div>
-      </div>
-      {/* Body */}
-      <div className="r-col" style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-        {/* Sidebar */}
-        <div style={{ width: 270, flexShrink: 0 }}>
-          <div style={{ background: "#fff", border: "1px solid #E4D9C4", borderRadius: 12, overflow: "hidden" }}>
-            {clients.map((c) => {
-              const active = c.id === selectedId;
-              return (
-                <button key={c.id} onClick={() => setSelectedId(c.id)} style={{ display: "block", width: "100%", textAlign: "left", border: "none", borderBottom: "1px solid #F0E8D8", padding: "14px 16px", cursor: "pointer", background: active ? "#FAF6EE" : "#fff", borderLeft: active ? "3px solid #C5A059" : "3px solid transparent" }}>
-                  <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: active ? 800 : 600, color: "#1A1C1E", lineHeight: 1.3 }}>{c.company_name}</div>
-                  <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, fontWeight: 500, color: "#8E9196", marginTop: 2 }}>{c.company_country ?? "—"}</div>
-                </button>
-              );
-            })}
-            {clients.length === 0 && <div style={{ padding: "24px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "#8E9196", textAlign: "center" }}>No clients yet</div>}
-          </div>
-        </div>
-        {/* Detail */}
-        {selected ? <ClientDetail client={selected} onClientUpdated={() => window.location.reload()} /> : <div style={{ flex: 1, padding: "60px 20px", textAlign: "center", fontFamily: "var(--font-sans)", fontSize: 14, color: "#8E9196" }}>Select a client</div>}
-      </div>
-      {showAddForm && <AddClientModal onClose={() => setShowAddForm(false)} />}
+      <ClientDetail client={client} onClientUpdated={() => window.location.reload()} />
     </div>
-  );
-}
-
-// ─── Add client modal ────────────────────────────────────────────────────────
-
-function AddClientModal({ onClose }: { onClose: () => void }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSaving(true); setError(null);
-    const fd = new FormData(e.currentTarget);
-    const payload: Record<string, unknown> = {
-      company_name: fd.get("company_name") as string,
-      company_website: (fd.get("company_website") as string) || null,
-      company_country: (fd.get("company_country") as string) || null,
-      contact_name: (fd.get("contact_name") as string) || null,
-      contact_email: (fd.get("contact_email") as string) || null,
-      contact_role: (fd.get("contact_role") as string) || null,
-      status: (fd.get("status") as string) || "prospect",
-      service_tier: (fd.get("service_tier") as string) || null,
-      annual_fee_gbp: fd.get("annual_fee_gbp") ? Number(fd.get("annual_fee_gbp")) : null,
-      notes: (fd.get("notes") as string) || null,
-    };
-    const res = await createClientAction(payload);
-    setSaving(false);
-    if (res.error) { setError(res.error); return; }
-    window.location.reload();
-  }
-
-  return (
-    <ModalBackdrop onClose={onClose}>
-      <h2 style={{ fontFamily: "var(--font-sans)", fontSize: 18, fontWeight: 800, color: "#1A1C1E", margin: "0 0 20px" }}>Add client</h2>
-      {error && <div style={{ background: "#FEE", border: "1px solid #CC0000", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontFamily: "var(--font-sans)", fontSize: 12, color: "#CC0000" }}>{error}</div>}
-      <form onSubmit={handleSubmit}>
-        <div className="r-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
-          <div><label style={labelStyle}>Company name *</label><input name="company_name" required style={inputStyle} /></div>
-          <div><label style={labelStyle}>Website</label><input name="company_website" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Country</label><input name="company_country" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Contact name</label><input name="contact_name" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Contact email</label><input name="contact_email" type="email" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Contact role</label><input name="contact_role" style={inputStyle} /></div>
-          <div>
-            <label style={labelStyle}>Status</label>
-            <select name="status" defaultValue="prospect" style={inputStyle}>
-              <option value="prospect">Prospect</option><option value="onboarding">Onboarding</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="churned">Churned</option>
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Service tier</label>
-            <select name="service_tier" defaultValue="" style={inputStyle}>
-              <option value="">—</option><option value="representative">Representative</option><option value="authorised_io">Authorised IO</option><option value="full_service">Full service</option>
-            </select>
-          </div>
-          <div><label style={labelStyle}>Annual fee (GBP)</label><input name="annual_fee_gbp" type="number" step="0.01" style={inputStyle} /></div>
-          <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Notes</label><textarea name="notes" rows={3} style={{ ...inputStyle, resize: "vertical" }} /></div>
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
-          <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : "Add client"}</button>
-        </div>
-      </form>
-    </ModalBackdrop>
   );
 }
 

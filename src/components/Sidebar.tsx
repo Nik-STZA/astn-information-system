@@ -16,7 +16,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BadgeCheck, BookOpen, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
-  Filter, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
+  Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
   PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon,
 } from "lucide-react";
@@ -40,7 +40,11 @@ function servicePages(c: SidebarClient, service: string): Leaf[] {
   const slug = encodeURIComponent(c.slug);
   if (service === "finance") return CLIENT_FINANCE.map((t) => ({ href: `/finance/clients/${slug}/${t.seg}`, label: t.label, icon: t.icon, seg: t.seg }));
   if (service === "data_protection" && c.complianceId) {
-    return [{ href: `/compliance/client/${encodeURIComponent(c.complianceId)}`, label: "Workspace", icon: ClipboardPen }];
+    const base = `/compliance/client/${encodeURIComponent(c.complianceId)}`;
+    return [
+      { href: `${base}/records`, label: "Records", icon: FolderOpen },
+      { href: base, label: "Remediation", icon: ClipboardPen },
+    ];
   }
   return [];
 }

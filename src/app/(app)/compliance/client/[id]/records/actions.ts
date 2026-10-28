@@ -5,7 +5,7 @@ import type {
   ComplianceTask, Correspondence,
 } from "@/lib/data/client-management";
 import * as cm from "@/lib/data/client-management";
-import { createClient, updateClient, type Client } from "@/lib/data/compliance";
+import { updateClient, type Client } from "@/lib/data/compliance";
 import { revalidatePath } from "next/cache";
 
 // ─── Engagement actions ─────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ export async function addEngagement(clientId: string, formData: FormData) {
     notes: (formData.get("notes") as string) || null,
   };
   const res = await cm.createEngagement(clientId, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -49,13 +49,13 @@ export async function editEngagement(id: string, formData: FormData) {
     data.annual_fee_zar = v ? Number(v) : null;
   }
   const res = await cm.updateEngagement(id, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
 export async function removeEngagement(id: string) {
   const res = await cm.deleteEngagement(id);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -77,7 +77,7 @@ export async function addRegistration(clientId: string, formData: FormData) {
     notes: (formData.get("notes") as string) || null,
   };
   const res = await cm.createRegistration(clientId, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -93,13 +93,13 @@ export async function editRegistration(id: string, formData: FormData) {
     if (v !== null && v !== "") data[f] = v;
   }
   const res = await cm.updateRegistration(id, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
 export async function removeRegistration(id: string) {
   const res = await cm.deleteRegistration(id);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -121,7 +121,7 @@ export async function addBreach(clientId: string, formData: FormData) {
     remediation_notes: (formData.get("remediation_notes") as string) || null,
   };
   const res = await cm.createBreach(clientId, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -143,13 +143,13 @@ export async function editBreach(id: string, formData: FormData) {
     data.data_subjects_affected = v ? Number(v) : null;
   }
   const res = await cm.updateBreach(id, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
 export async function removeBreach(id: string) {
   const res = await cm.deleteBreach(id);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -165,7 +165,7 @@ export async function addTask(clientId: string, formData: FormData) {
     assigned_to: (formData.get("assigned_to") as string) || null,
   };
   const res = await cm.createTask(clientId, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -179,13 +179,13 @@ export async function editTask(id: string, formData: FormData) {
     if (v !== null && v !== "") data[f] = v;
   }
   const res = await cm.updateTask(id, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
 export async function removeTask(id: string) {
   const res = await cm.deleteTask(id);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -205,7 +205,7 @@ export async function addCorrespondence(clientId: string, formData: FormData) {
     notes: (formData.get("notes") as string) || null,
   };
   const res = await cm.createCorrespondence(clientId, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -220,13 +220,13 @@ export async function editCorrespondence(id: string, formData: FormData) {
     if (v !== null && v !== "") data[f] = v;
   }
   const res = await cm.updateCorrespondence(id, data);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
 export async function removeCorrespondence(id: string) {
   const res = await cm.deleteCorrespondence(id);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
@@ -236,24 +236,18 @@ export async function removeCorrespondence(id: string) {
 // a client component sends the request from the browser without the API key
 // and gets a 401.
 
-export async function createClientAction(payload: Partial<Client>) {
-  const res = await createClient(payload);
-  revalidatePath("/clients");
-  return res;
-}
-
 export async function updateClientAction(id: string, payload: Partial<Client>) {
   const res = await updateClient(id, payload);
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
 // ─── Workspace passthrough actions ─────────────────────────────────────────
-// ClientsClient (a client component) previously imported these straight from
+// ClientRecords (a client component) previously imported these straight from
 // lib/data/client-management, which made every call run in the browser where
 // CLOUD_RUN_API_KEY doesn't exist → 401 on every tab. Same names, same
 // signatures, but executed server-side. Reads are plain passthroughs;
-// mutations also revalidate /clients.
+// mutations also revalidate the records page.
 
 export async function fetchEngagements(...a: Parameters<typeof cm.fetchEngagements>) { return cm.fetchEngagements(...a); }
 export async function fetchRegistrations(...a: Parameters<typeof cm.fetchRegistrations>) { return cm.fetchRegistrations(...a); }
@@ -267,7 +261,7 @@ export async function fetchDSARs(...a: Parameters<typeof cm.fetchDSARs>) { retur
 
 async function mutate<T>(fn: () => Promise<T>): Promise<T> {
   const res = await fn();
-  revalidatePath("/clients");
+  revalidatePath("/compliance/client/[id]/records", "page");
   return res;
 }
 
