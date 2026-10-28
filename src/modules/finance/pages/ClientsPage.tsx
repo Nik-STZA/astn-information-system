@@ -6,37 +6,16 @@
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
 import { fetchFinanceClients, type FinanceClientSummary } from "@/modules/finance/lib/api";
+import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
 function Count({ n, label, urgent }: { n: number; label: string; urgent?: boolean }) {
-  const colour = urgent && n > 0 ? "var(--alert-red)" : "var(--tx)";
+  const colour = n === 0 ? "var(--sub)" : urgent ? "var(--alert-red)" : "var(--tx)";
   return (
-    <div style={{ minWidth: 72 }}>
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontWeight: 800,
-          fontSize: 20,
-          lineHeight: 1.1,
-          color: n === 0 ? "var(--sub)" : colour,
-        }}
-      >
-        {n}
-      </div>
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: ".06em",
-          textTransform: "uppercase",
-          color: "var(--sub)",
-          marginTop: 2,
-        }}
-      >
-        {label}
-      </div>
+    <div className={styles.count}>
+      <div className={styles.countN} style={{ color: colour }}>{n}</div>
+      <div className={styles.countLabel}>{label}</div>
     </div>
   );
 }
@@ -45,46 +24,19 @@ function ClientRow({ client }: { client: FinanceClientSummary }) {
   return (
     <Link
       href={`/finance/clients/${client.slug}/open-items`}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 20,
-        flexWrap: "wrap",
-        background: "var(--pnl)",
-        border: "1px solid var(--bd)",
-        borderRadius: 10,
-        padding: "18px 20px",
-        marginBottom: 12,
-        textDecoration: "none",
-      }}
+      className={`${styles.card} ${styles.tile}`}
+      style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16 }}
     >
-      <div>
-        <div
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: 16,
-            fontWeight: 800,
-            color: "var(--tx)",
-          }}
-        >
-          {client.name}
-        </div>
-        <div
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: 12,
-            color: "var(--sub)",
-            marginTop: 3,
-          }}
-        >
+      <div style={{ minWidth: 0 }}>
+        <div className={styles.tileTitle}>{client.name}</div>
+        <div className={styles.small} style={{ marginTop: 2 }}>
           {[client.jurisdiction, client.framework, client.reporting_currency]
             .filter(Boolean)
             .join(" · ")}
           {client.close_cadence ? ` · ${client.close_cadence} close` : ""}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 26, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", gap: 20 }}>
         <Count n={client.p1_count} label="P1 open" urgent />
         <Count n={client.open_item_count} label="Open items" />
       </div>
@@ -107,41 +59,21 @@ export default async function ClientsPage() {
       <PageHeader title="Clients" sub="Every client, its companies and how each one connects to Xero." />
 
       {error && (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 8,
-            border: "1px solid var(--warning-amber)",
-            color: "var(--warning-amber)",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-            marginBottom: 18,
-          }}
-        >
+        <div className={styles.error} role="alert" style={{ marginBottom: 16 }}>
+          <div className={styles.errorTitle}>Could not load clients</div>
           {error}
         </div>
       )}
 
       {!error && clients.length === 0 && (
-        <div
-          style={{
-            padding: 28,
-            textAlign: "center",
-            border: "1px dashed var(--empty-border)",
-            borderRadius: 10,
-            background: "var(--empty-bg)",
-            color: "var(--empty-text)",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-          }}
-        >
-          No finance clients yet.
-        </div>
+        <div className={`${styles.card} ${styles.empty} ${styles.wide}`}>No finance clients yet.</div>
       )}
 
-      {clients.map((c) => (
-        <ClientRow key={c.id} client={c} />
-      ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980 }}>
+        {clients.map((c) => (
+          <ClientRow key={c.id} client={c} />
+        ))}
+      </div>
     </div>
   );
 }

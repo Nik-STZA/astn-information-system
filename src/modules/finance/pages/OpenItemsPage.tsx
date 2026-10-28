@@ -5,81 +5,45 @@
 // board or exec-visible output without anonymising (Feldspar CLAUDE.md rule 8).
 
 import Link from "next/link";
+import { SquareKanban } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
 import { fetchOpenItems, type OpenItemRow } from "@/modules/finance/lib/api";
 import { isDoneStatus } from "@/modules/finance/lib/parse-open-items";
 import NoteThread from "@/modules/finance/components/NoteThread";
+import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
-const PRIORITY_COLOUR: Record<string, string> = {
-  P1: "var(--alert-red)",
-  P2: "var(--warning-amber)",
-  P3: "var(--sub)",
+const PRIORITY_TONE: Record<string, string> = {
+  P1: "s-red",
+  P2: "s-amber",
+  P3: "s-neutral",
 };
-
-function Pill({ text, colour }: { text: string; colour: string }) {
-  return (
-    <span
-      style={{
-        fontFamily: "var(--font-sans)",
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: ".04em",
-        padding: "3px 6px",
-        borderRadius: 4,
-        border: `1px solid ${colour}`,
-        color: colour,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {text}
-    </span>
-  );
-}
 
 function Row({ item, slug }: { item: OpenItemRow; slug: string }) {
   return (
-    <div
-      className="r-row"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "46px 1fr 150px 110px 96px",
-        gap: 12,
-        alignItems: "start",
-        padding: "12px 0",
-        borderTop: "1px solid var(--bd)",
-        fontFamily: "var(--font-sans)",
-        fontSize: 13,
-        color: "var(--tx)",
-      }}
-    >
-      <div style={{ fontWeight: 700, color: "var(--sub)" }}>{item.ref}</div>
-      <div style={{ lineHeight: 1.5 }}>
+    <div className={styles.itemRow}>
+      <div className={styles.ref}>{item.ref}</div>
+      <div style={{ color: "var(--tx)", minWidth: 0 }}>
         {item.title}
         {item.resolution && (
-          <div style={{ marginTop: 5, fontSize: 12, color: "var(--sub)", lineHeight: 1.5 }}>
-            {item.resolution}
+          <div className={styles.small} style={{ marginTop: 4 }}>{item.resolution}</div>
+        )}
+      </div>
+      <div className={styles.itemSide}>
+        <div className={styles.small}>{item.status ?? "-"}</div>
+        <div className={styles.small}>{item.owner_label ?? "-"}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {item.priority && (
+              <span className={`${styles.status} ${styles[PRIORITY_TONE[item.priority] ?? "s-neutral"]}`}>
+                {item.priority}
+              </span>
+            )}
+            <span className={styles.small}>{item.closed_at ?? item.last_update_at ?? item.raised_at ?? ""}</span>
           </div>
-        )}
-      </div>
-      <div style={{ fontSize: 12, color: "var(--sub)", lineHeight: 1.45 }}>
-        {item.status ?? "-"}
-      </div>
-      <div style={{ fontSize: 12, color: "var(--sub)" }}>{item.owner_label ?? "-"}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: "flex-start" }}>
-        {item.priority && (
-          <Pill text={item.priority} colour={PRIORITY_COLOUR[item.priority] ?? "var(--sub)"} />
-        )}
-        <span style={{ fontSize: 11, color: "var(--sub)" }}>
-          {item.closed_at ?? item.last_update_at ?? item.raised_at ?? ""}
-        </span>
-        <NoteThread
-          slug={slug}
-          targetType="open_item"
-          targetId={item.id}
-          initialCount={item.note_count ?? 0}
-        />
+          <NoteThread slug={slug} targetType="open_item" targetId={item.id} initialCount={item.note_count ?? 0} />
+        </div>
       </div>
     </div>
   );
@@ -88,24 +52,17 @@ function Row({ item, slug }: { item: OpenItemRow; slug: string }) {
 function Group({ title, items, slug }: { title: string; items: OpenItemRow[]; slug: string }) {
   if (items.length === 0) return null;
   return (
-    <div style={{ marginBottom: 28 }}>
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: ".08em",
-          textTransform: "uppercase",
-          color: "var(--sub)",
-          marginBottom: 4,
-        }}
-      >
-        {title} ({items.length})
+    <>
+      <div className={styles.listHead}>
+        <h2>{title}</h2>
+        <span className={styles.updating}>{items.length}</span>
       </div>
-      {items.map((i) => (
-        <Row key={i.id} item={i} slug={slug} />
-      ))}
-    </div>
+      <section className={`${styles.card} ${styles.wide}`} aria-label={title}>
+        {items.map((i) => (
+          <Row key={i.id} item={i} slug={slug} />
+        ))}
+      </section>
+    </>
   );
 }
 
@@ -131,19 +88,16 @@ export default async function OpenItemsPage({
     <div>
       <PageHeader title="Open items" sub="The old open-items register, kept as an archive. Open items now live in Work." />
       {/* Work is the master for open items (Nik, 27 Oct 2026); this is the register as it stood. */}
-      <div className="card" style={{ padding: "14px 16px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 14 }}>Open items now live in <strong>Work</strong>, where you can add, change, block and close them. This page is the register as it stood, kept as an archive.</span>
-        <Link href={`/finance/clients/${params.slug}/work`} className="btn-primary">Open Work</Link>
+      <div className={`${styles.card} ${styles.pad} ${styles.wide}`} style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <span style={{ fontSize: 13, lineHeight: 1.55, flex: "1 1 280px" }}>
+          Open items now live in <strong>Work</strong>, where you can add, change, block and close them. This page is the register as it stood, kept as an archive.
+        </span>
+        <Link href={`/finance/clients/${params.slug}/work`} className="btn-primary">
+          <SquareKanban size={15} aria-hidden="true" />Open Work
+        </Link>
       </div>
 
-      <p
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 13,
-          color: "var(--sub)",
-          margin: "0 0 22px",
-        }}
-      >
+      <p className={styles.intro}>
         {active.length} outstanding, {doneInPlace.length} done but still listed as active,{" "}
         {closed.length} closed. Mirrored from open-items.md.
       </p>

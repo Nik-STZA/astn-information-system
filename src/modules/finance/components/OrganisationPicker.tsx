@@ -13,23 +13,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import styles from "./Page.module.css";
 
 interface Organisation {
   tenantId: string;
   tenantName: string;
 }
-
-const buttonStyle: React.CSSProperties = {
-  fontFamily: "var(--font-sans)",
-  fontSize: 11,
-  fontWeight: 600,
-  padding: "5px 9px",
-  borderRadius: 5,
-  border: "1px solid var(--bd)",
-  background: "transparent",
-  color: "var(--sub)",
-  cursor: "pointer",
-};
 
 export default function OrganisationPicker({
   slug,
@@ -93,32 +82,21 @@ export default function OrganisationPicker({
 
   if (!open) {
     return (
-      <button type="button" onClick={load} style={buttonStyle}>
+      <button type="button" onClick={load} className={styles.miniBtn}>
         {current ? "Change organisation" : "Choose organisation"}
       </button>
     );
   }
 
   return (
-    <div
-      style={{
-        border: "1px solid var(--bd)",
-        borderRadius: 8,
-        padding: "12px 14px",
-        background: "var(--pg)",
-        fontFamily: "var(--font-sans)",
-        minWidth: 280,
-      }}
-    >
-      <div style={{ fontSize: 11, color: "var(--sub)", marginBottom: 8 }}>
+    <div className={styles.card} style={{ padding: "12px 14px", background: "var(--pg)", maxWidth: 420 }}>
+      <div className={styles.small} style={{ marginBottom: 8 }}>
         Which Xero organisation is {entityName}?
       </div>
 
-      {busy && !orgs && <div style={{ fontSize: 12, color: "var(--sub)" }}>Loading…</div>}
+      {busy && !orgs && <div className={styles.small}>Loading…</div>}
 
-      {error && (
-        <div style={{ fontSize: 12, color: "var(--warning-amber)", marginBottom: 8 }}>{error}</div>
-      )}
+      {error && <div className={styles.warn} style={{ marginBottom: 8 }}>{error}</div>}
 
       {orgs?.map((o) => {
         const isCurrent = o.tenantName === current;
@@ -132,30 +110,27 @@ export default function OrganisationPicker({
               display: "block",
               width: "100%",
               textAlign: "left",
-              fontFamily: "var(--font-sans)",
-              fontSize: 12.5,
-              fontWeight: isCurrent ? 700 : 500,
-              padding: "7px 9px",
+              font: `${isCurrent ? 600 : 400} 13px var(--font-sans)`,
+              padding: "8px 10px",
               marginBottom: 4,
-              borderRadius: 5,
-              border: `1px solid ${isCurrent ? "#C5A059" : "var(--bd)"}`,
-              background: isCurrent ? "rgba(197,160,89,.12)" : "transparent",
+              borderRadius: 8,
+              border: `1px solid ${isCurrent ? "var(--brand-gold)" : "var(--bd)"}`,
+              background: isCurrent ? "var(--accent-bg)" : "var(--pnl)",
               color: "var(--tx)",
               cursor: isCurrent ? "default" : "pointer",
             }}
           >
             {o.tenantName}
-            {isCurrent && (
-              <span style={{ fontWeight: 500, color: "var(--sub)" }}> · current</span>
-            )}
+            {isCurrent && <span style={{ fontWeight: 400, color: "var(--sub)" }}> · current</span>}
           </button>
         );
       })}
 
       <button
         type="button"
+        className={styles.miniBtn}
         onClick={() => { setOpen(false); setError(null); }}
-        style={{ ...buttonStyle, marginTop: 6 }}
+        style={{ marginTop: 6 }}
       >
         Cancel
       </button>

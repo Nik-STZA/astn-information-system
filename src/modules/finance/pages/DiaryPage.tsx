@@ -6,6 +6,7 @@
 
 import PageHeader from "@/shared/ui/PageHeader";
 import { fetchDiary, type DiaryEntryRow } from "@/modules/finance/lib/api";
+import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -37,98 +38,38 @@ function Entry({ entry }: { entry: DiaryEntryRow }) {
     : null;
 
   return (
-    <article
-      style={{
-        background: "var(--pnl)",
-        border: "1px solid var(--bd)",
-        borderRadius: 10,
-        padding: "16px 18px",
-        marginBottom: 12,
-        fontFamily: "var(--font-sans)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 8,
-        }}
-      >
-        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)" }}>
+    <article className={styles.row}>
+      <div className={styles.rowHead}>
+        <span className={styles.rowTitle}>
           {formatWhen(entry)}
-          {who && (
-            <span style={{ fontWeight: 500, color: "var(--sub)" }}> · {who}</span>
-          )}
-        </div>
-        {entry.status && (
-          <div style={{ fontSize: 11, color: "var(--sub)" }}>{entry.status}</div>
-        )}
+          {who && <span style={{ fontWeight: 400, color: "var(--sub)" }}> · {who}</span>}
+        </span>
       </div>
 
-      <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tx)", whiteSpace: "pre-wrap" }}>
-        {entry.action}
-      </div>
+      <div style={{ marginTop: 6, color: "var(--tx)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{entry.action}</div>
+
+      {/* Status is free text, often a sentence, so it wraps rather than sitting in a pill. */}
+      {entry.status && (
+        <div className={styles.small} style={{ marginTop: 6, overflowWrap: "anywhere" }}>Status: {entry.status}</div>
+      )}
 
       {entry.where_path && (
-        <details style={{ marginTop: 10 }}>
-          <summary
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: ".05em",
-              textTransform: "uppercase",
-              color: "var(--sub)",
-              cursor: "pointer",
-            }}
-          >
-            Where
-          </summary>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12,
-              lineHeight: 1.6,
-              color: "var(--sub)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
+        <details style={{ marginTop: 8 }}>
+          <summary className={styles.summary}>Where</summary>
+          <div className={styles.small} style={{ marginTop: 4, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
             {entry.where_path}
           </div>
         </details>
       )}
 
       {entry.notes && (
-        <details style={{ marginTop: 8 }}>
-          <summary
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: ".05em",
-              textTransform: "uppercase",
-              color: "var(--sub)",
-              cursor: "pointer",
-            }}
-          >
-            Notes
-          </summary>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12.5,
-              lineHeight: 1.65,
-              color: "var(--tx)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {entry.notes}
-          </div>
+        <details style={{ marginTop: 6 }}>
+          <summary className={styles.summary}>Notes</summary>
+          <div style={{ marginTop: 4, color: "var(--tx)", whiteSpace: "pre-wrap" }}>{entry.notes}</div>
         </details>
       )}
 
-      <div style={{ marginTop: 10, fontSize: 10.5, color: "var(--sub)" }}>
+      <div className={styles.small} style={{ marginTop: 8, fontSize: 11, overflowWrap: "anywhere" }}>
         {entry.source_file}
         {entry.source_line ? `:${entry.source_line}` : ""}
       </div>
@@ -143,35 +84,17 @@ export default async function DiaryPage({ params }: { params: { slug: string } }
     <div>
       <PageHeader title="Diary" sub="Notes and decisions for this client, newest first." />
 
-      <p
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 13,
-          color: "var(--sub)",
-          margin: "0 0 20px",
-        }}
-      >
-        {entries.length} entries, most recent first. Mirrored from the client diary files.
+      <p className={styles.intro}>
+        {entries.length.toLocaleString("en-GB")} entries, mirrored from the client diary files.
       </p>
 
-      {entries.length === 0 ? (
-        <div
-          style={{
-            padding: 28,
-            textAlign: "center",
-            border: "1px dashed var(--empty-border)",
-            borderRadius: 10,
-            background: "var(--empty-bg)",
-            color: "var(--empty-text)",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-          }}
-        >
-          No diary entries mirrored yet.
-        </div>
-      ) : (
-        entries.map((e) => <Entry key={e.id} entry={e} />)
-      )}
+      <section className={`${styles.card} ${styles.wide}`} aria-label="Diary entries">
+        {entries.length === 0 ? (
+          <div className={styles.empty}>No diary entries mirrored yet.</div>
+        ) : (
+          entries.map((e) => <Entry key={e.id} entry={e} />)
+        )}
+      </section>
     </div>
   );
 }
