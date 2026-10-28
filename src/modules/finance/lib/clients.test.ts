@@ -41,6 +41,8 @@ describe("eventText", () => {
   const e = (action: string, detail: Record<string, unknown>) => ({ action, detail, actor_email: "jo@example.com", at: "" });
   it("puts each change in words", () => {
     expect(eventText(e("created", {}))).toBe("Added");
+    expect(eventText(e("created", { from: "data protection client list" }))).toBe("Added from the data protection client list");
+    expect(eventText(e("linked", { data_protection_record: "Jo Bloggs Ltd" }))).toBe("Linked to its data protection record");
     expect(eventText(e("status", { status: { from: "prospect", to: "engaged" } }))).toBe("Status: Prospect to Client");
     expect(eventText(e("updated", { pipeline_stage: { from: "lead", to: "proposal" } }))).toBe("Stage: Proposal sent");
     expect(eventText(e("service", { service: "data_protection", from: "active", to: "completed" }))).toBe("Data protection: active to completed");
