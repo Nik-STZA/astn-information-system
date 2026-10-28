@@ -13,46 +13,12 @@
 // Applies to any future integration screen, not just Xero.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Copy, Eye, EyeOff } from "lucide-react";
+import styles from "./Page.module.css";
 
 const REVEAL_MS = 10_000;
 
 type Field = "client_id" | "client_secret" | "refresh_token";
-
-function EyeIcon({ off }: { off: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
-      <circle cx="12" cy="12" r="3" />
-      {off && <line x1="3" y1="21" x2="21" y2="3" />}
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="9" y="9" width="12" height="12" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-const buttonStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 5,
-  fontFamily: "var(--font-sans)",
-  fontSize: 11,
-  fontWeight: 600,
-  padding: "5px 8px",
-  borderRadius: 5,
-  border: "1px solid var(--bd)",
-  background: "transparent",
-  color: "var(--sub)",
-  cursor: "pointer",
-};
 
 export default function SensitiveField({
   label,
@@ -143,60 +109,49 @@ export default function SensitiveField({
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        flexWrap: "wrap",
-        padding: "10px 0",
-        borderTop: "1px solid var(--bd)",
-        fontFamily: "var(--font-sans)",
-      }}
-    >
-      <div style={{ width: 150, fontSize: 12, color: "var(--sub)", flexShrink: 0 }}>
-        {label}
-      </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid var(--bd)" }}>
+      <div className={styles.label} style={{ width: 130, flexShrink: 0 }}>{label}</div>
 
       <code
         style={{
-          flex: 1,
-          minWidth: 200,
+          flex: "1 1 180px",
+          minWidth: 0,
           fontSize: 12,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
           color: value ? "var(--tx)" : "var(--sub)",
-          overflowWrap: "anywhere",
+          // The mask is decoration: clip it rather than wrap a stray dot onto a second line.
+          ...(value ? { overflowWrap: "anywhere" } : { whiteSpace: "nowrap", overflow: "hidden" }),
         }}
       >
-        {value ?? (available ? "•".repeat(28) : "not set")}
+        {value ?? (available ? "•".repeat(20) : "Not set")}
       </code>
 
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <button
           type="button"
+          className={styles.miniBtn}
           onClick={onReveal}
           disabled={!available || busy}
-          style={{ ...buttonStyle, opacity: available ? 1 : 0.45 }}
+          style={{ gap: 5, opacity: available ? 1 : 0.45 }}
           title={value ? "Hide now" : "Reveal for 10 seconds"}
         >
-          <EyeIcon off={!!value} />
+          {value ? <EyeOff size={13} aria-hidden="true" /> : <Eye size={13} aria-hidden="true" />}
           {value ? `Hide (${remaining})` : "Reveal"}
         </button>
 
         <button
           type="button"
+          className={styles.miniBtn}
           onClick={onCopy}
           disabled={!available || busy}
-          style={{ ...buttonStyle, opacity: available ? 1 : 0.45 }}
+          style={{ gap: 5, opacity: available ? 1 : 0.45 }}
           title="Copy without displaying"
         >
-          <CopyIcon />
+          <Copy size={13} aria-hidden="true" />
           Copy
         </button>
 
-        {note && (
-          <span style={{ fontSize: 11, color: "var(--sub)" }}>{note}</span>
-        )}
+        {note && <span className={styles.small}>{note}</span>}
       </div>
     </div>
   );

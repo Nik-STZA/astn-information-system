@@ -29,7 +29,7 @@ function inlineFormat(text: string): ReactNode[] {
             fontSize: "0.9em",
             padding: "1px 5px",
             borderRadius: 3,
-            background: "rgba(197,160,89,.08)",
+            background: "var(--pg)",
             border: "1px solid var(--bd)",
           }}
         >
@@ -48,18 +48,17 @@ function inlineFormat(text: string): ReactNode[] {
 const TABLE_STYLE: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  fontSize: 12,
+  fontSize: 13,
   margin: "6px 0 10px",
+  fontVariantNumeric: "tabular-nums",
 };
 const TH_STYLE: CSSProperties = {
   textAlign: "left",
   padding: "6px 10px",
-  borderBottom: "2px solid var(--bd)",
+  borderBottom: "1px solid var(--bd)",
   color: "var(--sub)",
-  fontWeight: 700,
-  fontSize: 10.5,
-  letterSpacing: ".03em",
-  textTransform: "uppercase",
+  fontWeight: 500,
+  fontSize: 12,
 };
 const TD_STYLE: CSSProperties = {
   padding: "5px 10px",
@@ -162,10 +161,10 @@ export default function MarkdownOutput({ text }: { text: string }) {
     if (headerMatch) {
       const level = headerMatch[1].length;
       const sizes: Record<number, CSSProperties> = {
-        1: { fontSize: 16, fontWeight: 700, marginTop: 14, marginBottom: 6 },
-        2: { fontSize: 14, fontWeight: 700, marginTop: 12, marginBottom: 5 },
-        3: { fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4, color: "var(--sub)" },
-        4: { fontSize: 11.5, fontWeight: 600, marginTop: 8, marginBottom: 3, color: "var(--sub)" },
+        1: { fontSize: 16, fontWeight: 600, marginTop: 14, marginBottom: 6 },
+        2: { fontSize: 14, fontWeight: 600, marginTop: 12, marginBottom: 5 },
+        3: { fontSize: 13, fontWeight: 600, marginTop: 10, marginBottom: 4 },
+        4: { fontSize: 12, fontWeight: 600, marginTop: 8, marginBottom: 3, color: "var(--sub)" },
       };
       elements.push(
         <div key={`h-${i}`} style={{ color: "var(--tx)", ...sizes[level] }}>
@@ -186,7 +185,7 @@ export default function MarkdownOutput({ text }: { text: string }) {
       elements.push(
         <ul key={`ul-${i}`} style={{ margin: "4px 0 8px", paddingLeft: 20 }}>
           {items.map((item, j) => (
-            <li key={j} style={{ marginBottom: 3, color: "var(--tx)", fontSize: 12.5, lineHeight: 1.5 }}>
+            <li key={j} style={{ marginBottom: 3, color: "var(--tx)", fontSize: 13, lineHeight: 1.5 }}>
               {inlineFormat(item)}
             </li>
           ))}
@@ -205,7 +204,7 @@ export default function MarkdownOutput({ text }: { text: string }) {
       elements.push(
         <ol key={`ol-${i}`} style={{ margin: "4px 0 8px", paddingLeft: 20 }}>
           {items.map((item, j) => (
-            <li key={j} style={{ marginBottom: 3, color: "var(--tx)", fontSize: 12.5, lineHeight: 1.5 }}>
+            <li key={j} style={{ marginBottom: 3, color: "var(--tx)", fontSize: 13, lineHeight: 1.5 }}>
               {inlineFormat(item)}
             </li>
           ))}
@@ -237,7 +236,7 @@ export default function MarkdownOutput({ text }: { text: string }) {
     }
     if (paraLines.length) {
       elements.push(
-        <p key={`p-${i}`} style={{ margin: "4px 0 8px", color: "var(--tx)", fontSize: 12.5, lineHeight: 1.55 }}>
+        <p key={`p-${i}`} style={{ margin: "4px 0 8px", color: "var(--tx)", fontSize: 13, lineHeight: 1.55 }}>
           {inlineFormat(paraLines.join(" "))}
         </p>
       );

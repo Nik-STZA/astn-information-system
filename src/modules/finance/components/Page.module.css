@@ -73,3 +73,28 @@
 .tileTitle { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
 .tileTitle svg { color: var(--sub); }
 .tileText { font-size: 13px; line-height: 1.55; color: var(--sub); margin: 0; }
+
+/* Good-news banner (Xero connected) */
+.ok { padding: 12px 14px; border-radius: 10px; background: #E7F5EC; color: #166534; font-size: 13px; line-height: 1.5; max-width: 760px; }
+:global([data-theme="dark"]) .ok { background: #052E16; color: #BBF7D0; }
+@media (prefers-color-scheme: dark) { :global([data-theme="auto"]) .ok { background: #052E16; color: #BBF7D0; } }
+
+/* Label and value pairs (Xero) */
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.metaLabel { font-size: 12px; color: var(--sub); }
+.metaValue { font-size: 13px; color: var(--tx); margin-top: 2px; overflow-wrap: anywhere; }
+
+/* Count pair (Clients) */
+.count { min-width: 72px; }
+.countN { font-size: 20px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.countLabel { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+/* Stacked rows that turn into a grid on wider screens (Open items) */
+.itemRow { display: grid; grid-template-columns: 36px 1fr; gap: 6px 12px; padding: 12px 16px; border-bottom: 1px solid var(--bd); font-size: 13px; line-height: 1.5; }
+.itemRow:last-child { border-bottom: 0; }
+.itemSide { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (min-width: 760px) {
+  .itemRow { grid-template-columns: 52px 1fr 160px 120px 110px; }
+  .itemSide { display: contents; }
+}
+.ref { font-weight: 600; color: var(--sub); font-variant-numeric: tabular-nums; }

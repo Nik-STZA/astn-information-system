@@ -4,37 +4,29 @@
 // pattern in brief section 8.3. Status is derived from whether a secret exists,
 // never by reading its value.
 
+import { Link2 } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
 import SensitiveField from "@/modules/finance/components/SensitiveField";
 import OrganisationPicker from "@/modules/finance/components/OrganisationPicker";
 import { fetchXeroStatus, type XeroConnection } from "@/modules/finance/lib/secrets";
+import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
-function StatusDot({ connected }: { connected: boolean }) {
+// Stored as ISO timestamps; shown as "16 October 2026, 16:30" (UK time).
+function fmtWhen(iso: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
+  return `${day}, ${time}`;
+}
+
+function Status({ connected }: { connected: boolean }) {
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        fontFamily: "var(--font-sans)",
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: ".04em",
-        textTransform: "uppercase",
-        color: connected ? "var(--success-green)" : "var(--sub)",
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: connected ? "var(--success-green)" : "transparent",
-          border: connected ? "none" : "1px solid var(--sub)",
-        }}
-      />
+    <span className={`${styles.status} ${styles[connected ? "s-green" : "s-neutral"]}`}>
+      <span className={styles.dot} />
       {connected ? "Connected" : "Not connected"}
     </span>
   );
@@ -43,29 +35,8 @@ function StatusDot({ connected }: { connected: boolean }) {
 function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: ".07em",
-          textTransform: "uppercase",
-          color: "var(--sub)",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: 12.5,
-          color: "var(--tx)",
-          marginTop: 2,
-          overflowWrap: "anywhere",
-        }}
-      >
-        {value}
-      </div>
+      <div className={styles.metaLabel}>{label}</div>
+      <div className={styles.metaValue}>{value}</div>
     </div>
   );
 }
@@ -74,19 +45,9 @@ function ConnectButton({ slug, conn }: { slug: string; conn: XeroConnection }) {
   return (
     <a
       href={`/api/finance/${encodeURIComponent(slug)}/xero/${encodeURIComponent(conn.slug)}/connect`}
-      style={{
-        fontFamily: "var(--font-sans)",
-        fontSize: 12,
-        fontWeight: 700,
-        padding: "7px 14px",
-        borderRadius: 6,
-        textDecoration: "none",
-        whiteSpace: "nowrap",
-        color: conn.connected ? "var(--sub)" : "#141414",
-        background: conn.connected ? "transparent" : "#C5A059",
-        border: conn.connected ? "1px solid var(--bd)" : "1px solid #C5A059",
-      }}
+      className={conn.connected ? "btn-secondary" : "btn-primary"}
     >
+      <Link2 size={15} aria-hidden="true" />
       {conn.connected ? "Reconnect" : "Connect to Xero"}
     </a>
   );
@@ -94,119 +55,44 @@ function ConnectButton({ slug, conn }: { slug: string; conn: XeroConnection }) {
 
 function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
   return (
-    <section
-      style={{
-        background: "var(--pnl)",
-        border: "1px solid var(--bd)",
-        borderRadius: 10,
-        padding: "16px 18px",
-        marginBottom: 14,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 12,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontFamily: "var(--font-sans)",
-              fontSize: 15,
-              fontWeight: 800,
-              color: "var(--tx)",
-            }}
-          >
+    <section className={styles.card} aria-label={conn.name}>
+      <div className={styles.cardHead} style={{ flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <h2>
             {conn.name}
-            {conn.role && (
-              <span style={{ fontWeight: 500, fontSize: 12, color: "var(--sub)" }}>
-                {" "}
-                · {conn.role}
-              </span>
-            )}
-          </div>
-          {conn.legalName && (
-            <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--sub)" }}>
-              {conn.legalName}
-            </div>
-          )}
+            {conn.role && <span style={{ fontWeight: 400, color: "var(--sub)" }}> · {conn.role}</span>}
+          </h2>
+          {conn.legalName && <div className={styles.small}>{conn.legalName}</div>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <StatusDot connected={conn.connected} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Status connected={conn.connected} />
           <ConnectButton slug={slug} conn={conn} />
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-          gap: 12,
-          marginBottom: 6,
-        }}
-      >
-        <Meta label="Xero organisation" value={conn.tenantName ?? "not set"} />
-        <Meta label="Tenant id" value={conn.tenantId ? "recorded" : "not recorded"} />
-        <Meta label="Pipeline config" value={conn.configName ?? "-"} />
-        <Meta label="Connected" value={conn.connectedAt ?? "-"} />
-        <Meta label="Last refreshed" value={conn.lastRefreshedAt ?? "-"} />
-      </div>
+      <div style={{ padding: "12px 16px" }}>
+        <div className={styles.meta}>
+          <Meta label="Xero organisation" value={conn.tenantName ?? "Not set"} />
+          <Meta label="Tenant id" value={conn.tenantId ? "Recorded" : "Not recorded"} />
+          <Meta label="Pipeline config" value={conn.configName ?? "-"} />
+          <Meta label="Connected" value={fmtWhen(conn.connectedAt)} />
+          <Meta label="Last refreshed" value={fmtWhen(conn.lastRefreshedAt)} />
+        </div>
 
-      <div style={{ margin: "12px 0 4px" }}>
-        <OrganisationPicker
-          slug={slug}
-          entity={conn.slug}
-          entityName={conn.name}
-          current={conn.tenantName}
-        />
-      </div>
+        <div style={{ margin: "12px 0 8px" }}>
+          <OrganisationPicker
+            slug={slug}
+            entity={conn.slug}
+            entityName={conn.name}
+            current={conn.tenantName}
+          />
+        </div>
 
-      <SensitiveField
-        label="Client id"
-        slug={slug}
-        entity={conn.slug}
-        field="client_id"
-        available={conn.connected}
-      />
-      <SensitiveField
-        label="Client secret"
-        slug={slug}
-        entity={conn.slug}
-        field="client_secret"
-        available={conn.connected}
-      />
-      <SensitiveField
-        label="Refresh token"
-        slug={slug}
-        entity={conn.slug}
-        field="refresh_token"
-        available={conn.connected}
-      />
+        <SensitiveField label="Client id" slug={slug} entity={conn.slug} field="client_id" available={conn.connected} />
+        <SensitiveField label="Client secret" slug={slug} entity={conn.slug} field="client_secret" available={conn.connected} />
+        <SensitiveField label="Refresh token" slug={slug} entity={conn.slug} field="refresh_token" available={conn.connected} />
+      </div>
     </section>
-  );
-}
-
-function Banner({ tone, children }: { tone: "good" | "bad"; children: React.ReactNode }) {
-  const colour = tone === "good" ? "var(--success-green)" : "var(--warning-amber)";
-  return (
-    <div
-      style={{
-        padding: "12px 14px",
-        borderRadius: 8,
-        border: `1px solid ${colour}`,
-        color: colour,
-        fontFamily: "var(--font-sans)",
-        fontSize: 13,
-        marginBottom: 18,
-      }}
-    >
-      {children}
-    </div>
   );
 }
 
@@ -224,49 +110,34 @@ export default async function XeroPage({
       <PageHeader title="Xero connections" sub="Which Xero organisation each company uses, and whether the connection is live." />
 
       {searchParams?.connected && (
-        <Banner tone="good">Connected to {searchParams.connected}.</Banner>
+        <div className={styles.ok} role="status" style={{ marginBottom: 16 }}>
+          Connected to {searchParams.connected}.
+        </div>
       )}
-      {searchParams?.error && <Banner tone="bad">{searchParams.error}</Banner>}
+      {searchParams?.error && (
+        <div className={styles.error} role="alert" style={{ marginBottom: 16 }}>{searchParams.error}</div>
+      )}
 
       {status.error && (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 8,
-            border: "1px solid var(--warning-amber)",
-            color: "var(--warning-amber)",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-            marginBottom: 18,
-          }}
-        >
+        <div className={styles.error} role="alert" style={{ marginBottom: 16 }}>
+          <div className={styles.errorTitle}>Could not read the connections</div>
           {status.error}
         </div>
       )}
 
       {!status.appConfigured && !status.error && (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 8,
-            border: "1px dashed var(--empty-border)",
-            background: "var(--empty-bg)",
-            color: "var(--sub)",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-            lineHeight: 1.6,
-            marginBottom: 18,
-          }}
-        >
+        <div className={`${styles.card} ${styles.pad} ${styles.narrow}`} style={{ fontSize: 13, lineHeight: 1.6, color: "var(--sub)", marginBottom: 16 }}>
           The practice Xero application is not configured yet. One app serves every
-          client: its id and secret are stored once, and each entity is then
+          client: its id and secret are stored once, and each company is then
           authorised separately to produce its own refresh token.
         </div>
       )}
 
-      {status.connections.map((c) => (
-        <EntityCard key={c.slug} slug={params.slug} conn={c} />
-      ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980 }}>
+        {status.connections.map((c) => (
+          <EntityCard key={c.slug} slug={params.slug} conn={c} />
+        ))}
+      </div>
     </div>
   );
 }

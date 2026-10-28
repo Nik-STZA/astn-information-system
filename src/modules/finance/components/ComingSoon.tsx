@@ -4,11 +4,11 @@
 // visible, which means the unbuilt ones need somewhere to land. A page saying
 // what is coming is honest; a 404 just looks broken.
 
+import { Construction } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
+import styles from "./Page.module.css";
 
 export default function ComingSoon({
-  slug,
-  tab,
   title,
   summary,
 }: {
@@ -21,31 +21,12 @@ export default function ComingSoon({
     <div>
       <PageHeader title={title} />
 
-      <div
-        style={{
-          padding: "28px 24px",
-          border: "1px dashed var(--empty-border)",
-          borderRadius: 10,
-          background: "var(--empty-bg)",
-          fontFamily: "var(--font-sans)",
-          maxWidth: 620,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: ".08em",
-            textTransform: "uppercase",
-            color: "var(--sub)",
-            marginBottom: 8,
-          }}
-        >
+      <div className={`${styles.card} ${styles.pad} ${styles.narrow} ${styles.stack}`}>
+        <span className={`${styles.status} ${styles["s-neutral"]}`} style={{ alignSelf: "flex-start" }}>
+          <Construction size={13} aria-hidden="true" />
           Not built yet
-        </div>
-        <p style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--tx)", margin: 0 }}>
-          {summary}
-        </p>
+        </span>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tx)", margin: 0 }}>{summary}</p>
       </div>
     </div>
   );
