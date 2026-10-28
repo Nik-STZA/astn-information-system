@@ -526,14 +526,14 @@ You are the AP Clerk agent. Your focus is:
 // plain question and answer. See lib/thread.js.
 
 const { threadToMessages } = require("./lib/thread");
+const agentCost = require("./lib/agent-cost");
 
 // ── Execute one job ──────────────────────────────────────────────────────────
 
 async function executeJob(job) {
   const startMs = Date.now();
   const toolCounts = {};
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+  let usage = agentCost.NO_USAGE;
 
   console.log(`  Claimed job ${job.id} [${job.agent || "general"}]: ${job.instruction.slice(0, 80)}`);
 
@@ -589,13 +589,14 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
     const resp = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: `${systemPrompt}\n\n${clientContext}`,
+      // Cached: the tools and system prompt once, and the conversation up to
+      // the newest message. See lib/agent-cost.js.
+      system: agentCost.cachedSystem(`${systemPrompt}\n\n${clientContext}`),
       tools,
-      messages,
+      messages: agentCost.withCacheMarker(messages),
     });
 
-    totalInputTokens += resp.usage?.input_tokens ?? 0;
-    totalOutputTokens += resp.usage?.output_tokens ?? 0;
+    usage = agentCost.addUsage(usage, resp.usage);
 
     // Collect any text blocks as the final output
     const textParts = resp.content.filter((b) => b.type === "text").map((b) => b.text);
@@ -679,10 +680,12 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
     messages.push({ role: "user", content: toolResults });
   }
 
-  // 4. Compute cost estimate (Sonnet pricing: $3/$15 per MTok)
-  const inputCost = (totalInputTokens / 1_000_000) * 3;
-  const outputCost = (totalOutputTokens / 1_000_000) * 15;
-  const costUsd = parseFloat((inputCost + outputCost).toFixed(6));
+  // 4. Cost at the model's list price, cached tokens included (null for a model
+  // with no price in lib/agent-cost.js).
+  const costUsd = agentCost.runCost(MODEL, usage);
+  console.log(
+    `  Tokens: ${usage.input} in, ${usage.cacheRead} read from cache, ${usage.cacheWrite} written to cache, ${usage.output} out`
+  );
 
   const toolsUsed = Object.entries(toolCounts).map(([name, count]) => ({ name, count }));
 
