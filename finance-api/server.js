@@ -266,7 +266,7 @@ app.get("/api/finance/costs", route(async (_req, res) => {
 // transaction.
 
 const CLIENT_COLUMNS = `c.id, c.slug, c.name, c.legal_name, c.jurisdiction, c.status, c.pipeline_stage,
-  c.contact, c.lead_email, c.ended_reason, c.created_at, c.updated_at`;
+  c.contact, c.lead_email, c.ended_reason, c.compliance_client_id, c.created_at, c.updated_at`;
 
 async function clientServices(conn, ids) {
   if (!ids.length) return [];
@@ -275,28 +275,15 @@ async function clientServices(conn, ids) {
        FROM shared.client_services WHERE client_id = ANY($1::uuid[])`, [ids])).rows;
 }
 
-// The data protection / commercial record each client links to, if any. Read
-// apart so a database without that table still serves the master.
-async function complianceLinks(conn, ids) {
-  if (!ids.length) return [];
-  try {
-    return (await conn.query("SELECT id, client_id FROM public.compliance_clients WHERE client_id = ANY($1::uuid[])", [ids])).rows;
-  } catch {
-    return [];
-  }
-}
-
 async function clientView(conn, rows) {
   const ids = rows.map((r) => r.id);
-  const [services, links, companies] = await Promise.all([
+  const [services, companies] = await Promise.all([
     clientServices(conn, ids),
-    complianceLinks(conn, ids),
     conn.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities WHERE client_id = ANY($1::uuid[]) GROUP BY client_id", [ids]),
   ]);
   return rows.map((r) => ({
     ...r,
     services: clientsLib.servicesView(services.filter((s) => s.client_id === r.id)),
-    compliance_client_id: links.find((l) => l.client_id === r.id)?.id ?? null,
     companies: companies.rows.find((x) => x.client_id === r.id)?.n ?? 0,
   }));
 }

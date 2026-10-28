@@ -9,9 +9,11 @@
 --   - lifecycle columns on shared.clients;
 --   - shared.client_services, one row per client and service that has started;
 --   - shared.client_events, the append-only history of master changes;
---   - public.compliance_clients.client_id, linking the data protection /
---     commercial record to its master client. Feldspar's two rows share an id;
---     STZA's do not, so a link column rather than a re-key.
+--   - shared.clients.compliance_client_id, linking a client to its data
+--     protection / commercial record (public.compliance_clients). Feldspar's
+--     two rows share an id; STZA's do not, so a link rather than a re-key. It
+--     lives on our side because the app's database user does not own
+--     compliance_clients (28 Oct 2026: adding a column there was refused).
 --
 -- Additive and re-runnable. It links no data protection rows and creates no
 -- clients: that is scripts/link-clients, run separately with sign-off.
@@ -84,15 +86,15 @@ DROP TRIGGER IF EXISTS client_events_no_update ON shared.client_events;
 CREATE TRIGGER client_events_no_update BEFORE UPDATE OR DELETE ON shared.client_events
   FOR EACH ROW EXECUTE FUNCTION shared.client_events_append_only();
 
--- ── Link from the data protection / commercial record ───────────────────────
+-- ── Link to the data protection / commercial record ─────────────────────────
+-- A plain value, no foreign key: a key would need privileges on a table the
+-- app does not own. One master client per record, so unique.
 
-DO $$ BEGIN
-  IF to_regclass('public.compliance_clients') IS NOT NULL THEN
-    ALTER TABLE public.compliance_clients ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES shared.clients(id);
-    COMMENT ON COLUMN public.compliance_clients.client_id IS
-      'The master client (shared.clients) this data protection / commercial record belongs to.';
-  END IF;
-END $$;
+ALTER TABLE shared.clients ADD COLUMN IF NOT EXISTS compliance_client_id uuid;
+CREATE UNIQUE INDEX IF NOT EXISTS clients_compliance_client_id_key
+  ON shared.clients (compliance_client_id) WHERE compliance_client_id IS NOT NULL;
+COMMENT ON COLUMN shared.clients.compliance_client_id IS
+  'The public.compliance_clients record (data protection / commercial) for this client, if any.';
 
 -- ── Finance as a service ────────────────────────────────────────────────────
 -- Every client with a finance config already takes Finance.
