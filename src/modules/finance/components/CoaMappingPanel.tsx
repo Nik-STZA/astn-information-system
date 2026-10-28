@@ -2,7 +2,7 @@
 
 // Chart of accounts mapping for one client: a category per Xero account, per
 // entity, saved and approved here; the client's reporting categories; and a CSV
-// download and upload. Deliberately plain: functional first, styled later.
+// download and upload. On a phone the account table scrolls inside its own card.
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,8 @@ import type {
   ReportingCategory,
 } from "@/modules/finance/lib/coa";
 import { changesFromCsv, mappingCsv } from "@/modules/finance/lib/coa-csv";
+import { Download, Upload } from "lucide-react";
+import styles from "./Page.module.css";
 
 const SECTION_LABELS: Record<string, string> = {
   turnover: "Turnover",
@@ -41,28 +43,13 @@ const flowLabel = (f: string | null | undefined) => (f ? f.replace(/_/g, " ") : 
 const dateLabel = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 
-const font: CSSProperties = { fontFamily: "var(--font-sans)" };
-const input: CSSProperties = {
-  ...font, fontSize: 12, padding: "5px 7px", borderRadius: 6,
-  border: "1px solid var(--bd)", background: "var(--pg)", color: "var(--tx)",
-};
-const primary: CSSProperties = {
-  ...font, fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 6, border: "none",
-  background: "#C5A059", color: "#141414", cursor: "pointer",
-};
-const secondary: CSSProperties = {
-  ...font, fontSize: 12, fontWeight: 600, padding: "6px 11px", borderRadius: 6,
-  border: "1px solid var(--bd)", background: "transparent", color: "var(--tx)", cursor: "pointer",
-};
+const input: CSSProperties = { height: 30, fontSize: 13 };
 const th: CSSProperties = {
-  textAlign: "left", fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
-  color: "var(--sub)", padding: "8px 8px", borderBottom: "1px solid var(--bd)", whiteSpace: "nowrap",
+  textAlign: "left", fontSize: 12, fontWeight: 500, color: "var(--sub)",
+  padding: "10px 10px", borderBottom: "1px solid var(--bd)", whiteSpace: "nowrap",
 };
-const td: CSSProperties = { fontSize: 12, padding: "6px 8px", borderBottom: "1px solid var(--bd)", verticalAlign: "top" };
-const heading: CSSProperties = {
-  ...font, fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase",
-  color: "var(--sub)", margin: "22px 0 8px",
-};
+const td: CSSProperties = { fontSize: 13, padding: "8px 10px", borderBottom: "1px solid var(--bd)", verticalAlign: "top", color: "var(--tx)" };
+const note: CSSProperties = { fontSize: 11, color: "var(--sub)", marginTop: 2 };
 
 type Edit = { category?: string; cashFlow?: string | null };
 type Filter = "attention" | "all" | "approved";
@@ -193,110 +180,116 @@ export default function CoaMappingPanel({
     : null;
 
   return (
-    <div style={font}>
-      {/* Entity and summary */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-        <label style={{ fontSize: 12, color: "var(--sub)" }} htmlFor="coa-entity">Entity</label>
-        <select
-          id="coa-entity"
-          value={entity}
-          onChange={(e) => router.push(`/finance/clients/${slug}/coa?entity=${encodeURIComponent(e.target.value)}`)}
-          style={input}
-        >
+    <div>
+      {/* Company and summary */}
+      <div className={styles.controls} style={{ marginBottom: 10 }}>
+        <div className="seg" role="radiogroup" aria-label="Company">
           {view.entities.map((e) => (
-            <option key={e.slug} value={e.slug}>
+            <button
+              key={e.slug}
+              type="button"
+              role="radio"
+              aria-checked={e.slug === entity}
+              className={e.slug === entity ? "seg-on" : undefined}
+              title={e.connected ? e.name : `${e.name} (not connected)`}
+              onClick={() => router.push(`/finance/clients/${slug}/coa?entity=${encodeURIComponent(e.slug)}`)}
+            >
               {e.name}{e.connected ? "" : " (not connected)"}
-            </option>
+            </button>
           ))}
-        </select>
-        <span style={{ fontSize: 12, color: "var(--sub)" }}>
-          {view.rows.length} accounts: {counts.approved} approved, {counts.saved} saved not approved,{" "}
-          {counts.suggestion} with a suggestion only, {counts.none} with no suggestion
-          {counts.flagged ? `, ${counts.flagged} to check` : ""}
-        </span>
+        </div>
+      </div>
+      <div className={styles.controls} style={{ gap: 6, marginBottom: 12 }}>
+        <span className={styles.small}>{view.rows.length} accounts:</span>
+        <span className={`${styles.status} ${styles[counts.approved ? "s-green" : "s-neutral"]}`}>{counts.approved} approved</span>
+        {counts.saved > 0 && <span className={`${styles.status} ${styles["s-amber"]}`}>{counts.saved} saved, not approved</span>}
+        {counts.suggestion > 0 && <span className={`${styles.status} ${styles["s-neutral"]}`}>{counts.suggestion} suggestion only</span>}
+        {counts.none > 0 && <span className={`${styles.status} ${styles["s-red"]}`}>{counts.none} no suggestion</span>}
+        {counts.flagged > 0 && <span className={`${styles.status} ${styles["s-amber"]}`}>{counts.flagged} to check</span>}
       </div>
 
       {view.xeroError && (
-        <div style={{ fontSize: 12, color: "var(--warning-amber)", marginBottom: 10 }}>
+        <div className={styles.error} role="alert" style={{ marginBottom: 12 }}>
           Xero could not be read, so this shows saved mappings only and nothing can be saved: {view.xeroError}
         </div>
       )}
 
       {/* Actions */}
-      <div
-        style={{
-          display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "10px 12px",
-          border: "1px solid var(--bd)", borderRadius: 10, background: "var(--pnl)", marginBottom: 10,
-        }}
-      >
-        <button type="button" style={primary} disabled={busy || !approvable.length || Boolean(view.xeroError)}
-          onClick={() => send(approvable.map((r) => changeFor(r, true)), "manual")}>
-          Approve every account not yet approved ({approvable.length})
-        </button>
-        <button type="button" style={secondary} disabled={busy || !selectedRows.length}
-          onClick={() => send(selectedRows.filter(categoryOf).map((r) => changeFor(r, true)), "manual")}>
-          Approve selected ({selectedRows.length})
-        </button>
-        <button type="button" style={secondary} disabled={busy || !editedRows.length}
-          onClick={() => send(editedRows.map((r) => changeFor(r, false)), "manual")}>
-          Save changes without approving ({editedRows.length})
-        </button>
-        {editedRows.length > 0 && (
-          <button type="button" style={secondary} disabled={busy} onClick={() => setEdits({})}>Discard changes</button>
-        )}
-        <span style={{ flex: 1 }} />
-        <button type="button" style={secondary} onClick={download} disabled={!view.rows.length}>Download CSV</button>
-        <label style={{ ...secondary, display: "inline-block" }}>
-          Upload CSV
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            style={{ display: "none" }}
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) setUpload({ name: f.name, text: await f.text() });
-            }}
-          />
-        </label>
-      </div>
-      <div style={{ fontSize: 10.5, color: "var(--sub)", lineHeight: 1.6, marginBottom: 12, maxWidth: 980 }}>
-        &quot;Approve every account not yet approved&quot; approves the category showing in each of those rows, whether
-        it is saved, a suggestion, or your unsaved change. Changing an approved account&apos;s category needs approving again. The
-        CSV download is also the upload template: fill the category column with a category key or label; rows with
-        a blank category are left alone.
+      <div className={`${styles.card} ${styles.pad} ${styles.stack}`} style={{ marginBottom: 12, maxWidth: 1100 }}>
+        <div className={styles.controls} style={{ gap: 8 }}>
+          <button type="button" className="btn-primary" disabled={busy || !approvable.length || Boolean(view.xeroError)}
+            onClick={() => send(approvable.map((r) => changeFor(r, true)), "manual")}>
+            Approve all unapproved ({approvable.length})
+          </button>
+          <button type="button" className="btn-secondary" disabled={busy || !selectedRows.length}
+            onClick={() => send(selectedRows.filter(categoryOf).map((r) => changeFor(r, true)), "manual")}>
+            Approve selected ({selectedRows.length})
+          </button>
+          <button type="button" className="btn-secondary" disabled={busy || !editedRows.length}
+            onClick={() => send(editedRows.map((r) => changeFor(r, false)), "manual")}>
+            Save without approving ({editedRows.length})
+          </button>
+          {editedRows.length > 0 && (
+            <button type="button" className="btn-text" disabled={busy} onClick={() => setEdits({})}>Discard changes</button>
+          )}
+          <span style={{ flex: 1 }} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn-secondary" onClick={download} disabled={!view.rows.length}>
+              <Download size={15} aria-hidden="true" />Download CSV
+            </button>
+            <label className="btn-secondary" style={{ cursor: "pointer" }}>
+              <Upload size={15} aria-hidden="true" />Upload CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                style={{ display: "none" }}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) setUpload({ name: f.name, text: await f.text() });
+                }}
+              />
+            </label>
+          </div>
+        </div>
+        <div className={styles.small}>
+          &quot;Approve all unapproved&quot; approves the category showing in each of those rows, whether
+          it is saved, a suggestion, or your unsaved change. Changing an approved account&apos;s category needs approving again. The
+          CSV download is also the upload template: fill the category column with a category key or label; rows with
+          a blank category are left alone.
+        </div>
       </div>
 
       {upload && uploadPlan && (
-        <div style={{ border: "1px solid var(--bd)", borderRadius: 10, padding: "10px 12px", marginBottom: 12, maxWidth: 980 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Upload: {upload.name}</div>
-          <div style={{ fontSize: 12, marginBottom: 6 }}>
+        <div className={`${styles.card} ${styles.pad} ${styles.stack}`} style={{ marginBottom: 12, maxWidth: 1100 }}>
+          <div className={styles.rowTitle} style={{ fontSize: 14, overflowWrap: "anywhere" }}>Upload: {upload.name}</div>
+          <div style={{ fontSize: 13 }}>
             {uploadPlan.changes.length} account{uploadPlan.changes.length === 1 ? "" : "s"} to update
             {uploadPlan.skipped ? `, ${uploadPlan.skipped} row(s) with no category skipped` : ""}
             {uploadPlan.errors.length ? `, ${uploadPlan.errors.length} problem(s)` : ""}.
           </div>
           {uploadPlan.errors.length > 0 && (
-            <ul style={{ fontSize: 11.5, color: "var(--alert-red)", margin: "0 0 8px 18px", padding: 0 }}>
+            <ul className={styles.warn} style={{ margin: "0 0 0 18px", padding: 0 }}>
               {uploadPlan.errors.slice(0, 30).map((e) => <li key={e}>{e}</li>)}
             </ul>
           )}
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <label style={{ fontSize: 12 }}>
-              <input type="checkbox" checked={approveOnUpload} onChange={(e) => setApproveOnUpload(e.target.checked)} />{" "}
+          <div className={styles.controls}>
+            <label style={{ fontSize: 13, display: "inline-flex", gap: 6, alignItems: "center" }}>
+              <input type="checkbox" checked={approveOnUpload} onChange={(e) => setApproveOnUpload(e.target.checked)} />
               Approve on upload
             </label>
-            <button type="button" style={primary}
+            <button type="button" className="btn-primary"
               disabled={busy || Boolean(uploadPlan.errors.length) || !uploadPlan.changes.length || Boolean(view.xeroError)}
               onClick={() => send(uploadPlan.changes, "upload", upload.name)}>
               Apply upload
             </button>
-            <button type="button" style={secondary} onClick={() => setUpload(null)}>Cancel</button>
+            <button type="button" className="btn-secondary" onClick={() => setUpload(null)}>Cancel</button>
           </div>
         </div>
       )}
 
       {message && (
-        <div style={{ fontSize: 12, marginBottom: 10, color: message.kind === "ok" ? "var(--success-green)" : "var(--alert-red)" }}>
+        <div className={message.kind === "ok" ? styles.ok : styles.error} role={message.kind === "ok" ? "status" : "alert"} style={{ marginBottom: 12 }}>
           {message.text}
           {message.errors && (
             <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
@@ -307,19 +300,21 @@ export default function CoaMappingPanel({
       )}
 
       {/* Filter */}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-        {(["attention", "all", "approved"] as Filter[]).map((f) => (
-          <button key={f} type="button" onClick={() => setFilter(f)}
-            style={{ ...secondary, fontWeight: filter === f ? 700 : 500, background: filter === f ? "var(--pnl)" : "transparent" }}>
-            {f === "attention" ? "Needs attention" : f === "all" ? "All accounts" : "Approved"}
-          </button>
-        ))}
-        <input placeholder="Search code, name or reporting code" value={search} onChange={(e) => setSearch(e.target.value)}
-          style={{ ...input, minWidth: 260 }} />
-        <span style={{ fontSize: 11.5, color: "var(--sub)" }}>{shown.length} shown</span>
+      <div className={styles.controls} style={{ marginBottom: 10 }}>
+        <div className="seg" role="radiogroup" aria-label="Show">
+          {(["attention", "all", "approved"] as Filter[]).map((f) => (
+            <button key={f} type="button" role="radio" aria-checked={filter === f}
+              className={filter === f ? "seg-on" : undefined} onClick={() => setFilter(f)}>
+              {f === "attention" ? "Needs attention" : f === "all" ? "All accounts" : "Approved"}
+            </button>
+          ))}
+        </div>
+        <input placeholder="Search code, name or reporting code" aria-label="Search accounts" value={search}
+          onChange={(e) => setSearch(e.target.value)} className={styles.select} style={{ flex: "1 1 220px", maxWidth: 340 }} />
+        <span className={styles.small}>{shown.length} shown</span>
       </div>
 
-      <div style={{ overflowX: "auto", border: "1px solid var(--bd)", borderRadius: 10 }}>
+      <div className={styles.card} style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 1100 }}>
           <thead>
             <tr>
@@ -344,7 +339,7 @@ export default function CoaMappingPanel({
               const options = meta.data.filter((c) => c.statement === r.statement && (c.active || c.key === cat));
               const catInfo = categories.get(cat);
               return (
-                <tr key={r.accountId} style={{ background: isEdited(r) ? "var(--pnl)" : undefined }}>
+                <tr key={r.accountId} style={{ background: isEdited(r) ? "var(--accent-bg)" : undefined }}>
                   <td style={td}>
                     <input type="checkbox" aria-label={`Select ${r.name}`} checked={selected.has(r.accountId)}
                       onChange={(e) => {
@@ -361,10 +356,10 @@ export default function CoaMappingPanel({
                   </td>
                   <td style={{ ...td, color: "var(--sub)", whiteSpace: "nowrap" }}>
                     {r.class} / {r.type}
-                    {r.reportingCode ? <div style={{ fontSize: 10.5 }}>{r.reportingCode}</div> : null}
+                    {r.reportingCode ? <div style={note}>{r.reportingCode}</div> : null}
                   </td>
                   <td style={td}>
-                    <select value={cat} style={{ ...input, maxWidth: 260 }}
+                    <select value={cat} className={styles.select} style={{ ...input, maxWidth: 260 }}
                       onChange={(e) => setEdit(r, { category: e.target.value })}>
                       {!cat && <option value="">Choose a category</option>}
                       {options.map((c) => (
@@ -374,12 +369,12 @@ export default function CoaMappingPanel({
                       ))}
                     </select>
                     {!r.mapping && r.proposal?.category && !isEdited(r) && (
-                      <div style={{ fontSize: 10.5, color: "var(--sub)" }}>suggestion</div>
+                      <div style={note}>Suggestion</div>
                     )}
                   </td>
                   <td style={td}>
                     {r.statement === "bs" ? (
-                      <select value={flowOf(r) ?? ""} style={input}
+                      <select value={flowOf(r) ?? ""} className={styles.select} style={input}
                         onChange={(e) => setEdit(r, { cashFlow: e.target.value || null })}>
                         <option value="">Category default ({flowLabel(catInfo?.cashFlow)})</option>
                         {view.cashFlows.account.map((f) => <option key={f} value={f}>{flowLabel(f)}</option>)}
@@ -391,10 +386,10 @@ export default function CoaMappingPanel({
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
                     <Status row={r} edited={isEdited(r)} />
                   </td>
-                  <td style={{ ...td, fontSize: 11, color: "var(--sub)", maxWidth: 280 }}>
+                  <td style={{ ...td, fontSize: 12, color: "var(--sub)", maxWidth: 280 }}>
                     {r.mapping?.reason ?? r.proposal?.reason ?? ""}
                     {r.flags.map((f) => (
-                      <div key={f} style={{ color: "var(--warning-amber)" }}>
+                      <div key={f} className={styles.warn} style={{ fontSize: 12 }}>
                         {FLAG_LABELS[f] ?? f}
                         {f === "renamed_in_xero" && r.mapping ? ` (saved as ${r.mapping.savedCode ?? ""} ${r.mapping.savedName})` : ""}
                       </div>
@@ -402,7 +397,7 @@ export default function CoaMappingPanel({
                   </td>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
                     {!approved(r) && (
-                      <button type="button" style={secondary} disabled={busy || !cat || Boolean(view.xeroError)}
+                      <button type="button" className={styles.miniBtn} disabled={busy || !cat || Boolean(view.xeroError)}
                         onClick={() => send([changeFor(r, true)], "manual")}>
                         Approve
                       </button>
@@ -424,8 +419,8 @@ export default function CoaMappingPanel({
 
       {view.orphans.length > 0 && (
         <>
-          <div style={heading}>Saved for accounts no longer in Xero</div>
-          <div style={{ fontSize: 12, color: "var(--sub)" }}>
+          <div className={styles.listHead}><h2>Saved for accounts no longer in Xero</h2></div>
+          <div className={styles.small} style={{ maxWidth: 980 }}>
             {view.orphans.map((o) => `${o.code ?? ""} ${o.name} (${o.category}, ${o.status})`).join("; ")}
           </div>
         </>
@@ -437,19 +432,22 @@ export default function CoaMappingPanel({
 }
 
 function Status({ row, edited }: { row: CoaAccountRow; edited: boolean }) {
-  if (edited) return <span style={{ color: "var(--warning-amber)" }}>Unsaved change</span>;
+  const pill = (tone: string, label: string) => (
+    <span className={`${styles.status} ${styles[tone]}`}><span className={styles.dot} />{label}</span>
+  );
+  if (edited) return pill("s-amber", "Unsaved change");
   const m = row.mapping;
   if (m?.status === "approved") {
     return (
-      <span style={{ color: "var(--success-green)" }} title={`${m.approvedBy ?? ""} ${dateLabel(m.approvedAt)}`}>
-        Approved
-        <div style={{ fontSize: 10.5, color: "var(--sub)" }}>{m.approvedBy?.split("@")[0]} {dateLabel(m.approvedAt)}</div>
-      </span>
+      <div title={`${m.approvedBy ?? ""} ${dateLabel(m.approvedAt)}`}>
+        {pill("s-green", "Approved")}
+        <div style={note}>{m.approvedBy?.split("@")[0]} {dateLabel(m.approvedAt)}</div>
+      </div>
     );
   }
-  if (m) return <span style={{ color: "var(--warning-amber)" }}>Saved, not approved</span>;
-  if (row.proposal?.category) return <span style={{ color: "var(--sub)" }}>Not saved</span>;
-  return <span style={{ color: "var(--alert-red)" }}>No category</span>;
+  if (m) return pill("s-amber", "Saved, not approved");
+  if (row.proposal?.category) return pill("s-neutral", "Not saved");
+  return pill("s-red", "No category");
 }
 
 // ── Reporting categories ──────────────────────────────────────────────────────
@@ -512,18 +510,18 @@ function Categories({
     const sections = d.statement === "pnl" ? meta.sections.pnl : meta.sections.bs;
     const flows = d.statement === "pnl" ? ["", "non_cash"] : meta.cashFlows.category;
     return (
-      <tr style={{ background: "var(--pnl)" }}>
+      <tr style={{ background: "var(--accent-bg)" }}>
         <td style={td}>
-          <input style={{ ...input, width: 60 }} value={d.sortOrder} onChange={(e) => set({ sortOrder: e.target.value })} />
+          <input className={styles.select} style={{ ...input, width: 64 }} value={d.sortOrder} onChange={(e) => set({ sortOrder: e.target.value })} />
         </td>
         <td style={td}>
-          <input style={{ ...input, width: 240 }} value={d.label} placeholder="Label"
+          <input className={styles.select} style={{ ...input, width: 240 }} value={d.label} placeholder="Label"
             onChange={(e) => set({ label: e.target.value, ...(isNew ? { key: slugKey(e.target.value) } : {}) })} />
-          <div style={{ fontSize: 10.5, color: "var(--sub)" }}>key {d.key || "(from the label)"}</div>
+          <div style={note}>Key {d.key || "(from the label)"}</div>
         </td>
         <td style={td}>
           {isNew ? (
-            <select style={input} value={d.statement}
+            <select className={styles.select} style={input} value={d.statement}
               onChange={(e) => {
                 const statement = e.target.value as "pnl" | "bs";
                 set({ statement, section: (statement === "pnl" ? meta.sections.pnl : meta.sections.bs)[0], cashFlow: statement === "pnl" ? "" : "working_capital" });
@@ -534,12 +532,12 @@ function Categories({
           ) : d.statement === "pnl" ? "Profit and loss" : "Balance sheet"}
         </td>
         <td style={td}>
-          <select style={input} value={d.section} onChange={(e) => set({ section: e.target.value })}>
+          <select className={styles.select} style={input} value={d.section} onChange={(e) => set({ section: e.target.value })}>
             {sections.map((s) => <option key={s} value={s}>{SECTION_LABELS[s] ?? s}</option>)}
           </select>
         </td>
         <td style={td}>
-          <select style={input} value={d.cashFlow} onChange={(e) => set({ cashFlow: e.target.value })}>
+          <select className={styles.select} style={input} value={d.cashFlow} onChange={(e) => set({ cashFlow: e.target.value })}>
             {flows.map((f) => <option key={f} value={f}>{f ? flowLabel(f) : "none"}</option>)}
           </select>
         </td>
@@ -547,24 +545,26 @@ function Categories({
           <input type="checkbox" checked={d.active} onChange={(e) => set({ active: e.target.checked })} />
         </td>
         <td style={td} colSpan={2}>
-          <button type="button" style={primary} disabled={busy || !d.key || !d.label} onClick={() => save(d)}>Save</button>{" "}
-          <button type="button" style={secondary} onClick={() => { setEditing(null); setAdding(false); }}>Cancel</button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" className={`${styles.miniBtn} ${styles.miniPrimary}`} disabled={busy || !d.key || !d.label} onClick={() => save(d)}>Save</button>
+            <button type="button" className={styles.miniBtn} onClick={() => { setEditing(null); setAdding(false); }}>Cancel</button>
+          </div>
         </td>
       </tr>
     );
   };
 
   return (
-    <details style={{ marginTop: 26 }}>
-      <summary style={{ ...heading, margin: 0, cursor: "pointer" }}>Reporting categories ({meta.data.length})</summary>
-      <div style={{ fontSize: 11.5, color: "var(--sub)", lineHeight: 1.6, margin: "8px 0 10px", maxWidth: 900 }}>
+    <details style={{ marginTop: 24 }}>
+      <summary style={{ fontSize: 14, fontWeight: 600, color: "var(--tx)", cursor: "pointer" }}>Reporting categories ({meta.data.length})</summary>
+      <div className={styles.small} style={{ margin: "8px 0 10px", maxWidth: 900 }}>
         The lines the management pack shows. The standard set applies to every client; changing one here changes it
         for this client only, and a category added here exists for this client only (for example a separate
         amortisation line for a business that capitalises development). Section decides where the line sits on the
         statement. Cash flow decides where a balance sheet line&apos;s movement goes on the cash flow; on the profit and
         loss, non cash lines are added back.
       </div>
-      <div style={{ overflowX: "auto", border: "1px solid var(--bd)", borderRadius: 10 }}>
+      <div className={styles.card} style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900 }}>
           <thead>
             <tr>
@@ -582,7 +582,7 @@ function Categories({
                   <td style={td}>{c.sortOrder}</td>
                   <td style={td}>
                     {c.label}
-                    <div style={{ fontSize: 10.5, color: "var(--sub)" }}>{c.key}{c.active ? "" : ", switched off"}</div>
+                    <div style={note}>{c.key}{c.active ? "" : ", switched off"}</div>
                   </td>
                   <td style={td}>{c.statement === "pnl" ? "Profit and loss" : "Balance sheet"}</td>
                   <td style={td}>{SECTION_LABELS[c.section] ?? c.section}</td>
@@ -590,12 +590,14 @@ function Categories({
                   <td style={td}>{c.accounts ?? 0}</td>
                   <td style={td}>{c.scope === "standard" ? "Standard" : c.scope === "override" ? "Changed for this client" : "This client only"}</td>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
-                    <button type="button" style={secondary} disabled={busy} onClick={() => { setAdding(false); setEditing(draftOf(c)); }}>Edit</button>{" "}
+                    <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" className={styles.miniBtn} disabled={busy} onClick={() => { setAdding(false); setEditing(draftOf(c)); }}>Edit</button>
                     {c.scope !== "standard" && (
-                      <button type="button" style={secondary} disabled={busy} onClick={() => call("DELETE", c.key)}>
+                      <button type="button" className={styles.miniBtn} disabled={busy} onClick={() => call("DELETE", c.key)}>
                         {c.scope === "override" ? "Reset to standard" : "Remove"}
                       </button>
                     )}
+                    </div>
                   </td>
                 </tr>
               )
@@ -605,7 +607,7 @@ function Categories({
         </table>
       </div>
       {!adding && (
-        <button type="button" style={{ ...secondary, marginTop: 10 }} disabled={busy}
+        <button type="button" className="btn-secondary" style={{ marginTop: 10 }} disabled={busy}
           onClick={() => {
             setAdding(true);
             setEditing({ key: "", label: "", statement: "pnl", section: "overheads", sortOrder: "65", cashFlow: "", active: true });
