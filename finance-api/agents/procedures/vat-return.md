@@ -1,7 +1,7 @@
 ---
 name: vat-return
 title: VAT return preparation
-version: 2.0.0
+version: 2.1.0
 summary: Preparing a VAT or sales-tax return from the posted ledger, tied to the VAT control account, with workings a reviewer can retrace.
 roles: fm1,fm2,fc
 ---
@@ -21,8 +21,9 @@ needs warrant, per the promotion criteria in the routing guide.
 
 ## Before anything
 
-Read the client's rules for this procedure, and check `get_organisation` for the
-entity's VAT registration, basis and period. If the regime, registration
+Read the client's rules for this procedure, `get_client_profile` for whether the
+entity is in a VAT group (a group files one return, through the representative
+member), and `get_organisation` for the entity's VAT registration, basis and period. If the regime, registration
 number, return frequency or scheme is not stated in either, **stop and escalate**:
 add a Work task for the CFO naming what is missing. A VAT
 return prepared on an assumed regime is worse than a late one, because the
@@ -128,3 +129,4 @@ your answer, so the procedure can be corrected.
 |---|---|---|
 | 1.0.0 | 31 July 2026 | First version. Lifted from the FM2 role so FM2 becomes a pure review tier, per the round-table ruling of 31 July 2026 that specialist capability is skills rather than roles. Adds the postponed VAT accounting and C79 fork, the duty and import VAT separation, and mixed-supply treatment |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io: work moves through Work tasks rather than folders and diary files, client specifics come from the client's rules, and client names are removed. Treatment unchanged. |
+| 2.1.0 | 29 October 2026 | VAT group membership read from the client profile. |

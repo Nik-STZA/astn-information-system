@@ -10,8 +10,9 @@ import { useState } from "react";
 import { ArrowLeft, ClipboardCheck, MessagesSquare, Receipt } from "lucide-react";
 import {
   SERVICES, STAGES, STATUS_LABEL, eventText, mayHaveEnded,
-  type ClientEvent, type ClientService, type ClientStatus, type MasterClient, type PipelineStage, type ServiceKey, type ServiceState,
+  type ClientEvent, type ClientProfile, type ClientService, type ClientStatus, type MasterClient, type PipelineStage, type ServiceKey, type ServiceState,
 } from "@/modules/finance/lib/clients";
+import CompanyProfile from "./CompanyProfile";
 import styles from "./Page.module.css";
 
 const ICON: Record<ServiceKey, React.ReactNode> = {
@@ -93,7 +94,7 @@ function ServiceRow({ client, svc, busy, onChange }: {
   );
 }
 
-export default function ClientSetup({ client, events }: { client: MasterClient; events: ClientEvent[] }) {
+export default function ClientSetup({ client, events, profile }: { client: MasterClient; events: ClientEvent[]; profile: ClientProfile | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +186,8 @@ export default function ClientSetup({ client, events }: { client: MasterClient; 
           ))}
         </section>
       </div>
+
+      <CompanyProfile slug={client.slug} profile={profile} />
 
       <div className={styles.listHead}><h2>History</h2></div>
       <section className={styles.card} style={{ maxWidth: 1100 }} aria-label="History">

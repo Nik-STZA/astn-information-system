@@ -57,6 +57,7 @@ const agentJob = require("./lib/agent-job");
 const financeOverview = require("./lib/overview");
 const billing = require("./lib/billing");
 const clientsLib = require("./lib/clients");
+const profileLib = require("./lib/profile");
 const work = require("./lib/work");
 const monthEndPlan = require("./lib/month-end");
 const billReview = require("./lib/bill-review");
@@ -403,6 +404,104 @@ app.put("/api/clients/:slug/services/:service", route((req, res) => masterTx(req
   if (before !== ch.state) await log(client.id, "service", { service: req.params.service, from: before, to: ch.state, ...(ch.closing_note ? { closing_note: ch.closing_note } : {}) });
   const rows = await clientServices(conn, [client.id]);
   return { status: 200, body: { slug: client.slug, services: clientsLib.servicesView(rows) } };
+})));
+
+// ── Client profile: the group and its companies (migration 030) ─────────────
+//
+// Who owns whom, registration, country of incorporation, VAT position and the
+// reporting standard, per company (lib/profile.js). Read by people on the
+// client's set-up page and by agents through get_client_profile; changed only
+// by a person, logged to the client's history.
+
+const COMPANY_COLUMNS = `id, slug, name, legal_name, company_number, registered_address, country_of_incorporation,
+  parent_id, ownership_pct, vat_number, in_vat_group, reporting_framework, year_end::text AS year_end,
+  (accounting_system_config ? 'tenant_id') AS connected`;
+
+async function loadProfile(db, slug, lock = false) {
+  const client = (await db.query(
+    `SELECT id, slug, name, legal_name, vat_group, vat_group_number, vat_group_representative_id
+       FROM shared.clients WHERE slug = $1${lock ? " FOR UPDATE" : ""}`, [slug])).rows[0];
+  if (!client) return null;
+  const companies = (await db.query(
+    `SELECT ${COMPANY_COLUMNS} FROM finance.entities WHERE client_id = $1 ORDER BY name`, [client.id])).rows;
+  const group = { vat_group: client.vat_group, vat_group_number: client.vat_group_number, vat_group_representative_id: client.vat_group_representative_id };
+  return { client, group, companies };
+}
+
+// Before migration 030 the columns do not exist: say so plainly.
+const profileMissing = (e) => e.code === "42703";
+
+// GET /api/clients/:slug/profile[?for=agent]
+app.get("/api/clients/:slug/profile", route(async (req, res) => {
+  let p;
+  try {
+    p = await loadProfile(pool, req.params.slug);
+  } catch (e) {
+    if (profileMissing(e)) return res.status(503).json({ error: "The client profile is not set up yet (migration 030)." });
+    throw e;
+  }
+  if (!p) return res.status(404).json({ error: "client not found" });
+  if (req.query.for === "agent") return res.json(profileLib.agentView(p.client, p.group, p.companies));
+  res.json({
+    slug: p.client.slug,
+    group: p.group,
+    companies: profileLib.tree(p.companies),
+    issues: profileLib.profileIssues(p.group, p.companies),
+    frameworks: profileLib.FRAMEWORKS,
+  });
+}));
+
+// PATCH /api/clients/:slug/profile {vat_group?, vat_group_number?, vat_group_representative_id?}
+app.patch("/api/clients/:slug/profile", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const p = await loadProfile(conn, req.params.slug, true);
+  if (!p) return { status: 404, body: { error: "client not found" } };
+  const { set, issues } = profileLib.groupChanges(req.body, p.companies);
+  if (issues.length) return { status: 422, body: { issues } };
+  const changed = clientsLib.diff(p.group, set);
+  if (!Object.keys(changed).length) return { status: 200, body: { changed: {} } };
+  const keys = Object.keys(changed);
+  await conn.query(
+    `UPDATE shared.clients SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() WHERE id = $1`,
+    [p.client.id, ...keys.map((k) => set[k])]);
+  await log(p.client.id, "vat_group", changed);
+  return { status: 200, body: { changed } };
+})));
+
+// POST /api/clients/:slug/companies {name, legal_name?, parent_id?, ...}
+// Adds a company to the profile. It is not connected to Xero until someone
+// connects it on the Finance set-up.
+app.post("/api/clients/:slug/companies", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const p = await loadProfile(conn, req.params.slug, true);
+  if (!p) return { status: 404, body: { error: "client not found" } };
+  const { set, issues } = profileLib.companyChanges(req.body, null, p.companies);
+  if (issues.length) return { status: 422, body: { issues } };
+  const base = clientsLib.slugify(set.name);
+  const slug = clientsLib.freeSlug(base, p.companies.map((c) => c.slug));
+  const cols = ["client_id", "slug", ...Object.keys(set)];
+  const vals = [p.client.id, slug, ...Object.values(set)];
+  const { rows } = await conn.query(
+    `INSERT INTO finance.entities (${cols.join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id, slug`, vals);
+  await log(p.client.id, "company_added", { slug, ...set });
+  return { status: 201, body: rows[0] };
+})));
+
+// PATCH /api/clients/:slug/companies/:entity {any company field}
+app.patch("/api/clients/:slug/companies/:entity", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const p = await loadProfile(conn, req.params.slug, true);
+  if (!p) return { status: 404, body: { error: "client not found" } };
+  const cur = p.companies.find((c) => c.slug === req.params.entity);
+  if (!cur) return { status: 404, body: { error: "company not found" } };
+  const { set, issues } = profileLib.companyChanges(req.body, cur, p.companies);
+  if (issues.length) return { status: 422, body: { issues } };
+  const before = { ...cur, ownership_pct: cur.ownership_pct === null ? null : Number(cur.ownership_pct) };
+  const changed = clientsLib.diff(before, set);
+  if (!Object.keys(changed).length) return { status: 200, body: { slug: cur.slug, changed: {} } };
+  const keys = Object.keys(changed);
+  await conn.query(
+    `UPDATE finance.entities SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now() WHERE id = $1`,
+    [cur.id, ...keys.map((k) => set[k])]);
+  await log(p.client.id, "company_updated", { company: cur.name, ...changed });
+  return { status: 200, body: { slug: cur.slug, changed } };
 })));
 
 app.get("/api/finance/clients/:slug", route(async (req, res) => {

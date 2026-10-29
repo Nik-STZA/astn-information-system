@@ -2,7 +2,7 @@
 name: fpa
 title: FP&A Manager
 version: 2.0.0
-tools: list_entities, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_budget_summary, get_invoices, get_bank_transactions, list_tasks, add_task, update_task
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_budget_summary, get_invoices, get_bank_transactions, list_tasks, add_task, update_task
 procedures: variance-commentary, month-end-close, balance-sheet-matrix
 ---
 
