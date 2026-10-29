@@ -6,18 +6,36 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarCheck, ChevronRight, Plus, X } from "lucide-react";
+import { CalendarCheck, ChevronRight, Plus, Search, X } from "lucide-react";
 import styles from "./Work.module.css";
 import {
-  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, blockerText, boardColumns, eventText, ownerInitials, ownerLabel, taskTree, timelineLayout, viaText,
-  type ShownStatus, type Task, type TaskEvent, type TreeRow,
+  AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, URGENT_WHY, blockerText, boardColumns, dropRefusal, eventText, londonToday, ownerInitials,
+  ownerLabel, taskTree, timelineLayout, urgency, viaText,
+  type ShownStatus, type Task, type TaskEvent, type TreeRow, type UrgentWhy,
 } from "@/modules/finance/lib/work";
 
 export interface BillOption { id: string; label: string }
 type View = "list" | "board" | "timeline";
+type Scale = "day" | "week" | "month";
+type Density = "detailed" | "compact";
 type Entity = { id: string; slug: string; name: string };
 
-const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+const today = londonToday;
+
+// Read and write a per-browser view setting; private windows may refuse both.
+function stored<T extends string>(key: string, allowed: readonly T[]): T | null {
+  try {
+    const v = localStorage.getItem(key);
+    return allowed.includes(v as T) ? (v as T) : null;
+  } catch { return null; }
+}
+function store(key: string, v: string) {
+  try { localStorage.setItem(key, v); } catch { /* ignore */ }
+}
+
+function UrgentTag({ why }: { why: UrgentWhy | undefined }) {
+  return why ? <span className={styles.urgent} title={URGENT_WHY[why]}>Urgent</span> : null;
+}
 const shortDate = (d: string | null) => {
   if (!d) return "-";
   const [y, m, day] = d.slice(0, 10).split("-").map(Number);
@@ -41,33 +59,51 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
   const [showDone, setShowDone] = useState(false);
   const [view, setView] = useState<View>(initialView ?? "list");
   const [links, setLinks] = useState(true);
+  const [scale, setScale] = useState<Scale>("day");
+  const [density, setDensity] = useState<Density>("detailed");
   const [boardIssues, setBoardIssues] = useState<string[]>([]);
-  // The view you last used, per browser, unless the link names one.
+  const [boardNote, setBoardNote] = useState<string | null>(null);
+  // The view and zoom you last used, per browser, unless the link names a view.
   useEffect(() => {
-    if (initialView) return;
-    try {
-      const v = localStorage.getItem("stza-work-view");
-      if (v === "list" || v === "board" || v === "timeline") setView(v);
-      setLinks(localStorage.getItem("stza-work-links") !== "0");
-    } catch { /* defaults */ }
+    if (!initialView) {
+      const v = stored("stza-work-view", ["list", "board", "timeline"] as const);
+      if (v) setView(v);
+    }
+    setLinks(stored("stza-work-links", ["0", "1"] as const) !== "0");
+    setScale(stored("stza-work-scale", ["day", "week", "month"] as const) ?? "day");
+    setDensity(stored("stza-work-density", ["detailed", "compact"] as const) ?? "detailed");
   }, [initialView]);
-  const toggleLinks = () => {
-    setLinks(!links);
-    try { localStorage.setItem("stza-work-links", links ? "0" : "1"); } catch { /* ignore */ }
-  };
-  const pickView = (v: View) => {
-    setView(v);
-    try { localStorage.setItem("stza-work-view", v); } catch { /* ignore */ }
-  };
+  const toggleLinks = () => { setLinks(!links); store("stza-work-links", links ? "0" : "1"); };
+  const pickView = (v: View) => { setView(v); store("stza-work-view", v); };
+  const pickScale = (s: Scale) => { setScale(s); store("stza-work-scale", s); };
+  const pickDensity = (d: Density) => { setDensity(d); store("stza-work-density", d); };
   // A card dropped on a column: the new status, recorded in the task's history.
+  // Blocked and Waiting columns, and cards held by a blocker, say why the card
+  // did not move instead of doing nothing.
   async function moveTo(id: string, status: ShownStatus) {
     const t = tasks.find((x) => x.id === id);
-    if (!t || !DROPPABLE.has(status) || t.status === status) return;
+    if (!t || t.shown_status === status) return;
+    setBoardIssues([]);
+    const refusal = dropRefusal(t, status);
+    setBoardNote(refusal);
+    if (!DROPPABLE.has(status) || t.status === status) return;
     const r = await send(`${base}/tasks/${id}`, "PATCH", { status });
     setBoardIssues(r.issues);
-    if (r.ok) router.refresh();
+    if (r.ok) router.refresh(); else setBoardNote(null);
   }
   const rows = useMemo(() => taskTree(tasks, { collapsed, showDone }), [tasks, collapsed, showDone]);
+  const urgent = useMemo(() => urgency(tasks, today()), [tasks]);
+  const panelOpen = !!(creating || closing || selected);
+  // Escape closes whichever panel is open.
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setCreating(null); setClosing(false); setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelOpen]);
   const task = tasks.find((t) => t.id === selected) ?? null;
   const base = `/api/finance/${encodeURIComponent(slug)}/work`;
   const people = useMemo(() => Array.from(new Set(tasks.flatMap((t) => [t.created_by, t.owner_kind === "person" ? t.owner : null]).filter(Boolean) as string[])).sort(), [tasks]);
@@ -102,6 +138,21 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
           <button type="button" className={view === "timeline" ? "seg-on" : undefined} aria-pressed={view === "timeline"} onClick={() => pickView("timeline")}>Timeline</button>
         </div>
         {view === "timeline" && (
+          <div className="seg" role="group" aria-label="Zoom">
+            {(["day", "week", "month"] as const).map((s) => (
+              <button key={s} type="button" className={scale === s ? "seg-on" : undefined} aria-pressed={scale === s} onClick={() => pickScale(s)}>
+                {s === "day" ? "Days" : s === "week" ? "Weeks" : "Months"}
+              </button>
+            ))}
+          </div>
+        )}
+        {view === "board" && (
+          <div className="seg" role="group" aria-label="Card size">
+            <button type="button" className={density === "detailed" ? "seg-on" : undefined} aria-pressed={density === "detailed"} onClick={() => pickDensity("detailed")}>Detailed</button>
+            <button type="button" className={density === "compact" ? "seg-on" : undefined} aria-pressed={density === "compact"} onClick={() => pickDensity("compact")}>Compact</button>
+          </div>
+        )}
+        {view === "timeline" && (
           <button type="button" className={styles.toggle} onClick={toggleLinks} aria-pressed={links}>
             <span className={`${styles.knob} ${links ? styles.knobOn : ""}`}><span /></span>Show links
           </button>
@@ -111,14 +162,15 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
 
       {error && <p className={styles.issues} role="alert">{error}</p>}
 
-      <div className={styles.layout}>
+      <div className={`${styles.layout} ${panelOpen ? styles.layoutOpen : ""}`}>
         <div className={styles.listPane}>
           {view === "timeline" && (
-            <Timeline rows={rows} tasks={tasks} links={links} selected={selected}
+            <Timeline rows={rows} tasks={tasks} links={links} selected={selected} scale={scale}
               onOpen={(id) => { setCreating(null); setClosing(false); setSelected(id); }} onToggle={toggle} />
           )}
           {view === "board" && (
-            <Board tasks={tasks} showDone={showDone} selected={selected} issues={boardIssues}
+            <Board tasks={tasks} showDone={showDone} selected={selected} issues={boardIssues} note={boardNote} urgent={urgent}
+              compact={density === "compact"} onDismissNote={() => setBoardNote(null)}
               onOpen={(id) => { setCreating(null); setClosing(false); setSelected(id); }} onMove={moveTo} />
           )}
           {view === "list" && <section className={`${styles.card} ${styles.scroll}`} aria-label="Tasks">
@@ -147,7 +199,7 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
                               </button>
                             ) : <span className={styles.spacer} />}
                             <button type="button" className={`${styles.titleText} ${hasChildren ? styles.parentTitle : ""}`}>{t.title}</button>
-                            {t.priority === "P1" && <span className={styles.blocker}>P1</span>}
+                            <UrgentTag why={urgent.get(t.id)} />
                           </div>
                           {t.entity_name && <div className={styles.meta} style={{ paddingLeft: depth * 22 + 28 }}>{t.entity_name}</div>}
                           {/* On a phone the other columns fold in under the title. */}
@@ -180,7 +232,7 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
             onClose={() => setCreating(null)} onCreated={(id) => { setCreating(null); setSelected(id); router.refresh(); }} />
         )}
         {!creating && !closing && task && (
-          <TaskPanel key={task.id} base={base} task={task} tasks={tasks} entities={entities} bills={bills} people={people}
+          <TaskPanel key={task.id} base={base} task={task} tasks={tasks} entities={entities} bills={bills} people={people} why={urgent.get(task.id)}
             onClose={() => setSelected(null)} onAddSub={() => setCreating({ parent_id: task.id })}
             onDeleted={() => { setSelected(null); router.refresh(); }} />
         )}
@@ -196,20 +248,26 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
 // sub-tasks as a thin bar. Arrows run from the end of a blocking task to the
 // start of the task waiting on it, and can be switched off.
 
-const DAY = 36;
+// Zoom: how wide a day is, and how many days the range may run to.
+const SCALES: Record<Scale, { day: number; minDays: number; maxDays: number }> = {
+  day: { day: 36, minDays: 21, maxDays: 120 },
+  week: { day: 14, minDays: 70, maxDays: 240 },
+  month: { day: 5, minDays: 182, maxDays: 480 },
+};
 const ROW = 40;
 const HEAD = 40;
 
-function Timeline({ rows, tasks, links, selected, onOpen, onToggle }: {
-  rows: TreeRow[]; tasks: Task[]; links: boolean; selected: string | null;
+function Timeline({ rows, tasks, links, selected, scale, onOpen, onToggle }: {
+  rows: TreeRow[]; tasks: Task[]; links: boolean; selected: string | null; scale: Scale;
   onOpen: (id: string) => void; onToggle: (id: string) => void;
 }) {
-  const l = useMemo(() => timelineLayout(rows, tasks, today()), [rows, tasks]);
-  // Open scrolled to two days before today.
+  const { day: DAY, minDays, maxDays } = SCALES[scale];
+  const l = useMemo(() => timelineLayout(rows, tasks, today(), maxDays, minDays), [rows, tasks, maxDays, minDays]);
+  // Open scrolled to a little before today.
   const track = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (track.current && l.todayIndex !== null) track.current.scrollLeft = Math.max(0, (l.todayIndex - 2) * DAY);
-  }, [l.todayIndex]);
+    if (track.current && l.todayIndex !== null) track.current.scrollLeft = Math.max(0, l.todayIndex * DAY - 72);
+  }, [l.todayIndex, DAY]);
   if (!rows.length) return <section className={styles.card}><div className={styles.empty}>No tasks to show.</div></section>;
   const barOf = new Map(l.bars.map((b) => [b.id, b]));
   const width = l.days.length * DAY;
@@ -235,17 +293,18 @@ function Timeline({ rows, tasks, links, selected, onOpen, onToggle }: {
           <div style={{ position: "relative", width, height: HEAD + height }}>
             <div className={styles.tlHead} style={{ height: HEAD }}>
               {l.days.map((d, i) => {
-                const day = Number(d.slice(8, 10));
-                const label = i === 0 || day === 1
-                  ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
-                  : String(day);
+                const label = dayLabel(d, i, scale);
+                if (label === null) return null;
+                // Wider scales label one day in seven (Mondays) or in a month (the 1st).
+                const w = scale === "day" ? DAY : scale === "week" ? DAY * 7 : DAY * 28;
                 return (
-                  <div key={d} className={`${styles.tlDay} ${isWeekend(d) ? styles.tlWeekend : ""} ${i === l.todayIndex ? styles.tlToday : ""}`}
-                    style={{ left: i * DAY, width: DAY }} title={d}>{label}</div>
+                  <div key={d} className={`${styles.tlDay} ${scale === "day" && isWeekend(d) ? styles.tlWeekend : ""} ${scale === "day" && i === l.todayIndex ? styles.tlToday : ""}`}
+                    style={{ left: i * DAY, width: w, justifyContent: scale === "day" ? "center" : "flex-start", paddingLeft: scale === "day" ? 0 : 4,
+                      borderLeft: scale === "day" ? undefined : "1px solid var(--bd)" }} title={d}>{label}</div>
                 );
               })}
             </div>
-            {l.days.map((d, i) => (isWeekend(d)
+            {scale !== "month" && l.days.map((d, i) => (isWeekend(d)
               ? <div key={d} className={styles.tlShade} style={{ left: i * DAY, width: DAY, top: HEAD, height }} />
               : null))}
             {rows.map(({ task: t }, r) => (
@@ -255,7 +314,7 @@ function Timeline({ rows, tasks, links, selected, onOpen, onToggle }: {
             {l.todayIndex !== null && <div className={styles.tlTodayLine} style={{ left: l.todayIndex * DAY + DAY / 2, top: HEAD, height }} />}
             {l.bars.map((b) => {
               const t = tasks.find((x) => x.id === b.id)!;
-              const w = (b.to - b.from + 1) * DAY - 6;
+              const w = Math.max(6, (b.to - b.from + 1) * DAY - 6);
               return (
                 <button key={b.id} type="button" onClick={() => onOpen(b.id)} title={`${t.title}: ${STATUS_LABEL[t.shown_status]}`}
                   className={`${styles.tlBar} ${b.parent ? styles.tlParent : styles[`b-${t.shown_status}`]}`}
@@ -296,50 +355,83 @@ function Timeline({ rows, tasks, links, selected, onOpen, onToggle }: {
 }
 
 
+// The header label for a day at a zoom, or null for no label.
+function dayLabel(d: string, i: number, scale: Scale): string | null {
+  const date = new Date(`${d}T00:00:00Z`);
+  const n = date.getUTCDate();
+  const short = (o: Intl.DateTimeFormatOptions) => date.toLocaleDateString("en-GB", { ...o, timeZone: "UTC" });
+  if (scale === "day") return i === 0 || n === 1 ? short({ day: "numeric", month: "short" }) : String(n);
+  if (scale === "week") return date.getUTCDay() === 1 ? short({ day: "numeric", month: "short" }) : null;
+  return n === 1 ? short(date.getUTCMonth() === 0 ? { month: "short", year: "numeric" } : { month: "short" }) : null;
+}
+
 // ── Board ─────────────────────────────────────────────────────────────────────
 
-function Board({ tasks, showDone, selected, issues, onOpen, onMove }: {
-  tasks: Task[]; showDone: boolean; selected: string | null; issues: string[];
+function Board({ tasks, showDone, selected, issues, note, urgent, compact, onDismissNote, onOpen, onMove }: {
+  tasks: Task[]; showDone: boolean; selected: string | null; issues: string[]; note: string | null;
+  urgent: Map<string, UrgentWhy>; compact: boolean; onDismissNote: () => void;
   onOpen: (id: string) => void; onMove: (id: string, status: ShownStatus) => void;
 }) {
-  const cols = boardColumns(tasks, { showDone });
+  const cols = boardColumns(tasks, { showDone, today: today() });
   const [over, setOver] = useState<ShownStatus | null>(null);
+  const [dragging, setDragging] = useState(false);
   return (
     <>
       <Issues issues={issues} />
-      <div className={styles.board} aria-label="Tasks as a board">
+      {note && (
+        <p className={styles.notice} role="status">
+          <span>{note}</span>
+          <button type="button" className={styles.iconBtnSm} onClick={onDismissNote} aria-label="Dismiss"><X size={14} aria-hidden="true" /></button>
+        </p>
+      )}
+      <div className={`${styles.board} ${compact ? styles.boardCompact : ""}`} aria-label="Tasks as a board">
         {cols.map((c) => {
           const droppable = DROPPABLE.has(c.status);
           return (
+            // Every column takes the drop, so Blocked and Waiting can say why
+            // the card stays where it is.
             <section key={c.status} aria-label={STATUS_LABEL[c.status]}
-              className={`${styles.col} ${over === c.status && droppable ? styles.colOver : ""}`}
-              onDragOver={(e) => { if (droppable) { e.preventDefault(); setOver(c.status); } }}
-              onDragLeave={() => setOver(null)}
-              onDrop={(e) => { e.preventDefault(); setOver(null); const id = e.dataTransfer.getData("text/plain"); if (id) onMove(id, c.status); }}>
+              className={`${styles.col} ${over === c.status ? (droppable ? styles.colOver : styles.colNo) : ""} ${dragging && !droppable ? styles.colDim : ""}`}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = droppable ? "move" : "none"; setOver(c.status); }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null); }}
+              onDrop={(e) => {
+                e.preventDefault(); setOver(null); setDragging(false);
+                const id = e.dataTransfer.getData("text/plain");
+                if (id) onMove(id, c.status);
+              }}>
               <div className={styles.colHead}>
                 <span>{STATUS_LABEL[c.status]}</span><span className={styles.meta}>{c.tasks.length}</span>
               </div>
-              {!droppable && c.tasks.length === 0 && <div className={styles.colHint}>Set by blockers</div>}
+              {!droppable && (c.tasks.length === 0 || dragging) && <div className={styles.colHint}>Set by blockers</div>}
               {c.tasks.map((t) => {
                 const openBlocks = t.blockers.filter((b) => b.open);
                 const late = t.due_on && t.status !== "done" && t.due_on < today();
+                // A div, not a button: Firefox will not drag a button.
                 return (
-                  <button key={t.id} type="button" draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
-                    className={`${styles.tcard} ${t.id === selected ? styles.tcardSel : ""}`} onClick={() => onOpen(t.id)}>
-                    <span className={styles.tcardTitle}>{t.title}{t.priority === "P1" && <span className={styles.blocker}> · P1</span>}</span>
-                    {(t.parentTitle || t.entity_name) && <span className={styles.meta}>{[t.parentTitle, t.entity_name].filter(Boolean).join(" · ")}</span>}
-                    {openBlocks[0] && <span className={styles.blocker}>{blockerText(openBlocks[0])}{openBlocks.length > 1 ? ` +${openBlocks.length - 1} more` : ""}</span>}
+                  <div key={t.id} role="button" tabIndex={0} draggable
+                    onDragStart={(e) => { e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
+                    onDragEnd={() => { setDragging(false); setOver(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(t.id); } }}
+                    className={`${styles.tcard} ${t.id === selected ? styles.tcardSel : ""}`} onClick={() => onOpen(t.id)}
+                    title={compact ? [t.title, t.parentTitle, openBlocks[0] ? blockerText(openBlocks[0]) : null].filter(Boolean).join(" · ") : undefined}>
+                    <span className={styles.tcardTitle}>{t.title}</span>
+                    {!compact && (t.parentTitle || t.entity_name) && <span className={styles.meta}>{[t.parentTitle, t.entity_name].filter(Boolean).join(" · ")}</span>}
+                    {!compact && openBlocks[0] && <span className={styles.blocker}>{blockerText(openBlocks[0])}{openBlocks.length > 1 ? ` +${openBlocks.length - 1} more` : ""}</span>}
                     <span className={styles.tcardFoot}>
                       <span className={styles.ava} title={ownerLabel(t)}>{ownerInitials(t)}</span>
-                      {t.due_on && <span className={late ? styles.overdue : styles.meta}>{shortDate(t.due_on)}</span>}
+                      <span className={styles.tcardTags}>
+                        <UrgentTag why={urgent.get(t.id)} />
+                        {t.due_on && <span className={late ? styles.overdue : styles.meta}>{shortDate(t.due_on)}</span>}
+                      </span>
                     </span>
-                  </button>
+                  </div>
                 );
               })}
             </section>
           );
         })}
       </div>
+      <p className={styles.small} style={{ marginTop: 8 }}>Drag a card to To do, In progress, Needs review or Done. Blocked and Waiting follow the task&apos;s blockers.</p>
     </>
   );
 }
@@ -380,6 +472,78 @@ function parentOptions(tasks: Task[], selfId: string | null) {
     for (const t of tasks) if (t.parent_id && below.has(t.parent_id) && !below.has(t.id)) { below.add(t.id); grew = true; }
   }
   return tasks.filter((t) => !below.has(t.id));
+}
+
+// Picks a task by typing part of its title. The list sits in the panel, under
+// the field, in list order with sub-tasks indented under their parent, so a
+// long title wraps instead of stretching a dropdown across the screen. Done
+// tasks are left out unless already chosen.
+function TaskPicker({ id, tasks, value, onChange, none, placeholder }: {
+  id?: string; tasks: Task[]; value: string; onChange: (id: string) => void;
+  none?: string; placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [at, setAt] = useState(0);
+  const chosen = tasks.find((t) => t.id === value) ?? null;
+  const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+  const options = useMemo(() => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return taskTree(tasks, { showDone: true })
+      .filter(({ task: t }) => t.status !== "done" || t.id === value)
+      .filter(({ task: t }) => {
+        const text = `${t.title} ${t.parent_id ? byId.get(t.parent_id)?.title ?? "" : ""}`.toLowerCase();
+        return words.every((w) => text.includes(w));
+      });
+  }, [tasks, q, value, byId]);
+  const pick = (v: string) => { onChange(v); setOpen(false); setQ(""); };
+  // The choices: "none" first when offered, then the matching tasks.
+  const choices: Array<{ id: string; row: TreeRow | null }> = [
+    ...(none && !q ? [{ id: "", row: null }] : []),
+    ...options.map((r) => ({ id: r.task.id, row: r })),
+  ];
+
+  if (!open) {
+    return (
+      <button id={id} type="button" className={`${styles.select} ${styles.pickBtn}`} onClick={() => { setOpen(true); setAt(0); }}>
+        <span className={chosen ? undefined : styles.meta}>{chosen ? chosen.title : none ?? placeholder}</span>
+        {chosen?.parent_id && <span className={styles.meta}>in {byId.get(chosen.parent_id)?.title}</span>}
+      </button>
+    );
+  }
+  return (
+    <div className={styles.picker}>
+      <div className={styles.pickSearch}>
+        <Search size={14} aria-hidden="true" />
+        <input id={id} className={styles.pickInput} autoFocus value={q} placeholder={placeholder} aria-label={placeholder}
+          role="combobox" aria-expanded="true" aria-controls={`${id ?? "pick"}-list`}
+          onChange={(e) => { setQ(e.target.value); setAt(0); }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") { e.preventDefault(); setAt(Math.min(at + 1, choices.length - 1)); }
+            else if (e.key === "ArrowUp") { e.preventDefault(); setAt(Math.max(at - 1, 0)); }
+            else if (e.key === "Enter") { e.preventDefault(); if (choices[at]) pick(choices[at].id); }
+            else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); setQ(""); }
+          }} />
+        <button type="button" className={styles.iconBtnSm} onClick={() => { setOpen(false); setQ(""); }} aria-label="Cancel"><X size={14} aria-hidden="true" /></button>
+      </div>
+      <div id={`${id ?? "pick"}-list`} role="listbox" className={styles.pickList}>
+        {choices.length === 0 && <div className={styles.pickEmpty}>No task matches.</div>}
+        {choices.map((c, i) => (
+          <button key={c.id || "none"} type="button" role="option" aria-selected={c.id === value}
+            className={`${styles.pickItem} ${i === at ? styles.pickAt : ""} ${c.id === value ? styles.pickOn : ""}`}
+            style={{ paddingLeft: 10 + (q || !c.row ? 0 : c.row.depth * 14) }}
+            onMouseEnter={() => setAt(i)} onClick={() => pick(c.id)}>
+            {c.row ? (
+              <>
+                <span className={c.row.hasChildren ? styles.parentTitle : undefined}>{c.row.task.title}</span>
+                {q && c.row.task.parent_id && <span className={styles.meta}>in {byId.get(c.row.task.parent_id)?.title}</span>}
+              </>
+            ) : <span className={styles.meta}>{none}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Issues({ issues }: { issues: string[] }) {
@@ -501,19 +665,19 @@ function NewTask({ base, entities, tasks, people, parentId, onClose, onCreated }
         <input id="nt-start" type="date" className={styles.input} value={f.start_on} onChange={set("start_on")} />
         <label className={styles.label} htmlFor="nt-due">Due</label>
         <input id="nt-due" type="date" className={styles.input} value={f.due_on} onChange={set("due_on")} />
-        <label className={styles.label} htmlFor="nt-pri">Priority</label>
-        <select id="nt-pri" className={styles.select} value={f.priority} onChange={set("priority")}>
-          <option value="">None</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>
-        </select>
+        <span className={styles.label}>Urgent</span>
+        <label className={styles.check}>
+          <input type="checkbox" checked={f.priority === "P1"} onChange={(e) => setF({ ...f, priority: e.target.checked ? "P1" : "" })} />Flag as urgent
+        </label>
         <label className={styles.label} htmlFor="nt-ent">Company</label>
         <select id="nt-ent" className={styles.select} value={f.entity_id} onChange={set("entity_id")}>
           <option value="">All / not specific</option>{entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <label className={styles.label} htmlFor="nt-par">Part of</label>
-        <select id="nt-par" className={styles.select} value={f.parent_id} onChange={set("parent_id")}>
-          <option value="">Nothing (a top-level task)</option>{tasks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-        </select>
+        <TaskPicker id="nt-par" tasks={tasks} value={f.parent_id} onChange={(v) => setF({ ...f, parent_id: v })}
+          none="Nothing (a top-level task)" placeholder="Search tasks" />
       </div>
+      <p className={styles.small}>Tasks also turn urgent by themselves when overdue, due by the next working day, or holding up a flagged or overdue task.</p>
       <Issues issues={issues} />
       <div className={styles.foot}>
         <button type="button" className="btn-primary" onClick={create} disabled={busy || !f.title.trim()}>{busy ? "Adding..." : "Add task"}</button>
@@ -525,8 +689,8 @@ function NewTask({ base, entities, tasks, people, parentId, onClose, onCreated }
 
 // ── The task panel ────────────────────────────────────────────────────────────
 
-function TaskPanel({ base, task, tasks, entities, bills, people, onClose, onAddSub, onDeleted }: {
-  base: string; task: Task; tasks: Task[]; entities: Entity[]; bills: BillOption[]; people: string[];
+function TaskPanel({ base, task, tasks, entities, bills, people, why, onClose, onAddSub, onDeleted }: {
+  base: string; task: Task; tasks: Task[]; entities: Entity[]; bills: BillOption[]; people: string[]; why: UrgentWhy | undefined;
   onClose: () => void; onAddSub: () => void; onDeleted: () => void;
 }) {
   const router = useRouter();
@@ -564,13 +728,16 @@ function TaskPanel({ base, task, tasks, entities, bills, people, onClose, onAddS
   return (
     <aside className={styles.panel} aria-label="Task">
       <div className={styles.panelTop}>
-        <StatusPill s={task.shown_status} />
+        <span className={styles.tcardTags}><StatusPill s={task.shown_status} /><UrgentTag why={why} /></span>
         <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>
       </div>
       <label>
         <span style={{ position: "absolute", left: -9999 }}>Title</span>
-        <input className={styles.titleInput} value={title} onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => title.trim() !== task.title && save({ title })} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+        {/* Wraps, so a long title can be read whole; Enter still saves. */}
+        <textarea className={styles.titleInput} value={title} rows={Math.min(6, Math.max(1, Math.ceil(title.length / 34)))}
+          onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+          onBlur={() => title.trim() !== task.title && save({ title })}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }} />
       </label>
 
       <div className={styles.grid}>
@@ -584,19 +751,20 @@ function TaskPanel({ base, task, tasks, entities, bills, people, onClose, onAddS
         <input id="tp-start" type="date" className={styles.input} value={task.start_on ?? ""} onChange={(e) => save({ start_on: e.target.value || null })} />
         <label className={styles.label} htmlFor="tp-due">Due</label>
         <input id="tp-due" type="date" className={styles.input} value={task.due_on ?? ""} onChange={(e) => save({ due_on: e.target.value || null })} />
-        <label className={styles.label} htmlFor="tp-pri">Priority</label>
-        <select id="tp-pri" className={styles.select} value={task.priority ?? ""} onChange={(e) => save({ priority: e.target.value || null })}>
-          <option value="">None</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>
-        </select>
+        <span className={styles.label}>Urgent</span>
+        <div>
+          <label className={styles.check}>
+            <input type="checkbox" checked={task.priority === "P1"} onChange={(e) => save({ priority: e.target.checked ? "P1" : null })} />Flag as urgent
+          </label>
+          {why && why !== "flagged" && <div className={styles.small}>Urgent anyway: {URGENT_WHY[why].toLowerCase()}.</div>}
+        </div>
         <label className={styles.label} htmlFor="tp-ent">Company</label>
         <select id="tp-ent" className={styles.select} value={task.entity_id ?? ""} onChange={(e) => save({ entity_id: e.target.value || null })}>
           <option value="">All / not specific</option>{entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <label className={styles.label} htmlFor="tp-par">Part of</label>
-        <select id="tp-par" className={styles.select} value={task.parent_id ?? ""} onChange={(e) => save({ parent_id: e.target.value || null })}>
-          <option value="">Nothing (a top-level task)</option>
-          {parentOptions(tasks, task.id).map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-        </select>
+        <TaskPicker id="tp-par" tasks={parentOptions(tasks, task.id)} value={task.parent_id ?? ""} onChange={(v) => save({ parent_id: v || null })}
+          none="Nothing (a top-level task)" placeholder="Search tasks" />
       </div>
 
       <Issues issues={issues} />
@@ -673,12 +841,7 @@ function AddBlocker({ tasks, bills, onAdd }: { tasks: Task[]; bills: BillOption[
   const [chase, setChase] = useState("");
   if (!kind) {
     return (
-      <div className={styles.small}>
-        Add a blocker:{" "}
-        <button type="button" className={styles.linkBtn} onClick={() => setKind("task")}>another task</button>{" · "}
-        <button type="button" className={styles.linkBtn} onClick={() => setKind("ap_item")}>a bill</button>{" · "}
-        <button type="button" className={styles.linkBtn} onClick={() => setKind("external")}>someone outside</button>
-      </div>
+      <div><button type="button" className="btn-secondary" onClick={() => setKind("task")}><Plus size={14} aria-hidden="true" />Add blocker</button></div>
     );
   }
   const reset = () => { setKind(""); setPick(""); setParty(""); setDescription(""); setChase(""); };
@@ -689,15 +852,19 @@ function AddBlocker({ tasks, bills, onAdd }: { tasks: Task[]; bills: BillOption[
     if (await onAdd(body)) reset();
   }
   return (
-    <div className={styles.section} style={{ border: "1px dashed var(--bd)", borderRadius: 10, padding: 10 }}>
+    <div className={`${styles.section} ${styles.addBox}`}>
+      <span className={styles.small}>It waits for</span>
+      <div className="seg" role="group" aria-label="What it waits for">
+        {([["task", "Another task"], ["ap_item", "A bill"], ["external", "Someone outside"]] as const).map(([k, label]) => (
+          <button key={k} type="button" className={kind === k ? "seg-on" : undefined} aria-pressed={kind === k} onClick={() => { setKind(k); setPick(""); }}>{label}</button>
+        ))}
+      </div>
       {kind === "task" && (
-        <select className={styles.select} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="The task it waits for">
-          <option value="">Waits for which task?</option>{tasks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-        </select>
+        <TaskPicker tasks={tasks} value={pick} onChange={setPick} placeholder="Which task? Type to search" />
       )}
       {kind === "ap_item" && (
         <select className={styles.select} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="The bill it waits for">
-          <option value="">{bills.length ? "Waits for which bill?" : "No open bills in Bills"}</option>{bills.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+          <option value="">{bills.length ? "Which bill?" : "No open bills in Bills"}</option>{bills.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
         </select>
       )}
       {kind === "external" && (

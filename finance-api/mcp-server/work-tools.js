@@ -18,7 +18,7 @@ const s = (description) => ({ type: "string", description });
 
 const TASK_FIELDS = {
   notes: s("What needs doing and why, with the evidence (account, amount, document, conversation)"),
-  priority: { type: "string", enum: ["P1", "P2", "P3"] },
+  priority: { type: "string", enum: ["P1", "P2", "P3"], description: "P1 flags the task as urgent; P2 and P3 show as normal. Overdue and soon-due tasks turn urgent by themselves" },
   due_on: s("Due date YYYY-MM-DD"),
   owner_kind: { type: "string", enum: ["person", "agent"], description: "With owner" },
   owner: s("A person's email, or an agent: ap-clerk, ar-clerk, fm1, fm2, fc, fpa"),

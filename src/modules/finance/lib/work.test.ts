@@ -70,8 +70,11 @@ describe("boardColumns", () => {
     expect(cols.find((c) => c.status === "waiting")!.tasks.map((x) => [x.id, x.parentTitle])).toEqual([["payroll", "close"]]);
   });
 
-  it("puts P1 first, then the earliest due date", () => {
-    expect(boardColumns(tasks).find((c) => c.status === "todo")!.tasks.map((x) => x.id)).toEqual(["urgent", "prepay"]);
+  it("puts urgent first, then the earliest due date", () => {
+    const todo = (today: string) => boardColumns(tasks, { today }).find((c) => c.status === "todo")!.tasks.map((x) => x.id);
+    expect(todo("2026-10-27")).toEqual(["urgent", "prepay"]);
+    // On 2 Nov prepay is due the next working day: both urgent, so the earlier due date leads.
+    expect(todo("2026-11-02")).toEqual(["prepay", "urgent"]);
   });
 
   it("adds the Done column only when asked", () => {
@@ -105,6 +108,13 @@ describe("timelineLayout", () => {
     const l = timelineLayout(taskTree(tasks), tasks, "2026-10-27");
     expect(l.bars.map((b) => b.id)).not.toContain("undated");
     expect(l.links).toEqual([{ from: "payroll", to: "pack" }]);
+  });
+
+  it("runs a zoomed-out range to at least its minimum, and caps it", () => {
+    const l = timelineLayout(taskTree(tasks), tasks, "2026-10-27", 240, 70);
+    expect(l.first).toBe("2026-10-23");
+    expect(l.days).toHaveLength(70);
+    expect(timelineLayout(taskTree(tasks), tasks, "2026-10-27", 10).days).toHaveLength(10);
   });
 
   it("drops links to a collapsed sub-task", () => {
@@ -147,5 +157,42 @@ describe("isWorkPath", () => {
     expect(isWorkPath("tasks/00000000-0000-4000-8000-000000000001/notes")).toBe(true);
     expect(isWorkPath("tasks/import-open-items")).toBe(false);
     expect(isWorkPath("tasks/month-end/x")).toBe(false);
+  });
+});
+
+import { addWorkingDays, dropRefusal, urgency } from "./work";
+
+describe("urgency", () => {
+  const by = (id: string): TaskBlocker => ({ id: `b-${id}`, task_id: "x", kind: "task", open: true, since: "", chase_on: null,
+    description: null, resolved_at: null, resolved_by: null, party: null, task: { id, title: id, status: "todo" }, bill: null });
+
+  it("counts working days, skipping the weekend", () => {
+    expect(addWorkingDays("2026-10-29", 2)).toBe("2026-11-02");
+    expect(addWorkingDays("2026-10-30", 1)).toBe("2026-11-02");
+  });
+
+  it("is urgent when flagged, overdue, due by the next working day, or directly holding up a flagged or overdue task", () => {
+    const tasks = [
+      t("flag", null, { priority: "P1", due_on: "2026-12-01" }),
+      t("late", null, { due_on: "2026-10-28" }),
+      t("soon", null, { due_on: "2026-11-02" }),
+      t("later", null, { due_on: "2026-11-03" }),
+      t("p2", null, { priority: "P2" }),
+      t("feeds", null, { due_on: "2026-12-01", holds_up: ["late"] }),
+      t("feeds2", null, { holds_up: ["feeds"] }),
+      t("feedsSoon", null, { holds_up: ["soon"] }),
+      t("doneLate", null, { due_on: "2026-10-01", status: "done", shown_status: "done" }),
+    ];
+    // Friday 30 Oct: the next working day is Monday 2 Nov.
+    const u = urgency(tasks, "2026-10-30");
+    expect(Object.fromEntries(u)).toEqual({ flag: "flagged", late: "overdue", soon: "soon", feeds: "holds_up" });
+  });
+
+  it("says why a dropped card did not move", () => {
+    expect(dropRefusal(t("a", null), "blocked")).toMatch(/set by blockers/);
+    expect(dropRefusal(t("a", null), "in_progress")).toBeNull();
+    const held = t("a", null, { shown_status: "blocked", blockers: [by("payroll")] });
+    expect(dropRefusal(held, "in_progress")).toMatch(/stays under Blocked until this clears: Blocked by: payroll/);
+    expect(dropRefusal(held, "done")).toBeNull();
   });
 });
