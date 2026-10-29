@@ -40,6 +40,17 @@ describe("isMasterPath", () => {
     expect(isMasterPath("jo-bloggs-ltd/companies")).toBe(true);
     expect(isMasterPath("jo-bloggs-ltd/companies/jo-bloggs-trading")).toBe(true);
     expect(isMasterPath("jo-bloggs-ltd/companies/jo-bloggs-trading/xero")).toBe(false);
+    expect(isMasterPath("jo-bloggs-ltd/companies/jo-bloggs-trading/retire")).toBe(true);
+    expect(isMasterPath("jo-bloggs-ltd/companies/jo-bloggs-trading/restore")).toBe(true);
+  });
+  it("passes the client rules' paths, by id", () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    expect(isMasterPath("jo-bloggs-ltd/procedure-rules")).toBe(true);
+    expect(isMasterPath(`jo-bloggs-ltd/procedure-rules/${id}`)).toBe(true);
+    expect(isMasterPath(`jo-bloggs-ltd/procedure-rules/${id}/approve`)).toBe(true);
+    expect(isMasterPath(`jo-bloggs-ltd/procedure-rules/${id}/retire`)).toBe(true);
+    expect(isMasterPath(`jo-bloggs-ltd/procedure-rules/${id}/delete`)).toBe(false);
+    expect(isMasterPath("jo-bloggs-ltd/procedure-rules/bills-coding")).toBe(false);
   });
 });
 

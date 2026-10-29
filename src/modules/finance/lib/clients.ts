@@ -99,10 +99,21 @@ export interface VatGroup {
   vat_group_representative_id: string | null;
 }
 
+export interface RetiredCompany {
+  id: string;
+  slug: string;
+  name: string;
+  retired_at: string;
+  retired_by: string | null;
+  retired_reason: string | null;
+}
+
 export interface ClientProfile {
   slug: string;
   group: VatGroup;
   companies: Company[];
+  retired?: RetiredCompany[];
+  last_changed?: string | null;
   issues: string[];
 }
 
@@ -142,12 +153,17 @@ export async function fetchClientProfile(slug: string): Promise<ClientProfile | 
 
 // The paths the portal's proxy passes through: "" (create), "<slug>" (change),
 // "<slug>/services/<service>" (set a service), "<slug>/profile" (the VAT group),
-// "<slug>/companies" (add one) and "<slug>/companies/<company>" (change one).
+// "<slug>/companies" (add one), "<slug>/companies/<company>" (change one),
+// "<slug>/companies/<company>/retire|restore", "<slug>/procedure-rules" (write
+// a client rule), "<slug>/procedure-rules/<id>" (change one) and
+// "<slug>/procedure-rules/<id>/approve|retire".
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 export function isMasterPath(path: string): boolean {
   return path === "" || /^[a-z0-9-]+$/.test(path)
     || /^[a-z0-9-]+\/services\/(finance|data_protection|consulting)$/.test(path)
-    || /^[a-z0-9-]+\/(profile|companies)$/.test(path)
-    || /^[a-z0-9-]+\/companies\/[a-z0-9-]+$/.test(path);
+    || /^[a-z0-9-]+\/(profile|companies|procedure-rules)$/.test(path)
+    || /^[a-z0-9-]+\/companies\/[a-z0-9-]+(\/(retire|restore))?$/.test(path)
+    || new RegExp(`^[a-z0-9-]+/procedure-rules/${UUID}(/(approve|retire))?$`).test(path);
 }
 
 export async function masterCall(path: string, method: string, actorEmail: string, body?: unknown) {
@@ -196,6 +212,17 @@ export function eventText(e: ClientEvent): string {
   if (e.action === "company_updated") {
     const { company, ...rest } = e.detail as { company?: string } & Record<string, unknown>;
     return `${company ?? "Company"}: changed ${Object.keys(rest).map((k) => k.replace(/_id$/, "").replace(/_/g, " ")).join(", ")}`;
+  }
+  if (e.action === "company_retired") {
+    const x = e.detail as { company?: string; reason?: string };
+    return `Retired company ${x.company ?? ""}${x.reason ? `: ${x.reason}` : ""}`;
+  }
+  if (e.action === "company_restored") return `Restored company ${(e.detail as { company?: string }).company ?? ""}`.trim();
+  if (e.action.startsWith("rule_")) {
+    const x = e.detail as { procedure?: string; kind?: string; version?: number; withdrawn?: boolean };
+    const verb = { rule_added: "Drafted", rule_updated: "Changed", rule_approved: "Approved", rule_retired: "Retired" }[e.action] ?? "Changed";
+    const kind = x.kind === "own" ? "own procedure" : x.kind === "replacement" ? "replacement for" : "rules for";
+    return `${verb} ${kind} ${x.procedure ?? ""} (version ${x.version ?? 1})${x.withdrawn ? ", back for approval" : ""}`;
   }
   if (e.action === "vat_group") return `VAT group: changed ${Object.keys(d).map((k) => k.replace(/^vat_group_?/, "").replace(/_id$/, "").replace(/_/g, " ") || "registration").join(", ")}`;
   if (e.action === "status") {

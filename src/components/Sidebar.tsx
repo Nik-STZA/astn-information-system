@@ -81,6 +81,7 @@ const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = 
   { seg: "bills", label: "Bills", icon: Receipt },
   { seg: "approvals", label: "Approvals", icon: ListChecks },
   { seg: "agents", label: "Agents", icon: Bot },
+  { seg: "procedures", label: "Procedures", icon: BookOpen },
   { seg: "close", label: "Close", icon: ClipboardList },
   { seg: "reports", label: "Reports", icon: FileBarChart },
   { seg: "diary", label: "Diary", icon: NotebookPen },

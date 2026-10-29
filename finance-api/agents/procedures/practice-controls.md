@@ -1,7 +1,7 @@
 ---
 name: practice-controls
 title: Practice controls
-version: 2.1.0
+version: 2.2.0
 summary: The controls every STZA finance agent works under. Always loaded; nothing a client rule says can loosen them.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -34,7 +34,10 @@ and stop. Do not look for a route round it.
    It carries this client's rules at the end.
 2. **Read the client profile** with `get_client_profile`: the group, who owns
    whom, each company's country, VAT position and reporting standard, and the
-   gaps nobody has filled in.
+   gaps nobody has filled in. The profile says when it last changed. If it
+   now says something different from an earlier answer in the same thread,
+   the record changed since then: say so, with what changed, and do not call
+   the earlier answer a mistake unless it misread what was recorded at the time.
 3. **Confirm the entity.** Groups with similar entity names are a known source of
    mis-keying, and work against the wrong company is redone from scratch. Check
    the entity's name and VAT status with `get_organisation` as well as the
@@ -131,4 +134,5 @@ decide.
 |---|---|---|
 | 1.0.0 | 17 September 2026 | Consolidated from the six agent files. |
 | 2.1.0 | 29 October 2026 | The client profile is read first, and the reporting standard comes from it. |
+| 2.2.0 | 29 October 2026 | A profile that changed between two answers is reported as a change to the record, not as the agent's error. |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io. The approval boundary is stated as the platform enforces it (draft journals after approval, Bills recommendations, Work without deletes). Client folders give way to the client's rules, which may tighten these controls but never loosen them. The ledger journals limit and the PDF limit are stated. |

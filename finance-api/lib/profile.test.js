@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { companyChanges, groupChanges, ancestors, tree, profileIssues, vatPosition, agentView, FRAMEWORKS, FRAMEWORK_NOTES } from "./profile";
+import { companyChanges, groupChanges, ancestors, tree, profileIssues, vatPosition, agentView, vatNumber, retireIssues, FRAMEWORKS, FRAMEWORK_NOTES } from "./profile";
 
 const id = (n) => `00000000-0000-4000-8000-00000000000${n}`;
 const holdco = { id: id(1), slug: "acme-holdings", name: "Acme Holdings", parent_id: null, reporting_framework: "FRS 102", country_of_incorporation: "GB", in_vat_group: true, vat_number: null, ownership_pct: null, connected: true };
@@ -91,5 +91,44 @@ describe("what an agent reads", () => {
 
   it("has a note for every standard", () => {
     for (const f of FRAMEWORKS) expect(FRAMEWORK_NOTES[f], f).toBeTruthy();
+  });
+});
+
+describe("VAT numbers in one form", () => {
+  it("gives a UK number its GB prefix, and leaves others as given", () => {
+    expect(vatNumber("000 0000 00", true)).toBe("GB000000000");
+    expect(vatNumber("gb000000000", true)).toBe("GB000000000");
+    expect(vatNumber("4000000000", false)).toBe("4000000000");
+    expect(vatNumber("000000000", false)).toBe("000000000");
+    expect(companyChanges({ vat_number: "000000000" }, opco, companies).set.vat_number).toBe("GB000000000");
+    expect(groupChanges({ vat_group_number: "000000000" }, companies).set.vat_group_number).toBe("GB000000000");
+  });
+
+  it("reads a number saved without the prefix the same as one saved with it", () => {
+    const v = agentView({ name: "Acme" }, { ...group, vat_group_number: "000000000" }, companies);
+    expect(v.vat_group.number).toBe("GB000000000");
+    expect(profileIssues({ ...group, vat_group_number: "000000000" }, [{ ...opco, vat_number: "GB000000000" }, holdco])).toEqual([]);
+  });
+});
+
+describe("the profile over time", () => {
+  it("names the likely parent when several companies have none", () => {
+    const issues = profileIssues({ vat_group: false }, [{ ...holdco, in_vat_group: false }, { ...opco, parent_id: null, in_vat_group: false }, { ...sub, parent_id: id(1) }]);
+    expect(issues[0]).toBe("No single parent company: Acme Holdings and Acme Trading have no parent recorded. The group's parent needs none; if Acme Holdings owns Acme Trading, set its parent to Acme Holdings.");
+  });
+
+  it("tells the agent when a person last changed it", () => {
+    expect(agentView({ name: "Acme" }, group, companies, "2026-10-29T15:35:00Z").profile_last_changed).toBe("2026-10-29T15:35:00Z");
+  });
+});
+
+describe("retiring a company", () => {
+  it("refuses while it is connected, owns another, or represents the VAT group", () => {
+    expect(retireIssues(holdco, companies, group)).toEqual([
+      "Acme Holdings is connected to Xero. Disconnect it on the Finance set-up before retiring it.",
+      "Acme Holdings owns Acme Trading. Give it another parent first.",
+      "Acme Holdings is the VAT group's representative member. Choose another first.",
+    ]);
+    expect(retireIssues({ ...sub, connected: false }, companies, group)).toEqual([]);
   });
 });
