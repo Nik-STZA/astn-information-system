@@ -14,6 +14,9 @@ COPY lib ./lib
 # The same image runs the agent runner as the Cloud Run Job agent-runner
 # (node runner.js, RUNNER_ONCE=1), started by this service when a run is queued.
 COPY runner.js ./
+# The agents' roles and standard procedures, read by lib/agent-procedures.js.
+# They stay in this image: clients receive outputs, never the procedures.
+COPY agents ./agents
 
 ENV NODE_ENV=production
 EXPOSE 8080

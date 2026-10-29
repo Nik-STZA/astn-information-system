@@ -22,8 +22,10 @@ const AGENTS = [
   { key: "", label: "Any", hint: "No specific agent: a general finance session for this client" },
   { key: "fc", label: "FC", hint: "Financial Controller review, close quality, commentary" },
   { key: "fpa", label: "FP&A", hint: "Variance, reforecast, runway, scenarios" },
+  { key: "fm1", label: "FM1", hint: "Month-end close: bank, accruals, payroll, fixed assets, VAT return" },
   { key: "fm2", label: "FM2", hint: "Review AP, AR and VAT work" },
-  { key: "ap-clerk", label: "AP Clerk", hint: "AP posting, vendor setup, reconciliation" },
+  { key: "ap-clerk", label: "AP Clerk", hint: "Supplier bills, coding, supplier statements" },
+  { key: "ar-clerk", label: "AR Clerk", hint: "Sales invoices, billing reconciliation, ageing" },
 ];
 
 // Who answered: initials in an avatar, as on Overview's agent activity.
@@ -31,7 +33,9 @@ const AGENT_IDENTITY: Record<string, { initials: string; title: string; short: s
   fc: { initials: "FC", title: "Financial Controller", short: "FC" },
   fpa: { initials: "PA", title: "FP&A", short: "FP&A" },
   fm2: { initials: "F2", title: "Finance Manager (AP, AR and VAT)", short: "FM2" },
+  fm1: { initials: "F1", title: "Finance Manager (month-end and VAT)", short: "FM1" },
   "ap-clerk": { initials: "AP", title: "AP Clerk", short: "AP Clerk" },
+  "ar-clerk": { initials: "AR", title: "AR Clerk", short: "AR Clerk" },
 };
 
 const DEFAULT_IDENTITY = { initials: "AI", title: "Finance team", short: "Team" };
