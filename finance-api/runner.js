@@ -99,7 +99,7 @@ async function xeroCall(slug, entity, report, params = {}) {
 // Each tool maps to one of the Xero data endpoints in finance-api/server.js.
 // The runner resolves the client slug at claim time and threads it through.
 
-function buildTools(clientSlug, entities) {
+function buildTools(clientSlug, entities, agent, clientRules) {
   const entityEnum = entities.map((e) => e.slug);
   const entityDesc = entities.map((e) => `${e.slug} (${e.name})`).join(", ");
 
@@ -300,6 +300,8 @@ function buildTools(clientSlug, entities) {
       },
     },
     ...work.tools(entityEnum),
+    ...ledger.tools(entityEnum),
+    procedures.readProcedureTool(agent, clientRules),
   ];
 }
 
@@ -446,6 +448,12 @@ async function billsTool(job, name, input) {
 
 const work = require("./lib/agent-work").agentWork({ apiCall, apiRequest, requesterOf });
 
+// ── Ledger reads ─────────────────────────────────────────────────────────────
+//
+// The documents behind a balance: lib/agent-ledger.js.
+
+const ledger = require("./lib/agent-ledger").agentLedger({ apiCall });
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const SYSTEM_BASE = `You are a finance agent working inside the STZA Finance OS. You have access to live Xero accounting data via tools. You are acting on behalf of a qualified Chartered Accountant (CA(SA)) with Big 4 experience.
@@ -478,47 +486,14 @@ Work (the client's task list in os.stza.io):
 - When you finish or progress a task in Work, update_task with a note of what you did. Mark it done only when you have checked it is done; use review when a person should check it.
 - You cannot delete tasks. At the end, list any tasks you added or changed.`;
 
-const AGENT_PROMPTS = {
-  fc: `${SYSTEM_BASE}
+// Each role's instructions, its tools and the procedures it can open are files
+// in agents/, with the client's approved rules merged in: lib/agent-procedures.js.
+const procedures = require("./lib/agent-procedures");
 
-You are the Financial Controller (FC) agent. Your focus is:
-- Month-end close quality and completeness
-- Trial balance reviews and variance analysis
-- Balance sheet substantiation
-- Management reporting commentary
-- Identifying mispostings, unusual balances, and reconciliation breaks
-- Ensuring the books are accurate and audit-ready`,
-
-  "fpa": `${SYSTEM_BASE}
-
-You are the FP&A (Financial Planning & Analysis) agent. Your focus is:
-- Budget vs actual variance analysis
-- Revenue and cost trend analysis
-- Runway and cash burn calculations
-- Scenario modelling and sensitivity analysis
-- KPI tracking and business performance insights
-- Identifying the story behind the numbers for board and investor updates`,
-
-  fm2: `${SYSTEM_BASE}
-
-You are the FM2 (Finance Manager 2) agent, reviewing AP, AR and VAT work. Your focus is:
-- Accounts payable and accounts receivable reviews
-- Aged debtor and creditor analysis
-- Payment run preparation and prioritisation
-- VAT return reconciliation and compliance
-- Working capital optimisation
-- Identifying overdue items and collection priorities`,
-
-  "ap-clerk": `${SYSTEM_BASE}
-
-You are the AP Clerk agent. Your focus is:
-- Accounts payable posting accuracy
-- Vendor setup and maintenance
-- Invoice matching and reconciliation
-- Payment allocation
-- Flagging duplicate invoices or unusual supplier activity
-- Maintaining clean supplier records`,
-};
+async function clientRules(slug) {
+  const r = await apiCall("GET", `/api/finance/clients/${encodeURIComponent(slug)}/procedure-rules`);
+  return r?.rules ?? [];
+}
 
 // ── Follow-ups ───────────────────────────────────────────────────────────────
 //
@@ -568,9 +543,18 @@ async function executeJob(job) {
     };
   }
 
-  // 2. Build tools and system prompt
-  const tools = buildTools(job.client.slug, connectedEntities);
-  const systemPrompt = AGENT_PROMPTS[job.agent] || SYSTEM_BASE;
+  // 2. Build tools and system prompt. A client's rules that cannot be read are
+  // not a reason to stop: the agent works to the standard procedures and says so.
+  let rules = [];
+  let rulesNote = "";
+  try {
+    rules = await clientRules(job.client.slug);
+  } catch (e) {
+    console.error(`  Could not read client rules for ${job.client.slug}:`, e.message);
+    rulesNote = "\n\nThis client's own procedure rules could not be read for this run. Work to the standard procedures and say so in your answer.";
+  }
+  const tools = procedures.toolsFor(job.agent, buildTools(job.client.slug, connectedEntities, job.agent, rules));
+  const systemPrompt = procedures.systemPrompt(job.agent, SYSTEM_BASE, rules) + rulesNote;
   const currency = await clientCurrency(job.client.slug).catch(() => null);
   const clientContext = `You are working on client: ${job.client.name} (slug: ${job.client.slug}).
 Reporting currency: ${currency ?? "not recorded; label every amount with the currency code Xero returns"}.
@@ -617,7 +601,10 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
 
       let result;
       try {
-        if (tu.name === "list_entities") {
+        if (!tools.some((t) => t.name === tu.name)) {
+          // A tool this role does not hold: refused here as well as by its absence.
+          result = { error: `${tu.name} is not one of your tools.` };
+        } else if (tu.name === "list_entities") {
           result = { entities: connectedEntities };
         } else if (["list_bills_queue", "get_bill_item", "get_bill_coding_options", "recommend_bill_coding"].includes(tu.name)) {
           result = await billsTool(job, tu.name, tu.input);
@@ -625,6 +612,10 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
         } else if (work.names.includes(tu.name)) {
           result = await work.call(job, connectedEntities, tu.name, tu.input);
           if (tu.name !== "list_tasks") console.log(`    Work: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
+        } else if (tu.name === "read_procedure") {
+          result = procedures.readProcedure(job.agent, tu.input.name, rules);
+        } else if (ledger.names.includes(tu.name)) {
+          result = await ledger.call(job, tu.name, tu.input);
         } else if (tu.name === "create_draft_journal") {
           result = await createDraftJournal(job, tu.input);
           console.log(`    Draft journal: ${result.created ? `created ${result.journal_number ?? ""}` : `refused (${result.status ?? "no approval"})`}`);

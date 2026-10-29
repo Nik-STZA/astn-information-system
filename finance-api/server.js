@@ -4979,6 +4979,29 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id/file", route(async
   res.send(Buffer.from(await r.arrayBuffer()));
 }));
 
+// ── Client rules for the agents' procedures (migration 025) ──────────────────
+//
+// GET /api/finance/clients/:slug/procedure-rules
+// The approved rules only: what the agent runner merges into the standard
+// procedures (lib/agent-procedures.js). Drafts never reach an agent. Before
+// migration 025 is applied the table does not exist, and the answer is no
+// rules rather than a failed run.
+app.get("/api/finance/clients/:slug/procedure-rules", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  try {
+    const r = await pool.query(
+      `SELECT procedure, kind, title, summary, body, roles, version, approved_by, approved_at
+         FROM finance.client_procedures
+        WHERE client_id = $1 AND status = 'approved'
+        ORDER BY procedure, kind`, [client.id]);
+    res.json({ rules: r.rows });
+  } catch (e) {
+    if (e.code === "42P01") return res.json({ rules: [], note: "migration 025 not applied" });
+    throw e;
+  }
+}));
+
 // ── Work: tasks, sub-tasks, blockers, history (migration 024) ────────────────
 //
 // lib/work.js holds the rules. Every change is the actor's, needs an
