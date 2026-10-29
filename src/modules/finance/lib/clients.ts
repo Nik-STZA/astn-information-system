@@ -71,6 +71,41 @@ export const SERVICES: Array<{ key: ServiceKey; label: string; blurb: string }> 
 
 export const serviceLabel = (k: string) => SERVICES.find((s) => s.key === k)?.label ?? k;
 
+// ── The profile: the group and its companies (finance-api lib/profile.js) ─────
+
+export const FRAMEWORKS = ["FRS 105", "FRS 102 Section 1A", "FRS 102", "IFRS", "IFRS for SMEs", "US GAAP", "Other"] as const;
+
+export interface Company {
+  id: string;
+  slug: string;
+  name: string;
+  legal_name: string | null;
+  company_number: string | null;
+  registered_address: string | null;
+  country_of_incorporation: string | null;
+  parent_id: string | null;
+  ownership_pct: string | number | null;
+  vat_number: string | null;
+  in_vat_group: boolean;
+  reporting_framework: string | null;
+  year_end: string | null;
+  connected: boolean;
+  depth: number;
+}
+
+export interface VatGroup {
+  vat_group: boolean;
+  vat_group_number: string | null;
+  vat_group_representative_id: string | null;
+}
+
+export interface ClientProfile {
+  slug: string;
+  group: VatGroup;
+  companies: Company[];
+  issues: string[];
+}
+
 // ── Fetchers (server side) ────────────────────────────────────────────────────
 
 async function get<T>(path: string): Promise<T> {
@@ -95,10 +130,24 @@ export async function fetchMasterClient(slug: string): Promise<(MasterClient & {
   }
 }
 
-// The paths the portal's proxy passes through: "" (create), "<slug>" (change)
-// and "<slug>/services/<service>" (set a service).
+// The profile, or null when it is not set up yet (before migration 030).
+export async function fetchClientProfile(slug: string): Promise<ClientProfile | null> {
+  try {
+    return await get<ClientProfile>(`/api/clients/${encodeURIComponent(slug)}/profile`);
+  } catch (e) {
+    if (e instanceof Error && /not set up yet|client not found/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+// The paths the portal's proxy passes through: "" (create), "<slug>" (change),
+// "<slug>/services/<service>" (set a service), "<slug>/profile" (the VAT group),
+// "<slug>/companies" (add one) and "<slug>/companies/<company>" (change one).
 export function isMasterPath(path: string): boolean {
-  return path === "" || /^[a-z0-9-]+$/.test(path) || /^[a-z0-9-]+\/services\/(finance|data_protection|consulting)$/.test(path);
+  return path === "" || /^[a-z0-9-]+$/.test(path)
+    || /^[a-z0-9-]+\/services\/(finance|data_protection|consulting)$/.test(path)
+    || /^[a-z0-9-]+\/(profile|companies)$/.test(path)
+    || /^[a-z0-9-]+\/companies\/[a-z0-9-]+$/.test(path);
 }
 
 export async function masterCall(path: string, method: string, actorEmail: string, body?: unknown) {
@@ -143,6 +192,12 @@ export function eventText(e: ClientEvent): string {
     const x = e.detail as { service?: string; from?: unknown; to?: unknown };
     return `${serviceLabel(String(x.service))}: ${stateWord(x.from)} to ${stateWord(x.to)}`;
   }
+  if (e.action === "company_added") return `Added company ${(e.detail as { name?: string }).name ?? ""}`.trim();
+  if (e.action === "company_updated") {
+    const { company, ...rest } = e.detail as { company?: string } & Record<string, unknown>;
+    return `${company ?? "Company"}: changed ${Object.keys(rest).map((k) => k.replace(/_id$/, "").replace(/_/g, " ")).join(", ")}`;
+  }
+  if (e.action === "vat_group") return `VAT group: changed ${Object.keys(d).map((k) => k.replace(/^vat_group_?/, "").replace(/_id$/, "").replace(/_/g, " ") || "registration").join(", ")}`;
   if (e.action === "status") {
     const s = d.status as { from?: ClientStatus; to?: ClientStatus } | undefined;
     if (s?.to) return `Status: ${STATUS_LABEL[s.from as ClientStatus] ?? "none"} to ${STATUS_LABEL[s.to]}`;

@@ -1,7 +1,7 @@
 ---
 name: practice-controls
 title: Practice controls
-version: 2.0.0
+version: 2.1.0
 summary: The controls every STZA finance agent works under. Always loaded; nothing a client rule says can loosen them.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -32,13 +32,18 @@ and stop. Do not look for a route round it.
 
 1. **Read the procedure** that covers the work, with read_procedure, every time.
    It carries this client's rules at the end.
-2. **Confirm the entity.** Groups with similar entity names are a known source of
+2. **Read the client profile** with `get_client_profile`: the group, who owns
+   whom, each company's country, VAT position and reporting standard, and the
+   gaps nobody has filled in.
+3. **Confirm the entity.** Groups with similar entity names are a known source of
    mis-keying, and work against the wrong company is redone from scratch. Check
-   the entity's name and VAT status with `get_organisation` rather than assuming.
-3. **Know the framework.** One of FRS 105, FRS 102 Section 1A, FRS 102 or IFRS.
-   It decides leases and receivable impairment, among others. If neither the
-   client's rules nor the question tells you, ask; do not assume.
-4. **Textbook treatment by default.** Follow the client's rules where they
+   the entity's name and VAT status with `get_organisation` as well as the
+   profile; where the two disagree, say so.
+4. **Know the framework** from the profile: FRS 105, FRS 102 Section 1A,
+   FRS 102, IFRS, IFRS for SMEs or US GAAP. It decides leases, receivable
+   impairment and development costs, among others. If the profile has no
+   standard for the company, ask; do not assume one.
+5. **Textbook treatment by default.** Follow the client's rules where they
    depart, and say that you did. Where both are silent and it matters, write the
    question down and carry on with the rest.
 
@@ -125,4 +130,5 @@ decide.
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 17 September 2026 | Consolidated from the six agent files. |
+| 2.1.0 | 29 October 2026 | The client profile is read first, and the reporting standard comes from it. |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io. The approval boundary is stated as the platform enforces it (draft journals after approval, Bills recommendations, Work without deletes). Client folders give way to the client's rules, which may tighten these controls but never loosen them. The ledger journals limit and the PDF limit are stated. |

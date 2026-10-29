@@ -35,10 +35,22 @@ describe("isMasterPath", () => {
     expect(isMasterPath("jo-bloggs-ltd/services/payroll")).toBe(false);
     expect(isMasterPath("../finance/overview")).toBe(false);
   });
+  it("passes the profile's paths and nothing past them", () => {
+    expect(isMasterPath("jo-bloggs-ltd/profile")).toBe(true);
+    expect(isMasterPath("jo-bloggs-ltd/companies")).toBe(true);
+    expect(isMasterPath("jo-bloggs-ltd/companies/jo-bloggs-trading")).toBe(true);
+    expect(isMasterPath("jo-bloggs-ltd/companies/jo-bloggs-trading/xero")).toBe(false);
+  });
 });
 
 describe("eventText", () => {
   const e = (action: string, detail: Record<string, unknown>) => ({ action, detail, actor_email: "jo@example.com", at: "" });
+  it("puts profile changes in words", () => {
+    expect(eventText(e("company_added", { slug: "jo-bloggs-trading", name: "Jo Bloggs Trading" }))).toBe("Added company Jo Bloggs Trading");
+    expect(eventText(e("company_updated", { company: "Jo Bloggs Trading", reporting_framework: { from: null, to: "FRS 102" }, parent_id: { from: null, to: "x" } })))
+      .toBe("Jo Bloggs Trading: changed reporting framework, parent");
+    expect(eventText(e("vat_group", { vat_group: { from: false, to: true }, vat_group_number: { from: null, to: "GB1" } }))).toBe("VAT group: changed registration, number");
+  });
   it("puts each change in words", () => {
     expect(eventText(e("created", {}))).toBe("Added");
     expect(eventText(e("created", { from: "data protection client list" }))).toBe("Added from the data protection client list");

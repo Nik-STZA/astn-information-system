@@ -10,7 +10,7 @@
 const NAMES = [
   "get_organisation", "get_invoices", "get_invoice", "get_credit_notes", "get_payments",
   "get_bank_transactions", "get_manual_journals", "get_contacts", "get_history",
-  "list_attachments", "get_fixed_assets", "check_bill", "get_budget_summary",
+  "list_attachments", "get_fixed_assets", "check_bill", "get_budget_summary", "get_client_profile",
 ];
 
 // History and attachments, by the record types an agent meets.
@@ -160,6 +160,15 @@ function tools(entityEnum) {
     name, description, input_schema: { type: "object", properties: { entity, ...props }, required: ["entity", ...required] },
   });
   return [
+    {
+      name: "get_client_profile",
+      description:
+        "The client's group and companies as recorded in os.stza.io: who owns whom and the share held, registration " +
+        "number, country of incorporation, VAT position (own number or VAT group member) and the reporting standard " +
+        "each company reports under, with what that standard decides. Read it before choosing any treatment. Its gaps " +
+        "list says what is not recorded; ask rather than assume.",
+      input_schema: { type: "object", properties: {}, required: [] },
+    },
     def("get_organisation",
       "The entity's own settings in Xero: legal name, whether it is VAT registered, VAT basis and period, base currency, " +
       "financial year end and lock dates. Check this before work that depends on any of them; never assume VAT status."),
@@ -266,6 +275,13 @@ function agentLedger({ apiCall }) {
   }
 
   async function call(job, name, input) {
+    if (name === "get_client_profile") {
+      try {
+        return await apiCall("GET", `/api/clients/${encodeURIComponent(job.client.slug)}/profile?for=agent`);
+      } catch (e) {
+        return { error: "The client profile could not be read. Ask for the reporting standard and VAT position rather than assuming them.", detail: e.message };
+      }
+    }
     const bad = checkInput(name, input);
     if (bad) return { error: bad };
     const e = input.entity;
