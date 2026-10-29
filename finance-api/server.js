@@ -58,6 +58,8 @@ const financeOverview = require("./lib/overview");
 const billing = require("./lib/billing");
 const clientsLib = require("./lib/clients");
 const profileLib = require("./lib/profile");
+const procedureRules = require("./lib/procedure-rules");
+const agentProcedures = require("./lib/agent-procedures");
 const work = require("./lib/work");
 const monthEndPlan = require("./lib/month-end");
 const billReview = require("./lib/bill-review");
@@ -195,7 +197,7 @@ app.get("/api/finance/overview", route(async (_req, res) => {
   const [clients, entities, ap, wip, openItems, runs, packs, tasks] = await Promise.all([
     pool.query(`SELECT c.id, c.slug, c.name, f.reporting_currency FROM shared.clients c
                   JOIN finance.client_finance_config f ON f.client_id = c.id ORDER BY c.name`),
-    pool.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities GROUP BY client_id"),
+    pool.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities WHERE retired_at IS NULL GROUP BY client_id"),
     pool.query(`SELECT client_id, state, written_at FROM finance.ap_items
                  WHERE state IN ('exception', 'clean', 'approved') OR (state = 'written' AND written_at > now() - interval '8 days')`),
     pool.query(`SELECT client_id, title, panel, blocked_on, updated_at FROM finance.wip_items
@@ -282,7 +284,7 @@ async function clientView(conn, rows) {
   const ids = rows.map((r) => r.id);
   const [services, companies] = await Promise.all([
     clientServices(conn, ids),
-    conn.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities WHERE client_id = ANY($1::uuid[]) GROUP BY client_id", [ids]),
+    conn.query("SELECT client_id, COUNT(*)::int AS n FROM finance.entities WHERE client_id = ANY($1::uuid[]) AND retired_at IS NULL GROUP BY client_id", [ids]),
   ]);
   return rows.map((r) => ({
     ...r,
@@ -422,11 +424,18 @@ async function loadProfile(db, slug, lock = false) {
     `SELECT id, slug, name, legal_name, vat_group, vat_group_number, vat_group_representative_id
        FROM shared.clients WHERE slug = $1${lock ? " FOR UPDATE" : ""}`, [slug])).rows[0];
   if (!client) return null;
-  const companies = (await db.query(
-    `SELECT ${COMPANY_COLUMNS} FROM finance.entities WHERE client_id = $1 ORDER BY name`, [client.id])).rows;
+  const [companies, retired, changed] = await Promise.all([
+    db.query(`SELECT ${COMPANY_COLUMNS} FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`, [client.id]),
+    db.query(`SELECT id, slug, name, retired_at, retired_by, retired_reason FROM finance.entities
+               WHERE client_id = $1 AND retired_at IS NOT NULL ORDER BY name`, [client.id]),
+    db.query("SELECT max(at) AS at FROM shared.client_events WHERE client_id = $1 AND action = ANY($2::text[])", [client.id, PROFILE_EVENTS]),
+  ]);
   const group = { vat_group: client.vat_group, vat_group_number: client.vat_group_number, vat_group_representative_id: client.vat_group_representative_id };
-  return { client, group, companies };
+  return { client, group, companies: companies.rows, retired: retired.rows, lastChanged: changed.rows[0].at };
 }
+
+// The history rows that change the profile, for when it last changed.
+const PROFILE_EVENTS = ["vat_group", "company_added", "company_updated", "company_retired", "company_restored"];
 
 // Before migration 030 the columns do not exist: say so plainly.
 const profileMissing = (e) => e.code === "42703";
@@ -441,11 +450,14 @@ app.get("/api/clients/:slug/profile", route(async (req, res) => {
     throw e;
   }
   if (!p) return res.status(404).json({ error: "client not found" });
-  if (req.query.for === "agent") return res.json(profileLib.agentView(p.client, p.group, p.companies));
+  if (req.query.for === "agent") return res.json(profileLib.agentView(p.client, p.group, p.companies, p.lastChanged));
+  const shown = profileLib.normalise(p.group, p.companies);
   res.json({
     slug: p.client.slug,
-    group: p.group,
-    companies: profileLib.tree(p.companies),
+    group: shown.group,
+    companies: profileLib.tree(shown.companies),
+    retired: p.retired,
+    last_changed: p.lastChanged,
     issues: profileLib.profileIssues(p.group, p.companies),
     frameworks: profileLib.FRAMEWORKS,
   });
@@ -504,6 +516,168 @@ app.patch("/api/clients/:slug/companies/:entity", route((req, res) => masterTx(r
   return { status: 200, body: { slug: cur.slug, changed } };
 })));
 
+// POST /api/clients/:slug/companies/:entity/retire {reason?}
+// Hides a company from the profile, the company lists and the agents. It is
+// kept, with its history, and restore brings it back.
+app.post("/api/clients/:slug/companies/:entity/retire", route((req, res) => masterTx(req, res, async (conn, { actorEmail, log }) => {
+  const p = await loadProfile(conn, req.params.slug, true);
+  if (!p) return { status: 404, body: { error: "client not found" } };
+  const cur = p.companies.find((c) => c.slug === req.params.entity);
+  if (!cur) return { status: 404, body: { error: "company not found, or already retired" } };
+  const issues = profileLib.retireIssues(cur, p.companies, p.group);
+  if (issues.length) return { status: 422, body: { issues } };
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 300) || null : null;
+  await conn.query(
+    `UPDATE finance.entities SET retired_at = now(), retired_by = $2, retired_reason = $3, in_vat_group = false, updated_at = now()
+      WHERE id = $1`, [cur.id, actorEmail, reason]);
+  await log(p.client.id, "company_retired", { company: cur.name, ...(reason ? { reason } : {}) });
+  return { status: 200, body: { slug: cur.slug, retired: true } };
+})));
+
+// POST /api/clients/:slug/companies/:entity/restore
+app.post("/api/clients/:slug/companies/:entity/restore", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const p = await loadProfile(conn, req.params.slug, true);
+  if (!p) return { status: 404, body: { error: "client not found" } };
+  const cur = p.retired.find((c) => c.slug === req.params.entity);
+  if (!cur) return { status: 404, body: { error: "no retired company by that name" } };
+  await conn.query(
+    "UPDATE finance.entities SET retired_at = NULL, retired_by = NULL, retired_reason = NULL, updated_at = now() WHERE id = $1", [cur.id]);
+  await log(p.client.id, "company_restored", { company: cur.name });
+  return { status: 200, body: { slug: cur.slug, retired: false } };
+})));
+
+// ── Client rules for the procedures, written and approved by people ─────────
+//
+// The standard procedures are files in this image (agents/procedures). A
+// client's rules add to one, replace one, or are its own (migration 025,
+// lib/procedure-rules.js). STZA people read and write them on the client's
+// Procedures page; only an approved rule reaches an agent, through
+// GET /api/finance/clients/:slug/procedure-rules.
+
+const RULE_COLUMNS = `id, procedure, kind, title, summary, body, roles, version, status,
+  created_by, created_at, updated_at, approved_by, approved_at`;
+
+// GET /api/clients/:slug/procedures   the standard set and this client's rules.
+app.get("/api/clients/:slug/procedures", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const lib = agentProcedures.library();
+  const rules = (await pool.query(
+    `SELECT ${RULE_COLUMNS} FROM finance.client_procedures WHERE client_id = $1 ORDER BY procedure, kind, created_at DESC`, [client.id])).rows;
+  res.json({
+    standard: procedureRules.standardList(lib),
+    roles: Object.values(lib.roles).map((r) => ({ name: r.name, title: r.title || r.name })),
+    rules,
+  });
+}));
+
+// GET /api/clients/:slug/procedures/:name   one procedure: the standard text,
+// this client's rules for it, and what an agent reads today.
+app.get("/api/clients/:slug/procedures/:name", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const lib = agentProcedures.library();
+  const rules = (await pool.query(
+    `SELECT ${RULE_COLUMNS} FROM finance.client_procedures WHERE client_id = $1 AND procedure = $2 ORDER BY kind, created_at DESC`,
+    [client.id, req.params.name])).rows;
+  const standard = lib.procedures[req.params.name];
+  if (!standard && !rules.length) return res.status(404).json({ error: "no such procedure" });
+  const approved = rules.filter((r) => r.status === "approved");
+  const own = approved.find((r) => r.kind === "own");
+  res.json({
+    name: req.params.name,
+    standard: standard
+      ? {
+          title: standard.title || standard.name, summary: standard.summary, version: standard.version, body: standard.body,
+          roles: procedureRules.rolesFor(standard.name, lib), always_loaded: agentProcedures.PRELOADED.includes(standard.name),
+        }
+      : null,
+    rules,
+    agents_read: standard
+      ? agentProcedures.withClientRules(standard, approved)
+      : own ? `# ${own.title || own.procedure} (this client's own procedure)\n\n${own.body}` : null,
+  });
+}));
+
+const ruleClient = async (conn, slug) =>
+  (await conn.query("SELECT id FROM shared.clients WHERE slug = $1 FOR UPDATE", [slug])).rows[0];
+
+async function loadRule(conn, clientId, id) {
+  if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+  return (await conn.query(
+    `SELECT ${RULE_COLUMNS} FROM finance.client_procedures WHERE client_id = $1 AND id = $2 FOR UPDATE`, [clientId, id])).rows[0];
+}
+
+const ruleEvent = (r, extra = {}) => ({ procedure: r.procedure, kind: r.kind, version: r.version, ...extra });
+
+// POST /api/clients/:slug/procedure-rules {procedure, kind, title?, summary?, body, roles?}   a draft.
+app.post("/api/clients/:slug/procedure-rules", route((req, res) => masterTx(req, res, async (conn, { actorEmail, log }) => {
+  const client = await ruleClient(conn, req.params.slug);
+  if (!client) return { status: 404, body: { error: "client not found" } };
+  const { set, issues } = procedureRules.ruleChanges(req.body, null, agentProcedures.library());
+  if (issues.length) return { status: 422, body: { issues } };
+  const live = (await conn.query(
+    "SELECT status FROM finance.client_procedures WHERE client_id = $1 AND procedure = $2 AND kind = $3 AND status <> 'retired'",
+    [client.id, set.procedure, set.kind])).rows[0];
+  if (live) {
+    return { status: 409, body: { issues: [`This client already has ${live.status === "draft" ? "a draft" : "an approved"} ${set.kind} for ${set.procedure}. Change that one.`] } };
+  }
+  const cols = ["client_id", "created_by", ...Object.keys(set)];
+  const row = (await conn.query(
+    `INSERT INTO finance.client_procedures (${cols.join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})
+     RETURNING ${RULE_COLUMNS}`, [client.id, actorEmail, ...Object.values(set)])).rows[0];
+  await log(client.id, "rule_added", ruleEvent(row));
+  return { status: 201, body: row };
+})));
+
+// PATCH /api/clients/:slug/procedure-rules/:id {title?, summary?, body?, roles?}
+// Changing an approved rule takes it away from the agents until it is approved
+// again, at the next version; the approved text is kept in the history.
+app.patch("/api/clients/:slug/procedure-rules/:id", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const client = await ruleClient(conn, req.params.slug);
+  if (!client) return { status: 404, body: { error: "client not found" } };
+  const cur = await loadRule(conn, client.id, req.params.id);
+  if (!cur) return { status: 404, body: { error: "rule not found" } };
+  const { set, issues } = procedureRules.ruleChanges(req.body, cur, agentProcedures.library());
+  if (issues.length) return { status: 422, body: { issues } };
+  const keys = Object.keys(set).filter((k) => JSON.stringify(set[k] ?? null) !== JSON.stringify(cur[k] ?? null));
+  if (!keys.length) return { status: 200, body: cur };
+  const row = (await conn.query(
+    `UPDATE finance.client_procedures SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")}, updated_at = now()
+      WHERE id = $1 RETURNING ${RULE_COLUMNS}`, [cur.id, ...keys.map((k) => set[k])])).rows[0];
+  const withdrawn = cur.status === "approved" && row.status === "draft";
+  await log(client.id, "rule_updated", ruleEvent(row, withdrawn ? { withdrawn: true, previous: { version: cur.version, body: cur.body } } : {}));
+  return { status: 200, body: row };
+})));
+
+// POST /api/clients/:slug/procedure-rules/:id/approve   puts it in front of the agents.
+app.post("/api/clients/:slug/procedure-rules/:id/approve", route((req, res) => masterTx(req, res, async (conn, { actorEmail, log }) => {
+  const client = await ruleClient(conn, req.params.slug);
+  if (!client) return { status: 404, body: { error: "client not found" } };
+  const cur = await loadRule(conn, client.id, req.params.id);
+  if (!cur) return { status: 404, body: { error: "rule not found" } };
+  if (cur.status === "retired") return { status: 422, body: { issues: ["A retired rule cannot be approved. Write a new one."] } };
+  if (cur.status === "approved") return { status: 200, body: cur };
+  const row = (await conn.query(
+    `UPDATE finance.client_procedures SET status = 'approved', approved_by = $2, approved_at = now(), updated_at = now()
+      WHERE id = $1 RETURNING ${RULE_COLUMNS}`, [cur.id, actorEmail])).rows[0];
+  await log(client.id, "rule_approved", ruleEvent(row));
+  return { status: 200, body: row };
+})));
+
+// POST /api/clients/:slug/procedure-rules/:id/retire   takes it away from the agents for good.
+app.post("/api/clients/:slug/procedure-rules/:id/retire", route((req, res) => masterTx(req, res, async (conn, { log }) => {
+  const client = await ruleClient(conn, req.params.slug);
+  if (!client) return { status: 404, body: { error: "client not found" } };
+  const cur = await loadRule(conn, client.id, req.params.id);
+  if (!cur) return { status: 404, body: { error: "rule not found" } };
+  if (cur.status === "retired") return { status: 200, body: cur };
+  const row = (await conn.query(
+    `UPDATE finance.client_procedures SET status = 'retired', updated_at = now() WHERE id = $1 RETURNING ${RULE_COLUMNS}`, [cur.id])).rows[0];
+  await log(client.id, "rule_retired", ruleEvent(row, { was: cur.status }));
+  return { status: 200, body: row };
+})));
+
 app.get("/api/finance/clients/:slug", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
   if (!client) return res.status(404).json({ error: "client not found" });
@@ -517,7 +691,7 @@ app.get("/api/finance/clients/:slug", route(async (req, res) => {
     ),
     pool.query(
       `SELECT slug, name, legal_name, role, year_end
-       FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+       FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`,
       [client.id]
     ),
   ]);
@@ -638,7 +812,7 @@ app.get("/api/finance/clients/:slug/xero", route(async (req, res) => {
 
   const { rows: entities } = await pool.query(
     `SELECT slug, name, legal_name, role, accounting_system, accounting_system_config
-     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+     FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`,
     [client.id]
   );
 
@@ -2507,7 +2681,7 @@ async function fetchOutstandingInvoices(ctx, type) {
 async function clientEntities(clientId) {
   const { rows } = await pool.query(
     `SELECT slug, name, legal_name, accounting_system_config
-     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+     FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`,
     [clientId]
   );
   return rows;
@@ -2579,7 +2753,7 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, slug, name, legal_name, accounting_system, accounting_system_config,
             role, year_end
-     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+     FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`,
     [client.id]
   );
 
@@ -2758,7 +2932,7 @@ app.get("/api/finance/clients/:slug/coa-mapping", route(async (req, res) => {
 
   const { rows: entities } = await pool.query(
     `SELECT id, slug, name, accounting_system_config->>'tenant_id' AS tenant_id
-     FROM finance.entities WHERE client_id = $1 ORDER BY name`,
+     FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`,
     [client.id]
   );
   const list = entities.map((e) => ({ slug: e.slug, name: e.name, connected: Boolean(e.tenant_id) }));
@@ -5426,7 +5600,7 @@ app.post("/api/finance/clients/:slug/tasks/import-open-items", route(async (req,
 // names the month and step, so a second start is refused.
 app.post("/api/finance/clients/:slug/tasks/month-end", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, log }) => {
   const entities = (await conn.query(
-    "SELECT id, name FROM finance.entities WHERE client_id = $1 ORDER BY name", [client.id])).rows;
+    "SELECT id, name FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name", [client.id])).rows;
   const plan = monthEndPlan.closePlan({ period: req.body?.period, entities, vat: req.body?.vat === true, cfo: actorEmail });
   if (plan.issues.length) return { status: 422, body: { issues: plan.issues } };
   const had = (await conn.query(

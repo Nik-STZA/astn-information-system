@@ -27,6 +27,25 @@ const COUNTRY = /^[A-Z]{2}$/;
 
 const blank = (v) => v === undefined || v === null || String(v).trim() === "";
 const clean = (v) => (blank(v) ? null : String(v).trim());
+const names = (list) => list.map((c) => c.name).join(", ").replace(/, ([^,]*)$/, " and $1");
+
+// A VAT number in one form: no spaces, upper case, and a UK number (9 or 12
+// digits) with its GB prefix, as HMRC and Xero write it. Others as given.
+function vatNumber(v, uk) {
+  if (blank(v)) return null;
+  const n = String(v).replace(/\s+/g, "").toUpperCase();
+  return uk && /^(\d{9}|\d{12})$/.test(n) ? `GB${n}` : n;
+}
+const ukGroup = (companies) => companies.some((c) => c.country_of_incorporation === "GB");
+
+// The profile with every VAT number in that form, for reading. Numbers saved
+// before the GB prefix was added read the same as those saved after.
+function normalise(group, companies) {
+  return {
+    group: { ...group, vat_group_number: vatNumber(group.vat_group_number, ukGroup(companies)) },
+    companies: companies.map((c) => ({ ...c, vat_number: vatNumber(c.vat_number, c.country_of_incorporation === "GB") })),
+  };
+}
 
 // A change to one company. `companies` is every company of the same client,
 // for the parent checks. Returns { set, issues }; set holds only fields sent.
@@ -39,7 +58,7 @@ function companyChanges(body = {}, current = null, companies = []) {
     const v = clean(body[k]);
     if (k === "name" && !v) { issues.push("A company needs a name."); continue; }
     if (v && v.length > max) { issues.push(`${k.replace(/_/g, " ")} is longer than ${max} characters.`); continue; }
-    set[k] = k === "vat_number" && v ? v.replace(/\s+/g, "").toUpperCase() : v;
+    set[k] = v;
   }
   if (!current && !("name" in body)) issues.push("A company needs a name.");
 
@@ -47,6 +66,9 @@ function companyChanges(body = {}, current = null, companies = []) {
     const v = clean(body.country_of_incorporation);
     if (v && !COUNTRY.test(v.toUpperCase())) issues.push("Country of incorporation must be a two-letter code, such as GB or ZA.");
     else set.country_of_incorporation = v ? v.toUpperCase() : null;
+  }
+  if (set.vat_number) {
+    set.vat_number = vatNumber(set.vat_number, (set.country_of_incorporation ?? current?.country_of_incorporation) === "GB");
   }
   if ("reporting_framework" in body) {
     const v = clean(body.reporting_framework);
@@ -102,7 +124,7 @@ function groupChanges(body = {}, companies = []) {
   if ("vat_group_number" in body) {
     const v = clean(body.vat_group_number);
     if (v && v.length > 40) issues.push("The VAT group number is longer than 40 characters.");
-    else set.vat_group_number = v ? v.replace(/\s+/g, "").toUpperCase() : null;
+    else set.vat_group_number = vatNumber(v, ukGroup(companies));
   }
   if ("vat_group_representative_id" in body) {
     const v = clean(body.vat_group_representative_id);
@@ -125,11 +147,16 @@ function tree(companies) {
 
 // What is missing or inconsistent, in words for a person and an agent. These
 // are warnings, never refusals: a half-filled profile is still worth saving.
-function profileIssues(group, companies) {
+function profileIssues(rawGroup, rawCompanies) {
+  const { group, companies } = normalise(rawGroup, rawCompanies);
   const out = [];
   const tops = companies.filter((c) => !c.parent_id);
   if (companies.length > 1 && tops.length > 1) {
-    out.push(`No single parent company: ${tops.map((c) => c.name).join(", ")} have no parent. Set the parent of each subsidiary.`);
+    // The likeliest parent is the one that already owns something.
+    const parent = tops.find((t) => companies.some((c) => c.parent_id === t.id)) ?? tops[0];
+    const rest = tops.filter((t) => t !== parent);
+    out.push(`No single parent company: ${names(tops)} have no parent recorded. The group's parent needs none; ` +
+      `if ${parent.name} owns ${names(rest)}, set ${rest.length > 1 ? "their" : "its"} parent to ${parent.name}.`);
   }
   for (const c of companies) {
     if (!c.reporting_framework) out.push(`${c.name}: no reporting standard. Agents will ask before choosing a treatment.`);
@@ -151,6 +178,17 @@ function profileIssues(group, companies) {
   return out;
 }
 
+// Why a company cannot be retired yet, if it cannot. companies are the live
+// companies of the same client.
+function retireIssues(c, companies, group) {
+  const issues = [];
+  if (c.connected) issues.push(`${c.name} is connected to Xero. Disconnect it on the Finance set-up before retiring it.`);
+  const owned = companies.filter((x) => x.parent_id === c.id);
+  if (owned.length) issues.push(`${c.name} owns ${names(owned)}. Give ${owned.length > 1 ? "them" : "it"} another parent first.`);
+  if (group.vat_group_representative_id === c.id) issues.push(`${c.name} is the VAT group's representative member. Choose another first.`);
+  return issues;
+}
+
 // One company's VAT position in a sentence, for an agent.
 function vatPosition(c, group) {
   if (group.vat_group && c.in_vat_group) {
@@ -160,12 +198,15 @@ function vatPosition(c, group) {
   return "No VAT number recorded. Check get_organisation before treating it as unregistered.";
 }
 
-// The profile as an agent reads it.
-function agentView(client, group, companies) {
+// The profile as an agent reads it. lastChanged is when a person last changed
+// it, so an agent asked twice can tell a changed record from its own mistake.
+function agentView(client, rawGroup, rawCompanies, lastChanged = null) {
+  const { group, companies } = normalise(rawGroup, rawCompanies);
   const byId = new Map(companies.map((c) => [c.id, c]));
   return {
     client: client.name,
     legal_name: client.legal_name,
+    profile_last_changed: lastChanged,
     vat_group: group.vat_group
       ? { number: group.vat_group_number, representative: byId.get(group.vat_group_representative_id)?.name ?? null, members: companies.filter((c) => c.in_vat_group).map((c) => c.name) }
       : null,
@@ -180,4 +221,4 @@ function agentView(client, group, companies) {
   };
 }
 
-module.exports = { FRAMEWORKS, FRAMEWORK_NOTES, companyChanges, groupChanges, ancestors, tree, profileIssues, vatPosition, agentView };
+module.exports = { FRAMEWORKS, FRAMEWORK_NOTES, companyChanges, groupChanges, ancestors, tree, profileIssues, vatPosition, agentView, vatNumber, normalise, retireIssues };

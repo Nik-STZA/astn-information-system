@@ -141,4 +141,4 @@ function toolsFor(agent, allTools) {
   return allTools.filter((t) => allow.has(t.name));
 }
 
-module.exports = { library, proceduresFor, systemPrompt, readProcedure, readProcedureTool, toolsFor, parse, PRELOADED };
+module.exports = { library, proceduresFor, systemPrompt, withClientRules, readProcedure, readProcedureTool, toolsFor, parse, PRELOADED };

@@ -129,6 +129,10 @@ function renderTable(rows: string[]): ReactNode {
 
 // ── Block parser ────────────────────────────────────────────────────────────
 
+// A list item's wrapped lines: indented, not blank, and not a new item. The
+// procedures are hard-wrapped, so an item often runs over several lines.
+const continues = (l: string | undefined) => l !== undefined && /^\s+\S/.test(l) && !/^\s*([-*]|\d+[.)])\s/.test(l);
+
 export default function MarkdownOutput({ text }: { text: string }) {
   const lines = text.split("\n");
   const elements: ReactNode[] = [];
@@ -179,11 +183,13 @@ export default function MarkdownOutput({ text }: { text: string }) {
     if (/^[-*]\s/.test(trimmed)) {
       const items: string[] = [];
       while (i < lines.length && /^[-*]\s/.test(lines[i].trim())) {
-        items.push(lines[i].trim().replace(/^[-*]\s+/, ""));
+        let item = lines[i].trim().replace(/^[-*]\s+/, "");
         i++;
+        while (continues(lines[i])) item += ` ${lines[i++].trim()}`;
+        items.push(item);
       }
       elements.push(
-        <ul key={`ul-${i}`} style={{ margin: "4px 0 8px", paddingLeft: 20 }}>
+        <ul key={`ul-${i}`} style={{ margin: "4px 0 8px", paddingLeft: 20, listStyle: "disc" }}>
           {items.map((item, j) => (
             <li key={j} style={{ marginBottom: 3, color: "var(--tx)", fontSize: 13, lineHeight: 1.5 }}>
               {inlineFormat(item)}
@@ -198,11 +204,13 @@ export default function MarkdownOutput({ text }: { text: string }) {
     if (/^\d+[.)]\s/.test(trimmed)) {
       const items: string[] = [];
       while (i < lines.length && /^\d+[.)]\s/.test(lines[i].trim())) {
-        items.push(lines[i].trim().replace(/^\d+[.)]\s+/, ""));
+        let item = lines[i].trim().replace(/^\d+[.)]\s+/, "");
         i++;
+        while (continues(lines[i])) item += ` ${lines[i++].trim()}`;
+        items.push(item);
       }
       elements.push(
-        <ol key={`ol-${i}`} style={{ margin: "4px 0 8px", paddingLeft: 20 }}>
+        <ol key={`ol-${i}`} style={{ margin: "4px 0 8px", paddingLeft: 20, listStyle: "decimal" }}>
           {items.map((item, j) => (
             <li key={j} style={{ marginBottom: 3, color: "var(--tx)", fontSize: 13, lineHeight: 1.5 }}>
               {inlineFormat(item)}

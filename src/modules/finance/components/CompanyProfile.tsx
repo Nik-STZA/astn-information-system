@@ -7,7 +7,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Building2, ChevronRight, Plus } from "lucide-react";
+import { Archive, Building2, ChevronRight, Plus } from "lucide-react";
 import { FRAMEWORKS, type ClientProfile, type Company } from "@/modules/finance/lib/clients";
 import styles from "./Page.module.css";
 
@@ -55,16 +55,19 @@ async function send(url: string, method: string, body: unknown): Promise<string 
   return b.issues?.join(" ") ?? b.error ?? "Could not save";
 }
 
-function CompanyForm({ company, companies, vatGroup, busy, onSave, onCancel }: {
+function CompanyForm({ company, companies, vatGroup, busy, onSave, onRetire, onCancel }: {
   company: Company | null;
   companies: Company[];
   vatGroup: boolean;
   busy: boolean;
   onSave: (body: Record<string, unknown>) => void;
+  onRetire?: (reason: string) => void;
   onCancel: () => void;
 }) {
   const top = companies.find((c) => !c.parent_id) ?? null;
   const [d, setD] = useState<Draft>(toDraft(company, company ? null : top?.id ?? null));
+  const [retiring, setRetiring] = useState(false);
+  const [reason, setReason] = useState("");
   const set = (k: keyof Draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setD({ ...d, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value });
   const excluded = company ? new Set([company.id, ...below(company.id, companies)]) : new Set<string>();
@@ -118,16 +121,40 @@ function CompanyForm({ company, companies, vatGroup, busy, onSave, onCancel }: {
       <div className={styles.controls} style={{ marginTop: 14 }}>
         <button type="submit" className="btn-primary" disabled={busy || !Object.keys(body).length || !d.name.trim()}>{company ? "Save company" : "Add company"}</button>
         <button type="button" className="btn-text" onClick={onCancel}>Cancel</button>
+        {onRetire && !retiring && (
+          <button type="button" className="btn-text" style={{ marginLeft: "auto" }} onClick={() => setRetiring(true)}>Retire company</button>
+        )}
       </div>
+      {onRetire && retiring && (
+        <div style={{ marginTop: 14, padding: 12, border: "1px solid var(--bd)", borderRadius: 8, background: "var(--pnl)" }}>
+          <p style={{ margin: "0 0 8px", fontSize: 13, lineHeight: 1.5 }}>
+            Retiring hides {company?.name} from this profile, the company lists and the agents. It is kept with its
+            history, and you can restore it.
+          </p>
+          <div style={fieldBox}>
+            <label className={styles.small} htmlFor={`${idp}-reason`}>Why (optional)</label>
+            <input id={`${idp}-reason`} style={input} value={reason} maxLength={300} placeholder="Set up twice by mistake"
+              onChange={(e) => setReason(e.target.value)} />
+          </div>
+          <div className={styles.controls} style={{ marginTop: 10 }}>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => onRetire(reason.trim())}>Retire {company?.name}</button>
+            <button type="button" className="btn-text" onClick={() => setRetiring(false)}>Keep it</button>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
+
+const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 function summary(c: Company, profile: ClientProfile): string {
   const parent = profile.companies.find((p) => p.id === c.parent_id);
   const vat = profile.group.vat_group && c.in_vat_group ? "VAT group" : c.vat_number ? `VAT ${c.vat_number}` : null;
   return [
-    parent ? `${c.ownership_pct != null ? `${Number(c.ownership_pct)}% ` : ""}owned by ${parent.name}` : profile.companies.length > 1 ? "Group parent" : null,
+    parent
+      ? `${c.ownership_pct != null ? `${Number(c.ownership_pct)}% ` : ""}owned by ${parent.name}`
+      : profile.companies.some((x) => x.parent_id === c.id) ? "Group parent" : profile.companies.length > 1 ? "No parent recorded" : null,
     c.company_number ? `No. ${c.company_number}` : null,
     c.country_of_incorporation,
     c.reporting_framework,
@@ -175,7 +202,9 @@ export default function CompanyProfile({ slug, profile }: { slug: string; profil
     <section className={styles.card} aria-label="Group and companies" style={{ maxWidth: 1100, marginTop: 16 }}>
       <div className={styles.cardHead}>
         <h2>Group and companies</h2>
-        <span className={styles.small}>Agents read this before choosing a treatment</span>
+        <span className={styles.small}>
+          Agents read this before choosing a treatment{profile.last_changed ? ` · last changed ${when(profile.last_changed)}` : ""}
+        </span>
       </div>
 
       {error && <div className={styles.error} role="alert" style={{ margin: 16 }}>{error}</div>}
@@ -206,7 +235,9 @@ export default function CompanyProfile({ slug, profile }: { slug: string; profil
           </button>
           {open === c.slug && (
             <CompanyForm company={c} companies={profile.companies} vatGroup={profile.group.vat_group} busy={busy}
-              onSave={(body) => run(`${base}/companies/${c.slug}`, "PATCH", body)} onCancel={() => setOpen(null)} />
+              onSave={(body) => run(`${base}/companies/${c.slug}`, "PATCH", body)}
+              onRetire={(reason) => run(`${base}/companies/${c.slug}/retire`, "POST", reason ? { reason } : {})}
+              onCancel={() => setOpen(null)} />
           )}
         </div>
       ))}
@@ -219,6 +250,21 @@ export default function CompanyProfile({ slug, profile }: { slug: string; profil
           <button type="button" className="btn-secondary" onClick={() => setOpen("new")}>
             <Plus size={14} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -2 }} />Add company
           </button>
+        </div>
+      )}
+
+      {(profile.retired ?? []).length > 0 && (
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--bd)" }}>
+          <div className={styles.small} style={{ fontWeight: 600, marginBottom: 6 }}>Retired</div>
+          {(profile.retired ?? []).map((r) => (
+            <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "4px 0", fontSize: 13 }}>
+              <Archive size={14} aria-hidden="true" style={{ color: "var(--sub)" }} />
+              <span style={{ flex: "1 1 200px", minWidth: 0, color: "var(--sub)" }}>
+                {r.name} · retired {when(r.retired_at)}{r.retired_reason ? ` · ${r.retired_reason}` : ""}
+              </span>
+              <button type="button" className="btn-text" disabled={busy} onClick={() => run(`${base}/companies/${r.slug}/restore`, "POST", {})}>Restore</button>
+            </div>
+          ))}
         </div>
       )}
 
