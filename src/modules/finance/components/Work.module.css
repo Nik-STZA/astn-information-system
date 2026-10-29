@@ -1,5 +1,5 @@
 /* Work (redesign step 3). Mobile first: the task panel covers the screen on a
-   phone and sits beside the list on a computer. */
+   phone and slides in at the right edge of the window on a computer. */
 
 .head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .sub { color: var(--sub); font-size: 13px; margin: 4px 0 0; }
@@ -36,6 +36,11 @@
 .meta { font-size: 12px; color: var(--sub); }
 .blocker { font-size: 12px; color: #9A3412; }
 .overdue { color: #C2410C; font-weight: 500; }
+.urgent { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; background: #FFF1E6; color: #9A3412; }
+:global([data-theme="dark"]) .urgent { background: #431407; color: #FDBA74; }
+@media (prefers-color-scheme: dark) {
+  :global([data-theme="auto"]) .urgent { background: #431407; color: #FDBA74; }
+}
 .done .titleText { color: var(--sub); text-decoration: line-through; }
 .empty { padding: 28px 16px; text-align: center; color: var(--sub); font-size: 13px; }
 
@@ -69,6 +74,8 @@
 }
 .col { background: var(--cardhover); border: 1px solid transparent; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 200px; }
 .colOver { border-color: var(--brand-gold); background: var(--accent-bg); }
+.colNo { border-color: var(--bd); border-style: dashed; }
+.colDim { opacity: 0.6; }
 .colHead { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--label-text); padding: 2px 4px; }
 .colHint { font-size: 12px; color: var(--sub); padding: 4px; }
 .tcard {
@@ -81,6 +88,17 @@
 .tcardSel { border-color: var(--brand-gold); }
 .tcardTitle { font-weight: 500; }
 .tcardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tcardTags { display: inline-flex; align-items: center; gap: 6px; }
+.tcard:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 1px; }
+/* Compact cards: title, owner, urgency and date only (the rest is in the tooltip). */
+.boardCompact .col { gap: 6px; padding: 8px; }
+.boardCompact .tcard { padding: 7px 10px; gap: 4px; }
+.boardCompact .tcardTitle { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.boardCompact .ava { width: 22px; height: 22px; font-size: 9px; }
+@media (min-width: 900px) {
+  .boardCompact { grid-auto-columns: minmax(160px, 1fr); }
+}
+.notice { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0 0 12px; padding: 8px 8px 8px 12px; border-radius: 10px; border: 1px solid var(--bd); background: var(--pnl); color: var(--tx); font-size: 13px; }
 
 /* The timeline: task names on the left stay put while the days scroll. */
 .tl { overflow: hidden; }
@@ -127,10 +145,12 @@
 .panelTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .iconBtn { width: 40px; height: 40px; border: 0; border-radius: 999px; background: transparent; color: var(--tx); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .iconBtn:hover { background: var(--cardhover); }
-.titleInput { width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; margin: 0 -8px; font: 600 18px var(--font-sans); color: var(--tx); background: transparent; }
+.iconBtnSm { width: 26px; height: 26px; flex: 0 0 26px; border: 0; border-radius: 999px; background: transparent; color: var(--sub); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.iconBtnSm:hover { background: var(--cardhover); color: var(--tx); }
+.titleInput { display: block; width: calc(100% + 16px); box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; margin: 0 -8px; font: 600 16px/1.35 var(--font-sans); color: var(--tx); background: transparent; resize: none; overflow: hidden; }
 .titleInput:hover, .titleInput:focus { border-color: var(--bd); background: var(--pg); }
 .grid { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px 12px; align-items: center; font-size: 13px; }
-.label { color: var(--sub); }
+.label { color: var(--sub); align-self: start; padding-top: 9px; }
 .input, .select, .textarea {
   width: 100%; box-sizing: border-box; min-height: 36px; padding: 6px 10px; border: 1px solid var(--bd); border-radius: 8px;
   background: var(--pg); color: var(--tx); font: 400 13px var(--font-sans);
@@ -159,12 +179,31 @@
 .issues { margin: 0; padding: 10px 12px 10px 28px; border-radius: 10px; background: #FFF1E6; color: #9A3412; font-size: 13px; }
 .danger { color: #9A3412; border-color: #FED7AA; }
 .foot { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--bd); padding-top: 12px; }
+.addBox { border: 1px dashed var(--bd); border-radius: 10px; padding: 10px; }
 
+/* The task picker: a search field with its list under it, inside the panel. */
+.pickBtn { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; text-align: left; cursor: pointer; min-width: 0; }
+.pickBtn > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker { border: 1px solid var(--brand-gold); border-radius: 8px; background: var(--pg); min-width: 0; }
+.pickSearch { display: flex; align-items: center; gap: 6px; padding: 0 4px 0 10px; border-bottom: 1px solid var(--bd); color: var(--sub); }
+.pickInput { flex: 1 1 auto; min-width: 0; height: 34px; border: 0; background: transparent; color: var(--tx); font: 400 13px var(--font-sans); outline: none; }
+.pickList { max-height: 240px; overflow-y: auto; padding: 4px; display: flex; flex-direction: column; }
+.pickItem { display: flex; flex-direction: column; gap: 1px; width: 100%; box-sizing: border-box; text-align: left; border: 0; border-radius: 6px; background: transparent; padding: 6px 10px; font: 400 13px var(--font-sans); color: var(--tx); cursor: pointer; overflow-wrap: anywhere; }
+.pickAt { background: var(--cardhover); }
+.pickOn { background: var(--accent-bg); }
+.pickItem > span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.pickEmpty { padding: 8px 10px; font-size: 13px; color: var(--sub); }
+
+/* Computer: a drawer against the right edge of the window, full height. On a
+   wide window the list makes room for it; narrower, it lies over the list. */
 @media (min-width: 900px) {
   .panel {
-    position: sticky; top: 16px; inset: auto; z-index: auto; flex: 0 0 380px; max-height: calc(100vh - 32px);
-    border: 1px solid var(--bd); border-radius: 12px;
+    inset: 0 0 0 auto; width: 420px; max-width: 100vw; z-index: 60; padding: 20px;
+    border-left: 1px solid var(--bd); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
   }
+}
+@media (min-width: 1280px) {
+  .layoutOpen .listPane { margin-right: 404px; }
 }
 
 /* Blocker and overdue text, readable on a dark background. */
@@ -172,3 +211,4 @@
 @media (prefers-color-scheme: dark) {
   :global([data-theme="auto"]) .blocker, :global([data-theme="auto"]) .overdue { color: #FDBA74; }
 }
+.grid .check { min-height: 36px; }

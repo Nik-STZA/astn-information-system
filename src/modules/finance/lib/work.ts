@@ -206,12 +206,13 @@ export interface BoardColumn {
 }
 
 // The board shows the pieces of work: tasks with no sub-tasks. A parent is a
-// label on its sub-tasks' cards, not a card of its own. Most urgent first:
-// P1, then by due date (undated last), then oldest.
-export function boardColumns(tasks: Task[], { showDone = false } = {}): BoardColumn[] {
+// label on its sub-tasks' cards, not a card of its own. Most urgent first
+// (see urgency), then by due date (undated last), then oldest.
+export function boardColumns(tasks: Task[], { showDone = false, today = londonToday() } = {}): BoardColumn[] {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const hasKids = new Set(tasks.map((t) => t.parent_id).filter(Boolean) as string[]);
-  const rank = (t: Task) => [t.priority === "P1" ? 0 : 1, t.due_on ?? "9999-12-31", t.created_at] as const;
+  const urgent = urgency(tasks, today);
+  const rank = (t: Task) => [urgent.has(t.id) ? 0 : 1, t.due_on ?? "9999-12-31", t.created_at] as const;
   const order = (a: Task, b: Task) => {
     const [ra, rb] = [rank(a), rank(b)];
     return ra[0] - rb[0] || ra[1].localeCompare(rb[1]) || ra[2].localeCompare(rb[2]);
@@ -224,6 +225,69 @@ export function boardColumns(tasks: Task[], { showDone = false } = {}): BoardCol
       tasks: leaves.filter((t) => t.shown_status === status).sort(order)
         .map((t) => ({ ...t, parentTitle: t.parent_id ? byId.get(t.parent_id)?.title ?? null : null })),
     }));
+}
+
+// Why a card dropped on a column did not land there: Blocked and Waiting come
+// from blockers, and a task with an open blocker stays in its column whatever
+// its own status is. Null when the move shows.
+export function dropRefusal(t: Task, status: ShownStatus): string | null {
+  if (!DROPPABLE.has(status)) {
+    return `${STATUS_LABEL[status]} is set by blockers. Open the task and add a blocker to move it there.`;
+  }
+  const open = t.blockers.filter((b) => b.open);
+  if (open.length && status !== "done") {
+    return `"${t.title}" is now ${STATUS_LABEL[status]}, but stays under ${STATUS_LABEL[t.shown_status]} until this clears: ${blockerText(open[0])}.`;
+  }
+  return null;
+}
+
+// ── Urgency ───────────────────────────────────────────────────────────────────
+//
+// Urgent or normal; nothing in between. A task is urgent when it is flagged by
+// hand (stored as priority P1, the only priority that counts), overdue, due by
+// the next working day, or directly holding up a task that is flagged or
+// overdue. Done tasks never are. Kept narrow on purpose: if most of a close
+// shows as urgent, the tag tells you nothing.
+
+export type UrgentWhy = "flagged" | "overdue" | "soon" | "holds_up";
+
+export const URGENT_WHY: Record<UrgentWhy, string> = {
+  flagged: "Flagged urgent",
+  overdue: "Overdue",
+  soon: "Due by the next working day",
+  holds_up: "Holds up a flagged or overdue task",
+};
+
+export function londonToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+}
+
+// The date n working days (Monday to Friday) after a YYYY-MM-DD date.
+export function addWorkingDays(ymd: string, n: number): string {
+  const d = new Date(`${ymd.slice(0, 10)}T00:00:00Z`);
+  let left = n;
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) left -= 1;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+export function urgency(tasks: Task[], today: string): Map<string, UrgentWhy> {
+  const soon = addWorkingDays(today, 1);
+  const out = new Map<string, UrgentWhy>();
+  for (const t of tasks) {
+    if (t.status === "done") continue;
+    const due = t.due_on?.slice(0, 10);
+    if (t.priority === "P1") out.set(t.id, "flagged");
+    else if (due && due < today) out.set(t.id, "overdue");
+    else if (due && due <= soon) out.set(t.id, "soon");
+  }
+  const pressing = new Set([...out].filter(([, why]) => why === "flagged" || why === "overdue").map(([id]) => id));
+  for (const t of tasks) {
+    if (t.status !== "done" && !out.has(t.id) && t.holds_up.some((id) => pressing.has(id))) out.set(t.id, "holds_up");
+  }
+  return out;
 }
 
 // ── Timeline ──────────────────────────────────────────────────────────────────
@@ -255,8 +319,9 @@ export interface TimelineLayout {
 // long if that is after the due date. With a start only it is one day; with
 // neither it has no bar. A parent
 // with no dates spans its sub-tasks. The range runs from three days before the
-// earliest bar (or today) to three days after the latest, at most 120 days.
-export function timelineLayout(rows: TreeRow[], allTasks: Task[], today: string): TimelineLayout {
+// earliest bar (or today) to three days after the latest, at least minDays
+// and at most maxDays (zoomed out to weeks or months shows more).
+export function timelineLayout(rows: TreeRow[], allTasks: Task[], today: string, maxDays = 120, minDays = 0): TimelineLayout {
   const kids = new Map<string, Task[]>();
   for (const t of allTasks) if (t.parent_id) kids.set(t.parent_id, [...(kids.get(t.parent_id) ?? []), t]);
   const byId = new Map(allTasks.map((t) => [t.id, t]));
@@ -289,7 +354,8 @@ export function timelineLayout(rows: TreeRow[], allTasks: Task[], today: string)
   const dated = spans.filter((x) => x.s) as Array<{ r: TreeRow; s: [number, number] }>;
   let lo = Math.min(t0, ...dated.map((x) => x.s[0])) - 3;
   let hi = Math.max(t0, ...dated.map((x) => x.s[1])) + 3;
-  if (hi - lo > 119) { lo = Math.max(lo, t0 - 30); hi = lo + 119; }
+  if (hi - lo > maxDays - 1) { lo = Math.max(lo, t0 - Math.round(maxDays / 4)); hi = lo + maxDays - 1; }
+  if (hi - lo < minDays - 1) hi = lo + minDays - 1;
 
   const bars: TimelineBar[] = [];
   spans.forEach(({ r, s }, row) => {
