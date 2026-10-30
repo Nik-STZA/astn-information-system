@@ -5136,14 +5136,25 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/options", route(async (req, 
     `SELECT se.xero_contact_id, se.xero_contact_name FROM finance.supplier_entities se
        JOIN finance.suppliers s ON s.id = se.supplier_id
       WHERE se.entity_id = $1 AND s.status = 'active' ORDER BY se.xero_contact_name`, [ctx.entity.id])).rows;
-  // ?contacts=1: every supplier in Xero as well, so a bill can go to one the
-  // master has not met yet. Only for the pickers: the page reads this route on
-  // every view. A summary page is 100 contacts; five is more than any client has.
+  // ?contacts=1: every contact in Xero as well, so a bill can go to one the master
+  // has not met yet. Only for the pickers: the page reads this route on every view.
+  // Unfiltered and sorted out here: Xero refuses a where on a company with many
+  // contacts (HighVolumeFilterUnavailable, UDL, 30 Oct 2026), and summaryOnly
+  // leaves IsSupplier out, so a contact cannot be told from a supplier anyway. If
+  // the list fails, the master's suppliers stand: accounts and VAT must still load.
   const known = new Set(suppliers.map((s) => s.xero_contact_id));
-  for (let page = 1; req.query.contacts && page <= 5; page += 1) {
-    const got = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Contacts", { where: 'IsSupplier==true AND ContactStatus=="ACTIVE"', summaryOnly: "true", page }))?.Contacts ?? [];
-    for (const c of got) if (!known.has(c.ContactID)) suppliers.push({ xero_contact_id: c.ContactID, xero_contact_name: c.Name });
-    if (got.length < 100) break;
+  try {
+    for (let page = 1; req.query.contacts && page <= 20; page += 1) {
+      const got = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Contacts", { summaryOnly: "true", page }))?.Contacts ?? [];
+      for (const c of got) {
+        if (c.ContactStatus !== "ACTIVE" || known.has(c.ContactID)) continue;
+        known.add(c.ContactID);
+        suppliers.push({ xero_contact_id: c.ContactID, xero_contact_name: c.Name });
+      }
+      if (got.length < 100) break;
+    }
+  } catch (e) {
+    console.error(`contacts not listed for ${ctx.entity.slug}: ${e.message}`);
   }
   suppliers.sort((a, b) => a.xero_contact_name.localeCompare(b.xero_contact_name));
   res.json({
