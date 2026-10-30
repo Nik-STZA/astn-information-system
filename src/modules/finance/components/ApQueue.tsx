@@ -10,7 +10,8 @@ import styles from "./ApQueue.module.css";
 import FetchDocuments from "./FetchDocuments";
 import ApActions from "./ApActions";
 import ApRecommendation from "./ApRecommendation";
-import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
+import ApSupplier, { type SupplierCandidate } from "./ApSupplier";
+import { AP_TABS, checkLabel, differentSupplier, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApItemDetail, ApItemRow } from "@/modules/finance/lib/ap-queue";
 
 // Account and VAT names by code, from the entity's own Xero chart.
@@ -149,7 +150,18 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
   previous: string | null; next: string | null; position: string;
 }) {
   const bill = item.proposed_bill;
-  const reasons = item.review?.reasons ?? [];
+  const rec = item.recommendation;
+  // Checks a recommendation has answered are not still questions.
+  const answered = rec ? ["line_incomplete", "coding_from_xero"] : [];
+  const reasons = (item.review?.reasons ?? []).filter((r) => !answered.includes(r.check));
+  const open = ["exception", "clean", "approved"].includes(item.state);
+  const billName = bill?.Contact?.Name ?? null;
+  const onDocument = item.extraction?.supplier_name ?? null;
+  const candidate: SupplierCandidate | null = rec?.supplier && rec.supplier.name !== billName
+    ? { contactId: rec.supplier.contact_id, name: rec.supplier.name, vatNumber: rec.supplier.vat_number, country: rec.supplier.country, reason: rec.supplier.reason }
+    : differentSupplier(onDocument, billName)
+      ? { contactId: null, name: onDocument as string, vatNumber: item.extraction?.supplier_vat_number ?? null, country: item.extraction?.supplier_country ?? null, reason: null }
+      : null;
   // Coding the engine changes from Xero's draft. A different bill (supplier,
   // number, date, total) is already a reason above.
   const coding = item.review?.draft_differences?.coding ?? [];
@@ -186,6 +198,11 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
 
         {item.state_reason && <div className={styles.note}>{item.state_reason}</div>}
 
+        {bill && (
+          <ApSupplier key={item.id} slug={slug} entity={entity} itemId={item.id} editable={open}
+            billName={billName} candidate={candidate} />
+        )}
+
         {reasons.length > 0 && (
           <details className={styles.fold} open>
             <summary className={styles.sectionTitle}>Why this needs you ({reasons.length})</summary>
@@ -211,29 +228,34 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
         {bill && bill.LineItems.length > 0 && (
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>Lines</h3>
-            {bill.LineItems.map((l, n) => (
-              <div key={n} className={styles.line}>
-                <div className={styles.lineTop}>
-                  <span className={styles.lineDesc}>{l.Description}</span>
-                  <span className={styles.amount}>{money(l.LineAmount, null)}</span>
+            {bill.LineItems.map((l, n) => {
+              // Until it is decided, a line shows the coding being proposed: one
+              // answer on screen, the same one the Approve button applies.
+              const suggested = open ? rec?.lines.find((x) => x.index === n) : undefined;
+              const account = suggested?.account_code ?? l.AccountCode;
+              const tax = suggested?.tax_type ?? l.TaxType;
+              return (
+                <div key={n} className={styles.line}>
+                  <div className={styles.lineTop}>
+                    <span className={styles.lineDesc}>{l.Description}</span>
+                    <span className={styles.amount}>{money(l.LineAmount, null)}</span>
+                  </div>
+                  <div className={styles.lineCoding}>
+                    {accountLabel(account, names) ?? <span className={styles.missing}>No account</span>}
+                    {" · "}
+                    {taxLabel(tax, names) ?? <span className={styles.missing}>No VAT treatment</span>}
+                    {suggested && (suggested.account_code !== l.AccountCode || suggested.tax_type !== l.TaxType) ? " · suggested" : ""}
+                  </div>
                 </div>
-                <div className={styles.lineCoding}>
-                  {accountLabel(l.AccountCode, names) ?? <span className={styles.missing}>No account</span>}
-                  {" · "}
-                  {taxLabel(l.TaxType, names) ?? <span className={styles.missing}>No VAT treatment</span>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {bill && item.recommendation && (
           <ApRecommendation key={item.id} slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
-            billSupplier={bill.Contact?.Name ?? null}
-            lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))}
-            labels={item.recommendation.lines.map((l) => ({
-              account: accountLabel(l.account_code, names) ?? l.account_code, tax: taxLabel(l.tax_type, names) ?? l.tax_type,
-            }))} />
+            nextHref={next}
+            lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))} />
         )}
 
         {bill && (

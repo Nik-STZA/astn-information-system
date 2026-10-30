@@ -96,3 +96,15 @@ export function matchOptions<T extends { label: string }>(options: T[], query: s
   });
   return [...hits.filter((o) => o.label.toLowerCase().startsWith(q)), ...hits.filter((o) => !o.label.toLowerCase().startsWith(q))];
 }
+
+// Whether the name on a document is a different supplier to the bill's. Case,
+// punctuation and legal form alone do not count: "Acme Ltd" is "ACME Limited".
+// Anything else is shown as a question, never changed on its own.
+const LEGAL_FORMS = /\b(ltd|limited|inc|incorporated|llc|llp|plc|pbc|corp|corporation|company|co|gmbh|bv|sa|sarl|pty)\b/g;
+const bareName = (s: string) => s.toLowerCase().replace(/[.,'&()-]/g, " ").replace(LEGAL_FORMS, " ").replace(/\s+/g, " ").trim();
+
+export function differentSupplier(onDocument: string | null | undefined, onBill: string | null | undefined): boolean {
+  if (!onDocument) return false;
+  if (!onBill) return true;
+  return bareName(onDocument) !== bareName(onBill);
+}

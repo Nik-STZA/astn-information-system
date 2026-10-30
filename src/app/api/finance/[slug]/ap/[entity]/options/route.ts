@@ -7,6 +7,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: { slug: string; entity: string } }) {
   if (!getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
-  const r = await fetchApOptions(params.slug, params.entity);
+  const r = await fetchApOptions(params.slug, params.entity, true);
   return r.ok ? NextResponse.json(r.data) : NextResponse.json({ error: r.error }, { status: r.status });
 }
