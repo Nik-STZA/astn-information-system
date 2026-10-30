@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.6.0
+version: 1.7.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -47,6 +47,10 @@ different kind of supply, it gets the account its own content supports.
 
 **A charge for a later period is a prepayment.** A twelve-month subscription
 billed in one go is not one month's cost.
+
+**A platform's receipt is the platform's.** Uber is the supplier on an Uber receipt,
+never the driver named on it, and the same goes for any platform that issues a
+receipt on a provider's behalf. Do not propose the provider as the supplier.
 
 **The supplier is the legal entity on the document.** Where that is not the bill's
 supplier, give the right one in `supplier` on your recommendation: a contact
@@ -166,6 +170,7 @@ supplier or approves a bill: those are the CFO's taps on the item.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.7.0 | 30 October 2026 | A platform's receipt stays with the platform: Uber, not the driver. |
 | 1.6.0 | 30 October 2026 | The agent decides the correct VAT treatment and gives the rule; earlier coding is evidence, and a difference is a finding. |
 | 1.4.0 | 30 October 2026 | The line matches the bill only; explanation goes to the bill's notes in Xero. |
 | 1.3.1 | 30 October 2026 | An empty queue is not handed on. |

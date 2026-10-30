@@ -21,7 +21,7 @@ const clock = (n: number) => (n < 60 ? `${n}s` : `${Math.floor(n / 60)}m ${Strin
 
 interface Run { agent: string | null; status: string; started_at: string | null; queued_at: string }
 
-export default function FetchDocuments({ slug, entity }: { slug: string; entity: string }) {
+export default function FetchDocuments({ slug, entity, uncoded }: { slug: string; entity: string; uncoded: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -119,8 +119,8 @@ export default function FetchDocuments({ slug, entity }: { slug: string; entity:
         {busy && <Loader2 size={14} className={styles.spin} aria-hidden="true" />}
         {busy ? "Reading..." : "Fetch new documents"}
       </button>
-      <button type="button" className={styles.buttonSecondary} onClick={askClerkNow} disabled={busy || !!working}>
-        Ask AP Clerk to code the queue
+      <button type="button" className={styles.buttonSecondary} onClick={askClerkNow} disabled={busy || !!working || uncoded === 0}>
+        {uncoded === 0 ? "Nothing to code" : "Ask AP Clerk to code the queue"}
       </button>
       {working && (
         <span className={styles.status} aria-live="polite">
