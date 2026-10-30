@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientIpFrom, isIpAddress, publicOrigin } from "@/shared/lib/request-origin";
+import { clientIpFrom, isIpAddress, isSameSite, publicOrigin } from "@/shared/lib/request-origin";
 
 describe("clientIpFrom", () => {
   // The exact value that broke a live Xero connection: the load balancer sends
@@ -86,5 +86,32 @@ describe("publicOrigin", () => {
 
   it("falls back to the supplied origin when nothing is forwarded", () => {
     expect(publicOrigin(headers({}), "http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000");
+  });
+});
+
+describe("isSameSite", () => {
+  const h = (v: Record<string, string>) => ({ get: (k: string) => v[k] ?? null });
+
+  it("lets reads through from anywhere", () => {
+    expect(isSameSite("GET", h({ "sec-fetch-site": "cross-site" }))).toBe(true);
+    expect(isSameSite("HEAD", h({}))).toBe(true);
+  });
+
+  it("allows a change from our own pages", () => {
+    expect(isSameSite("POST", h({ "sec-fetch-site": "same-origin" }))).toBe(true);
+    expect(isSameSite("post", h({ origin: "https://os.stza.io", "x-forwarded-host": "os.stza.io" }))).toBe(true);
+  });
+
+  it("refuses a change from anywhere else", () => {
+    expect(isSameSite("POST", h({ "sec-fetch-site": "cross-site" }))).toBe(false);
+    expect(isSameSite("POST", h({ "sec-fetch-site": "same-site" }))).toBe(false);
+    expect(isSameSite("DELETE", h({ "sec-fetch-site": "none" }))).toBe(false);
+    expect(isSameSite("POST", h({ origin: "https://evil.example", "x-forwarded-host": "os.stza.io" }))).toBe(false);
+    expect(isSameSite("POST", h({ origin: "null", host: "os.stza.io" }))).toBe(false);
+    expect(isSameSite("POST", h({ host: "os.stza.io" }))).toBe(false);
+  });
+
+  it("trusts the browser over a matching Origin", () => {
+    expect(isSameSite("POST", h({ "sec-fetch-site": "cross-site", origin: "https://os.stza.io", host: "os.stza.io" }))).toBe(false);
   });
 });
