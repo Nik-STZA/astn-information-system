@@ -113,9 +113,22 @@ function buildBill({ doc, match = null, entity = {} }) {
   };
 }
 
+// A line says what the document says, and nothing else. The supplier and number
+// have their own fields; explanation goes in the bill's notes (billNote).
 function describe(doc, charges) {
-  const first = charges[0]?.description;
-  return [doc.supplier_name, doc.document_number, first && charges.length === 1 ? first : null].filter(Boolean).join(" - ") || "Supplier document";
+  return charges.map((l) => l.description).filter(Boolean).join("; ") || doc.document_number || doc.supplier_name || "Supplier document";
+}
+
+// The explanation behind a bill, for its History and notes in Xero when it is
+// sent: why it was coded this way lives there, not on the line.
+function billNote(rec) {
+  if (!rec) return null;
+  const plain = (s) => String(s).replace(/\*\*/g, "").trim();
+  const parts = [plain(rec.note)];
+  for (const l of rec.lines || []) if (l.reason) parts.push(`Line ${l.index + 1}: ${plain(l.reason)}`);
+  if (rec.supplier?.reason) parts.push(`Supplier: ${plain(rec.supplier.reason)}`);
+  if (rec.review) parts.push(`Review (${rec.review.agent || "reviewer"}, ${rec.review.verdict}): ${plain(rec.review.note)}`);
+  return parts.filter(Boolean).join("\n");
 }
 
 // How many days apart the same supplier's same amount is still worth a look. A
@@ -469,5 +482,5 @@ function sendRequest(item) {
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences, recommendation, billReview,
+  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences, recommendation, billReview, billNote,
 };

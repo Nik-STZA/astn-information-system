@@ -1,7 +1,10 @@
-// The AP queue: tabs and list on the left, the chosen item on the right. On a
-// phone the open item replaces the list, with a way back. The URL holds the
-// entity, tab and item, so a link can open any of them.
+// The AP queue: a short list, the bill and its decisions, and the document in
+// its own pane, each scrolling on its own so a bill can be read and processed
+// without moving the page. On a phone the open item replaces the list, with a
+// way back. The URL holds the entity, tab and item, so a link can open any of them.
 
+import type React from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import styles from "./ApQueue.module.css";
 import FetchDocuments from "./FetchDocuments";
@@ -42,6 +45,9 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
   };
   const current = AP_TABS.find((t) => t.key === tab) ?? AP_TABS[0];
   const shown = items.filter((i) => current.states.includes(i.state));
+  const at = selected ? shown.findIndex((i) => i.id === selected.id) : -1;
+  const previous = at > 0 ? href({ item: shown[at - 1].id }) : null;
+  const next = at >= 0 && at < shown.length - 1 ? href({ item: shown[at + 1].id }) : null;
 
   return (
     <>
@@ -70,6 +76,7 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
         <FetchDocuments slug={slug} entity={entity} />
       </div>
 
+      <div className={styles.workspace}>
       <div className={styles.layout}>
         <section className={selected ? styles.hideOnPhone : styles.listPane} aria-label={current.label}>
           {shown.length ? (
@@ -83,9 +90,10 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
 
         <section className={selected ? styles.detailPane : styles.hideOnPhone} aria-label="Item">
           {selected
-            ? <Detail item={selected} slug={slug} entity={entity} back={href({ item: undefined })} names={names} />
+            ? <Detail item={selected} slug={slug} entity={entity} back={href({ item: undefined })} names={names} previous={previous} next={next} position={`${at + 1} of ${shown.length}`} />
             : <div className={styles.empty}>Choose an item to see the bill and its document.</div>}
         </section>
+      </div>
       </div>
     </>
   );
@@ -101,6 +109,17 @@ const EMPTY: Record<string, string> = {
 function Card({ item, href, active }: { item: ApItemRow; href: string; active: boolean }) {
   const reasons = item.reasons ?? [];
   const title = item.supplier || (item.state === "skipped" ? item.file_name : "Supplier not recognised");
+  const warnings = item.state === "exception" ? reasons.length : 0;
+  const good = [
+    item.recommended ? "Suggested" : null,
+    item.review_verdict === "agree" ? "Reviewed" : null,
+    item.review_repetitive === "repetitive" ? "Repetitive" : null,
+  ].filter(Boolean);
+  const bad = [
+    item.review_verdict === "disagree" ? "Reviewer disagrees" : null,
+    item.review_repetitive === "changed" ? "Changed" : null,
+    warnings ? `${warnings} to check` : null,
+  ].filter(Boolean);
   return (
     <li>
       <Link href={href} className={active ? styles.cardActive : styles.card} aria-current={active ? "true" : undefined}>
@@ -113,15 +132,11 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
             ? item.state_reason
             : [item.number, shortDate(item.date)].filter((x) => x && x !== "-").join(" · ") || item.file_name}
         </div>
-        {(item.source === "ledger_draft" || item.recommended || (item.state === "exception" && reasons.length > 0)) && (
-          <div className={styles.reasonsShort}>
-            {item.source === "ledger_draft" && <span className={styles.tag}>Xero draft</span>}
-            {item.recommended && <span className={styles.tag}>AP Clerk suggestion</span>}
-            {item.review_verdict && <span className={item.review_verdict === "agree" ? styles.tag : styles.tagWarn}>{item.review_verdict === "agree" ? "Reviewed" : "Reviewer disagrees"}</span>}
-            {item.review_repetitive === "repetitive" && <span className={styles.tag}>Repetitive</span>}
-            {item.review_repetitive === "changed" && <span className={styles.tagWarn}>Regular, but changed</span>}
-            {item.state === "exception" && reasons.slice(0, 3).map((r) => <span key={r.check} className={styles.tagWarn}>{checkLabel(r.check)}</span>)}
-            {item.state === "exception" && reasons.length > 3 && <span className={styles.tag}>+{reasons.length - 3} more</span>}
+        {(good.length > 0 || bad.length > 0) && (
+          <div className={styles.cardStatus}>
+            {bad.length > 0 && <span className={styles.cardWarn}>{bad.join(" · ")}</span>}
+            {bad.length > 0 && good.length > 0 && " · "}
+            {good.join(" · ")}
           </div>
         )}
       </Link>
@@ -129,7 +144,10 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
   );
 }
 
-function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug: string; entity: string; back: string; names: CodingNames }) {
+function Detail({ item, slug, entity, back, names, previous, next, position }: {
+  item: ApItemDetail; slug: string; entity: string; back: string; names: CodingNames;
+  previous: string | null; next: string | null; position: string;
+}) {
   const bill = item.proposed_bill;
   const reasons = item.review?.reasons ?? [];
   // Coding the engine changes from Xero's draft. A different bill (supplier,
@@ -140,56 +158,54 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
   const isImage = (item.mime_type || "").startsWith("image/");
 
   return (
-    <div>
+    <>
       <Link href={back} className={styles.back}>&larr; Back to the list</Link>
       <article className={styles.panel}>
-        <h2 className={styles.title}>{bill?.Contact?.Name || item.extraction?.supplier_name || item.file_name}</h2>
-        <div className={styles.meta}>
-          {documentTypeLabel(item.extraction?.document_type)} · {item.file_name}
-          {item.matched_by ? ` · supplier matched by ${item.matched_by}` : ""}
+        <div className={styles.head}>
+          <div className={styles.headMain}>
+            <h2 className={styles.title}>{bill?.Contact?.Name || item.extraction?.supplier_name || item.file_name}</h2>
+            {bill && <div className={styles.headTotal}>{money(bill.Total, bill.CurrencyCode)}</div>}
+          </div>
+          <nav className={styles.pager} aria-label="Other bills">
+            <span className={styles.meta}>{position}</span>
+            {previous ? <Link href={previous} className={styles.pagerLink} aria-label="Previous bill"><ChevronLeft size={16} aria-hidden="true" /></Link> : <span className={styles.pagerOff}><ChevronLeft size={16} aria-hidden="true" /></span>}
+            {next ? <Link href={next} className={styles.pagerLink} aria-label="Next bill"><ChevronRight size={16} aria-hidden="true" /></Link> : <span className={styles.pagerOff}><ChevronRight size={16} aria-hidden="true" /></span>}
+          </nav>
         </div>
 
-        {item.source === "ledger_draft" && (
-          <div className={styles.note}>
-            Xero keyed this as a draft bill from its bills email. Sending updates that draft with the bill below; the document is already attached.
-          </div>
+        {bill && (
+          <dl className={styles.facts}>
+            <Fact label="Date" value={shortDate(bill.DateString)} />
+            <Fact label="Due" value={shortDate(bill.DueDateString)} />
+            <Fact label="Number" value={bill.InvoiceNumber || "-"} />
+            <Fact label="VAT" value={money(bill.TotalTax, bill.CurrencyCode)} />
+            <Fact label="Amounts" value={bill.LineAmountTypes === "Inclusive" ? "Including VAT" : bill.LineAmountTypes === "NoTax" ? "No VAT" : "Before VAT"} />
+            <Fact label="Type" value={documentTypeLabel(item.extraction?.document_type)} />
+          </dl>
         )}
 
         {item.state_reason && <div className={styles.note}>{item.state_reason}</div>}
 
-        {bill && (
-          <dl className={styles.facts}>
-            <Fact label="Total" value={money(bill.Total, bill.CurrencyCode)} />
-            <Fact label="VAT" value={money(bill.TotalTax, bill.CurrencyCode)} />
-            <Fact label="Date" value={shortDate(bill.DateString)} />
-            <Fact label="Due" value={shortDate(bill.DueDateString)} />
-            <Fact label="Number" value={bill.InvoiceNumber || "-"} />
-            <Fact label="Amounts" value={bill.LineAmountTypes === "Inclusive" ? "Including VAT" : bill.LineAmountTypes === "NoTax" ? "No VAT" : "Before VAT"} />
-          </dl>
-        )}
-
         {reasons.length > 0 && (
-          <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>Why this needs you</h3>
-            {reasons.map((r, n) => (
-              <div key={`${r.check}-${n}`} className={styles.reason}>
-                <div className={styles.reasonLabel}>{checkLabel(r.check)}</div>
-                <div className={styles.reasonDetail}>{r.detail}</div>
-              </div>
-            ))}
-          </div>
+          <details className={styles.fold} open>
+            <summary className={styles.sectionTitle}>Why this needs you ({reasons.length})</summary>
+            <ul className={styles.checks}>
+              {reasons.map((r, n) => (
+                <li key={`${r.check}-${n}`}><strong>{checkLabel(r.check)}.</strong> {r.detail}</li>
+              ))}
+            </ul>
+          </details>
         )}
 
         {coding.length > 0 && (
-          <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>Changed from Xero&apos;s draft</h3>
-            {coding.map((d) => (
-              <div key={d.field} className={styles.reason}>
-                <div className={styles.reasonLabel}>{d.field[0].toUpperCase() + d.field.slice(1)}</div>
-                <div className={styles.reasonDetail}>Xero: {String(d.keyed ?? "blank")} · Sent: {String(d.proposed ?? "blank")}</div>
-              </div>
-            ))}
-          </div>
+          <details className={styles.fold}>
+            <summary className={styles.sectionTitle}>Changed from Xero&apos;s draft ({coding.length})</summary>
+            <ul className={styles.checks}>
+              {coding.map((d) => (
+                <li key={d.field}><strong>{d.field[0].toUpperCase() + d.field.slice(1)}.</strong> Xero: {String(d.keyed ?? "blank")} · Sent: {String(d.proposed ?? "blank")}</li>
+              ))}
+            </ul>
+          </details>
         )}
 
         {bill && bill.LineItems.length > 0 && (
@@ -202,28 +218,17 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
                   <span className={styles.amount}>{money(l.LineAmount, null)}</span>
                 </div>
                 <div className={styles.lineCoding}>
-                  <div>Account: {accountLabel(l.AccountCode, names) ?? <span className={styles.missing}>not set</span>}</div>
-                  <div>VAT: {taxLabel(l.TaxType, names) ?? <span className={styles.missing}>not set</span>}</div>
+                  {accountLabel(l.AccountCode, names) ?? <span className={styles.missing}>No account</span>}
+                  {" · "}
+                  {taxLabel(l.TaxType, names) ?? <span className={styles.missing}>No VAT treatment</span>}
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {isImage
-          // A plain img on purpose: next/image would put a client document
-          // through the image optimiser and its cache.
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={fileUrl} alt={`The document: ${item.file_name}`} className={styles.docImage} />
-          : (
-            <>
-              <a href={fileUrl} target="_blank" rel="noopener noreferrer" className={styles.docLink}>Open the document</a>
-              {isPdf && <iframe src={fileUrl} title={`The document: ${item.file_name}`} className={styles.docFrame} />}
-            </>
-          )}
-
         {bill && item.recommendation && (
-          <ApRecommendation slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
+          <ApRecommendation key={item.id} slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
             billSupplier={bill.Contact?.Name ?? null}
             lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))}
             labels={item.recommendation.lines.map((l) => ({
@@ -232,7 +237,8 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
         )}
 
         {bill && (
-          <ApActions slug={slug} entity={entity} item={{
+          <Folded when={!!item.recommendation && item.state === "exception"}>
+          <ApActions key={item.id} slug={slug} entity={entity} item={{
             id: item.id,
             state: item.state,
             contactId: bill.Contact?.ContactID ?? null,
@@ -248,9 +254,40 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
               accountName: accountLabel(l.AccountCode, names), taxName: taxLabel(l.TaxType, names),
             })),
           }} />
+          </Folded>
         )}
+
+        <div className={styles.note}>
+          {item.file_name}{item.matched_by ? ` · supplier matched by ${item.matched_by}` : ""}
+          {item.source === "ledger_draft" ? " · from Xero's bills email: sending updates that draft" : ""}
+        </div>
       </article>
-    </div>
+
+      <aside key={item.id} className={styles.docPane} aria-label="The document">
+        {isImage
+          // A plain img on purpose: next/image would put a client document
+          // through the image optimiser and its cache.
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={fileUrl} alt={`The document: ${item.file_name}`} className={styles.docImage} />
+          : (
+            <>
+              <a href={fileUrl} target="_blank" rel="noopener noreferrer" className={styles.docLink}>Open the document</a>
+              {isPdf && <iframe src={fileUrl} title={`The document: ${item.file_name}`} className={styles.docFrame} />}
+            </>
+          )}
+      </aside>
+    </>
+  );
+}
+
+// With a recommendation to accept, the full form is the exception, not the way in.
+function Folded({ when, children }: { when: boolean; children: React.ReactNode }) {
+  if (!when) return <>{children}</>;
+  return (
+    <details className={styles.fold}>
+      <summary className={styles.sectionTitle}>Change the coding or reject</summary>
+      {children}
+    </details>
   );
 }
 

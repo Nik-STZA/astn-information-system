@@ -100,6 +100,16 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
       <div className={styles.reason}>
         <div className={styles.reasonDetail}><MarkdownOutput text={rec.note} /></div>
       </div>
+      {open && !inUse && !sent && (
+        <div className={styles.buttonRow}>
+          <button type="button" className={styles.button} onClick={() => use(true)} disabled={busy}>
+            {busy ? "Working..." : state === "exception" ? "Approve and send" : "Use and send"}
+          </button>
+          <button type="button" className={styles.buttonSecondary} onClick={() => use(false)} disabled={busy}>
+            {state === "exception" ? "Approve only" : "Use only"}
+          </button>
+        </div>
+      )}
       {rec.supplier && (
         <div className={styles.line}>
           <div className={styles.lineTop}>
@@ -127,12 +137,18 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
             <span className={styles.lineDesc}>{lines[l.index]?.description ?? `Line ${l.index + 1}`}</span>
           </div>
           <div className={styles.lineCoding}>
-            <div>Account: {labels[n]?.account ?? l.account_code}</div>
-            <div>VAT: {labels[n]?.tax ?? l.tax_type}</div>
+            {labels[n]?.account ?? l.account_code} · {labels[n]?.tax ?? l.tax_type}
           </div>
-          {l.reason && <div className={styles.reasonDetail}>{l.reason}</div>}
         </div>
       ))}
+      {rec.lines.some((l) => l.reason) && (
+        <details className={styles.fold}>
+          <summary className={styles.sectionTitle}>Why this coding</summary>
+          <ul className={styles.checks}>
+            {rec.lines.filter((l) => l.reason).map((l) => <li key={l.index}>{l.reason}</li>)}
+          </ul>
+        </details>
+      )}
       {rec.review && (
         <div className={styles.reason}>
           <div className={styles.reasonLabel}>
@@ -145,16 +161,6 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
       )}
       {rec.due_date && <div className={styles.meta}>Due date: {shortDate(rec.due_date)}</div>}
       <div className={styles.meta}>Suggested {shortDate(rec.at)} for {rec.by_email}</div>
-      {open && !inUse && !sent && (
-        <div className={styles.buttonRow}>
-          <button type="button" className={styles.button} onClick={() => use(true)} disabled={busy}>
-            {busy ? "Working..." : state === "exception" ? "Approve and send" : "Use and send"}
-          </button>
-          <button type="button" className={styles.buttonSecondary} onClick={() => use(false)} disabled={busy}>
-            {state === "exception" ? "Approve only" : "Use only"}
-          </button>
-        </div>
-      )}
       {sent && <SentNote result={sent} />}
       {sendIssues.length > 0 && (
         <div className={styles.reason} role="alert">
