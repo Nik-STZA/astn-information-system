@@ -114,7 +114,7 @@ export default function FetchDocuments({ slug, entity }: { slug: string; entity:
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
       <button type="button" className={styles.button} onClick={run} disabled={busy}>
         {busy && <Loader2 size={14} className={styles.spin} aria-hidden="true" />}
         {busy ? "Reading..." : "Fetch new documents"}

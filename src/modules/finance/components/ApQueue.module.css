@@ -458,3 +458,148 @@
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
 }
+
+/* The workspace (30 Oct 2026): one screen, no page scrolling. Sized from the
+   room it has, not the window, so the agent panel beside it is allowed for. */
+:global(html):has(.workspace) :global(.page-container) {
+  max-width: none;
+  padding-bottom: 12px;
+}
+
+.cardStatus {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cardWarn { color: var(--warning-amber); font-weight: 600; }
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.headMain { min-width: 0; }
+.headTotal {
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pager {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pager .meta { margin: 0 4px 0 0; white-space: nowrap; }
+.pagerLink, .pagerOff {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bd);
+  border-radius: 999px;
+  color: var(--tx);
+}
+.pagerOff { color: var(--sub); opacity: 0.4; }
+
+.fold { margin-top: 10px; }
+.fold summary { cursor: pointer; margin: 0; }
+.checks {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--sub);
+}
+.checks strong { color: var(--tx); font-weight: 600; }
+.checks li { margin-bottom: 2px; overflow-wrap: anywhere; }
+
+.docPane { margin-top: 12px; }
+
+.workspace { container-type: inline-size; }
+
+@container (min-width: 720px) {
+  .layout {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: 12px;
+    align-items: stretch;
+    height: calc(100vh - 170px);
+    min-height: 480px;
+  }
+  .listPane, .hideOnPhone, .detailPane {
+    display: block;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .back { display: none; }
+  .list { gap: 4px; }
+  .card { padding: 7px 9px; min-height: 0; border-radius: 8px; }
+  .cardTop { gap: 8px; }
+  .supplier { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .amount { font-size: 13px; font-weight: 600; }
+  .card .meta { margin-top: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .panel { padding: 12px; border-radius: 10px; }
+  .title { font-size: 16px; font-weight: 700; }
+  .facts { margin-top: 8px; grid-template-columns: repeat(6, auto); justify-content: start; gap: 2px 18px; }
+  .fact dt { font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 500; }
+  .fact dd { margin: 0; font-size: 13px; }
+  .section { margin-top: 10px; }
+  .sectionTitle { margin-bottom: 4px; font-size: 12px; }
+  .reason { padding: 6px 8px; margin-bottom: 4px; }
+  .reasonLabel { font-size: 13px; }
+  .reasonDetail { font-size: 12px; margin-top: 0; }
+  .line { padding: 5px 0; }
+  .lineTop { font-size: 13px; }
+  .lineCoding { margin-top: 1px; }
+  .note { margin-top: 8px; font-size: 11px; }
+  .actions { margin-top: 10px; padding-top: 10px; gap: 8px; }
+  .actions .button { width: auto; align-self: flex-start; }
+  .buttonRow { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .buttonSecondary { min-height: 32px; padding: 0 12px; font-size: 13px; border-radius: 999px; }
+  .button { min-height: 32px; }
+  .select, .textarea { min-height: 34px; font-size: 13px; padding: 4px 8px; }
+  .lineEdit { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px 8px 8px; }
+  .lineEdit legend { grid-column: 1 / -1; font-size: 12px; }
+  .docLink { display: none; }
+  .docFrame {
+    display: block;
+    width: 100%;
+    height: 70vh;
+    border: 1px solid var(--bd);
+    border-radius: 8px;
+    background: var(--warm-light);
+  }
+}
+
+/* Wide enough for the document to have its own pane on the far right. */
+@container (min-width: 1100px) {
+  .layout { grid-template-columns: 236px minmax(0, 1fr); }
+  .detailPane {
+    display: grid;
+    grid-template-columns: minmax(360px, 1fr) minmax(380px, 46%);
+    gap: 12px;
+    overflow: hidden;
+  }
+  .panel { min-height: 0; overflow-y: auto; }
+  .docPane { margin: 0; min-height: 0; overflow-y: auto; }
+  .docFrame { height: 100%; }
+  .docImage { margin: 0; }
+}
+
+.page:has(.workspace) { max-width: none; padding-top: 0; padding-bottom: 8px; }
+.toolbar:has(+ .workspace) { margin-bottom: 8px; }
+
+@container (min-width: 720px) {
+  .layout { height: calc(100vh - 246px); }
+  .facts { display: flex; flex-wrap: wrap; gap: 2px 18px; }
+  .fact dd { white-space: nowrap; }
+  .docFrame { margin: 0; }
+}
