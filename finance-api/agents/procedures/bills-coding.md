@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.7.0
+version: 1.8.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -149,15 +149,24 @@ FM2 records its view on each item with `record_bill_review`: agree or disagree,
 what you checked, and whether the bill is **repetitive** (it matches the
 supplier's usual account, VAT and amount, and how many in a row), **changed** (a
 regular supplier with something different, and what) or **one-off** (a one-off or
-new supplier). This is a record for the CFO; it approves nothing.
+new supplier).
+
+Then submit it. Where you agree, and the document supports the coding, use
+`submit_bill` on that item: it goes to Awaiting Approval and the CFO approves it in
+Xero. The platform refuses a bill on its stop list and says why; that bill stays
+in the Bills tab for the CFO, so report it and do not argue with it. A regular bill
+that **changed** needs the FC, so hand it on rather than submitting it. Clear a
+flag that does not matter, such as no due date on a card receipt, with a reason in
+your note. If you doubt a bill, do not submit it, whatever the checks say.
 
 ## Handing on
 
 When the AP Clerk has saved at least one recommendation, it uses `hand_off` once,
 to `fm2`, naming the items. With nothing recommended there is nothing to hand on,
-and FM2 with nothing to review does not hand on either: say so and stop. FM2 reviews them. Bills go from FM2 to the CFO; FM2 uses `hand_off` to
-`fc` only where it disagrees or a bill needs a second view. No agent creates a
-supplier or approves a bill: those are the CFO's taps on the item.
+and FM2 with nothing to review does not hand on either: say so and stop. FM2 reviews them. FM2 uses `hand_off` to
+`fc` where it disagrees, a regular bill changed, or a bill needs a second view; the
+FC records its own review and submits what it agrees. No agent creates a supplier
+or approves a bill: those stay with the CFO.
 
 ## What you hand on
 
@@ -170,6 +179,7 @@ supplier or approves a bill: those are the CFO's taps on the item.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.8.0 | 30 October 2026 | FM2 and the FC submit reviewed bills to Awaiting Approval; the platform's stop list keeps the rest with the CFO. |
 | 1.7.0 | 30 October 2026 | A platform's receipt stays with the platform: Uber, not the driver. |
 | 1.6.0 | 30 October 2026 | The agent decides the correct VAT treatment and gives the rule; earlier coding is evidence, and a difference is a finding. |
 | 1.4.0 | 30 October 2026 | The line matches the bill only; explanation goes to the bill's notes in Xero. |

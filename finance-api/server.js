@@ -5120,7 +5120,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items/:id", route(async (req
     `SELECT i.* FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
       WHERE i.client_id = $1 AND e.slug = $2 AND i.id = $3`, [client.id, req.params.entity, req.params.id]);
   if (!rows.length) return res.status(404).json({ error: "item not found" });
-  res.json(rows[0]);
+  res.json({ ...rows[0], submit_stops: apLane.submitStops(rows[0]) });
 }));
 
 // GET /api/finance/clients/:slug/xero/:entity/ap/options
@@ -5254,8 +5254,8 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/recommendation", 
 
 // POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/review
 //   body: { verdict, repetitive, pattern?, note, agent?, run_id? }
-// A reviewer's view of the recommendation, shown on the item. Advice like the
-// recommendation itself: it changes nothing else and nothing reaches Xero.
+// A reviewer's view of the recommendation, shown on the item. It changes nothing
+// else and nothing reaches Xero; submit, below, is a separate step.
 app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/review", route(async (req, res) => {
   const actorEmail = (req.get("X-Actor-Email") || "").trim();
   if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
@@ -5272,7 +5272,9 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/review", route(as
   const r = apLane.billReview(item, b);
   if (r.issues.length) return res.status(422).json({ issues: r.issues });
   const review = { ...r.review, agent: b.agent ? String(b.agent).slice(0, 40) : null, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null, at: new Date().toISOString() };
-  await pool.query("UPDATE finance.ap_items SET recommendation = recommendation || $2::jsonb WHERE id = $1", [item.id, JSON.stringify({ review })]);
+  // Every review stays: a later one must not hide an earlier disagreement.
+  const earlier = item.recommendation.reviews ?? (item.recommendation.review ? [item.recommendation.review] : []);
+  await pool.query("UPDATE finance.ap_items SET recommendation = recommendation || $2::jsonb WHERE id = $1", [item.id, JSON.stringify({ review, reviews: [...earlier, review] })]);
   await audit(pool, {
     actorEmail, actorRole: role, action: "ap_item_reviewed", targetType: "ap_item", targetId: item.id, clientId: client.id,
     payload: review, ip: req.get("X-Forwarded-For"),
@@ -5289,68 +5291,105 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/review", route(as
 // The CFO approves it in Xero: one approval per bill (Nik, 26 Oct 2026).
 app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/send",
   gatedWrite("send_ap_bill", "draft", async (ctx, b, req) => {
-    const actorEmail = (req.get("X-Actor-Email") || "").trim();
-    if (!writeRules.isGuid(req.params.id)) return { issues: ["id must be a uuid"], operation: "create" };
-    const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [ctx.client.id, actorEmail])).rows[0].role;
-    if (!role) return { issues: [`${actorEmail} holds no engagement role for this client`], operation: "create" };
-    const item = (await pool.query("SELECT * FROM finance.ap_items WHERE entity_id = $1 AND id = $2", [ctx.entity.id, req.params.id])).rows[0];
-    if (!item) return { issues: ["item not found"], operation: "create" };
-    const { body, issues } = apLane.sendRequest(item);
-    const fromDraft = item.source === "ledger_draft";
-    const operation = fromDraft ? "update" : "create";
-    if (issues.length) return { issues, operation, extra: { item_state: item.state } };
-    // The draft must be the one that was read: changed or approved in Xero since,
-    // it is read again (intake) before anything is sent over it.
-    if (fromDraft) {
-      const now = ((await xeroGetOrNull(ctx, `/Invoices/${item.ledger_draft_id}`))?.Invoices ?? [])[0];
-      if (!now) return { issues: ["the Xero draft no longer exists"], operation, extra: { item_state: item.state } };
-      if (now.Status !== "DRAFT") return { issues: [`the Xero draft is now ${now.Status}`], operation, extra: { item_state: item.state } };
-      if (apLane.draftVersion(now) !== item.ledger_draft_version) {
-        return { issues: ["the Xero draft was changed after it was read: fetch new documents to read it again"], operation, extra: { item_state: item.state } };
-      }
-    }
-    const bill = await documentPlan("invoice")(ctx, body);
-    if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
-    const done = [];
-    const note = apLane.billNote(item.recommendation);
-    return {
-      ...bill,
-      extra: { ...(bill.extra || {}), item_state: item.state, file: item.file_name },
-      history: (saved, resp) => [].concat((bill.history ? bill.history(saved, resp) : null) || [],
-        saved?.InvoiceID && note ? [{ resource: "Invoices", id: saved.InvoiceID, text: note }] : []),
-      // The bill, then its document, then the queue row. A failure after the
-      // bill exists is reported with the bill's id and the row is still marked
-      // written, so it cannot be sent twice.
-      send: async (key) => {
-        const r = await bill.send(key);
-        const saved = bill.saved(r.body);
-        // Xero answers 200 with the errors on the bill itself (HasErrors and
-        // ValidationErrors): the row is marked written only when Xero took it.
-        if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors || saved.HasErrors || (saved.ValidationErrors || []).length) return r;
-        done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} ${fromDraft ? "updated" : "created"} ${saved.Status}`);
-        let attachError = null;
-        if (fromDraft) {
-          // Xero attached the document when it keyed the draft.
-          done.push(`document ${item.file_name} already attached`);
-        } else {
-          const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
-            json: { ObjectId: saved.InvoiceID, ObjectGroup: "Invoice" },
-            key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: saved.InvoiceID }),
-          });
-          if (a.ok) done.push(`document ${item.file_name} attached`);
-          else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
-        }
-        await pool.query(
-          `UPDATE finance.ap_items SET state = 'written', xero_invoice_id = $2, written_at = now(), write_error = $3,
-                  decided_by_email = COALESCE(decided_by_email, $4), decided_at = COALESCE(decided_at, now())
-            WHERE id = $1`, [item.id, saved.InvoiceID, attachError ? JSON.stringify({ attach: attachError }) : null, actorEmail]);
-        // The bill is in Xero: tasks waiting on it move on (Work).
-        await workBillDecided(item.id, "sent to Xero");
-        return r;
-      },
-      describe: (s, raw) => ({ ...bill.describe(s, raw), done, attached: done.some((x) => x.startsWith("document")) }),
-    };
+    const found = await itemToWrite(ctx, req);
+    return found.plan ?? billSendPlan(ctx, found.item, found.actorEmail);
   }));
+
+// POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/submit
+//   body: { agent, run_id?, dry_run? }   (dry run unless dry_run is false)
+// A reviewer sends a reviewed bill to Awaiting Approval with the recommended
+// coding, the same write as the CFO's send. submitStops decides whether it may:
+// anything it names stays in the Bills tab. The CFO still approves it in Xero
+// (Nik, 30 Oct 2026). Nothing here approves or pays.
+app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/submit",
+  gatedWrite("submit_reviewed_bill", "draft", async (ctx, b, req) => {
+    const found = await itemToWrite(ctx, req);
+    if (found.plan) return found.plan;
+    const { item, actorEmail } = found;
+    if (!["fm2", "fc"].includes(b.agent)) return { issues: ["only FM2 or the FC submits a bill"], operation: "create" };
+    const stops = apLane.submitStops(item);
+    if (stops.length) return { issues: stops, operation: "create", extra: { item_state: item.state } };
+    const rec = item.recommendation;
+    const decided = apLane.decide(item, {
+      action: "approve",
+      note: `Reviewed and submitted by ${b.agent === "fc" ? "the FC" : "FM2"}`,
+      edits: { lines: rec.lines.map((l) => ({ index: l.index, account_code: l.account_code, tax_type: l.tax_type })), ...(rec.due_date ? { due_date: rec.due_date } : {}) },
+    });
+    if (decided.issues.length) return { issues: decided.issues, operation: "create", extra: { item_state: item.state } };
+    return billSendPlan(ctx, { ...item, state: decided.state, proposed_bill: decided.bill, decision_note: decided.note, edits: decided.edits }, actorEmail,
+      { agent: b.agent, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null });
+  }));
+
+async function itemToWrite(ctx, req) {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!writeRules.isGuid(req.params.id)) return { plan: { issues: ["id must be a uuid"], operation: "create" } };
+  const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [ctx.client.id, actorEmail])).rows[0].role;
+  if (!role) return { plan: { issues: [`${actorEmail} holds no engagement role for this client`], operation: "create" } };
+  const item = (await pool.query("SELECT * FROM finance.ap_items WHERE entity_id = $1 AND id = $2", [ctx.entity.id, req.params.id])).rows[0];
+  if (!item) return { plan: { issues: ["item not found"], operation: "create" } };
+  return { item, actorEmail };
+}
+
+// The write for one queue item: the bill, its document and the queue row.
+async function billSendPlan(ctx, item, actorEmail, by = null) {
+  const { body, issues } = apLane.sendRequest(item);
+  const fromDraft = item.source === "ledger_draft";
+  const operation = fromDraft ? "update" : "create";
+  if (issues.length) return { issues, operation, extra: { item_state: item.state } };
+  // The draft must be the one that was read: changed or approved in Xero since,
+  // it is read again (intake) before anything is sent over it.
+  if (fromDraft) {
+    const now = ((await xeroGetOrNull(ctx, `/Invoices/${item.ledger_draft_id}`))?.Invoices ?? [])[0];
+    if (!now) return { issues: ["the Xero draft no longer exists"], operation, extra: { item_state: item.state } };
+    if (now.Status !== "DRAFT") return { issues: [`the Xero draft is now ${now.Status}`], operation, extra: { item_state: item.state } };
+    if (apLane.draftVersion(now) !== item.ledger_draft_version) {
+      return { issues: ["the Xero draft was changed after it was read: fetch new documents to read it again"], operation, extra: { item_state: item.state } };
+    }
+  }
+  const bill = await documentPlan("invoice")(ctx, body);
+  if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
+  const done = [];
+  const note = apLane.billNote(item.recommendation);
+  return {
+    ...bill,
+    extra: { ...(bill.extra || {}), item_state: item.state, file: item.file_name, ...(by ? { submitted_by: by } : {}) },
+    history: (saved, resp) => [].concat((bill.history ? bill.history(saved, resp) : null) || [],
+      saved?.InvoiceID && note ? [{ resource: "Invoices", id: saved.InvoiceID, text: note }] : []),
+    // The bill, then its document, then the queue row. A failure after the
+    // bill exists is reported with the bill's id and the row is still marked
+    // written, so it cannot be sent twice.
+    send: async (key) => {
+      const r = await bill.send(key);
+      const saved = bill.saved(r.body);
+      // Xero answers 200 with the errors on the bill itself (HasErrors and
+      // ValidationErrors): the row is marked written only when Xero took it.
+      if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors || saved.HasErrors || (saved.ValidationErrors || []).length) return r;
+      done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} ${fromDraft ? "updated" : "created"} ${saved.Status}`);
+      let attachError = null;
+      if (fromDraft) {
+        // Xero attached the document when it keyed the draft.
+        done.push(`document ${item.file_name} already attached`);
+      } else {
+        const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
+          json: { ObjectId: saved.InvoiceID, ObjectGroup: "Invoice" },
+          key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: saved.InvoiceID }),
+        });
+        if (a.ok) done.push(`document ${item.file_name} attached`);
+        else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
+      }
+      await pool.query(
+        `UPDATE finance.ap_items SET state = 'written', xero_invoice_id = $2, written_at = now(), write_error = $3,
+                decided_by_email = COALESCE(decided_by_email, $4), decided_at = COALESCE(decided_at, now()),
+                proposed_bill = $5, decision_note = $6, edits = $7
+          WHERE id = $1`, [item.id, saved.InvoiceID, attachError ? JSON.stringify({ attach: attachError }) : null, actorEmail,
+          JSON.stringify(item.proposed_bill), item.decision_note, item.edits ? JSON.stringify(item.edits) : null]);
+      // The bill is in Xero: tasks waiting on it move on (Work).
+      await workBillDecided(item.id, "sent to Xero");
+      return r;
+    },
+    describe: (s, raw) => ({ ...bill.describe(s, raw), done, attached: done.some((x) => x.startsWith("document")) }),
+  };
+}
 
 // GET /api/finance/clients/:slug/xero/:entity/ap/items/:id/file   the document,
 // for the viewer beside the proposed bill

@@ -208,6 +208,10 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
             billName={billName} candidate={candidate} />
         )}
 
+        {open && (item.submit_stops ?? []).length > 0 && (
+          <div className={styles.note}>Staying with you: {(item.submit_stops ?? []).join("; ")}.</div>
+        )}
+
         {reasons.length > 0 && (
           <details className={styles.fold} open>
             <summary className={styles.sectionTitle}>Why this needs you ({reasons.length})</summary>

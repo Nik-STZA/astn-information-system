@@ -422,6 +422,51 @@ function billReview(item, body = {}) {
   return { issues, review: issues.length ? null : { verdict: body.verdict, repetitive: body.repetitive, pattern, note } };
 }
 
+// Checks that keep a bill with the CFO, however the reviewers read it.
+const STOP_CHECKS = {
+  duplicate: "it may already be in Xero or the queue",
+  possible_duplicate: "it may already be in Xero or the queue",
+  same_file: "the same file has already been read",
+  no_supplier: "it has no supplier",
+  supplier_status: "the supplier is not active",
+  cfo_review: "this supplier is always discussed or mixed treatment",
+  total_vs_document: "the total does not agree to the document",
+  document_arithmetic: "the document does not add up",
+  document_not_matched: "the document could not be matched to the bill",
+  no_document: "there is no document",
+  not_read: "the document could not be read",
+  pages_unread: "part of the document was not read",
+  reader_doubts: "the reader was unsure of the document",
+  several_documents: "the attachment holds more than one document",
+  several_attachments: "only the first attachment was read",
+};
+const STOP_DIFFERENCES = ["supplier", "currency", "total"];
+
+// Why a bill cannot go to Awaiting Approval without the CFO, or an empty list.
+// The server decides this, not the agent asking: a reviewer's agreement is
+// necessary, never sufficient. Every disagreement counts, even one a later
+// review went past, and a regular bill that changed needs the FC.
+function submitStops(item) {
+  const rec = item.recommendation;
+  const stops = [];
+  if (!["exception", "clean", "approved"].includes(item.state)) stops.push(`this item is ${item.state}`);
+  if (!rec) return [...stops, "there is no recommendation"];
+  const reviews = rec.reviews ?? (rec.review ? [rec.review] : []);
+  if (!reviews.length) stops.push("it has not been reviewed");
+  if (reviews.some((r) => r.verdict !== "agree")) stops.push("a reviewer disagreed");
+  if (reviews.length && !reviews.some((r) => r.agent === "fm2" || r.agent === "fc")) stops.push("it needs a review by FM2 or the FC");
+  if (rec.review?.repetitive === "changed" && !reviews.some((r) => r.agent === "fc")) stops.push("a regular bill that changed needs the FC's review");
+  const contact = item.proposed_bill?.Contact;
+  if (rec.supplier && !(rec.supplier.contact_id && rec.supplier.contact_id === contact?.ContactID) && rec.supplier.name !== contact?.Name) {
+    stops.push(`a different supplier is proposed: ${rec.supplier.name}`);
+  }
+  for (const r of item.review?.reasons || []) if (STOP_CHECKS[r.check]) stops.push(STOP_CHECKS[r.check]);
+  for (const d of item.review?.draft_differences?.blocking || []) {
+    if (STOP_DIFFERENCES.includes(d.field)) stops.push(`Xero's draft differs on the ${d.field}`);
+  }
+  return [...new Set(stops)];
+}
+
 // What the CFO's decision on a queue item does to it, or why it cannot.
 //   item    the finance.ap_items row
 //   action  "approve" | "reject"
@@ -482,5 +527,5 @@ function sendRequest(item) {
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences, recommendation, billReview, billNote,
+  applyEdits, decide, sendRequest, submitStops, draftVersion, billFromDraft, draftDifferences, recommendation, billReview, billNote,
 };
