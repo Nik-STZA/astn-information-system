@@ -71,3 +71,4 @@ jobs:
             --timeout=300
             --allow-unauthenticated
             --ingress=internal-and-cloud-load-balancing
+            --service-account=astn-os@africanstn-research.iam.gserviceaccount.com
