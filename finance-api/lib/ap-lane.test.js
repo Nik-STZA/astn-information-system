@@ -294,7 +294,7 @@ describe("due date before a send", () => {
 // The AP Clerk's suggested coding (Nik, 27 Oct 2026: asked the agent to review
 // a Bills item line by line). Advice only; checked against the company's own
 // accounts and VAT treatments.
-import { recommendation } from "./ap-lane";
+import { recommendation, billReview } from "./ap-lane";
 
 describe("recommendation", () => {
   const bill = buildBill({ doc: invoice, match: { link }, entity });
@@ -385,5 +385,23 @@ describe("a recommendation can name the right supplier", () => {
     expect(recommendation(item, { ...body, supplier: { name: "Acme" } }, allowed).issues).toContain("say why the supplier should change");
     expect(recommendation(item, { ...body, supplier: { reason: "x" } }, allowed).issues).toContain("a supplier needs a contact_id or a name");
     expect(recommendation(item, { ...body, supplier: { contact_id: "nope", reason: "x" } }, allowed).issues).toHaveLength(1);
+  });
+});
+
+describe("a reviewer's view of a recommendation", () => {
+  const item = { recommendation: { agent: "ap-clerk" } };
+  const body = { verdict: "agree", repetitive: "repetitive", pattern: "6 in a row", note: "Checked", agent: "fm2" };
+
+  it("records the verdict and the repetitive flag", () => {
+    expect(billReview(item, body).review).toEqual({ verdict: "agree", repetitive: "repetitive", pattern: "6 in a row", note: "Checked" });
+  });
+
+  it("refuses reviewing your own work, or nothing to review", () => {
+    expect(billReview(item, { ...body, agent: "ap-clerk" }).issues).toContain("nobody reviews work they prepared");
+    expect(billReview({}, body).issues).toContain("this item has no recommendation to review");
+  });
+
+  it("needs a real verdict, flag and note", () => {
+    expect(billReview(item, { agent: "fm2" }).issues).toHaveLength(3);
   });
 });

@@ -392,6 +392,23 @@ function recommendation(item, body = {}, { accounts = new Set(), taxes = new Set
   return { issues, recommendation: issues.length ? null : { lines, due_date: due, note, ...(supplier ? { supplier } : {}) } };
 }
 
+// A reviewer's view of a recommendation (FM2 or the FC), kept on it, so a new
+// recommendation starts unreviewed. Nobody reviews work they prepared.
+//   body  { verdict: agree|disagree, repetitive: repetitive|changed|one_off, pattern?, note, agent? }
+//   repetitive  a regular bill matching its pattern; a regular bill with
+//               something different (pattern says what); a one-off or new supplier
+function billReview(item, body = {}) {
+  const issues = [];
+  if (!item.recommendation) issues.push("this item has no recommendation to review");
+  if (body.agent && item.recommendation?.agent === body.agent) issues.push("nobody reviews work they prepared");
+  if (!["agree", "disagree"].includes(body.verdict)) issues.push("verdict must be agree or disagree");
+  if (!["repetitive", "changed", "one_off"].includes(body.repetitive)) issues.push("repetitive must be repetitive, changed or one_off");
+  const note = String(body.note ?? "").trim().slice(0, 2000);
+  if (!note) issues.push("a note on what was checked is required");
+  const pattern = String(body.pattern ?? "").trim().slice(0, 300) || null;
+  return { issues, review: issues.length ? null : { verdict: body.verdict, repetitive: body.repetitive, pattern, note } };
+}
+
 // What the CFO's decision on a queue item does to it, or why it cannot.
 //   item    the finance.ap_items row
 //   action  "approve" | "reject"
@@ -452,5 +469,5 @@ function sendRequest(item) {
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences, recommendation,
+  applyEdits, decide, sendRequest, draftVersion, billFromDraft, draftDifferences, recommendation, billReview,
 };

@@ -1,7 +1,7 @@
 ---
 name: how-work-moves
 title: How work moves
-version: 1.0.0
+version: 1.1.0
 summary: How a piece of work is drafted, reviewed, sent back, escalated and recorded in Work. Always loaded.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -30,6 +30,10 @@ because it is a filing with a deadline and errors in it repeat.
 **Corporation tax and deferred tax are referred** to the client's tax adviser.
 Two pieces stay in the close: the R&D claim tied to what was capitalised, and
 deferred tax on a lease transition.
+
+To pass work to the next tier straight away, use `hand_off` at the end of your
+work. They start as the next turn of the conversation, with everything said so
+far. It goes up the chain only, and stops with the CFO.
 
 ## Moving a task
 

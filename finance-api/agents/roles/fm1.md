@@ -2,7 +2,7 @@
 name: fm1
 title: Financial Manager 1
 version: 2.0.0
-tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, create_draft_journal, list_tasks, add_task, update_task
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, create_draft_journal, list_tasks, add_task, update_task, hand_off
 procedures: month-end-close, balance-sheet-matrix, vat-return, payroll-journal, intercompany-recharge, ip-asset-register, variance-commentary
 ---
 

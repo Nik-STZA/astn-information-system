@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.2.0
+version: 1.3.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -132,6 +132,19 @@ clerk's account of it. Open the bill (`get_invoice`), its history
 duplicate against the ledger, not just within the queue. A receipt entered as a
 second bill is the recurring failure.
 
+FM2 records its view on each item with `record_bill_review`: agree or disagree,
+what you checked, and whether the bill is **repetitive** (it matches the
+supplier's usual account, VAT and amount, and how many in a row), **changed** (a
+regular supplier with something different, and what) or **one-off** (a one-off or
+new supplier). This is a record for the CFO; it approves nothing.
+
+## Handing on
+
+When the AP Clerk has finished a queue, it uses `hand_off` once, to `fm2`, naming
+the items. FM2 reviews them. Bills go from FM2 to the CFO; FM2 uses `hand_off` to
+`fc` only where it disagrees or a bill needs a second view. No agent creates a
+supplier or approves a bill: those are the CFO's taps on the item.
+
 ## What you hand on
 
 - each computed check, with its result, passes included
@@ -143,6 +156,7 @@ second bill is the recurring failure.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 30 October 2026 | The clerk hands the queue to FM2, which records a review and the repetitive flag on each item. FC sees bills only by exception. |
 | 1.2.0 | 30 October 2026 | The note is scannable, and a recommendation can name the right supplier. |
 | 1.1.0 | 30 October 2026 | The agent opens the document itself and looks for it among the supplier's bills. |
 | 1.0.0 | 29 October 2026 | Cloud version of the laptop AP bill lane: coding, the description rule and statement reconciliation carry over; the agent recommends on the Bills queue and the CFO decides there, so the Xero editing, attaching and submitting steps are gone. Client account defaults move to the client's rules. |

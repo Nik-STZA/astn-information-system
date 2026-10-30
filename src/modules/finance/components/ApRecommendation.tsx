@@ -133,6 +133,16 @@ export default function ApRecommendation({ slug, entity, itemId, state, rec, lin
           {l.reason && <div className={styles.reasonDetail}>{l.reason}</div>}
         </div>
       ))}
+      {rec.review && (
+        <div className={styles.reason}>
+          <div className={styles.reasonLabel}>
+            {(rec.review.agent ?? "Reviewer").toUpperCase()} {rec.review.verdict === "agree" ? "agrees" : "disagrees"}
+            {" · "}{{ repetitive: "repetitive", changed: "regular, but changed", one_off: "one-off" }[rec.review.repetitive]}
+            {rec.review.pattern ? ` · ${rec.review.pattern}` : ""}
+          </div>
+          <div className={styles.reasonDetail}><MarkdownOutput text={rec.review.note} /></div>
+        </div>
+      )}
       {rec.due_date && <div className={styles.meta}>Due date: {shortDate(rec.due_date)}</div>}
       <div className={styles.meta}>Suggested {shortDate(rec.at)} for {rec.by_email}</div>
       {open && !inUse && !sent && (

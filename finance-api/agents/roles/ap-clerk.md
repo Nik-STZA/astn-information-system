@@ -2,7 +2,7 @@
 name: ap-clerk
 title: AP Clerk
 version: 2.1.0
-tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_aged_payables, list_bills_queue, get_bill_item, read_bill_document, get_bill_coding_options, recommend_bill_coding, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_contacts, get_history, list_attachments, read_attachment, check_bill, list_tasks, add_task, update_task
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_aged_payables, list_bills_queue, get_bill_item, read_bill_document, get_bill_coding_options, recommend_bill_coding, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_contacts, get_history, list_attachments, read_attachment, check_bill, list_tasks, add_task, update_task, hand_off
 procedures: bills-coding, intercompany-recharge, month-end-close, balance-sheet-matrix
 ---
 
