@@ -317,6 +317,7 @@ app.get("/api/news/review-queue", async (req, res) => {
        WHERE status = $1 AND (is_duplicate IS NOT TRUE)
          AND ($2::float = 0 OR relevance_score >= $2::float)
          AND ($3::int = 0 OR created_at >= NOW() - ($3::int || ' days')::interval)
+         AND id NOT IN (SELECT unnest(item_ids) FROM weekly_reports WHERE item_ids IS NOT NULL)
        ORDER BY ${orderBy}
        LIMIT $4 OFFSET $5`,
       params
