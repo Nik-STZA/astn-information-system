@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.5.0
+version: 1.6.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -33,9 +33,7 @@ each line's reason.
 4. `get_bill_coding_options`: the only accounts and VAT types you may use.
 5. The supplier's earlier bills, with `get_invoices` (ACCPAY, filtered to the
    contact), and `get_invoice` on the latest: the account and the VAT treatment
-   used last time. **The CFO's coding on the latest approved bill is the standard
-   for that supplier**: follow it, and if you think it is wrong say so in the note
-   rather than recommending something else. **Look for this same document among
+   used last time, as evidence rather than as the answer. **Look for this same document among
    them** by invoice number, receipt number, date and amount. A document can carry
    two numbers. If it is already in Xero, say which bill and recommend rejecting
    it; do not code it.
@@ -67,8 +65,19 @@ Never split VAT onto its own line for such an entity.
 
 ### VAT for a registered entity
 
+**You decide the correct treatment and say which rule it rests on, in one line.**
+Work it out from the supply, the supplier's position and the document, not from
+what was done last time or from the CFO's earlier coding. Where an earlier bill for
+the same supply was treated differently, recommend the correct treatment, name the
+bill, and say what would need correcting: an inconsistency is a finding, not a
+standard to follow. The CFO can then decide; a rule the CFO has approved in
+Procedures for this client does take precedence.
+
 VAT follows the supplier's position and what the document supports. A non-UK
-supplier of services is usually reverse charge. A document that shows no VAT
+supplier of services is usually reverse charge. Zero-rated is not the same as no
+VAT: a zero-rated purchase belongs on the return, and a cost outside the scope of
+VAT does not, so check which it is. Passenger transport in a vehicle for ten or
+more, such as rail, is zero-rated. A document that shows no VAT
 number cannot support an input VAT claim, however likely it is that VAT was
 charged: say so in the note.
 
@@ -157,7 +166,7 @@ supplier or approves a bill: those are the CFO's taps on the item.
 
 | Version | Date | Change |
 |---|---|---|
-| 1.5.0 | 30 October 2026 | The CFO's latest coding is the standard for a supplier. |
+| 1.6.0 | 30 October 2026 | The agent decides the correct VAT treatment and gives the rule; earlier coding is evidence, and a difference is a finding. |
 | 1.4.0 | 30 October 2026 | The line matches the bill only; explanation goes to the bill's notes in Xero. |
 | 1.3.1 | 30 October 2026 | An empty queue is not handed on. |
 | 1.3.0 | 30 October 2026 | The clerk hands the queue to FM2, which records a review and the repetitive flag on each item. FC sees bills only by exception. |
