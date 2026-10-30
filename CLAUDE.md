@@ -208,6 +208,14 @@ The 8 `server-*-routes.js` files live in the repo root (for easy editing) but `d
 - `ANTHROPIC_API_KEY` has been removed from the Cloud Run service — the V2 analysis engine does not currently call Claude.
 - Tests must not depend on a working Anthropic API key.
 
+Added after the 30 October 2026 penetration test:
+
+- **Content-Security-Policy** (`next.config.js`): pages load scripts, images, and fonts only from `'self'`, plus Google Fonts and `flagcdn.com` images, and `connect-src` is `'self'`. A blocked resource shows only in the browser console. Add a source there only if it is truly needed. Browser code cannot call outside services; use a server route.
+- **Forged requests:** the middleware refuses any change that did not come from our own pages (`isSameSite` in `src/shared/lib/request-origin.ts`). An inbound webhook would get a 403 and needs a deliberate, separately authenticated exception.
+- **Portal identity:** `astn-os` runs as `astn-os@`, which can read only `api-key` and `finance-api-key`. Anything else must be granted before merging, or the revision may not start. Merging to `main` deploys straight away.
+- **Rendering text:** use `markdownToHtml` from `src/lib/markdown.ts`, which escapes first. No new `dangerouslySetInnerHTML` on unescaped text.
+- **Bill documents:** only PDFs and png, jpeg, webp, heic, and heif images open in the browser. Anything else downloads.
+
 ## What has been built (as of July 2026)
 
 ### Frontend pages (Next.js, under `src/app/(app)/`)
