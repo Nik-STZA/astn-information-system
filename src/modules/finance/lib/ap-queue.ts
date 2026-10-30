@@ -91,7 +91,7 @@ export interface ApItemDetail {
   review: { reasons?: ApReason[]; draft_differences?: { blocking: ApDraftDifference[]; coding: ApDraftDifference[] } } | null;
   source: ApSource;
   recommendation: ApRecommendation | null;
-  extraction: { document_type?: string; supplier_name?: string | null } | null;
+  extraction: { document_type?: string; supplier_name?: string | null; supplier_vat_number?: string | null; supplier_country?: string | null } | null;
   created_at: string;
 }
 
@@ -191,8 +191,8 @@ export interface ApSendResult {
   error?: string;
 }
 
-export async function fetchApOptions(slug: string, entity: string): Promise<Result<ApOptions>> {
-  return call<ApOptions>(`${base(slug, entity)}/options`);
+export async function fetchApOptions(slug: string, entity: string, allContacts = false): Promise<Result<ApOptions>> {
+  return call<ApOptions>(`${base(slug, entity)}/options${allContacts ? "?contacts=1" : ""}`);
 }
 
 export async function decideApItem(slug: string, entity: string, id: string, actorEmail: string, body: ApDecisionBody): Promise<Result<unknown>> {

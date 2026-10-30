@@ -603,3 +603,28 @@
   .fact dd { white-space: nowrap; }
   .docFrame { margin: 0; }
 }
+
+.supplierBox {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.supplierRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.supplierRow .meta { margin: 0; }
+.supplierRow .linkButton { margin: 0; }
+.supplierAsk {
+  margin-top: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border-radius: 8px;
+  border-left: 3px solid var(--warning-amber);
+  background: var(--empty-bg);
+  overflow-wrap: anywhere;
+}

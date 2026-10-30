@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.4.0
+version: 1.5.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -32,7 +32,10 @@ each line's reason.
    draft, say so in the note: the document is what counts.
 4. `get_bill_coding_options`: the only accounts and VAT types you may use.
 5. The supplier's earlier bills, with `get_invoices` (ACCPAY, filtered to the
-   contact): what account was used last time. **Look for this same document among
+   contact), and `get_invoice` on the latest: the account and the VAT treatment
+   used last time. **The CFO's coding on the latest approved bill is the standard
+   for that supplier**: follow it, and if you think it is wrong say so in the note
+   rather than recommending something else. **Look for this same document among
    them** by invoice number, receipt number, date and amount. A document can carry
    two numbers. If it is already in Xero, say which bill and recommend rejecting
    it; do not code it.
@@ -154,6 +157,7 @@ supplier or approves a bill: those are the CFO's taps on the item.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.5.0 | 30 October 2026 | The CFO's latest coding is the standard for a supplier. |
 | 1.4.0 | 30 October 2026 | The line matches the bill only; explanation goes to the bill's notes in Xero. |
 | 1.3.1 | 30 October 2026 | An empty queue is not handed on. |
 | 1.3.0 | 30 October 2026 | The clerk hands the queue to FM2, which records a review and the repetitive flag on each item. FC sees bills only by exception. |

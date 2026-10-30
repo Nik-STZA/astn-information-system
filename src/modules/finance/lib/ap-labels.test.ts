@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AP_TABS, checkLabel, documentTypeLabel, matchOptions, money, shortDate } from "./ap-labels";
+import { differentSupplier } from "./ap-labels";
 
 describe("ap-labels", () => {
   it("puts every queue state in exactly one tab, except superseded", () => {
@@ -48,5 +49,19 @@ describe("matchOptions", () => {
   it("shows everything when nothing is typed, and nothing for no match", () => {
     expect(labels("  ")).toEqual(["442", "620", "6200", "429"]);
     expect(labels("zzz")).toEqual([]);
+  });
+});
+
+describe("differentSupplier", () => {
+  it("ignores case, punctuation and legal form", () => {
+    expect(differentSupplier("ACME Limited", "Acme Ltd")).toBe(false);
+    expect(differentSupplier("Acme, Inc.", "acme")).toBe(false);
+  });
+  it("sees another entity of the same group", () => {
+    expect(differentSupplier("Acme Ireland, Limited", "Acme, PBC")).toBe(true);
+  });
+  it("asks when the bill has no supplier, and not when the document names none", () => {
+    expect(differentSupplier("Acme", null)).toBe(true);
+    expect(differentSupplier(null, "Acme")).toBe(false);
   });
 });

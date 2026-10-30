@@ -5136,6 +5136,16 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/options", route(async (req, 
     `SELECT se.xero_contact_id, se.xero_contact_name FROM finance.supplier_entities se
        JOIN finance.suppliers s ON s.id = se.supplier_id
       WHERE se.entity_id = $1 AND s.status = 'active' ORDER BY se.xero_contact_name`, [ctx.entity.id])).rows;
+  // ?contacts=1: every supplier in Xero as well, so a bill can go to one the
+  // master has not met yet. Only for the pickers: the page reads this route on
+  // every view. A summary page is 100 contacts; five is more than any client has.
+  const known = new Set(suppliers.map((s) => s.xero_contact_id));
+  for (let page = 1; req.query.contacts && page <= 5; page += 1) {
+    const got = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Contacts", { where: 'IsSupplier==true AND ContactStatus=="ACTIVE"', summaryOnly: "true", page }))?.Contacts ?? [];
+    for (const c of got) if (!known.has(c.ContactID)) suppliers.push({ xero_contact_id: c.ContactID, xero_contact_name: c.Name });
+    if (got.length < 100) break;
+  }
+  suppliers.sort((a, b) => a.xero_contact_name.localeCompare(b.xero_contact_name));
   res.json({
     accounts: accounts.filter((a) => a.Status === "ACTIVE" && a.Code && a.Type !== "BANK")
       .map((a) => ({ code: a.Code, name: a.Name, type: a.Type })).sort((x, y) => x.code.localeCompare(y.code, "en", { numeric: true })),
@@ -5212,6 +5222,9 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/recommendation", 
   });
   if (r.issues.length) return res.status(422).json({ issues: r.issues });
   // A supplier already in Xero goes by Xero's own name for it.
+  // A later recommendation that does not mention the supplier keeps the one
+  // already proposed: a note saying so is not a reason to lose it.
+  if (!r.recommendation.supplier && item.recommendation?.supplier) r.recommendation.supplier = item.recommendation.supplier;
   const proposed = r.recommendation.supplier;
   if (proposed?.contact_id) {
     const contact = ((await xeroGetOrNull(ctx, `/Contacts/${proposed.contact_id}`))?.Contacts ?? [])[0];

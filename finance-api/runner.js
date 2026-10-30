@@ -317,8 +317,9 @@ function buildTools(clientSlug, entities, agent, clientRules) {
           },
           supplier: {
             type: "object",
-            description: "Only when the legal entity on the document is not the bill's supplier. Use contact_id for one already in " +
-              "Xero (find it with get_contacts). Otherwise give the name exactly as on the document, with its VAT number and country.",
+            description: "Required when the legal entity on the document is not the bill's supplier: this field, not the note, is what " +
+              "puts the change in front of the CFO. Use contact_id for one already in Xero (find it with get_contacts). Otherwise give " +
+              "the name exactly as on the document, with its VAT number and country.",
             properties: {
               contact_id: { type: "string" },
               name: { type: "string" },
