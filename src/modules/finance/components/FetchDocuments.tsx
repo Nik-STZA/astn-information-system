@@ -84,12 +84,14 @@ export default function FetchDocuments({ slug, entity, uncoded }: { slug: string
     let read = 0;
     let queued = 0;
     let setAside = 0;
+    let closed = 0;
     try {
       for (let call = 0; call < MAX_CALLS; call += 1) {
         setStatus(read ? `Reading documents: ${read} done so far...` : "Checking Xero drafts and the inbox...");
         const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/intake`, { method: "POST" });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error ?? `New documents could not be read (${res.status})`);
+        closed += body.closed ?? 0;
         for (const r of body.results ?? []) {
           read += 1;
           if (r.skipped) setAside += 1;
@@ -101,7 +103,7 @@ export default function FetchDocuments({ slug, entity, uncoded }: { slug: string
       const summary = read
         ? `${read} file${read === 1 ? "" : "s"} read: ${queued} queued, ${setAside} set aside.`
         : "Nothing new in Xero drafts or the inbox.";
-      setStatus(summary);
+      setStatus(closed ? `${summary} ${closed} finished in Xero, removed from the queue.` : summary);
       if (queued) {
         await askClerk();
       }

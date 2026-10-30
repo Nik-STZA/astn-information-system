@@ -4898,6 +4898,25 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
     drafts.push(...got);
     if (got.length < 100) break;
   }
+  // A bill finished in Xero leaves the queue: nothing is left to decide on it.
+  const stillOpen = (await pool.query(
+    `SELECT id, ledger_draft_id FROM finance.ap_items
+      WHERE entity_id = $1 AND ledger_draft_id IS NOT NULL AND state IN ('clean', 'exception', 'approved')`, [entity.id])).rows;
+  const keyedDrafts = new Set(drafts.map((d) => d.InvoiceID));
+  const gone = stillOpen.filter((i) => !keyedDrafts.has(i.ledger_draft_id));
+  const closed = [];
+  for (let at = 0; at < gone.length; at += 50) {
+    const batch = gone.slice(at, at + 50);
+    const got = (await get("/Invoices", { IDs: batch.map((i) => i.ledger_draft_id).join(",") })).Invoices ?? [];
+    closed.push(...apLane.movedOnInXero(batch, got));
+  }
+  for (const c of closed) {
+    await pool.query(
+      `UPDATE finance.ap_items SET state = 'superseded', state_reason = $2
+        WHERE id = $1 AND state IN ('clean', 'exception', 'approved')`, [c.id, `Finished in Xero: ${c.status}`]);
+    await workBillDecided(c.id, "finished in Xero");
+  }
+
   const draftsRead = new Set((await pool.query(
     `SELECT ledger_draft_id || ':' || ledger_draft_version AS v FROM finance.ap_items
       WHERE entity_id = $1 AND source = 'ledger_draft'`, [entity.id])).rows.map((r) => r.v));
@@ -5089,7 +5108,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
   }
   res.json({ entity: entity.name, run_id: runId, inbox_files: inboxFiles.length, xero_drafts: drafts.length,
     read_now: todoDrafts.length + todo.length,
-    remaining: (unreadDrafts.length - todoDrafts.length) + (unread.length - todo.length), results });
+    remaining: (unreadDrafts.length - todoDrafts.length) + (unread.length - todo.length), closed: closed.length, results });
 }));
 
 // GET /api/finance/clients/:slug/xero/:entity/ap/items?state=clean|exception|...

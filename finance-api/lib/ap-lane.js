@@ -422,6 +422,17 @@ function billReview(item, body = {}) {
   return { issues, review: issues.length ? null : { verdict: body.verdict, repetitive: body.repetitive, pattern, note } };
 }
 
+// Open queue items whose Xero draft is no longer a draft: someone finished it in
+// Xero, so there is nothing left to decide here. A draft Xero did not return is
+// left alone: not finding it is not evidence.
+//   items     open rows { id, ledger_draft_id }
+//   invoices  what Xero returned for those ids
+function movedOnInXero(items, invoices) {
+  const status = new Map(invoices.map((i) => [i.InvoiceID, i.Status]));
+  return items.filter((i) => status.has(i.ledger_draft_id) && status.get(i.ledger_draft_id) !== "DRAFT")
+    .map((i) => ({ id: i.id, status: status.get(i.ledger_draft_id) }));
+}
+
 // Checks that keep a bill with the CFO, however the reviewers read it.
 const STOP_CHECKS = {
   duplicate: "it may already be in Xero or the queue",
@@ -527,5 +538,5 @@ function sendRequest(item) {
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, submitStops, draftVersion, billFromDraft, draftDifferences, recommendation, billReview, billNote,
+  applyEdits, decide, sendRequest, submitStops, movedOnInXero, draftVersion, billFromDraft, draftDifferences, recommendation, billReview, billNote,
 };
