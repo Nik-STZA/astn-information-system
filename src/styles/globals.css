@@ -350,6 +350,11 @@
 
   /* ── Page layout: the sidebar beside the page; on a phone the sidebar is a
      drawer under a top bar, so the shell stacks. ── */
+  /* The agent dock sits beside the page on a wide screen, over it on a small one. */
+  @media (min-width: 1100px) {
+    html[data-agent-dock="open"] .app-main { margin-right: 440px; }
+  }
+
   .app-shell {
     display: flex;
     align-items: flex-start;

@@ -349,7 +349,11 @@ function dueDateIssue(value, bill) {
 // An agent's suggested coding for a queue item (the AP Clerk, through its Bills
 // tools). Advice only: it changes neither the item's state nor its proposed
 // bill. The CFO accepts it in the portal, which is the decision.
-//   body     { lines: [{ index, account_code, tax_type, reason? }], due_date?, note }
+//   body     { lines: [{ index, account_code, tax_type, reason? }], due_date?, note,
+//              supplier?: { contact_id?, name?, vat_number?, country?, reason } }
+//            supplier: who the document is really from, when that is not the
+//            bill's supplier. contact_id for one already in Xero; a name alone
+//            proposes a new one, which the CFO creates with a tap.
 //   allowed  { accounts: Set of active account codes, taxes: Set of active VAT types }
 function recommendation(item, body = {}, { accounts = new Set(), taxes = new Set() } = {}) {
   const issues = [];
@@ -376,7 +380,16 @@ function recommendation(item, body = {}, { accounts = new Set(), taxes = new Set
   }
   const note = String(body.note ?? "").trim().slice(0, 2000);
   if (!note) issues.push("a note explaining the recommendation is required");
-  return { issues, recommendation: issues.length ? null : { lines, due_date: due, note } };
+  let supplier = null;
+  if (body.supplier) {
+    const s = body.supplier;
+    const text = (v, n) => String(v ?? "").trim().slice(0, n) || null;
+    supplier = { contact_id: text(s.contact_id, 36), name: text(s.name, 255), vat_number: text(s.vat_number, 50), country: text(s.country, 50), reason: text(s.reason, 500) };
+    if (supplier.contact_id && !/^[0-9a-f-]{36}$/i.test(supplier.contact_id)) issues.push("supplier.contact_id must be a Xero contact id");
+    if (!supplier.contact_id && !supplier.name) issues.push("a supplier needs a contact_id or a name");
+    if (!supplier.reason) issues.push("say why the supplier should change");
+  }
+  return { issues, recommendation: issues.length ? null : { lines, due_date: due, note, ...(supplier ? { supplier } : {}) } };
 }
 
 // What the CFO's decision on a queue item does to it, or why it cannot.

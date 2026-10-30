@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.1.0
+version: 1.2.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -13,6 +13,12 @@ send a bill. The CFO accepts or changes your recommendation in the Bills tab.**
 
 Payments are not part of this work. Xero's bank reconciliation matches bank
 lines to approved bills; recording a payment to help would duplicate it.
+
+## The note
+
+The CFO scans a queue of these. Start with one line saying what you recommend,
+then short bullets for anything to check. No paragraphs: the detail belongs in
+each line's reason.
 
 ## Before coding
 
@@ -40,6 +46,11 @@ different kind of supply, it gets the account its own content supports.
 
 **A charge for a later period is a prepayment.** A twelve-month subscription
 billed in one go is not one month's cost.
+
+**The supplier is the legal entity on the document.** Where that is not the bill's
+supplier, give the right one in `supplier` on your recommendation: a contact
+already in Xero (`get_contacts`), or the name, VAT number and country for a new
+one. The note alone does not change it.
 
 **A document addressed to another group company belongs to that company.** Say
 so in the note rather than coding around it. Where one company pays and another
@@ -132,5 +143,6 @@ second bill is the recurring failure.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 30 October 2026 | The note is scannable, and a recommendation can name the right supplier. |
 | 1.1.0 | 30 October 2026 | The agent opens the document itself and looks for it among the supplier's bills. |
 | 1.0.0 | 29 October 2026 | Cloud version of the laptop AP bill lane: coding, the description rule and statement reconciliation carry over; the agent recommends on the Bills queue and the CFO decides there, so the Xero editing, attaching and submitting steps are gone. Client account defaults move to the client's rules. |

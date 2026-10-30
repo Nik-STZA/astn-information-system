@@ -367,3 +367,23 @@ describe("a draft is compared as Xero keyed it, as well as as the engine read it
     expect(t.reasons[1].detail).toContain("in Xero (PAID)");
   });
 });
+
+describe("a recommendation can name the right supplier", () => {
+  const item = { state: "exception", proposed_bill: { LineItems: [{}] } };
+  const allowed = { accounts: new Set(["452"]), taxes: new Set(["NONE"]) };
+  const body = { lines: [{ index: 0, account_code: "452", tax_type: "NONE" }], note: "View" };
+
+  it("carries a new supplier by name, and one in Xero by id", () => {
+    const r = recommendation(item, { ...body, supplier: { name: "Acme Ireland Ltd", vat_number: "IE1", country: "Ireland", reason: "Legal entity on the document" } }, allowed);
+    expect(r.issues).toEqual([]);
+    expect(r.recommendation.supplier).toMatchObject({ contact_id: null, name: "Acme Ireland Ltd" });
+    expect(recommendation(item, { ...body, supplier: { contact_id: "11111111-2222-3333-4444-555555555555", reason: "x" } }, allowed).issues).toEqual([]);
+  });
+
+  it("leaves the supplier out when it is not changing, and needs a reason when it is", () => {
+    expect(recommendation(item, body, allowed).recommendation).not.toHaveProperty("supplier");
+    expect(recommendation(item, { ...body, supplier: { name: "Acme" } }, allowed).issues).toContain("say why the supplier should change");
+    expect(recommendation(item, { ...body, supplier: { reason: "x" } }, allowed).issues).toContain("a supplier needs a contact_id or a name");
+    expect(recommendation(item, { ...body, supplier: { contact_id: "nope", reason: "x" } }, allowed).issues).toHaveLength(1);
+  });
+});
