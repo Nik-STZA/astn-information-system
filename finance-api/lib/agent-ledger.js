@@ -206,7 +206,6 @@ function tools(entityEnum) {
     }),
     def("get_contacts", "Suppliers and customers: name, status, VAT number, country, default accounts. Search by name.", {
       search_term: { type: "string", description: "Part of the name, email or account number" },
-      is_supplier: { type: "boolean" }, is_customer: { type: "boolean" },
     }),
     def("get_history",
       "Who changed a record and when, and what they changed: the audit trail behind an invoice, credit note, bank line, " +
@@ -319,7 +318,7 @@ function agentLedger({ apiCall }) {
       case "get_contacts": {
         const params = input.search_term
           ? { searchTerm: input.search_term }
-          : { where: where(input.is_supplier ? "IsSupplier==true" : null, input.is_customer ? "IsCustomer==true" : null), summaryOnly: "true" };
+          : { summaryOnly: "true" }; // No where: Xero refuses one on a company with many contacts.
         return listed(await pages(job, e, "contacts", "Contacts", params, 300), contactRow);
       }
       case "get_history": {
