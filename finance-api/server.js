@@ -5172,6 +5172,13 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/recommendation", 
     taxes: new Set(taxRates.filter((t) => t.Status === "ACTIVE").map((t) => t.TaxType)),
   });
   if (r.issues.length) return res.status(422).json({ issues: r.issues });
+  // A supplier already in Xero goes by Xero's own name for it.
+  const proposed = r.recommendation.supplier;
+  if (proposed?.contact_id) {
+    const contact = ((await xeroGetOrNull(ctx, `/Contacts/${proposed.contact_id}`))?.Contacts ?? [])[0];
+    if (!contact) return res.status(422).json({ issues: [`no contact ${proposed.contact_id} in this company`] });
+    proposed.name = contact.Name;
+  }
   const rec = { ...r.recommendation, agent: b.agent ? String(b.agent).slice(0, 40) : null, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null,
     by_email: actorEmail, at: new Date().toISOString() };
   await pool.query("UPDATE finance.ap_items SET recommendation = $2 WHERE id = $1", [item.id, JSON.stringify(rec)]);

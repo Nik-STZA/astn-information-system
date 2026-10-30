@@ -17,8 +17,9 @@ import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import styles from "./Agents.module.css";
 import { monthSpend, usdText } from "@/modules/finance/lib/agent-spend";
 import { conversations } from "@/modules/finance/lib/conversations";
+import { askedText } from "@/modules/finance/lib/page-context";
 
-const AGENTS = [
+export const AGENTS = [
   { key: "", label: "Any", hint: "No specific agent: a general finance session for this client" },
   { key: "fc", label: "FC", hint: "Financial Controller review, close quality, commentary" },
   { key: "fpa", label: "FP&A", hint: "Variance, reforecast, runway, scenarios" },
@@ -40,7 +41,7 @@ const AGENT_IDENTITY: Record<string, { initials: string; title: string; short: s
 
 const DEFAULT_IDENTITY = { initials: "AI", title: "Finance team", short: "Team" };
 
-function agentIdentity(agent: string | null) {
+export function agentIdentity(agent: string | null) {
   if (agent && AGENT_IDENTITY[agent]) return AGENT_IDENTITY[agent];
   return DEFAULT_IDENTITY;
 }
@@ -49,7 +50,7 @@ const STATUS_LABEL: Record<string, string> = {
   queued: "Queued", running: "Working", succeeded: "Done", failed: "Failed", cancelled: "Cancelled",
 };
 
-const FINISHED = new Set(["succeeded", "failed", "cancelled"]);
+export const FINISHED = new Set(["succeeded", "failed", "cancelled"]);
 
 function when(iso: string | null): string {
   if (!iso) return "";
@@ -58,7 +59,7 @@ function when(iso: string | null): string {
   });
 }
 
-async function postRun(
+export async function postRun(
   slug: string,
   body: { agent: string | null; instruction: string; parentRunId?: string }
 ): Promise<string | null> {
@@ -76,7 +77,7 @@ async function postRun(
   }
 }
 
-function StatusPill({ status }: { status: string }) {
+export function StatusPill({ status }: { status: string }) {
   return (
     <span className={`${styles.status} ${styles[`s-${status}`] ?? styles["s-queued"]}`}>
       <span className={styles.dot} />{STATUS_LABEL[status] ?? status}
@@ -103,7 +104,7 @@ function Turn({ run, followUp }: { run: AgentRunRow; followUp: boolean }) {
       </div>
 
       <div className={styles.label}>{followUp ? "Follow-up" : "Question"}</div>
-      <div className={styles.instruction}>{run.instruction}</div>
+      <div className={styles.instruction}>{askedText(run.instruction)}</div>
 
       {run.output && (
         <>
@@ -205,7 +206,7 @@ function Conversation({
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}>
         <span className={styles.ava} title={identity.title}>{identity.initials}</span>
         <span className={styles.convMain}>
-          <span className={styles.convTitle}>{root.instruction}</span>
+          <span className={styles.convTitle}>{askedText(root.instruction)}</span>
           <span className={styles.convMeta}>
             {identity.short} · {when(latest.queued_at)}
             {followUps > 0 && ` · ${followUps} follow-up${followUps === 1 ? "" : "s"}`}
@@ -334,7 +335,7 @@ export default function AgentPanel({
 // A run queued for more than two minutes has not been started, and says so.
 const STUCK_SECONDS = 120;
 
-function PendingStatus({ status, queuedAt, startedAt }: { status: string; queuedAt: string; startedAt: string | null }) {
+export function PendingStatus({ status, queuedAt, startedAt }: { status: string; queuedAt: string; startedAt: string | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);

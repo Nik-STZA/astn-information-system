@@ -221,6 +221,7 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
 
         {bill && item.recommendation && (
           <ApRecommendation slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
+            billSupplier={bill.Contact?.Name ?? null}
             lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))}
             labels={item.recommendation.lines.map((l) => ({
               account: accountLabel(l.account_code, names) ?? l.account_code, tax: taxLabel(l.tax_type, names) ?? l.tax_type,

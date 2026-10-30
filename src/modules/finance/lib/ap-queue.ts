@@ -38,6 +38,9 @@ export interface ApRecommendation {
   lines: Array<{ index: number; account_code: string; tax_type: string; reason: string | null }>;
   due_date: string | null;
   note: string;
+  // Who the document is really from, when that is not the bill's supplier. No
+  // contact_id means a new supplier, created in Xero when the CFO uses it.
+  supplier?: { contact_id: string | null; name: string; vat_number: string | null; country: string | null; reason: string };
   agent: string | null;
   by_email: string;
   at: string;
@@ -194,6 +197,24 @@ export async function decideApItem(slug: string, entity: string, id: string, act
 
 // Dry run unless dryRun is false. A refused send (422) comes back as data, with
 // its issues, so the screen can say why.
+// A new supplier in Xero, from a recommendation the CFO has accepted. The write
+// checks and audit are finance-api's; bank details are never part of it.
+export async function createApSupplier(slug: string, entity: string, actorEmail: string, b: { name: string; vat_number?: string | null; country?: string | null; item_id: string }): Promise<{ status: number; data: { ContactID?: string; name?: string; issues?: string[]; error?: string } }> {
+  const key = process.env.FINANCE_API_KEY;
+  if (!key) return { status: 500, data: { error: "FINANCE_API_KEY is not configured" } };
+  const res = await fetch(`${BASE_URL}/api/finance/clients/${encodeURIComponent(slug)}/xero/${encodeURIComponent(entity)}/write/contacts`, {
+    method: "POST",
+    headers: { "X-API-Key": key, "X-Actor-Email": actorEmail, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dry_run: false, name: b.name, ...(b.vat_number ? { tax_number: b.vat_number } : {}),
+      ...(b.country ? { address: { country: b.country } } : {}),
+      audit_note: `New supplier from Bills item ${b.item_id}, created by the CFO from the AP Clerk's recommendation`,
+    }),
+    cache: "no-store",
+  });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+
 export async function sendApItem(slug: string, entity: string, id: string, actorEmail: string, dryRun: boolean): Promise<{ status: number; data: ApSendResult }> {
   const key = process.env.FINANCE_API_KEY;
   if (!key) return { status: 500, data: { error: "FINANCE_API_KEY is not configured" } };

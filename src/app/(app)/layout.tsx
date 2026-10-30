@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getIapEmail } from "@/lib/auth";
+import { Suspense } from "react";
 import Sidebar, { type SidebarClient } from "@/components/Sidebar";
+import AgentDock from "@/modules/finance/components/AgentDock";
 import { navigationForEnvironment } from "@/app/(app)/navigation";
 import { enabledModules } from "@/shared/config/features";
 import { fetchFinanceClients } from "@/modules/finance/lib/api";
@@ -50,6 +52,7 @@ export default async function AuthenticatedLayout({
       <main className="app-main">
         <div className="page-container">{children}</div>
       </main>
+      <Suspense fallback={null}><AgentDock /></Suspense>
     </div>
   );
 }
