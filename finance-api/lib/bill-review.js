@@ -41,6 +41,8 @@ const EXTRACT_PROMPT = `You are reading one file that a supplier or a colleague 
 Read EVERY page. A single file can hold several separate invoices (for example one per page); return one entry per document you find.
 If the file is not a supplier invoice or credit note, say so in document_type and still return one entry: "receipt" for a till or online receipt from the supplier; "payment_confirmation" for a bank, card or payment app screen or email showing a payment to the supplier; "statement" for a statement of account; "report_or_screenshot" for a screenshot of a report or of accounting software; "other" for anything else (a quote, an order, a letter).
 Copy values exactly as printed. Never infer a value that is not on the document: use null.
+Document number: where a document prints both an invoice number and a receipt number, document_number is the invoice number.
+Totals: gross_total is the total the document says was charged or is due, in the document's own currency.
 Currency: return the ISO code the document actually uses. Look at the symbol and any code next to the amounts (HK$ is HKD, US$ or $ with a US/Irish Twilio is USD). Never assume GBP because the reader is in the UK.
 VAT: return the VAT/GST amount and rate exactly as printed. If the document shows 0% or no VAT line, vat_total is 0. If it says reverse charge (or "VAT to be accounted for by the recipient", Article 196, etc.), set reverse_charge_wording to that text.
 Lines: one entry per printed line, including shipping, promotions, discounts and credits, with the sign as printed.

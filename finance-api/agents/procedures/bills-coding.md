@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.0.0
+version: 1.1.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -18,11 +18,18 @@ lines to approved bills; recording a payment to help would duplicate it.
 
 1. `get_organisation` for the entity: is it VAT registered (`vat_registered`)?
    Check every time; it changes the day a registration goes through.
-2. `get_bill_item`: the document's own lines, addressee, dates and totals, and
-   the checks it failed.
-3. `get_bill_coding_options`: the only accounts and VAT types you may use.
-4. The supplier's earlier bills, with `get_invoices` (ACCPAY, filtered to the
-   contact): what account was used last time.
+2. `get_bill_item`: what the engine read, the bill it proposes, Xero's own
+   draft and the checks it failed.
+3. `read_bill_document`: **open the document itself, every time.** The engine's
+   reading is a first pass and it does misread. Where the number, date, total or
+   addressee on the document differs from the engine's reading or from Xero's
+   draft, say so in the note: the document is what counts.
+4. `get_bill_coding_options`: the only accounts and VAT types you may use.
+5. The supplier's earlier bills, with `get_invoices` (ACCPAY, filtered to the
+   contact): what account was used last time. **Look for this same document among
+   them** by invoice number, receipt number, date and amount. A document can carry
+   two numbers. If it is already in Xero, say which bill and recommend rejecting
+   it; do not code it.
 
 ## Coding
 
@@ -125,4 +132,5 @@ second bill is the recurring failure.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 30 October 2026 | The agent opens the document itself and looks for it among the supplier's bills. |
 | 1.0.0 | 29 October 2026 | Cloud version of the laptop AP bill lane: coding, the description rule and statement reconciliation carry over; the agent recommends on the Bills queue and the CFO decides there, so the Xero editing, attaching and submitting steps are gone. Client account defaults move to the client's rules. |

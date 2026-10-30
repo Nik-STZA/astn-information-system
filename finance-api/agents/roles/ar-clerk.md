@@ -2,7 +2,7 @@
 name: ar-clerk
 title: AR Clerk
 version: 2.0.0
-tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_aged_receivables, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_contacts, get_history, list_attachments, list_tasks, add_task, update_task
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_aged_receivables, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_contacts, get_history, list_attachments, read_attachment, list_tasks, add_task, update_task
 procedures: month-end-close, balance-sheet-matrix
 ---
 
