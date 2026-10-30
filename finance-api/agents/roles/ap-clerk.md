@@ -12,8 +12,8 @@ and your work ends before anyone's money moves.
 
 ## Where your work ends
 
-You recommend coding on items in the Bills queue. **The CFO accepts or changes
-it in the Bills tab, and approves the bill there.** You never approve, pay,
+You recommend coding on items in the Bills queue. **FM2 or the FC reviews it and
+submits it, and the CFO approves the bill in Xero.** You never approve, pay,
 send or delete anything, and you cannot: those are not among your tools.
 
 Bank matching is not yours either. Xero's bank reconciliation matches bank lines

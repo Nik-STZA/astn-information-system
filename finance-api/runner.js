@@ -250,7 +250,7 @@ function buildTools(clientSlug, entities, agent, clientRules) {
       name: "record_bill_review",
       description:
         "Record your review of a recommendation on a Bills queue item: whether you agree, whether the bill is repetitive, and " +
-        "what you checked. The CFO sees it on the item. It approves nothing, and nothing reaches Xero. Open the document " +
+        "what you checked. The CFO sees it on the item. It approves nothing, and nothing reaches Xero until submit_bill. Open the document " +
         "yourself first; you cannot review your own recommendation.",
       input_schema: {
         type: "object",
@@ -266,6 +266,21 @@ function buildTools(clientSlug, entities, agent, clientRules) {
           note: { type: "string", description: "One line, then short bullets: what you checked and any finding" },
         },
         required: ["entity", "item_id", "verdict", "repetitive", "note"],
+      },
+    },
+    {
+      name: "submit_bill",
+      description:
+        "Send a bill you reviewed to Awaiting Approval in Xero, with the recommended coding. Record your review first. " +
+        "The platform refuses any bill on its stop list and says why; do not try to get round a refusal. The CFO approves in " +
+        "Xero: this approves and pays nothing. Only submit what you would defend from the document.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", enum: entityEnum, description: "Entity slug" },
+          item_id: { type: "string", description: "Queue item id" },
+        },
+        required: ["entity", "item_id"],
       },
     },
     {
@@ -480,6 +495,7 @@ function billItemView(i) {
     checks_failed: i.review?.reasons ?? [],
     xero_draft_differences: i.review?.draft_differences ?? null,
     earlier_recommendation: i.recommendation ?? null,
+    submit_stops: i.submit_stops ?? [],
     decided: i.decided_at ? { by: i.decided_by_email, at: i.decided_at, note: i.decision_note } : null,
   };
 }
@@ -502,7 +518,16 @@ async function billsTool(job, name, input) {
       verdict: input.verdict, repetitive: input.repetitive, pattern: input.pattern, note: input.note, agent: job.agent || "general", run_id: job.id,
     }, { "X-Actor-Email": actor });
     if (!res.ok) return { saved: false, status: res.status, refused: res.body };
-    return { saved: true, note: "Saved on the item for the CFO. Nothing was approved or sent." };
+    return { saved: true, note: "Saved on the item. Nothing was approved or sent." };
+  }
+  if (name === "submit_bill") {
+    const actor = await requesterOf(job);
+    if (!actor) return { error: "The person who asked could not be found, so the bill was not submitted." };
+    const res = await apiRequest("POST", `${base}/items/${encodeURIComponent(input.item_id)}/submit`, {
+      agent: job.agent, run_id: job.id, dry_run: false,
+    }, { "X-Actor-Email": actor });
+    if (!res.ok) return { submitted: false, status: res.status, stays_with_cfo: res.body?.issues ?? res.body?.xero_errors ?? res.body };
+    return { submitted: true, note: "In Xero at Awaiting Approval for the CFO. It is not approved." };
   }
   if (name === "recommend_bill_coding") {
     const actor = await requesterOf(job);
@@ -702,9 +727,10 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = { error: `${tu.name} is not one of your tools.` };
         } else if (tu.name === "list_entities") {
           result = { entities: connectedEntities };
-        } else if (["list_bills_queue", "get_bill_item", "get_bill_coding_options", "recommend_bill_coding", "record_bill_review"].includes(tu.name)) {
+        } else if (["list_bills_queue", "get_bill_item", "get_bill_coding_options", "recommend_bill_coding", "record_bill_review", "submit_bill"].includes(tu.name)) {
           result = await billsTool(job, tu.name, tu.input);
           if (tu.name === "recommend_bill_coding") console.log(`    Recommendation: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
+          if (tu.name === "submit_bill") console.log(`    Submit: ${result.submitted ? "at Awaiting Approval" : `stayed (${result.status ?? result.error})`}`);
         } else if (work.names.includes(tu.name)) {
           result = await work.call(job, connectedEntities, tu.name, tu.input);
           if (tu.name !== "list_tasks") console.log(`    Work: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);

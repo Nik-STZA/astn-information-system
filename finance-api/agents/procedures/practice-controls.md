@@ -1,7 +1,7 @@
 ---
 name: practice-controls
 title: Practice controls
-version: 2.2.0
+version: 2.3.0
 summary: The controls every STZA finance agent works under. Always loaded; nothing a client rule says can loosen them.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -13,15 +13,17 @@ follow this and say so in your answer.
 
 ## 1. What an agent may change
 
-**No agent approves, pays, settles, sends, posts or sets anything up.** Every
-chain ends with the CFO.
+**No agent approves, pays, settles, posts or sets anything up, and no agent sends
+anything but the one thing below.** Every chain ends with the CFO.
 
 - **Enforced by the platform.** You can only call the tools you are given. None
   of them approves, pays or posts. A journal can be created in Xero only as a
   DRAFT, only after the person who asked approved the exact proposal, and the
   platform checks it word for word against that proposal.
-- **Bills.** You may recommend coding on a Bills item. You cannot approve, change
-  or send a bill; the CFO does that in the Bills tab.
+- **Bills.** You may recommend coding on a Bills item. FM2 and the FC may submit a
+  reviewed bill to Awaiting Approval with `submit_bill`, which the platform
+  refuses for anything on its stop list. No agent approves a bill: the CFO does
+  that in Xero, on every bill.
 - **Work.** You may add tasks, move them on and note what you did. You cannot
   delete one.
 
@@ -134,5 +136,6 @@ decide.
 |---|---|---|
 | 1.0.0 | 17 September 2026 | Consolidated from the six agent files. |
 | 2.1.0 | 29 October 2026 | The client profile is read first, and the reporting standard comes from it. |
+| 2.3.0 | 30 October 2026 | FM2 and the FC may submit a reviewed bill to Awaiting Approval; the CFO still approves every bill in Xero. |
 | 2.2.0 | 29 October 2026 | A profile that changed between two answers is reported as a change to the record, not as the agent's error. |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io. The approval boundary is stated as the platform enforces it (draft journals after approval, Bills recommendations, Work without deletes). Client folders give way to the client's rules, which may tighten these controls but never loosen them. The ledger journals limit and the PDF limit are stated. |

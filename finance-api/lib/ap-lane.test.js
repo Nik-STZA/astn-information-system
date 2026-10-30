@@ -424,3 +424,49 @@ describe("the line matches the bill; the explanation goes in the notes", () => {
     expect(billNote(null)).toBeNull();
   });
 });
+
+describe("submitStops", () => {
+  const { submitStops } = require("./ap-lane");
+  const review = { verdict: "agree", repetitive: "repetitive", agent: "fm2" };
+  const ready = (over = {}, rec = {}) => ({
+    state: "exception", proposed_bill: { Contact: { ContactID: "c1", Name: "Acme" } },
+    review: { reasons: [{ check: "addressee" }, { check: "no_due_date" }, { check: "not_in_master" }] },
+    recommendation: { agent: "ap-clerk", lines: [], review, reviews: [review], ...rec }, ...over,
+  });
+
+  it("lets a reviewed bill through flags that do not matter", () => {
+    expect(submitStops(ready())).toEqual([]);
+  });
+  it("stops anything unreviewed, sent or without a recommendation", () => {
+    expect(submitStops(ready({}, { review: undefined, reviews: undefined }))).toContain("it has not been reviewed");
+    expect(submitStops(ready({ state: "written" }))).toContain("this item is written");
+    expect(submitStops(ready({ recommendation: null }))).toContain("there is no recommendation");
+  });
+  it("remembers a disagreement a later review went past", () => {
+    const no = { ...review, verdict: "disagree" };
+    const yes = { ...review, agent: "fc" };
+    expect(submitStops(ready({}, { review: yes, reviews: [no, yes] }))).toContain("a reviewer disagreed");
+  });
+  it("sends a changed bill to the FC before it goes", () => {
+    const changed = { ...review, repetitive: "changed" };
+    expect(submitStops(ready({}, { review: changed, reviews: [changed] }))).toContain("a regular bill that changed needs the FC's review");
+    const fc = { ...changed, agent: "fc" };
+    expect(submitStops(ready({}, { review: fc, reviews: [changed, fc] }))).toEqual([]);
+  });
+  it("needs a review by FM2 or the FC, not by whoever prepared it", () => {
+    const own = { ...review, agent: "ap-clerk" };
+    expect(submitStops(ready({}, { review: own, reviews: [own] }))).toContain("it needs a review by FM2 or the FC");
+  });
+  it("stops a proposed supplier unless it is already the bill's", () => {
+    const s = (contact_id, name) => ({ supplier: { contact_id, name } });
+    expect(submitStops(ready({}, s(null, "Other Ltd")))).toContain("a different supplier is proposed: Other Ltd");
+    expect(submitStops(ready({}, s("c1", "Acme")))).toEqual([]);
+  });
+  it("stops every check on the list and a draft that disagrees on the total", () => {
+    for (const check of ["duplicate", "possible_duplicate", "same_file", "total_vs_document", "cfo_review", "reader_doubts"]) {
+      expect(submitStops(ready({ review: { reasons: [{ check }] } }))).toHaveLength(1);
+    }
+    expect(submitStops(ready({ review: { reasons: [], draft_differences: { blocking: [{ field: "total" }] } } }))).toEqual(["Xero's draft differs on the total"]);
+    expect(submitStops(ready({ review: { reasons: [], draft_differences: { blocking: [{ field: "number" }] } } }))).toEqual([]);
+  });
+});

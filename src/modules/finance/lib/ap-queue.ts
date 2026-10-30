@@ -89,6 +89,8 @@ export interface ApItemDetail {
   matched_by: string | null;
   proposed_bill: ApProposedBill | null;
   review: { reasons?: ApReason[]; draft_differences?: { blocking: ApDraftDifference[]; coding: ApDraftDifference[] } } | null;
+  // Why a reviewer could not submit it (ap-lane.submitStops).
+  submit_stops?: string[];
   source: ApSource;
   recommendation: ApRecommendation | null;
   extraction: { document_type?: string; supplier_name?: string | null; supplier_vat_number?: string | null; supplier_country?: string | null } | null;
