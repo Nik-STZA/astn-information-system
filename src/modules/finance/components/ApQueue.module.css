@@ -445,3 +445,16 @@
   gap: 8px;
   font-size: 13.5px;
 }
+
+.spin {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  animation: ap-spin 1s linear infinite;
+}
+
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+}

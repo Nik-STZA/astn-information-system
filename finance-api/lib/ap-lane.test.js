@@ -294,7 +294,7 @@ describe("due date before a send", () => {
 // The AP Clerk's suggested coding (Nik, 27 Oct 2026: asked the agent to review
 // a Bills item line by line). Advice only; checked against the company's own
 // accounts and VAT treatments.
-import { recommendation, billReview } from "./ap-lane";
+import { recommendation, billReview, billNote } from "./ap-lane";
 
 describe("recommendation", () => {
   const bill = buildBill({ doc: invoice, match: { link }, entity });
@@ -403,5 +403,24 @@ describe("a reviewer's view of a recommendation", () => {
 
   it("needs a real verdict, flag and note", () => {
     expect(billReview(item, { agent: "fm2" }).issues).toHaveLength(3);
+  });
+});
+
+describe("the line matches the bill; the explanation goes in the notes", () => {
+  it("adds nothing to what the document says", () => {
+    const doc = { supplier_name: "Acme", document_number: "INV-1", gross_total: 12, lines: [{ description: "Team plan", net: 10, vat: 2 }, { description: "Seats", net: 0, vat: 0 }] };
+    const bill = buildBill({ doc, entity: { pays_tax: false } });
+    expect(bill.LineItems[0].Description).toBe("Team plan; Seats");
+  });
+
+  it("falls back to the number, never a made-up description", () => {
+    expect(buildBill({ doc: { document_number: "INV-1", gross_total: 12, lines: [] }, entity: { pays_tax: false } }).LineItems[0].Description).toBe("INV-1");
+  });
+
+  it("writes the note, reasons, supplier and review for the bill's history", () => {
+    const text = billNote({ note: "**Agree** coding", lines: [{ index: 0, reason: "Reverse charge" }],
+      supplier: { reason: "Legal entity on the document" }, review: { agent: "fm2", verdict: "agree", note: "Checked" } });
+    expect(text).toBe("Agree coding\nLine 1: Reverse charge\nSupplier: Legal entity on the document\nReview (fm2, agree): Checked");
+    expect(billNote(null)).toBeNull();
   });
 });

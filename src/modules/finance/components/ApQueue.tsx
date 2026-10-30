@@ -223,7 +223,7 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
           )}
 
         {bill && item.recommendation && (
-          <ApRecommendation slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
+          <ApRecommendation key={item.id} slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
             billSupplier={bill.Contact?.Name ?? null}
             lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))}
             labels={item.recommendation.lines.map((l) => ({
@@ -232,7 +232,7 @@ function Detail({ item, slug, entity, back, names }: { item: ApItemDetail; slug:
         )}
 
         {bill && (
-          <ApActions slug={slug} entity={entity} item={{
+          <ApActions key={item.id} slug={slug} entity={entity} item={{
             id: item.id,
             state: item.state,
             contactId: bill.Contact?.ContactID ?? null,

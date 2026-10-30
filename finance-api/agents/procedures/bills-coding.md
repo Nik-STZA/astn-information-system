@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.3.0
+version: 1.4.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -59,11 +59,7 @@ bears the cost, see `intercompany-recharge`.
 ### An entity that is not VAT registered
 
 Every bill is **one line for the full gross amount**, VAT type `NONE`. Supplier
-VAT is a cost, not a recoverable input, so it goes in the description:
-
-> Software subscription, Aug 2026 (GBP10.00 + GBP2.00 UK VAT; not recoverable)
-> - one line, GBP12.00.
-
+VAT is a cost, not a recoverable input. Say so in your note, not on the line.
 Never split VAT onto its own line for such an entity.
 
 ### VAT for a registered entity
@@ -75,13 +71,14 @@ charged: say so in the note.
 
 ### The line description
 
-The description carries three things:
+**The line matches the bill and nothing else:** what the supplier billed for, in
+the supplier's own words, off the face of the document, including any project,
+proposal or PO reference printed there. Not the supplier's name, the receipt type
+or who it was for, unless the document's line says so.
 
-- **what the supplier billed for, in the supplier's own words**, off the face of
-  the document
-- the project, proposal or PO reference where there is one
-- nothing that interprets how the cost should be treated: that is the account's
-  job
+**Explanation goes in your note and the line reasons.** They are saved to the
+bill's History and notes in Xero when it is sent. Nothing that interprets how the
+cost should be treated belongs on the line: that is the account's job.
 
 **Why this is a rule.** A line was once keyed as "retainer, non-development"
 when the invoice said "section design and build". A retainer did exist with that
@@ -140,8 +137,9 @@ new supplier). This is a record for the CFO; it approves nothing.
 
 ## Handing on
 
-When the AP Clerk has finished a queue, it uses `hand_off` once, to `fm2`, naming
-the items. FM2 reviews them. Bills go from FM2 to the CFO; FM2 uses `hand_off` to
+When the AP Clerk has saved at least one recommendation, it uses `hand_off` once,
+to `fm2`, naming the items. With nothing recommended there is nothing to hand on,
+and FM2 with nothing to review does not hand on either: say so and stop. FM2 reviews them. Bills go from FM2 to the CFO; FM2 uses `hand_off` to
 `fc` only where it disagrees or a bill needs a second view. No agent creates a
 supplier or approves a bill: those are the CFO's taps on the item.
 
@@ -156,6 +154,8 @@ supplier or approves a bill: those are the CFO's taps on the item.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.4.0 | 30 October 2026 | The line matches the bill only; explanation goes to the bill's notes in Xero. |
+| 1.3.1 | 30 October 2026 | An empty queue is not handed on. |
 | 1.3.0 | 30 October 2026 | The clerk hands the queue to FM2, which records a review and the repetitive flag on each item. FC sees bills only by exception. |
 | 1.2.0 | 30 October 2026 | The note is scannable, and a recommendation can name the right supplier. |
 | 1.1.0 | 30 October 2026 | The agent opens the document itself and looks for it among the supplier's bills. |
