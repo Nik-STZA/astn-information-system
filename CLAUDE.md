@@ -35,7 +35,7 @@ request at the load balancer and enforces access via IAM
 `x-goog-authenticated-user-email` assertion header.
 
 - `src/lib/auth.ts` — `getIapEmail()` reads and parses the assertion header
-- `src/middleware.ts` — rejects any request lacking the header
+- `src/middleware.ts` — rejects any request lacking the header, and any change that did not come from our own pages
 - `src/app/(app)/layout.tsx` — reads the email for display, redirects to `/blocked`
 - Sign-out clears the session at the proxy via `/_gcp_iap/clear_login_cookie`
 

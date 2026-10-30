@@ -39,6 +39,31 @@ export function isIpAddress(value: string): boolean {
   return false;
 }
 
+// A browser sends the IAP login cookie with requests made by other sites, so
+// passing IAP does not show that the person meant to do this. Anything that
+// changes something must also come from our own pages. Sec-Fetch-Site is set by
+// the browser and a page cannot alter it; Origin covers browsers without it.
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+export function isSameSite(
+  method: string,
+  headers: { get(name: string): string | null }
+): boolean {
+  if (SAFE_METHODS.has(method.toUpperCase())) return true;
+
+  const site = headers.get("sec-fetch-site");
+  if (site) return site === "same-origin";
+
+  const origin = headers.get("origin");
+  const host = headers.get("x-forwarded-host") ?? headers.get("host");
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host === host.split(",")[0].trim();
+  } catch {
+    return false;
+  }
+}
+
 // The public origin of this app. X-Forwarded-Host and X-Forwarded-Proto are set
 // by the load balancer; without them a redirect built from the request lands on
 // the container's own address, which is unreachable from a browser.

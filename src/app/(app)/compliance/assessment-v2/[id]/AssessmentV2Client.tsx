@@ -99,7 +99,7 @@ export default function AssessmentV2Client({ detail }: Props) {
 
   return (
     <>
-      <Script src="https://cdn.jsdelivr.net/npm/@nicholasgriffintn/doc-page@0.2.0/dist/doc-page.min.js" strategy="afterInteractive" />
+      <Script src="/doc-page.js" strategy="afterInteractive" />
       <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Newsreader:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&display=swap" rel="stylesheet" />
 
       <div ref={containerRef} style={{ background: "#E8E2D6", minHeight: "100vh", padding: "24px 0" }}>
