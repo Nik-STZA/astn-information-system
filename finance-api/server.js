@@ -1799,6 +1799,8 @@ app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
 
 // The runner claims one job at a time. SKIP LOCKED means a second runner takes
 // the next job rather than blocking or, worse, running the same one twice.
+const agentHandoff = require("./lib/agent-handoff");
+
 app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
   const conn = await pool.connect();
   try {
@@ -1877,15 +1879,20 @@ app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
 app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
   const {
     status, sessionId, output, error, toolsUsed, filesTouched, durationMs, costUsd, wipRef,
-    processingPath, processingPathLabel,
+    processingPath, processingPathLabel, handoff,
   } = req.body || {};
 
   if (!["succeeded", "failed", "cancelled"].includes(status)) {
     return res.status(400).json({ error: "status must be succeeded, failed or cancelled" });
   }
 
+  // A hand-off starts with the finish, so nothing watching sees a gap. The runner
+  // that finished this run claims the next before it exits.
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
   // finished_at is set here, which is what makes the row immutable afterwards.
-  const { rows } = await pool.query(
+  const { rows } = await conn.query(
     `UPDATE finance.agent_runs
      SET status = $2, session_id = $3, output = $4, error = $5,
          tools_used = COALESCE($6::jsonb, '[]'::jsonb),
@@ -1906,9 +1913,40 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
   );
 
   if (!rows.length) {
+    await conn.query("ROLLBACK");
     return res.status(409).json({ error: "run not found, or already finished and therefore immutable" });
   }
-  res.json(rows[0]);
+  let handed = null;
+  if (status === "succeeded" && handoff) {
+    const run = (await conn.query(
+      `WITH RECURSIVE up AS (
+         SELECT id, parent_run_id, instruction, 0 AS depth FROM finance.agent_runs WHERE id = $1
+         UNION ALL
+         SELECT r.id, r.parent_run_id, r.instruction, up.depth + 1 FROM finance.agent_runs r JOIN up ON r.id = up.parent_run_id WHERE up.depth < 20
+       )
+       SELECT a.client_id, a.agent, a.requested_by_email, a.requested_by_role,
+              (SELECT array_agg(instruction ORDER BY depth) FROM up) AS chain
+         FROM finance.agent_runs a WHERE a.id = $1`, [req.params.id])).rows[0];
+    const stop = run.chain.findIndex((i) => !agentHandoff.isHandoff(i));
+    const hops = stop === -1 ? run.chain.length : stop;
+    const refusal = agentHandoff.handoffRefusal(run.agent, handoff.to, handoff.note, hops);
+    if (refusal) handed = { refused: refusal };
+    else {
+      handed = (await conn.query(
+        `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id)
+         VALUES ($1,$2,$3,$4,$5,'queued',$6) RETURNING id, agent`,
+        [run.client_id, run.requested_by_email, run.requested_by_role, handoff.to,
+          agentHandoff.handoffInstruction(run.agent, handoff.note), req.params.id])).rows[0];
+    }
+  }
+  await conn.query("COMMIT");
+  res.json({ ...rows[0], ...(handed ? { handoff: handed } : {}) });
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
 }));
 
 // ── Report runs ─────────────────────────────────────────────────────────────
@@ -5065,7 +5103,8 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items", route(async (req, re
             i.proposed_bill->'Contact'->>'Name' AS supplier, i.proposed_bill->>'InvoiceNumber' AS number,
             i.proposed_bill->>'DateString' AS date, i.proposed_bill->>'Total' AS total, i.proposed_bill->>'CurrencyCode' AS currency,
             i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.source,
-            i.recommendation IS NOT NULL AS recommended, i.created_at
+            i.recommendation IS NOT NULL AS recommended, i.recommendation->'review'->>'verdict' AS review_verdict,
+            i.recommendation->'review'->>'repetitive' AS review_repetitive, i.created_at
        FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
       WHERE i.client_id = $1 AND e.slug = $2 AND i.state = ANY($3::text[])
       ORDER BY i.created_at DESC, i.document_index LIMIT 500`, [client.id, req.params.entity, states]);
@@ -5187,6 +5226,34 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/recommendation", 
     payload: rec, ip: req.get("X-Forwarded-For"),
   });
   res.json({ item_id: item.id, state: item.state, recommendation: rec });
+}));
+
+// POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/review
+//   body: { verdict, repetitive, pattern?, note, agent?, run_id? }
+// A reviewer's view of the recommendation, shown on the item. Advice like the
+// recommendation itself: it changes nothing else and nothing reaches Xero.
+app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/review", route(async (req, res) => {
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  if (!writeRules.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a uuid" });
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+  if (!role) return res.status(403).json({ error: `${actorEmail} holds no engagement role for this client` });
+  const item = (await pool.query(
+    `SELECT i.id, i.recommendation FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
+      WHERE i.client_id = $1 AND e.slug = $2 AND i.id = $3`, [client.id, req.params.entity, req.params.id])).rows[0];
+  if (!item) return res.status(404).json({ error: "item not found" });
+  const b = req.body || {};
+  const r = apLane.billReview(item, b);
+  if (r.issues.length) return res.status(422).json({ issues: r.issues });
+  const review = { ...r.review, agent: b.agent ? String(b.agent).slice(0, 40) : null, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null, at: new Date().toISOString() };
+  await pool.query("UPDATE finance.ap_items SET recommendation = recommendation || $2::jsonb WHERE id = $1", [item.id, JSON.stringify({ review })]);
+  await audit(pool, {
+    actorEmail, actorRole: role, action: "ap_item_reviewed", targetType: "ap_item", targetId: item.id, clientId: client.id,
+    payload: review, ip: req.get("X-Forwarded-For"),
+  });
+  res.json({ item_id: item.id, review });
 }));
 
 // POST /api/finance/clients/:slug/xero/:entity/ap/items/:id/send

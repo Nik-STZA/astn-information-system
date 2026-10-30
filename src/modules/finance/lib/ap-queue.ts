@@ -30,6 +30,8 @@ export interface ApItemRow {
   xero_invoice_id: string | null;
   source: ApSource;
   recommended: boolean;
+  review_verdict: "agree" | "disagree" | null;
+  review_repetitive: "repetitive" | "changed" | "one_off" | null;
   created_at: string;
 }
 
@@ -41,6 +43,8 @@ export interface ApRecommendation {
   // Who the document is really from, when that is not the bill's supplier. No
   // contact_id means a new supplier, created in Xero when the CFO uses it.
   supplier?: { contact_id: string | null; name: string; vat_number: string | null; country: string | null; reason: string };
+  // A reviewer's view of this recommendation; a new recommendation has none.
+  review?: { verdict: "agree" | "disagree"; repetitive: "repetitive" | "changed" | "one_off"; pattern: string | null; note: string; agent: string | null; at: string };
   agent: string | null;
   by_email: string;
   at: string;

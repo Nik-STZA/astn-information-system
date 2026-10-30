@@ -120,7 +120,7 @@ export default function AgentDock() {
   return (
     <aside className={styles.dock} aria-label="Finance team">
       <header className={styles.head}>
-        <span className={styles.title}>{thread ? agentIdentity(thread[0].agent).title : "Finance team"}</span>
+        <span className={styles.title}>{latest ? agentIdentity(latest.agent).title : "Finance team"}</span>
         {thread && (
           <button type="button" className={styles.icon} onClick={() => setRootId(null)} aria-label="New conversation" title="New conversation">
             <Plus size={16} aria-hidden="true" />
@@ -137,7 +137,9 @@ export default function AgentDock() {
             const who = agentIdentity(run.agent);
             return (
               <div key={run.id} className={styles.turn}>
-                <div className={styles.mine}>{askedText(run.instruction)}</div>
+                {askedText(run.instruction).startsWith("Hand-off from ")
+                  ? <div className={styles.handoff}>{askedText(run.instruction)}</div>
+                  : <div className={styles.mine}>{askedText(run.instruction)}</div>}
                 {run.output && (
                   <div className={styles.theirs}>
                     <div className={styles.who}><span className={styles.ava} aria-hidden="true">{who.initials}</span>{who.short}</div>

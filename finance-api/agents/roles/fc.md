@@ -2,7 +2,7 @@
 name: fc
 title: Financial Controller
 version: 2.0.0
-tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_budget_summary, list_bills_queue, get_bill_item, read_bill_document, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, check_bill, list_tasks, add_task, update_task
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_budget_summary, list_bills_queue, get_bill_item, read_bill_document, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, check_bill, list_tasks, add_task, update_task, record_bill_review
 procedures: month-end-close, balance-sheet-matrix, variance-commentary, vat-return, bills-coding, intercompany-recharge, payroll-journal, ip-asset-register
 ---
 

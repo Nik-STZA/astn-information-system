@@ -17,7 +17,7 @@ const TO_WRITE = ["bank-reconciliation", "accruals-and-prepayments", "revenue-an
 const runnerSrc = fs.readFileSync(path.join(__dirname, "..", "runner.js"), "utf8");
 const buildTools = runnerSrc.slice(runnerSrc.indexOf("function buildTools"), runnerSrc.indexOf("// Map tool name"));
 const ALL_TOOLS = new Set([
-  ...[...buildTools.matchAll(/name: "([a-z_]+)"/g)].map((m) => m[1]),
+  ...[...buildTools.matchAll(/^\s+name: "([a-z_]+)"/gm)].map((m) => m[1]),
   ...agentWork({}).names,
   ...agentLedger({}).names,
   ...DOCUMENT_TOOLS,

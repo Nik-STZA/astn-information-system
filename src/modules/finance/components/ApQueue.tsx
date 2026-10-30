@@ -117,6 +117,9 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
           <div className={styles.reasonsShort}>
             {item.source === "ledger_draft" && <span className={styles.tag}>Xero draft</span>}
             {item.recommended && <span className={styles.tag}>AP Clerk suggestion</span>}
+            {item.review_verdict && <span className={item.review_verdict === "agree" ? styles.tag : styles.tagWarn}>{item.review_verdict === "agree" ? "Reviewed" : "Reviewer disagrees"}</span>}
+            {item.review_repetitive === "repetitive" && <span className={styles.tag}>Repetitive</span>}
+            {item.review_repetitive === "changed" && <span className={styles.tagWarn}>Regular, but changed</span>}
             {item.state === "exception" && reasons.slice(0, 3).map((r) => <span key={r.check} className={styles.tagWarn}>{checkLabel(r.check)}</span>)}
             {item.state === "exception" && reasons.length > 3 && <span className={styles.tag}>+{reasons.length - 3} more</span>}
           </div>
