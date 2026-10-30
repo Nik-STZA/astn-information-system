@@ -4892,24 +4892,40 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
   // A draft is not a duplicate of itself, nor of earlier reads of itself.
   const xeroRows = (b) => ({ source: "xero", id: b.InvoiceID, contact_id: b.Contact?.ContactID, number: b.InvoiceNumber,
     date: (b.DateString || "").slice(0, 10), total: b.Total, status: b.Status });
-  async function possibleDuplicates(bill, draftId = null) {
+  // For a draft, what Xero keyed is looked up as well as what the engine read.
+  async function possibleDuplicates(bill, draft = null) {
     // Credit notes are a separate Xero resource: only bills are looked up in Xero for now.
+    const draftId = draft?.InvoiceID || null;
     const live = 'AND Status!="DELETED" AND Status!="VOIDED"';
     const quote = (s) => String(s).replace(/["\\]/g, "");
-    const xero = (bill.Type !== "ACCPAY" ? [] : [
-      ...(bill.InvoiceNumber ? (await get("/Invoices", { where: `Type=="ACCPAY" AND InvoiceNumber=="${quote(bill.InvoiceNumber)}" ${live}`, page: 1 })).Invoices ?? [] : []),
-      ...(bill.Contact.ContactID ? (await get("/Invoices", { where: `Type=="ACCPAY" AND Contact.ContactID==guid("${bill.Contact.ContactID}") ${live}`, page: 1 })).Invoices ?? [] : []),
-    ].map(xeroRows)).filter((x) => x.id !== draftId);
-    const queued = !bill.Contact.ContactID ? [] : (await pool.query(
+    const numbers = [...new Set([bill.InvoiceNumber, draft?.InvoiceNumber].filter(Boolean))];
+    const contacts = [...new Set([bill.Contact.ContactID, draft?.Contact?.ContactID].filter(Boolean))];
+    const found = [];
+    if (bill.Type === "ACCPAY") {
+      for (const n of numbers) {
+        found.push(...((await get("/Invoices", { where: `Type=="ACCPAY" AND InvoiceNumber=="${quote(n)}" ${live}`, page: 1 })).Invoices ?? []));
+      }
+      // Every bill the supplier has, newest first, up to 500: a number written
+      // another way is only found by normalising both sides.
+      for (const c of contacts) {
+        for (let page = 1; page <= 5; page += 1) {
+          const got = (await get("/Invoices", { where: `Type=="ACCPAY" AND Contact.ContactID==guid("${c}") ${live}`, order: "Date DESC", page })).Invoices ?? [];
+          found.push(...got);
+          if (got.length < 100) break;
+        }
+      }
+    }
+    const xero = found.map(xeroRows).filter((x) => x.id !== draftId);
+    const queued = !contacts.length ? [] : (await pool.query(
       `SELECT id, proposed_bill FROM finance.ap_items WHERE entity_id = $1 AND state NOT IN ('skipped', 'rejected', 'superseded')
-         AND proposed_bill->'Contact'->>'ContactID' = $2 AND ledger_draft_id IS DISTINCT FROM $3`,
-      [entity.id, bill.Contact.ContactID, draftId])).rows;
+         AND proposed_bill->'Contact'->>'ContactID' = ANY($2::text[]) AND ledger_draft_id IS DISTINCT FROM $3`,
+      [entity.id, contacts, draftId])).rows;
     const others = [
       ...xero,
-      ...queued.map((q) => ({ source: "queue", id: q.id, contact_id: bill.Contact.ContactID, number: q.proposed_bill.InvoiceNumber,
+      ...queued.map((q) => ({ source: "queue", id: q.id, contact_id: q.proposed_bill.Contact?.ContactID, number: q.proposed_bill.InvoiceNumber,
         date: (q.proposed_bill.DateString || "").slice(0, 10), total: q.proposed_bill.Total })),
     ];
-    return { xero, duplicates: apLane.duplicatesOf(bill, others) };
+    return { xero, duplicates: apLane.duplicatesOf(bill, others, draft) };
   }
 
   const results = [];
@@ -4954,10 +4970,15 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
       const match = apLane.matchSupplier(doc, links);
       const { bill, filled } = apLane.billFromDraft(apLane.buildBill({ doc, match, entity: facts }), d);
       const differences = apLane.draftDifferences(bill, d);
-      const { duplicates } = await possibleDuplicates(bill, d.InvoiceID);
+      const { duplicates } = await possibleDuplicates(bill, d);
+      // The same document emailed twice is two drafts: a draft is compared on
+      // the file as well as on what it says.
+      const sameFile = (await pool.query(
+        `SELECT file_name FROM finance.ap_items WHERE entity_id = $1 AND file_sha256 = $2 AND state <> 'superseded'
+            AND ledger_draft_id IS DISTINCT FROM $3 LIMIT 1`, [entity.id, sha256, d.InvoiceID])).rows[0]?.file_name ?? null;
       const review = billReview.reviewBill({ bill, file: { name: a.FileName, sha256, pages }, extraction: { documents: [doc] },
         entity: facts, supplier: match?.link?.supplier || null, link: match?.link || null, today });
-      const { state, reasons } = apLane.triage({ review, doc, match, bill, duplicates,
+      const { state, reasons } = apLane.triage({ review, doc, match, bill, duplicates, sameFile,
         draft: { differences, filled, attachments: atts.length, documents: docs.length } });
       const row = (await insert(f, 0, { ...read, extraction: doc, link: match?.link, matched_by: match?.matched_by, bill,
         review: { ...review, reasons, draft_differences: differences }, state })).rows[0];

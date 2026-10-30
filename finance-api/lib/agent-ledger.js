@@ -213,8 +213,7 @@ function tools(entityEnum) {
       "journal, payment or contact. Use it to see whether a document was edited after it was entered.",
       { record_type: { type: "string", enum: Object.keys(RECORD_TYPES) }, record_id: id("The record's id") }, ["record_type", "record_id"]),
     def("list_attachments",
-      "The files attached to a record (name, type, size). It lists them; it cannot read inside a PDF. Say so where the " +
-      "finding depends on the document's contents.",
+      "The files attached to a record (name, type, size). Open one with read_attachment.",
       { record_type: { type: "string", enum: ATTACHABLE }, record_id: id("The record's id") }, ["record_type", "record_id"]),
     def("get_fixed_assets", "The fixed asset register in Xero: each asset's cost, purchase date, depreciation method and rate, book value and status.", {
       status: { type: "string", enum: ["REGISTERED", "DRAFT", "DISPOSED"], description: "Default REGISTERED" },

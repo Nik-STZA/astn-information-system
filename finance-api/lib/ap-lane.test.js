@@ -126,13 +126,13 @@ describe("alreadyBilled", () => {
 describe("duplicatesOf and triage", () => {
   const bill = buildBill({ doc: invoice, match: { link }, entity });
 
-  it("finds the same supplier's bill by number, or by date and total", () => {
+  it("finds the same supplier's bill by number, by date and total, or the same number and total under another contact", () => {
     const others = [
       { source: "xero", contact_id: link.xero_contact_id, number: "gb6ayhtg9aeud", date: "2026-01-01", total: 1 },
       { source: "queue", contact_id: link.xero_contact_id, number: "X", date: "2026-09-29", total: 14.99 },
       { source: "xero", contact_id: "someone-else", number: "GB6AYHTG9AEUD", date: "2026-09-29", total: 14.99 },
     ];
-    expect(duplicatesOf(bill, others).map((d) => d.source)).toEqual(["xero", "queue"]);
+    expect(duplicatesOf(bill, others).map((d) => d.source)).toEqual(["xero", "xero", "queue"]);
   });
 
   it("sends a duplicate, an inactive supplier and the reader's doubts to the CFO", () => {
@@ -327,5 +327,43 @@ describe("recommendation", () => {
       "the due date is before the bill's date",
       "a note explaining the recommendation is required",
     ]);
+  });
+});
+
+// A resubmitted receipt (30 Oct 2026): Xero's draft matched the paid bill
+// exactly, but the engine read the receipt number and a different total.
+describe("a draft is compared as Xero keyed it, as well as as the engine read it", () => {
+  const paid = { source: "xero", id: "p1", contact_id: "c1", number: "ABC-123", date: "2026-09-28", total: 75, status: "PAID" };
+  const read = { Contact: { ContactID: "c1" }, InvoiceNumber: "2906-4191", DateString: "2026-09-28", Total: 62.53 };
+  const draft = { Contact: { ContactID: "c1" }, InvoiceNumber: "ABC-123", DateString: "2026-09-28T00:00:00", Total: 75 };
+
+  it("misses it on the engine's reading alone, and finds it with the draft", () => {
+    expect(duplicatesOf(read, [paid])).toEqual([]);
+    expect(duplicatesOf(read, [paid], draft).map((d) => d.match)).toEqual(["number"]);
+  });
+
+  it("finds a number written another way, once for a row found twice", () => {
+    const again = { ...read, InvoiceNumber: "abc 123", Total: 75 };
+    expect(duplicatesOf(again, [paid, paid])).toHaveLength(1);
+  });
+
+  it("checks a new supplier by number and total, and two suppliers' INV-001 are not the same bill", () => {
+    const noContact = { Contact: {}, InvoiceNumber: "INV-001", Total: 10 };
+    expect(duplicatesOf(noContact, [{ id: "a", contact_id: "x", number: "INV-001", total: 10 }])).toHaveLength(1);
+    expect(duplicatesOf(noContact, [{ id: "a", contact_id: "x", number: "INV-001", total: 11 }])).toEqual([]);
+  });
+
+  it("asks about the same amount within days and leaves a monthly subscription alone", () => {
+    const bill = { Contact: { ContactID: "c1" }, DateString: "2026-10-28", Total: 75 };
+    expect(duplicatesOf(bill, [{ ...paid, number: "X", date: "2026-10-26" }]).map((d) => d.match)).toEqual(["near"]);
+    expect(duplicatesOf(bill, [{ ...paid, number: "X", date: "2026-09-28" }])).toEqual([]);
+  });
+
+  it("gives the status of what it found, and flags the same file", () => {
+    const t = triage({ review: { flags: [] }, bill: { ...read, CurrencyCode: "GBP", DueDateString: "2026-10-01", LineItems: [] }, doc: {},
+      duplicates: duplicatesOf(read, [paid], draft), sameFile: "receipt.pdf" });
+    expect(t.state).toBe("exception");
+    expect(t.reasons.map((r) => r.check)).toEqual(["same_file", "duplicate"]);
+    expect(t.reasons[1].detail).toContain("in Xero (PAID)");
   });
 });

@@ -33,6 +33,8 @@ const CHECKS: Record<string, string> = {
   cfo_review: "Supplier always comes to you",
   supplier_status: "Supplier is not active",
   duplicate: "May be a duplicate",
+  possible_duplicate: "Possible duplicate: same amount within days",
+  same_file: "Same file as one already read",
   reader_doubts: "The reader was unsure",
   no_due_date: "No due date",
   no_currency: "Currency not read",

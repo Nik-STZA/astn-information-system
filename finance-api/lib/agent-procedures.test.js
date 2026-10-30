@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { library, proceduresFor, systemPrompt, readProcedure, readProcedureTool, toolsFor, PRELOADED } from "./agent-procedures";
 import { agentLedger } from "./agent-ledger";
+import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
 
 const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
@@ -19,6 +20,7 @@ const ALL_TOOLS = new Set([
   ...[...buildTools.matchAll(/name: "([a-z_]+)"/g)].map((m) => m[1]),
   ...agentWork({}).names,
   ...agentLedger({}).names,
+  ...DOCUMENT_TOOLS,
   "read_procedure",
 ]);
 

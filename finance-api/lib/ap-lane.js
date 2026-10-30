@@ -118,17 +118,53 @@ function describe(doc, charges) {
   return [doc.supplier_name, doc.document_number, first && charges.length === 1 ? first : null].filter(Boolean).join(" - ") || "Supplier document";
 }
 
-// Bills it may already be: in Xero, or earlier in the queue. Same supplier and
-// the same normalised number, or the same supplier, date and total.
+// How many days apart the same supplier's same amount is still worth a look. A
+// month is useless: every subscription repeats (135 false pairs at 31 days, 16
+// Sep 2026 study).
+const NEAR_DAYS = 3;
+const daysApart = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) / 86400000;
+
+// What a bill says it is, as the engine read it and, for a Xero draft, as Xero
+// keyed it. Both count: on 30 Oct 2026 a resubmitted receipt escaped
+// because the engine read its receipt number and a different total, while the
+// draft Xero keyed matched the paid bill exactly.
+function identities(bill, draft) {
+  const one = (b) => ({
+    contact: b.Contact?.ContactID || null, number: normNumber(b.InvoiceNumber),
+    date: String(b.DateString || "").slice(0, 10) || null,
+    total: b.Total === null || b.Total === undefined ? null : pence(b.Total),
+  });
+  return draft ? [one(bill), one(draft)] : [one(bill)];
+}
+
+// Bills it may already be: in Xero, or earlier in the queue. Each comes back
+// with how it matched, strongest first:
+//   number      the same normalised number, with the same supplier or the same
+//               total (a new supplier has no contact to compare, and a bare
+//               "INV-001" from two suppliers is not the same bill)
+//   date_total  the same supplier, date and total
+//   near        the same supplier and total within NEAR_DAYS: only a question
 //   others  [{ source, id, contact_id, number, date, total }]
-function duplicatesOf(bill, others = []) {
-  const contact = bill.Contact?.ContactID;
-  if (!contact) return [];
-  const n = normNumber(bill.InvoiceNumber);
-  const date = (bill.DateString || "").slice(0, 10);
-  return others.filter((o) => o.contact_id === contact && (
-    (n && normNumber(o.number) === n)
-    || (date && o.date === date && pence(o.total) === pence(bill.Total))));
+function duplicatesOf(bill, others = [], draft = null) {
+  const ids = identities(bill, draft);
+  const rank = { number: 3, date_total: 2, near: 1 };
+  const found = new Map();
+  others.forEach((o, i) => {
+    const total = o.total === null || o.total === undefined ? null : pence(o.total);
+    let match = null;
+    const better = (m) => { if (!match || rank[m] > rank[match]) match = m; };
+    for (const k of ids) {
+      const supplier = k.contact && o.contact_id === k.contact;
+      const sameTotal = k.total !== null && total === k.total;
+      if (k.number && normNumber(o.number) === k.number && (supplier || sameTotal)) better("number");
+      if (supplier && sameTotal && k.date && o.date === k.date) better("date_total");
+      if (supplier && sameTotal && k.date && o.date && daysApart(o.date, k.date) <= NEAR_DAYS) better("near");
+    }
+    if (!match) return;
+    const key = o.id || `row-${i}`;
+    if (!found.has(key) || rank[match] > rank[found.get(key).match]) found.set(key, { ...o, match });
+  });
+  return [...found.values()].sort((a, b) => rank[b.match] - rank[a.match]);
 }
 
 // The Xero bill this document already is, if certain: the same normalised
@@ -241,14 +277,18 @@ function draftDifferences(bill, draft) {
 // 2 review supplies most of them; the rest are what a bill built from scratch
 // can lack. For a Xero draft, draft carries what the draft adds:
 //   { differences, filled, attachments, documents }
-function triage({ review, doc, match, bill, duplicates = [], draft = null }) {
+function triage({ review, doc, match, bill, duplicates = [], draft = null, sameFile = null }) {
   const reasons = (review?.flags || []).filter((f) => f.flagged).map(({ check, detail }) => ({ check, detail }));
   if (!bill.DueDateString) reasons.push({ check: "no_due_date", detail: "no due date on the document and no payment terms in the supplier master" });
   if (!bill.CurrencyCode) reasons.push({ check: "no_currency", detail: "the document's currency could not be read" });
   const status = match?.link?.supplier?.status;
   if (status && status !== "active") reasons.push({ check: "supplier_status", detail: `the supplier is ${status} in the master` });
+  if (sameFile) reasons.push({ check: "same_file", detail: `the same file as ${sameFile}, already read` });
   for (const d of duplicates) {
-    reasons.push({ check: "duplicate", detail: `may already be ${d.source === "xero" ? "in Xero" : "in the queue"}: ${d.number || "no number"}, ${d.date || "no date"}, ${d.total}` });
+    const where = d.source === "xero" ? `in Xero${d.status ? ` (${d.status})` : ""}` : "in the queue";
+    const what = `${d.number || "no number"}, ${d.date || "no date"}, ${d.total}`;
+    if (d.match === "near") reasons.push({ check: "possible_duplicate", detail: `same supplier and amount within days, ${where}: ${what}` });
+    else reasons.push({ check: "duplicate", detail: `may already be ${where}: ${what}` });
   }
   if (doc?.doubts) reasons.push({ check: "reader_doubts", detail: `the reader was unsure: ${doc.doubts}` });
   if (draft) {
