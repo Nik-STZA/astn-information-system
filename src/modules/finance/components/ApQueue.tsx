@@ -11,7 +11,7 @@ import FetchDocuments from "./FetchDocuments";
 import ApActions from "./ApActions";
 import ApRecommendation from "./ApRecommendation";
 import ApSupplier, { type SupplierCandidate } from "./ApSupplier";
-import { AP_TABS, checkLabel, differentSupplier, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
+import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
 import type { ApItemDetail, ApItemRow } from "@/modules/finance/lib/ap-queue";
 
 // Account and VAT names by code, from the entity's own Xero chart.
@@ -74,7 +74,7 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
             })}
           </nav>
         </div>
-        <FetchDocuments slug={slug} entity={entity} />
+        <FetchDocuments slug={slug} entity={entity} uncoded={items.filter((i) => OPEN.includes(i.state) && !i.recommended).length} />
       </div>
 
       <div className={styles.workspace}>
@@ -91,7 +91,7 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
 
         <section className={selected ? styles.detailPane : styles.hideOnPhone} aria-label="Item">
           {selected
-            ? <Detail item={selected} slug={slug} entity={entity} back={href({ item: undefined })} names={names} previous={previous} next={next} position={`${at + 1} of ${shown.length}`} />
+            ? <Detail key={selected.id} item={selected} slug={slug} entity={entity} back={href({ item: undefined })} names={names} previous={previous} next={next} position={`${at + 1} of ${shown.length}`} />
             : <div className={styles.empty}>Choose an item to see the bill and its document.</div>}
         </section>
       </div>
@@ -99,6 +99,8 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
     </>
   );
 }
+
+const OPEN = ["exception", "clean", "approved"];
 
 const EMPTY: Record<string, string> = {
   exceptions: "Nothing needs you. Bills that need a decision appear here.",
@@ -145,6 +147,7 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
   );
 }
 
+// Keyed by the item where it is used: everything inside starts afresh on each bill.
 function Detail({ item, slug, entity, back, names, previous, next, position }: {
   item: ApItemDetail; slug: string; entity: string; back: string; names: CodingNames;
   previous: string | null; next: string | null; position: string;
@@ -154,13 +157,15 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
   // Checks a recommendation has answered are not still questions.
   const answered = rec ? ["line_incomplete", "coding_from_xero"] : [];
   const reasons = (item.review?.reasons ?? []).filter((r) => !answered.includes(r.check));
-  const open = ["exception", "clean", "approved"].includes(item.state);
+  const open = OPEN.includes(item.state);
   const billName = bill?.Contact?.Name ?? null;
   const onDocument = item.extraction?.supplier_name ?? null;
   const candidate: SupplierCandidate | null = rec?.supplier && rec.supplier.name !== billName
     ? { contactId: rec.supplier.contact_id, name: rec.supplier.name, vatNumber: rec.supplier.vat_number, country: rec.supplier.country, reason: rec.supplier.reason }
-    : differentSupplier(onDocument, billName)
-      ? { contactId: null, name: onDocument as string, vatNumber: item.extraction?.supplier_vat_number ?? null, country: item.extraction?.supplier_country ?? null, reason: null }
+    // A bill with a supplier changes only on a recommendation: the name the
+    // engine read can be someone else's, such as an Uber driver on the receipt.
+    : !billName && onDocument
+      ? { contactId: null, name: onDocument, vatNumber: item.extraction?.supplier_vat_number ?? null, country: item.extraction?.supplier_country ?? null, reason: null }
       : null;
   // Coding the engine changes from Xero's draft. A different bill (supplier,
   // number, date, total) is already a reason above.
@@ -199,7 +204,7 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
         {item.state_reason && <div className={styles.note}>{item.state_reason}</div>}
 
         {bill && (
-          <ApSupplier key={item.id} slug={slug} entity={entity} itemId={item.id} editable={open}
+          <ApSupplier slug={slug} entity={entity} itemId={item.id} editable={open}
             billName={billName} candidate={candidate} />
         )}
 
@@ -253,14 +258,14 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
         )}
 
         {bill && item.recommendation && (
-          <ApRecommendation key={item.id} slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
+          <ApRecommendation slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
             nextHref={next}
             lines={bill.LineItems.map((l) => ({ description: l.Description, account: l.AccountCode, tax: l.TaxType }))} />
         )}
 
         {bill && (
           <Folded when={!!item.recommendation && item.state === "exception"}>
-          <ApActions key={item.id} slug={slug} entity={entity} item={{
+          <ApActions slug={slug} entity={entity} item={{
             id: item.id,
             state: item.state,
             contactId: bill.Contact?.ContactID ?? null,
@@ -285,7 +290,7 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
         </div>
       </article>
 
-      <aside key={item.id} className={styles.docPane} aria-label="The document">
+      <aside className={styles.docPane} aria-label="The document">
         {isImage
           // A plain img on purpose: next/image would put a client document
           // through the image optimiser and its cache.

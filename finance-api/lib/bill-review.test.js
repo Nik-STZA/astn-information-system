@@ -144,6 +144,11 @@ describe("reviewBill", () => {
     expect(r.flagged).toEqual(expect.arrayContaining(["not_in_master", "cfo_review"]));
   });
 
+  it("still flags a Xero contact missing from the master, and says it is not new", () => {
+    const r = reviewBill({ bill: { ...bill, Contact: { ContactID: "c1", Name: "Acme" } }, entity, file: { name: "a.pdf", pages: 1 }, extraction: { documents: [doc] }, link: null });
+    expect(r.flags.find((f) => f.check === "not_in_master")).toMatchObject({ flagged: true, detail: expect.stringContaining("already a contact in Xero") });
+  });
+
   // Live run, UDL, 23 Oct 2026.
   it("reads 'GB VAT 493735845' as the entity's own VAT number", () => {
     const r = reviewBill({ bill, entity, file: { name: "a.pdf", pages: 1 },

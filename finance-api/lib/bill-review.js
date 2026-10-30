@@ -350,7 +350,7 @@ function reviewBill({ bill, file = null, extraction = null, entity = {}, supplie
   // Against the supplier master.
   flag("no_supplier", !hasSupplier(bill), hasSupplier(bill) ? `supplier ${bill.Contact.Name}` : `no supplier on the bill; the document names ${doc.supplier_name || "none"}`);
   if (hasSupplier(bill)) {
-    flag("not_in_master", !link, link ? `in the supplier master (${link.status})` : "the supplier is not in the supplier master: a new supplier goes to the CFO");
+    flag("not_in_master", !link, link ? `in the supplier master (${link.status})` : bill.Contact.ContactID ? "already a contact in Xero, but not in the supplier master, so no default coding is held" : "the supplier is not in the supplier master: a new supplier goes to the CFO");
   }
   if (supplier?.vat_number && doc.supplier_vat_number) {
     flag("supplier_vat_number", normVat(supplier.vat_number) !== normVat(doc.supplier_vat_number),

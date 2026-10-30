@@ -28,7 +28,7 @@ const CHECKS: Record<string, string> = {
   customer_vat_number: "Another company's VAT number",
   line_incomplete: "A line has no account or VAT treatment",
   no_supplier: "Supplier not recognised",
-  not_in_master: "New supplier",
+  not_in_master: "Not in the supplier master",
   supplier_vat_number: "Supplier's VAT number has changed",
   cfo_review: "Supplier always comes to you",
   supplier_status: "Supplier is not active",
@@ -95,16 +95,4 @@ export function matchOptions<T extends { label: string }>(options: T[], query: s
     return words.every((w) => label.includes(w));
   });
   return [...hits.filter((o) => o.label.toLowerCase().startsWith(q)), ...hits.filter((o) => !o.label.toLowerCase().startsWith(q))];
-}
-
-// Whether the name on a document is a different supplier to the bill's. Case,
-// punctuation and legal form alone do not count: "Acme Ltd" is "ACME Limited".
-// Anything else is shown as a question, never changed on its own.
-const LEGAL_FORMS = /\b(ltd|limited|inc|incorporated|llc|llp|plc|pbc|corp|corporation|company|co|gmbh|bv|sa|sarl|pty)\b/g;
-const bareName = (s: string) => s.toLowerCase().replace(/[.,'&()-]/g, " ").replace(LEGAL_FORMS, " ").replace(/\s+/g, " ").trim();
-
-export function differentSupplier(onDocument: string | null | undefined, onBill: string | null | undefined): boolean {
-  if (!onDocument) return false;
-  if (!onBill) return true;
-  return bareName(onDocument) !== bareName(onBill);
 }
