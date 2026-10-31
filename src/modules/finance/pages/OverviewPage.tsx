@@ -124,7 +124,7 @@ export default async function OverviewPage() {
                       <div className={styles.muted}>{c.entities} compan{c.entities === 1 ? "y" : "ies"}</div>
                     </td>
                     <td><Count n={c.bills.for_you} href={`${base}/bills`} warn /></td>
-                    <td><Count n={c.bills.ready} href={`${base}/bills?tab=clean`} /></td>
+                    <td><Count n={c.bills.ready} href={`${base}/bills`} /></td>
                     <td>
                       <Count n={c.approvals.awaiting} href={`${base}/approvals`} />
                       {c.approvals.blocked > 0 && <span className={styles.muted}> · {c.approvals.blocked} blocked</span>}

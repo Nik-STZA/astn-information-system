@@ -4,7 +4,7 @@
 // way back. The URL holds the entity, tab and item, so a link can open any of them.
 
 import type React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import styles from "./ApQueue.module.css";
 import FetchDocuments from "./FetchDocuments";
@@ -12,6 +12,8 @@ import ApActions from "./ApActions";
 import ApRecommendation from "./ApRecommendation";
 import ApSupplier, { type SupplierCandidate } from "./ApSupplier";
 import { AP_TABS, checkLabel, documentTypeLabel, money, shortDate } from "@/modules/finance/lib/ap-labels";
+import { billProgress, STEP_LABELS, STEP_NAMES, type AgentStep, type BillProgress } from "@/modules/finance/lib/ap-agents";
+import MarkdownOutput from "./MarkdownOutput";
 import type { ApItemDetail, ApItemRow } from "@/modules/finance/lib/ap-queue";
 
 // Account and VAT names by code, from the entity's own Xero chart.
@@ -36,16 +38,29 @@ interface Props {
   items: ApItemRow[];
   selected: ApItemDetail | null;
   names: CodingNames;
+  active: string[];
+  withAgent: AgentStep | null;
+  noteAgent: AgentStep | null;
 }
 
-export default function ApQueue({ slug, entity, entities, tab, items, selected, names }: Props) {
-  const href = (q: { entity?: string; tab?: string; item?: string }) => {
+export default function ApQueue({ slug, entity, entities, tab, items, selected, names, active, withAgent, noteAgent }: Props) {
+  const href = (q: { entity?: string; tab?: string; item?: string; with?: AgentStep | null; agent?: AgentStep }) => {
     const p = new URLSearchParams({ entity: q.entity ?? entity, tab: q.tab ?? tab });
     if (q.item) p.set("item", q.item);
+    const filter = q.with === undefined ? withAgent : q.with;
+    if (filter) p.set("with", filter);
+    if (q.agent) p.set("agent", q.agent);
     return `/finance/clients/${slug}/bills?${p.toString()}`;
   };
-  const current = AP_TABS.find((t) => t.key === tab) ?? AP_TABS[0];
-  const shown = items.filter((i) => current.states.includes(i.state));
+  const current = AP_TABS.find((t) => t.key === tab) ?? AP_TABS[1];
+  const progress = new Map(items.map((i) => [i.id, billProgress(i, active)]));
+  const inTab = (key: string) => (i: ApItemRow) => {
+    const withAgents = progress.get(i.id)?.withAgents ?? false;
+    if (key === "agents") return withAgents;
+    return !withAgents && (AP_TABS.find((t) => t.key === key)?.states ?? []).includes(i.state);
+  };
+  const shown = items.filter(inTab(current.key)).filter((i) => current.key !== "agents" || !withAgent || progress.get(i.id)?.current === withAgent);
+  const selectedProgress = selected ? progress.get(selected.id) ?? null : null;
   const at = selected ? shown.findIndex((i) => i.id === selected.id) : -1;
   const previous = at > 0 ? href({ item: shown[at - 1].id }) : null;
   const next = at >= 0 && at < shown.length - 1 ? href({ item: shown[at + 1].id }) : null;
@@ -64,15 +79,23 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
           )}
           <nav className={styles.chips} aria-label="Queue">
             {AP_TABS.map((t) => {
-              const n = items.filter((i) => t.states.includes(i.state)).length;
+              const n = items.filter(inTab(t.key)).length;
               return (
-                <Link key={t.key} href={href({ tab: t.key, item: undefined })}
+                <Link key={t.key} href={href({ tab: t.key, item: undefined, with: null })}
                   className={t.key === current.key ? styles.chipActive : styles.chip}>
                   {t.label} <span className={styles.count}>{n}</span>
                 </Link>
               );
             })}
           </nav>
+          {current.key === "agents" && (
+            <nav className={styles.chips} aria-label="Agent">
+              <Link href={href({ with: null })} className={!withAgent ? styles.chipActive : styles.chip}>Everyone</Link>
+              {(Object.keys(STEP_NAMES) as AgentStep[]).map((k) => (
+                <Link key={k} href={href({ with: k })} className={withAgent === k ? styles.chipActive : styles.chip}>{STEP_NAMES[k]}</Link>
+              ))}
+            </nav>
+          )}
         </div>
         <FetchDocuments slug={slug} entity={entity} uncoded={items.filter((i) => OPEN.includes(i.state) && !i.recommended).length} />
       </div>
@@ -82,7 +105,10 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
         <section className={selected ? styles.hideOnPhone : styles.listPane} aria-label={current.label}>
           {shown.length ? (
             <ul className={styles.list}>
-              {shown.map((i) => <Card key={i.id} item={i} href={href({ item: i.id })} active={selected?.id === i.id} />)}
+              {shown.map((i) => (
+                <Card key={i.id} item={i} href={href({ item: i.id })} active={selected?.id === i.id}
+                  progress={progress.get(i.id) ?? null} stepHref={(agent) => href({ item: i.id, agent })} />
+              ))}
             </ul>
           ) : (
             <div className={styles.empty}>{EMPTY[current.key] ?? "Nothing here."}</div>
@@ -91,7 +117,7 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
 
         <section className={selected ? styles.detailPane : styles.hideOnPhone} aria-label="Item">
           {selected
-            ? <Detail key={selected.id} item={selected} slug={slug} entity={entity} back={href({ item: undefined })} names={names} previous={previous} next={next} position={`${at + 1} of ${shown.length}`} />
+            ? <Detail key={selected.id} item={selected} progress={selectedProgress} noteAgent={noteAgent} slug={slug} entity={entity} back={href({ item: undefined })} names={names} previous={previous} next={next} position={`${at + 1} of ${shown.length}`} />
             : <div className={styles.empty}>Choose an item to see the bill and its document.</div>}
         </section>
       </div>
@@ -103,13 +129,49 @@ export default function ApQueue({ slug, entity, entities, tab, items, selected, 
 const OPEN = ["exception", "clean", "approved"];
 
 const EMPTY: Record<string, string> = {
+  agents: "No bills with the agents right now.",
   exceptions: "Nothing needs you. Bills that need a decision appear here.",
-  clean: "No clean bills waiting.",
   sent: "Nothing sent to Xero yet.",
   "set-aside": "Nothing set aside.",
 };
 
-function Card({ item, href, active }: { item: ApItemRow; href: string; active: boolean }) {
+const STEP_WORDS = { done: "finished", now: "working on it now", todo: "not started" };
+
+function Steps({ item, progress, stepHref }: { item: ApItemRow; progress: BillProgress; stepHref: (agent: AgentStep) => string }) {
+  return (
+    <div className={styles.steps}>
+      {progress.steps.map((s) => (
+        <Link key={s.key} href={stepHref(s.key)} className={styles.stepTarget}
+          aria-label={`${STEP_NAMES[s.key]} on ${item.supplier ?? "this bill"}: ${STEP_WORDS[s.state]}`}>
+          <span className={s.state === "now" ? styles.stepNow : s.state === "done" ? styles.stepDone : styles.step}>
+            {STEP_LABELS[s.key]}
+            {s.state === "done" && <Check size={9} strokeWidth={3} className={styles.stepTick} aria-hidden="true" />}
+          </span>
+        </Link>
+      ))}
+      {progress.current && <span className={styles.stepStatus}>{STEP_NAMES[progress.current]} {progress.current === "ap" ? "coding" : "reviewing"}</span>}
+    </div>
+  );
+}
+
+// What one agent said about the bill. It stays here and is never sent to Xero.
+function AgentNote({ item, agent, progress }: { item: ApItemDetail; agent: AgentStep; progress: BillProgress | null }) {
+  const rec = item.recommendation;
+  const reviews = rec?.reviews ?? (rec?.review ? [rec.review] : []);
+  const said = agent === "ap" ? rec?.note : [...reviews].reverse().find((r) => r.agent === agent)?.note;
+  const working = progress?.current === agent;
+  return (
+    <div className={styles.agentNote} aria-label={`${STEP_NAMES[agent]} note`}>
+      <div className={styles.agentNoteTitle}>{STEP_NAMES[agent]}{working ? ": working on it now" : said ? "" : ": not started"}</div>
+      {said && <MarkdownOutput text={said} />}
+      <div className={styles.agentNoteFoot}>Kept in os.stza.io. Not sent to Xero.</div>
+    </div>
+  );
+}
+
+function Card({ item, href, active, progress, stepHref }: {
+  item: ApItemRow; href: string; active: boolean; progress: BillProgress | null; stepHref: (agent: AgentStep) => string;
+}) {
   const reasons = item.reasons ?? [];
   const title = item.supplier || (item.state === "skipped" ? item.file_name : "Supplier not recognised");
   const warnings = item.state === "exception" ? reasons.length : 0;
@@ -123,9 +185,10 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
     item.review_repetitive === "changed" ? "Changed" : null,
     warnings ? `${warnings} to check` : null,
   ].filter(Boolean);
+  const showSteps = !!progress && (progress.withAgents || item.recommended);
   return (
-    <li>
-      <Link href={href} className={active ? styles.cardActive : styles.card} aria-current={active ? "true" : undefined}>
+    <li className={styles.cardWrap}>
+      <Link href={href} className={`${active ? styles.cardActive : styles.card}${showSteps ? ` ${styles.cardWithSteps}` : ""}`} aria-current={active ? "true" : undefined}>
         <div className={styles.cardTop}>
           <span className={styles.supplier}>{title}</span>
           {item.total !== null && <span className={styles.amount}>{money(item.total, item.currency)}</span>}
@@ -143,13 +206,14 @@ function Card({ item, href, active }: { item: ApItemRow; href: string; active: b
           </div>
         )}
       </Link>
+      {showSteps && <Steps item={item} progress={progress} stepHref={stepHref} />}
     </li>
   );
 }
 
 // Keyed by the item where it is used: everything inside starts afresh on each bill.
-function Detail({ item, slug, entity, back, names, previous, next, position }: {
-  item: ApItemDetail; slug: string; entity: string; back: string; names: CodingNames;
+function Detail({ item, progress, noteAgent, slug, entity, back, names, previous, next, position }: {
+  item: ApItemDetail; progress: BillProgress | null; noteAgent: AgentStep | null; slug: string; entity: string; back: string; names: CodingNames;
   previous: string | null; next: string | null; position: string;
 }) {
   const bill = item.proposed_bill;
@@ -260,6 +324,8 @@ function Detail({ item, slug, entity, back, names, previous, next, position }: {
             })}
           </div>
         )}
+
+        {noteAgent && <AgentNote item={item} agent={noteAgent} progress={progress} />}
 
         {bill && item.recommendation && (
           <ApRecommendation slug={slug} entity={entity} itemId={item.id} state={item.state} rec={item.recommendation}
