@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.8.0
+version: 1.9.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -92,9 +92,10 @@ the supplier's own words, off the face of the document, including any project,
 proposal or PO reference printed there. Not the supplier's name, the receipt type
 or who it was for, unless the document's line says so.
 
-**Explanation goes in your note and the line reasons.** They are saved to the
-bill's History and notes in Xero when it is sent. Nothing that interprets how the
-cost should be treated belongs on the line: that is the account's job.
+**Explanation goes in your note and the line reasons.** They stay on the queue item
+in os.stza.io and never go to Xero, whose History shows only that we acted. Nothing
+that interprets how the cost should be treated belongs on the line: that is the
+account's job.
 
 **Why this is a rule.** A line was once keyed as "retainer, non-development"
 when the invoice said "section design and build". A retainer did exist with that
@@ -179,6 +180,7 @@ or approves a bill: those stay with the CFO.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.9.0 | 31 October 2026 | Notes and reviews stay in os.stza.io; nothing explanatory goes to Xero. |
 | 1.8.0 | 30 October 2026 | FM2 and the FC submit reviewed bills to Awaiting Approval; the platform's stop list keeps the rest with the CFO. |
 | 1.7.0 | 30 October 2026 | A platform's receipt stays with the platform: Uber, not the driver. |
 | 1.6.0 | 30 October 2026 | The agent decides the correct VAT treatment and gives the rule; earlier coding is evidence, and a difference is a finding. |
