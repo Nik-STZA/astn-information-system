@@ -6,8 +6,8 @@
 // What is written, per entity:
 //   - the coding defaults: AccountsPayableTaxType, PurchasesDefaultAccountCode;
 //   - the VAT number and company number, only where the contact has none;
-//   - one history note carrying the determination (spec 2.3), append-only, so
-//     a later change adds a note and the old one stays;
+//   - one short history note saying the defaults were set, append-only, so a
+//     later change adds a note and the old one stays;
 //   - the invoice the determination was based on, attached to the contact.
 //
 // Never written (spec 2.6): name, address, email, phone, bank details, status.
@@ -39,30 +39,10 @@ function skipReason({ supplier, link }) {
   return null;
 }
 
-// The one-line determination note (spec 2.3). Example:
-//   VAT: REVERSECHARGES - non-UK supplier (IE), B2B services, general rule:
-//   reverse charge. Default 453. Source: invoice 5713451497 (20 Oct 2026).
-//   Approved nik@stza.io, 21 Oct 2026.
-function determinationNote({ supplier, link, source }) {
-  let vat;
-  if (supplier.mixed_treatment) vat = "VAT: no default, mixed treatment: every bill is reviewed";
-  else if (link.default_tax_type) {
-    const label = BASIS_LABELS[link.vat_basis] || link.vat_basis || "basis not recorded";
-    const country = supplier.country_of_establishment && /^non_uk/.test(link.vat_basis || "") ? ` (${supplier.country_of_establishment})` : "";
-    vat = `VAT: ${link.default_tax_type} - ${label.replace(/^non-UK supplier/, `non-UK supplier${country}`)}`;
-    // The stored reasoning may repeat the label and carry its own full stop.
-    const why = String(link.vat_basis_note || "").trim().replace(/^CFO decision:\s*/i, "").replace(/\.+$/, "");
-    if (link.vat_basis === "cfo_decision" && why) vat += `: ${why}`;
-  } else vat = "VAT: no default";
-  const parts = [vat];
-  if (supplier.always_discuss) parts.push("Always discuss: every bill goes to the CFO");
-  if (supplier.related_party) parts.push("Related party");
-  parts.push(link.default_account_code ? `Default ${link.default_account_code}` : "No default account");
-  if (source?.number || source?.file) {
-    parts.push(`Source: invoice ${source.number || source.file}${source.date ? ` (${day(source.date)})` : ""}`);
-  }
-  parts.push(`Approved ${link.approved_by_email}, ${day(link.approved_at)}`);
-  return parts.join(". ") + ".";
+// The note on the contact says that we acted. The determination itself (VAT
+// basis, reasoning, source, approver) stays in the supplier master.
+function determinationNote({ link }) {
+  return `Supplier defaults set by STZA, ${day(link.approved_at)}.`;
 }
 
 /**

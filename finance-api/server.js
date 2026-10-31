@@ -3747,6 +3747,8 @@ function gatedWrite(tool, tierOf, plan) {
     if (ctx.error) return erpUnavailable(res, ctx);
 
     const result = { entity: ctx.entity.name, tool, tier, dry_run: dryRun };
+    // The reason is ours: it is kept in finance.audit_log and never sent to Xero.
+    if (String(input.audit_note || "").trim()) result.audit_note = String(input.audit_note).trim();
     const tierBlock = writeRules.tierIssues(ctx.entity.accounting_system_config, tier);
     const p = tierBlock.length ? { issues: [] } : await plan(ctx, input, req);
     const issues = [...tierBlock, ...(p.issues || [])];
@@ -3912,7 +3914,7 @@ function documentPlan(kind) {
       }),
       history: (s) => s?.[d.idField] && {
         resource: d.endpoint, id: s[d.idField],
-        text: `${operation === "update" ? "Updated" : "Created"} as ${s.Status || pre.status}. ${String(b.audit_note).trim()}`,
+        text: `${operation === "update" ? "Updated" : "Created"} as ${s.Status || pre.status}.`,
       },
     };
   };
@@ -3963,14 +3965,14 @@ app.post(`${WRITE}/contacts`, gatedWrite("upsert_contact", "draft", async (ctx, 
     describe: (s) => ({ ContactID: s?.ContactID, name: s?.Name }),
     history: (s) => s?.ContactID && {
       resource: "Contacts", id: s.ContactID,
-      text: `${operation === "update" ? "Updated" : "Created"} contact. ${String(b.audit_note).trim()}`,
+      text: `${operation === "update" ? "Updated" : "Created"} contact.`,
     },
   };
 }));
 
 // A permanent note on a record's History and Notes. Notes cannot be edited
-// or deleted, hence the dry run by default. Body: resource_type, resource_id,
-// details.
+// or deleted, hence the dry run by default, and they are short: reasoning stays
+// in os.stza.io. Body: resource_type, resource_id, details.
 app.post(`${WRITE}/history-notes`, gatedWrite("add_history_note", "note", async (ctx, b) => {
   const issues = [];
   if (!writeRules.HISTORY_RESOURCES.includes(b.resource_type)) {
@@ -4042,7 +4044,7 @@ app.post(`${WRITE}/attachments`, uploadBody, gatedWrite("upload_attachment", "dr
     saved: (body) => (body?.Attachments || [])[0] || null,
     describe: (s) => ({ AttachmentID: s?.AttachmentID, file_name: s?.FileName }),
     history: () => writeRules.HISTORY_RESOURCES.includes(q.resource_type) && {
-      resource: q.resource_type, id: q.resource_id, text: `Attached ${q.file_name}. ${String(q.audit_note).trim()}`,
+      resource: q.resource_type, id: q.resource_id, text: `Attached ${q.file_name}.`,
     },
   };
 }));
@@ -4130,7 +4132,7 @@ app.post(`${WRITE}/file-associations`, gatedWrite("associate_file", "draft", asy
     send: (key) => xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${b.file_id}/Associations`, { json: payload, key }),
     describe: () => ({ FileID: b.file_id, associated_with: b.object_id }),
     history: () => holder && writeRules.HISTORY_RESOURCES.includes(holder) && {
-      resource: holder, id: b.object_id, text: `Linked Files document ${fileName || b.file_id}. ${String(b.audit_note).trim()}`,
+      resource: holder, id: b.object_id, text: `Linked Files document ${fileName || b.file_id}.`,
     },
   };
 }));
@@ -4152,7 +4154,6 @@ async function xeroDoc(ctx, endpoint, id) {
   return ((await xeroGetOrNull(ctx, `/${endpoint}/${id}`))?.[endpoint] ?? [])[0] || null;
 }
 
-const noteOf = (b) => String(b.audit_note || "").trim();
 
 // Manual journals under the confirmed-tier model: DRAFT is the draft tier;
 // POSTED is the post tier and needs a dry run's confirmation code. Two ways
@@ -4257,7 +4258,7 @@ function journalsPlan(source, origin) {
       }),
       history: (_s, body) => (body?.ManualJournals || []).map((m) => ({
         resource: "ManualJournals", id: m.ManualJournalID,
-        text: `${origin} as ${m.Status}. ${noteOf(q)}`,
+        text: `${origin} as ${m.Status}.`,
       })),
     };
   };
@@ -4294,7 +4295,7 @@ app.post(`${WRITE}/journal-status`, gatedWrite("update_journal_status",
       send: (key) => xeroSend(ctx, "POST", "/ManualJournals?summarizeErrors=false", { json: payload, key }),
       saved: (body) => body?.ManualJournals?.[0] || null,
       describe: (s) => ({ ManualJournalID: s?.ManualJournalID, xero_status: s?.Status }),
-      history: () => ({ resource: "ManualJournals", id: b.manual_journal_id, text: `Status ${mj.Status} to ${target}. ${noteOf(b)}` }),
+      history: () => ({ resource: "ManualJournals", id: b.manual_journal_id, text: `Status ${mj.Status} to ${target}.` }),
     };
   }));
 
@@ -4315,7 +4316,7 @@ app.post(`${WRITE}/invoice-emails`, gatedWrite("email_invoice", "send", async (c
     },
     send: (key) => xeroSend(ctx, "POST", `/Invoices/${b.invoice_id}/Email`, { json: {}, key }),
     describe: () => ({ InvoiceID: b.invoice_id, emailed_to: inv.Contact?.Name }),
-    history: () => ({ resource: "Invoices", id: b.invoice_id, text: `Emailed to the customer from Xero. ${noteOf(b)}` }),
+    history: () => ({ resource: "Invoices", id: b.invoice_id, text: `Emailed to the customer from Xero.` }),
   };
 }));
 
@@ -4342,7 +4343,7 @@ app.post(`${WRITE}/payments`, gatedWrite("record_payment", "settle", async (ctx,
     send: (key) => xeroSend(ctx, "PUT", "/Payments?summarizeErrors=false", { json: pr.payload, key }),
     saved: (body) => body?.Payments?.[0] || null,
     describe: (s) => ({ PaymentID: s?.PaymentID, xero_status: s?.Status }),
-    history: (s) => s?.PaymentID && { resource: "Payments", id: s.PaymentID, text: `Payment recorded. ${noteOf(b)}` },
+    history: (s) => s?.PaymentID && { resource: "Payments", id: s.PaymentID, text: `Payment recorded.` },
   };
 }));
 
@@ -4362,7 +4363,7 @@ app.post(`${WRITE}/payment-deletions`, gatedWrite("delete_payment", "settle", as
     send: (key) => xeroSend(ctx, "POST", `/Payments/${b.payment_id}`, { json: { Status: "DELETED" }, key }),
     saved: (body) => body?.Payments?.[0] || null,
     describe: (s) => ({ PaymentID: b.payment_id, xero_status: s?.Status }),
-    history: () => ({ resource: "Payments", id: b.payment_id, text: `Payment deleted. ${noteOf(b)}` }),
+    history: () => ({ resource: "Payments", id: b.payment_id, text: `Payment deleted.` }),
   };
 }));
 
@@ -4384,7 +4385,7 @@ app.post(`${WRITE}/allocations`, gatedWrite("allocate_credit", "settle", async (
   return {
     issues, operation: "create", payload, amount: ar.amount, extra,
     send: (key) => xeroSend(ctx, "PUT", `/${b.source_type}/${b.source_id}/Allocations`, { json: ar.payload, key }),
-    history: () => ({ resource: b.source_type, id: b.source_id, text: `Allocated ${ar.amount} to invoice ${b.invoice_id}. ${noteOf(b)}` }),
+    history: () => ({ resource: b.source_type, id: b.source_id, text: `Allocated ${ar.amount} to invoice ${b.invoice_id}.` }),
   };
 }));
 
@@ -4403,7 +4404,7 @@ app.post(`${WRITE}/allocation-removals`, gatedWrite("remove_allocation", "settle
     issues, operation: "update", payload,
     extra: alloc ? { allocated_amount: alloc.Amount, invoice: alloc.Invoice?.InvoiceNumber, allocation_date: alloc.Date } : {},
     send: (key) => xeroSend(ctx, "DELETE", `/${b.source_type}/${b.source_id}/Allocations/${b.allocation_id}`, { key }),
-    history: () => ({ resource: b.source_type, id: b.source_id, text: `Allocation ${b.allocation_id} removed. ${noteOf(b)}` }),
+    history: () => ({ resource: b.source_type, id: b.source_id, text: `Allocation ${b.allocation_id} removed.` }),
   };
 }));
 
@@ -4426,7 +4427,7 @@ app.post(`${WRITE}/bank-transactions`, gatedWrite("upsert_bank_transaction", "se
     send: (key) => xeroSend(ctx, "POST", "/BankTransactions?summarizeErrors=false", { json: payload, key }),
     saved: (body) => body?.BankTransactions?.[0] || null,
     describe: (s) => ({ BankTransactionID: s?.BankTransactionID, xero_status: s?.Status, total: s?.Total }),
-    history: (s) => s?.BankTransactionID && { resource: "BankTransactions", id: s.BankTransactionID, text: `${b.id ? "Updated" : "Created"}. ${noteOf(b)}` },
+    history: (s) => s?.BankTransactionID && { resource: "BankTransactions", id: s.BankTransactionID, text: `${b.id ? "Updated" : "Created"}.` },
   };
 }));
 
@@ -4446,7 +4447,7 @@ app.post(`${WRITE}/bank-transfers`, gatedWrite("create_bank_transfer", "settle",
     send: (key) => xeroSend(ctx, "PUT", "/BankTransfers", { json: tr.payload, key }),
     saved: (body) => body?.BankTransfers?.[0] || null,
     describe: (s) => ({ BankTransferID: s?.BankTransferID }),
-    history: (s) => s?.BankTransferID && { resource: "BankTransfers", id: s.BankTransferID, text: `Transfer recorded. ${noteOf(b)}` },
+    history: (s) => s?.BankTransferID && { resource: "BankTransfers", id: s.BankTransferID, text: `Transfer recorded.` },
   };
 }));
 
@@ -4492,7 +4493,7 @@ app.post(`${WRITE}/repeating-invoices`, gatedWrite("upsert_repeating_invoice", "
     send: (key) => xeroSend(ctx, "POST", "/RepeatingInvoices?summarizeErrors=false", { json: payload, key }),
     saved: (body) => body?.RepeatingInvoices?.[0] || null,
     describe: (s) => ({ RepeatingInvoiceID: s?.RepeatingInvoiceID, xero_status: s?.Status }),
-    history: (s) => s?.RepeatingInvoiceID && { resource: "RepeatingInvoices", id: s.RepeatingInvoiceID, text: `${b.id ? "Updated" : "Created"} as DRAFT. ${noteOf(b)}` },
+    history: (s) => s?.RepeatingInvoiceID && { resource: "RepeatingInvoices", id: s.RepeatingInvoiceID, text: `${b.id ? "Updated" : "Created"} as DRAFT.` },
   };
 }));
 
@@ -5371,6 +5372,11 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
   return {
     ...bill,
     extra: { ...(bill.extra || {}), item_state: item.state, file: item.file_name, ...(by ? { submitted_by: by } : {}) },
+    // Our own fixed line, never the agents' reasoning (lib/ap-lane.js, sendRequest).
+    history: (saved, resp) => {
+      const h = bill.history ? bill.history(saved, resp) : null;
+      return h && { ...h, text: `${h.text} ${body.audit_note}` };
+    },
     // The bill, then its document, then the queue row. A failure after the
     // bill exists is reported with the bill's id and the row is still marked
     // written, so it cannot be sent twice.
