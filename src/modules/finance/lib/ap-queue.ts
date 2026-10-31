@@ -32,7 +32,17 @@ export interface ApItemRow {
   recommended: boolean;
   review_verdict: "agree" | "disagree" | null;
   review_repetitive: "repetitive" | "changed" | "one_off" | null;
+  review_agents: Array<string | null>;
   created_at: string;
+}
+
+export interface ApReview {
+  verdict: "agree" | "disagree";
+  repetitive: "repetitive" | "changed" | "one_off";
+  pattern: string | null;
+  note: string;
+  agent: string | null;
+  at: string;
 }
 
 // An agent's suggested coding (the AP Clerk), for the CFO to accept or change.
@@ -44,7 +54,9 @@ export interface ApRecommendation {
   // contact_id means a new supplier, created in Xero when the CFO uses it.
   supplier?: { contact_id: string | null; name: string; vat_number: string | null; country: string | null; reason: string };
   // A reviewer's view of this recommendation; a new recommendation has none.
-  review?: { verdict: "agree" | "disagree"; repetitive: "repetitive" | "changed" | "one_off"; pattern: string | null; note: string; agent: string | null; at: string };
+  review?: ApReview;
+  // Every review in order; `review` is the latest.
+  reviews?: ApReview[];
   agent: string | null;
   by_email: string;
   at: string;

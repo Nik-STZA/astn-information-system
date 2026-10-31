@@ -466,6 +466,63 @@
   padding-bottom: 12px;
 }
 
+.cardWrap { position: relative; }
+.card.cardWithSteps, .cardActive.cardWithSteps { padding-bottom: 46px; }
+.steps {
+  position: absolute;
+  left: 6px;
+  right: 8px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+}
+.stepTarget {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.step {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  background: var(--pnl);
+  color: var(--sub);
+  font-size: 11px;
+  font-weight: 600;
+}
+.stepDone { composes: step; color: var(--tx); background: var(--cardhover); }
+.stepNow { composes: step; color: var(--accent-text); background: var(--accent-bg); border-color: var(--accent-text); }
+.stepTick {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 13px;
+  height: 13px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--tx);
+  color: var(--pnl);
+}
+.stepStatus { margin-left: auto; font-size: 12px; color: var(--sub); }
+.agentNote {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  font-size: 13px;
+}
+.agentNoteTitle { font-weight: 600; margin-bottom: 4px; }
+.agentNoteFoot { margin-top: 8px; font-size: 12px; color: var(--sub); }
 .cardStatus {
   margin-top: 2px;
   font-size: 11px;
