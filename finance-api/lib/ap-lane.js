@@ -114,22 +114,11 @@ function buildBill({ doc, match = null, entity = {} }) {
 }
 
 // A line says what the document says, and nothing else. The supplier and number
-// have their own fields; explanation goes in the bill's notes (billNote).
+// have their own fields; explanation stays on the queue item, here on os.stza.io.
 function describe(doc, charges) {
   return charges.map((l) => l.description).filter(Boolean).join("; ") || doc.document_number || doc.supplier_name || "Supplier document";
 }
 
-// The explanation behind a bill, for its History and notes in Xero when it is
-// sent: why it was coded this way lives there, not on the line.
-function billNote(rec) {
-  if (!rec) return null;
-  const plain = (s) => String(s).replace(/\*\*/g, "").trim();
-  const parts = [plain(rec.note)];
-  for (const l of rec.lines || []) if (l.reason) parts.push(`Line ${l.index + 1}: ${plain(l.reason)}`);
-  if (rec.supplier?.reason) parts.push(`Supplier: ${plain(rec.supplier.reason)}`);
-  if (rec.review) parts.push(`Review (${rec.review.agent || "reviewer"}, ${rec.review.verdict}): ${plain(rec.review.note)}`);
-  return parts.filter(Boolean).join("\n");
-}
 
 // How many days apart the same supplier's same amount is still worth a look. A
 // month is useless: every subscription repeats (135 false pairs at 31 days, 16
@@ -529,14 +518,16 @@ function sendRequest(item) {
     lines: (bill.LineItems || []).map((l) => ({
       description: l.Description, quantity: "1", unit_amount: money2(l.LineAmount), account_code: l.AccountCode, tax_type: l.TaxType,
     })),
+    // Xero's History shows only that we acted. The reasoning is ours: it stays on
+    // the queue item and never goes to Xero.
     audit_note: fromDraft
-      ? `Draft keyed by Xero from ${item.file_name}; checked against the document by the AP lane and sent from the portal.`
-      : `From the Documents inbox (${item.file_name}), built by the AP lane and sent from the portal.`,
+      ? "Reviewed against the attached document."
+      : "Keyed from the attached document.",
   };
   return { body, issues };
 }
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, submitStops, movedOnInXero, draftVersion, billFromDraft, draftDifferences, recommendation, billReview, billNote,
+  applyEdits, decide, sendRequest, submitStops, movedOnInXero, draftVersion, billFromDraft, draftDifferences, recommendation, billReview,
 };

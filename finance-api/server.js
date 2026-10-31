@@ -5368,12 +5368,9 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
   const bill = await documentPlan("invoice")(ctx, body);
   if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
   const done = [];
-  const note = apLane.billNote(item.recommendation);
   return {
     ...bill,
     extra: { ...(bill.extra || {}), item_state: item.state, file: item.file_name, ...(by ? { submitted_by: by } : {}) },
-    history: (saved, resp) => [].concat((bill.history ? bill.history(saved, resp) : null) || [],
-      saved?.InvoiceID && note ? [{ resource: "Invoices", id: saved.InvoiceID, text: note }] : []),
     // The bill, then its document, then the queue row. A failure after the
     // bill exists is reported with the bill's id and the row is still marked
     // written, so it cannot be sent twice.

@@ -162,7 +162,7 @@ describe("step 3", () => {
       number: "GB6AYHTG9AEUD", reference: "GB6AYHTG9AEUD", currency_code: "GBP", line_amount_types: "Exclusive",
     });
     expect(body.lines[0]).toEqual({ description: "USB to Ethernet Adapter", quantity: "1", unit_amount: "12.49", account_code: "454", tax_type: "INPUT2" });
-    expect(body.audit_note).toMatch(/Documents inbox \(a\.pdf\)/);
+    expect(body.audit_note).toBe("Keyed from the attached document.");
   });
 
   it("refuses to send an exception, or a bill with no supplier, account or VAT", () => {
@@ -262,8 +262,10 @@ describe("drafts Xero keyed", () => {
     const { body, issues } = sendRequest(item);
     expect(issues).toEqual([]);
     expect(body).toMatchObject({ id: draft.InvoiceID, status: "SUBMITTED", number: "GB6AYHTG9AEUD" });
-    expect(body.audit_note).toMatch(/^Draft keyed by Xero from inv\.pdf/);
-    expect(sendRequest({ ...item, ledger_draft_id: null }).issues).toContain("the Xero draft this item came from is not recorded");
+    expect(body.audit_note).toBe("Reviewed against the attached document.");
+    // Our reasoning stays here: Xero's History is outside what we control.
+    const reasoned = sendRequest({ ...item, recommendation: { note: "Reverse charge because", review: { note: "Checked it" } } });
+    expect(reasoned.body.audit_note).toBe("Reviewed against the attached document.");    expect(sendRequest({ ...item, ledger_draft_id: null }).issues).toContain("the Xero draft this item came from is not recorded");
     // An inbox item still creates a new bill.
     expect(sendRequest({ ...item, source: "files_inbox" }).body.id).toBeUndefined();
   });
@@ -294,7 +296,7 @@ describe("due date before a send", () => {
 // The AP Clerk's suggested coding (Nik, 27 Oct 2026: asked the agent to review
 // a Bills item line by line). Advice only; checked against the company's own
 // accounts and VAT treatments.
-import { recommendation, billReview, billNote } from "./ap-lane";
+import { recommendation, billReview } from "./ap-lane";
 
 describe("recommendation", () => {
   const bill = buildBill({ doc: invoice, match: { link }, entity });
@@ -417,12 +419,7 @@ describe("the line matches the bill; the explanation goes in the notes", () => {
     expect(buildBill({ doc: { document_number: "INV-1", gross_total: 12, lines: [] }, entity: { pays_tax: false } }).LineItems[0].Description).toBe("INV-1");
   });
 
-  it("writes the note, reasons, supplier and review for the bill's history", () => {
-    const text = billNote({ note: "**Agree** coding", lines: [{ index: 0, reason: "Reverse charge" }],
-      supplier: { reason: "Legal entity on the document" }, review: { agent: "fm2", verdict: "agree", note: "Checked" } });
-    expect(text).toBe("Agree coding\nLine 1: Reverse charge\nSupplier: Legal entity on the document\nReview (fm2, agree): Checked");
-    expect(billNote(null)).toBeNull();
-  });
+
 });
 
 describe("submitStops", () => {
