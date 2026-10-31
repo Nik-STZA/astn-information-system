@@ -27,30 +27,9 @@ describe("skipReason", () => {
 });
 
 describe("determinationNote", () => {
-  it("is the one-line spec 2.3 note", () => {
-    expect(determinationNote({ supplier: supplier(), link: link(), source })).toBe(
-      "VAT: REVERSECHARGES - non-UK supplier (IE), B2B services, general rule: reverse charge. Default 453. "
-      + "Source: invoice 5713451497 (1 Oct 2026). Approved nik@stza.io, 21 Oct 2026.");
-  });
-
-  it("says mixed treatment, always discuss and related party in words", () => {
-    const n = determinationNote({ supplier: supplier({ mixed_treatment: true, always_discuss: true, related_party: true }),
-      link: link({ default_tax_type: null, default_account_code: null, vat_basis: null }), source: null });
-    expect(n).toMatch(/^VAT: no default, mixed treatment: every bill is reviewed\. Always discuss: every bill goes to the CFO\. Related party\. No default account\. Approved/);
-  });
-
-  it("carries the CFO's reasoning when the basis is a CFO decision", () => {
-    const n = determinationNote({ supplier: supplier({ country_of_establishment: "US" }),
-      link: link({ default_tax_type: "NONE", vat_basis: "cfo_decision", vat_basis_note: "services performed entirely from the USA" }), source });
-    expect(n).toMatch(/^VAT: NONE - CFO decision: services performed entirely from the USA\./);
-  });
-
-  // Underdog, 22 Oct 2026: the stored note began "CFO decision:" and ended with a full stop.
-  it("does not repeat the label or double the full stop", () => {
-    const n = determinationNote({ supplier: supplier({ country_of_establishment: "US" }),
-      link: link({ default_tax_type: "NONE", vat_basis: "cfo_decision",
-        vat_basis_note: "CFO decision: no VAT; services performed entirely from the USA (Nik, 22 Oct 2026)." }), source });
-    expect(n).toMatch(/^VAT: NONE - CFO decision: no VAT; services performed entirely from the USA \(Nik, 22 Oct 2026\)\. Default 453\./);
+  it("says we acted and nothing of why", () => {
+    const n = determinationNote({ link: link({ default_tax_type: "NONE", vat_basis: "cfo_decision", vat_basis_note: "services performed entirely from the USA" }) });
+    expect(n).toBe("Supplier defaults set by STZA, 21 Oct 2026.");
   });
 });
 
@@ -82,7 +61,7 @@ describe("planContactWrite", () => {
       contact: contact({ AccountsPayableTaxType: "NONE" }) });
     expect(p.fields).toEqual({});
     expect(p.warnings[0]).toMatch(/still defaults bills to NONE/);
-    expect(p.note).toMatch(/mixed treatment/);
+    expect(p.note).toMatch(/^Supplier defaults set by STZA/);
   });
 
   it("does not attach the same file twice, and says when there is no source", () => {

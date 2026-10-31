@@ -215,6 +215,7 @@ Added after the 30 October 2026 penetration test:
 - **Portal identity:** `astn-os` runs as `astn-os@`, which can read only `api-key` and `finance-api-key`. Anything else must be granted before merging, or the revision may not start. Merging to `main` deploys straight away.
 - **Rendering text:** use `markdownToHtml` from `src/lib/markdown.ts`, which escapes first. No new `dangerouslySetInnerHTML` on unescaped text.
 - **Bill documents:** only PDFs and png, jpeg, webp, heic, and heif images open in the browser. Anything else downloads.
+- **Xero notes:** Xero's History says only that we acted, in a short line. Notes there cannot be edited or deleted and anyone with access to the organisation can read them, so reasoning, reviews, and `audit_note` stay in `finance.audit_log`, the Bills queue, and the supplier master.
 
 ## What has been built (as of July 2026)
 

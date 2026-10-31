@@ -85,7 +85,7 @@ function guidIssues(value, field) {
 }
 
 const auditNoteIssues = (b) => (String(b.audit_note || "").trim()
-  ? [] : ["audit_note is required: it goes to the audit log and the Xero history"]);
+  ? [] : ["audit_note is required: it is kept in our audit log"]);
 
 // Positive amounts summed, as a decimal string: the debit side of a journal.
 function grossOf(amounts) {

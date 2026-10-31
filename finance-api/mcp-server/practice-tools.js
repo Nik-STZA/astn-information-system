@@ -52,7 +52,7 @@ const ENTITY = {
 };
 const DRY = { dry_run: b("Validate only, write nothing. Default true") };
 const CONFIRM = { confirmation_code: s("From a dry run of exactly this write; needed for post, send, settle, setup and conversion writes") };
-const NOTE = { audit_note: s("Why: goes to the audit log and the Xero history") };
+const NOTE = { audit_note: s("Why: kept in our audit log, never sent to Xero") };
 const LINES = list("Lines: {description, account_code, unit_amount, quantity?, tax_type?, tracking?: [{name, option}]}. Amounts as strings", { type: "object" });
 
 function tool(name, description, props = {}, required = []) {
@@ -379,7 +379,7 @@ export function practiceTools({ apiUrl, apiKey, actorEmail, log }) {
     ...NOTE, contact_id: s("To change one"), ...Object.fromEntries(CONTACT.filter((k) => !["address", "audit_note"].includes(k)).map((k) => [k, s(k.replace(/_/g, " "))])),
     address: obj("{line1, line2, city, region, postal_code, country}"), ...DRY,
   }, ["audit_note"]), (a) => write(a, "contacts", { ...pick(a, CONTACT), id: a.contact_id }));
-  def(tool("add_history_note", "A permanent note on a Xero record's history", { resource_type: s("Invoices, Contacts..."), resource_id: s("Record id"), details: s("The note"), ...DRY }, ["resource_type", "resource_id", "details"]),
+  def(tool("add_history_note", "A short permanent note on a Xero record's history, 300 characters at most. Reasoning stays in os.stza.io", { resource_type: s("Invoices, Contacts..."), resource_id: s("Record id"), details: s("The note"), ...DRY }, ["resource_type", "resource_id", "details"]),
     (a) => write(a, "history-notes", { resource_type: a.resource_type, resource_id: a.resource_id, details: a.details, audit_note: a.details }));
   def(tool("upsert_linked_transaction", "Mark a bill line as billable to a customer", { source_transaction_id: s("Bill id"), source_line_item_id: s("LineItemID"), contact_id: s("Customer"), linked_transaction_id: s("To change one"), ...NOTE, ...DRY }, ["source_transaction_id", "source_line_item_id", "audit_note"]),
     (a) => write(a, "linked-transactions", pick(a, ["source_transaction_id", "source_line_item_id", "contact_id", "linked_transaction_id", "audit_note"])));

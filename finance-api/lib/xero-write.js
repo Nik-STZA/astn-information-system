@@ -199,7 +199,7 @@ function documentRequestIssues(kind, b) {
   for (const [label, v] of [["date", b.date], ["due_date", b.due_date]]) {
     if (v && !isIsoDate(v)) issues.push(`${label} must be YYYY-MM-DD`);
   }
-  if (!String(b.audit_note || "").trim()) issues.push("audit_note is required: it is written to the Xero history of the document");
+  if (!String(b.audit_note || "").trim()) issues.push("audit_note is required: it is kept in our audit log");
   issues.push(...laneIssues(status));
   return { issues, type, status, lineAmountTypes: lat };
 }
@@ -244,7 +244,7 @@ function contactRequestIssues(b) {
   const issues = [];
   if (!b.id && !String(b.name || "").trim()) issues.push("name is required for a new contact");
   if (b.id && !isGuid(b.id)) issues.push("id must be a Xero GUID");
-  if (!String(b.audit_note || "").trim()) issues.push("audit_note is required: it is written to the contact's Xero history");
+  if (!String(b.audit_note || "").trim()) issues.push("audit_note is required: it is kept in our audit log");
   for (const f of REFUSED_CONTACT_FIELDS) {
     if (b[f] !== undefined) {
       issues.push(`${f} is refused: bank details and archiving are set by a person in Xero`);
@@ -281,7 +281,7 @@ const HISTORY_RESOURCES = [
   "Prepayments", "PurchaseOrders", "Quotes", "Receipts", "RepeatingInvoices",
 ];
 const HISTORY_PREFIX = "STZA agent (os.stza.io): ";
-const HISTORY_MAX_CHARS = 2500;
+const HISTORY_MAX_CHARS = 300;
 
 function historyText(details) {
   const d = String(details || "").trim();
