@@ -1,7 +1,7 @@
 ---
 name: other-balance-sheet-accounts
 title: Other balance sheet accounts
-version: 1.0.0
+version: 1.1.0
 summary: Reconciling every balance sheet account the other procedures do not cover, and which proof each takes: schedule, outside evidence, or a ledger review of what is in the balance and how old it is.
 roles: fm1,fc
 ---
@@ -9,14 +9,16 @@ roles: fm1,fc
 Work to the reconciliation standard in `balance-sheet-matrix`: the format, the
 three kinds of proof, opening against prior close, and how journals move. This
 procedure is the catch-all, so that **every balance sheet account with a balance has
-a reconciliation**. Tolerances and ageing limits come from the client's rules.
+a reconciliation**. Ageing limits come from the client's rules. The tolerance is the
+one shown on the rec, nil unless the CFO has set one.
 
 ## When this applies
 
-Every month, at close step 10, after the other steps. First list every balance sheet
-account in each company's `get_trial_balance`, with `get_chart_of_accounts` for what
-it is. Assign each to a procedure. Anything left is reconciled here. An account you
-cannot place is a finding, not a skip.
+Every month, at close step 10, after the other steps. Read the month's list with
+`list_recs`, which is composed from each company's trial balance, and compare it to
+`get_trial_balance` for each company. Assign each rec to a procedure. Anything left
+is reconciled here. An account the list has not placed is for a person to place, and
+is a finding, not a skip.
 
 ## Which proof applies
 
@@ -35,7 +37,7 @@ exception, because the ledger is then only agreeing with itself.
 | PAYE and NI payable | Outside evidence: HMRC statement | Agrees to the payroll report for the month, less payments shown. Old months still open are a finding: late payment can cost interest and penalties. |
 | VAT | Outside evidence: filed return and HMRC statement | Opening, plus the period's VAT, less what was paid, equals closing. Open quarter ties to the VAT report; last return ties to what was filed and paid. Per `vat-return`. |
 | Loans and external finance | Outside evidence: lender statement | Capital and interest agree. Interest accrued to month end. Current and over-one-year split right. Covenants tested per the matrix. Convertible loan notes go to the FC with the instrument. |
-| Intercompany | Outside evidence: the other company's ledger | Each pair, both sides pulled from the two ledgers, per `intercompany-recharge`. The difference is recorded as a figure. The group total nets to nil. Recoverability considered. |
+| Intercompany | Outside evidence: the other company's ledger | Each pair, both sides pulled from the two ledgers, per `intercompany-recharge`. The difference is recorded as a figure. The group total nets to nil where the companies share a currency. Across currencies there is no group total, so stop and ask how the pair is compared. Recoverability considered. |
 | Trade debtors | Schedule: aged list | Agrees to the control account. Unallocated cash and credits listed. Provision per the framework, in the matrix. |
 | Trade creditors | Schedule: aged list, then supplier statements | Agrees to the control account. Debit balances explained. Statements per `bills-coding`. |
 | Corporation and deferred tax | Outside evidence: the adviser's computation and HMRC statement | Referred to the adviser. The balance is rolled from it: opening, charge, paid, closing. |
@@ -53,7 +55,7 @@ boundary in `payroll-journal` applies: work from totals, never per-person data.
 A ledger review looks at **what is in the balance and how old it is**. A list of
 transactions is not a review.
 
-1. **Rebuild the balance item by item.** From opening, using the last signed-off rec,
+1. **Rebuild the balance item by item.** From opening, at the last month signed off,
    then invoices, credit notes, payments, bank lines, and manual journals. The
    general ledger list is not available, so say the rebuild misses system-generated
    entries and FX revaluations. If the items do not add up to the balance, show the
@@ -68,13 +70,13 @@ transactions is not a review.
 ## Steps for every account
 
 1. **Start from the prior close.** Opening equals last month's closing. Roll from the
-   last signed-off rec, month by month, and mark it **to re-check** if the prior month
-   is still open.
+   last month signed off in Reconciliations, month by month.
 2. **Use the proof in the table**, tie to the ledger per company, and show the group
-   total. For intercompany, the group total should be nil.
+   total, or each company alone where currencies differ.
 3. **Explain the movement** in a sentence.
 4. **Look at age** even where a schedule agrees. An agreed balance can still be stale.
-5. **Propose** any journal per the standard, and note what happens to the balance.
+5. **Propose** any journal with `propose_rec_journal`, and note what happens to the
+   balance.
 
 ## Done means
 
@@ -99,7 +101,8 @@ Stop and ask rather than guess when:
 
 ## What goes to the FC
 
-The list of all accounts and where each went; each rec with its proof named; each
+These recs cannot be prepared on the rec yet, so this goes per `balance-sheet-matrix`:
+the list of all accounts and where each went; each one with its proof named; each
 fallback and why; the ledger reviews with oldest items first; judgement items; the
 waits; and what you could not verify. The FC opens the outside evidence itself, and
 reads the oldest items in the ledger reviews rather than the summary of them.
@@ -120,3 +123,4 @@ reads the oldest items in the ledger reviews rather than the summary of them.
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. Names the proof for each balance not covered elsewhere, and defines the ledger review. |
+| 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |

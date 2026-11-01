@@ -1,7 +1,7 @@
 ---
 name: fixed-assets
 title: Fixed assets
-version: 1.0.0
+version: 1.1.0
 summary: Proving tangible and intangible assets and lease balances to a register: additions, disposals and depreciation rolled forward and tied to the ledger.
 roles: fm1,fc
 ---
@@ -9,8 +9,9 @@ roles: fm1,fc
 Work to the reconciliation standard in `balance-sheet-matrix`: the format, the
 three kinds of proof, opening against prior close, and how journals move. This
 procedure says what is particular to fixed assets. Capitalisation limits, useful
-lives, depreciation methods and tolerances come from the client's accounting
-policies and rules, never from here.
+lives, and depreciation methods come from the client's accounting policies and
+rules, never from here. The tolerance is the one shown on the rec, nil unless the
+CFO has set one.
 
 ## When this applies
 
@@ -18,7 +19,8 @@ Every month, for every cost and accumulated depreciation account of tangible ass
 intangible assets and, where the framework puts them on the balance sheet,
 right-of-use assets and lease liabilities. Patents and trade marks follow
 `ip-asset-register`, which owns their treatment; capitalised development costs
-need the client's register. Both still appear on one standard rec format.
+need the client's register. Both still use the one standard rec format. Cost and
+accumulated depreciation are separate GL accounts, so each is its own rec.
 
 ## What proves the balance
 
@@ -35,9 +37,8 @@ depreciation by manual journal, say so and check those too.
 
 ## Steps
 
-1. **Start from the prior close.** The last signed-off rec, rolled forward month by
-   month, with opening equal to prior close. Mark the rec **to re-check** if the prior
-   month is still open.
+1. **Start from the prior close.** The last month signed off in Reconciliations,
+   rolled forward month by month, with opening equal to prior close.
 2. **Pull the register**: `get_fixed_assets` with status REGISTERED, and again with
    DRAFT and DISPOSED. The result says if it is incomplete: if so, say the list was
    cut short. Agree cost and accumulated depreciation to the trial balance by class.
@@ -100,7 +101,7 @@ catch a lease that never made it on.
 
 - Cost and accumulated depreciation agree to the register by class, or the
   difference is named.
-- The roll-forward foots, month by month from the last signed-off rec.
+- The roll-forward foots, month by month from the last month signed off.
 - Additions and disposals are found, and each has a document.
 - Depreciation is recomputed and agrees, and the month was run.
 - Leases are on the right basis for the framework, or the question is with the CFO.
@@ -116,11 +117,12 @@ Stop and ask rather than guess when:
 - an asset belongs to another group company: see `intercompany-recharge`
 - a lease has terms you cannot read, such as a variable rent or a break clause
 - depreciation in the ledger and the register differ and the cause cannot be found
-- a change would land before the lock date in `get_organisation`
+- a journal would be dated before the lock date in `get_organisation`
 
 ## What goes to the FC
 
-The rec, the roll-forward by class, the additions and disposals lists, drafts in the
+Fixed asset recs cannot be prepared on the rec yet, so this goes per
+`balance-sheet-matrix`. The working, the roll-forward by class, the additions and disposals lists, drafts in the
 register, the depreciation proof and its result, items that look misclassified, any
 impairment question, and for leases, each judgement and the **CFO to confirm** points
 still open. The FC recomputes the depreciation for a class itself.
@@ -141,3 +143,4 @@ still open. The FC recomputes the depreciation for a class itself.
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. |
+| 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |

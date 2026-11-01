@@ -1,15 +1,15 @@
 ---
 name: bank-reconciliation
 title: Bank reconciliation
-version: 1.0.0
+version: 1.1.0
 summary: Proving every bank, card, deposit and payment provider account to its statement at the month end, with unreconciled lines listed and aged.
 roles: fm1,fc
 ---
 
 Work to the reconciliation standard in `balance-sheet-matrix`: the format, the
 three kinds of proof, opening against prior close, and how journals move. This
-procedure says what is particular to cash. Tolerances come from the client's
-rules. Where the rules are silent, a difference is reported at its full amount
+procedure says what is particular to cash. The tolerance is the one shown on the
+rec, nil unless the CFO has set one, so a difference is reported at its full amount
 and never called small.
 
 ## When this applies
@@ -20,8 +20,8 @@ currency accounts, credit cards, payment providers, merchant accounts, and any
 clearing account between them. An account with a nil ledger balance but a
 statement showing money is in scope; so is a dormant account that is still open.
 
-Each account has one owner company, so the cover shows that company's ledger. Where
-the same bank GL account appears in several companies, it is one rec with one row each.
+Bank accounts never join across companies: each is its own rec, named with its
+company, even where two companies use the same account name.
 
 ## What proves the balance
 
@@ -40,8 +40,8 @@ does not read the statement balance from Xero's bank feed. `get_bank_summary` an
 2. **Get the statement** closing balance and date for each. It must be the month-end
    date, or a later statement showing the balance at that date. Open it with
    `read_attachment`. If it is not there, record the wait (see below).
-3. **Check opening equals prior close** per the standard, and mark the rec **to
-   re-check** if the prior month is still open.
+3. **Check opening equals prior close** per the standard, starting from the last
+   month signed off in Reconciliations.
 4. **List what is not reconciled.** Use `get_bank_transactions` and `get_payments`,
    which say whether each line is reconciled, for the month and earlier. Note that
    bank transfers between accounts are not listed by these tools, so say whether
@@ -57,8 +57,9 @@ does not read the statement balance from Xero's bank feed. `get_bank_summary` an
 8. **Look for what should not be there:** a duplicated line, the same receipt both
    coded and matched to an invoice, a transfer booked on one side only, a clearing
    account that does not return to nil, and an account going the wrong way.
-9. **Foreign currency accounts:** reconcile in the account's own currency first,
-   then show the reporting currency at the closing rate and name the rate's source.
+9. **Foreign currency accounts:** reconcile to the statement in the account's own
+   currency, and say so. The platform holds no closing rates, so do not convert it
+   yourself; name any revaluation the ledger carries.
 10. **Bank against registers.** Run the control in `balance-sheet-matrix`: any
     payment over the client's threshold that matches no register row is raised by
     name. If the client has set no threshold, say the control was not run and why.
@@ -91,7 +92,8 @@ Stop and ask rather than guess when:
 
 ## What goes to the FC
 
-The rec for each account, plus: which statements were seen and their dates; which
+Bank recs cannot be prepared on the rec yet, so this goes per `balance-sheet-matrix`.
+The working for each account, plus: which statements were seen and their dates; which
 were not; the unreconciled list with ages; old items with causes; movement against
 last month's list; and any journal suggested. The FC opens at least the statement
 for each account itself and re-runs the sum from statement to ledger.
@@ -113,3 +115,4 @@ for each account itself and re-runs the sum from statement to ledger.
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. |
+| 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |

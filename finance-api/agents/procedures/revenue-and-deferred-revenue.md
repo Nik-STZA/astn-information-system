@@ -1,15 +1,16 @@
 ---
 name: revenue-and-deferred-revenue
 title: Revenue and deferred revenue
-version: 1.0.0
+version: 1.1.0
 summary: Rolling deferred income forward by contract, tying billing to revenue, proving accrued income, and applying the client's reporting framework, including the FRS 102 changes from 2026.
 roles: fm1,fc
 ---
 
 Work to the reconciliation standard in `balance-sheet-matrix`: the format, the
 three kinds of proof, opening against prior close, and how journals move. This
-procedure says what is particular to revenue. Tolerances and the client's revenue
-policy come from the client's rules.
+procedure says what is particular to revenue. The client's revenue policy comes
+from the client's rules. The tolerance is the one shown on the rec, nil unless the
+CFO has set one.
 
 Use the words the matrix sets: **deferred income** for billed and not yet earned,
 **accrued income** (or contract asset) for earned and not yet billed, and **customer
@@ -34,18 +35,17 @@ the ledger, as the AR Clerk's work should show.
 
 ## Steps
 
-1. **Start from the prior close.** The last signed-off rec, rolled forward month by
-   month without skipping, opening equal to prior close. Mark the rec **to re-check**
-   if the prior month is still open.
+1. **Start from the prior close.** The last month signed off in Reconciliations,
+   rolled forward month by month without skipping, opening equal to prior close.
 2. **Read the terms.** For each new contract, get the terms from the client's rules,
    the invoice and its attachments. What was promised, and when is it delivered?
 3. **Add billings.** `get_invoices` and `get_invoice` for the month, ACCREC, with
    `get_credit_notes`. Each line either belongs to the month, or goes on the schedule.
    Look for invoices coded to revenue covering a later period.
 4. **Release.** Work out what was earned in the month on the contract's basis.
-   Check the release posted in `get_manual_journals`, as for prepayments. Xero's
-   repeating journals may not be readable, so if you rely on a pattern of posted
-   journals, say you inferred it. **Status POSTED only**: a draft has not happened.
+   Check the release posted in `get_manual_journals`. Xero does not let us read
+   repeating journals, so if you rely on a pattern of posted journals, say you
+   inferred it. **Status POSTED only**: a draft has not happened.
 5. **Roll it.** Opening plus billings less releases equals closing, by contract, tied
    to the ledger.
 6. **Accrued income.** Each item has evidence of delivery. Check last month's items
@@ -108,12 +108,13 @@ Stop and ask rather than guess when:
 - a contract has several promises and the price split is not agreed
 - a customer dispute, cancellation, or refund affects the balance
 - the framework or the period's version of the standard is unclear
-- a release would land before the lock date in `get_organisation`
+- a journal would be dated before the lock date in `get_organisation`
 - the treatment could change revenue in a signed-off period
 
 ## What goes to the FC
 
-The rec, the schedule by contract, the roll-forward, the tie to billing, the aged
+These recs cannot be prepared on the rec yet, so this goes per `balance-sheet-matrix`.
+The working, the schedule by contract, the roll-forward, the tie to billing, the aged
 items, cut-off documents, the framework basis, each judgement with what it does to
 revenue, and what you could not verify. Deferred income and accrued income are
 judgement lines, so the FC challenges the release basis on the largest contracts and
@@ -136,3 +137,4 @@ reads the contract itself where it can.
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. |
+| 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |
