@@ -1,7 +1,7 @@
 ---
 name: month-end-close
 title: Month-end close
-version: 1.0.0
+version: 1.1.0
 summary: The standard monthly close: the steps, their order, who does each, and what done means for each. Start here for any close work.
 roles: fc,fm1,fm2,ap-clerk,ar-clerk,fpa
 ---
@@ -30,7 +30,7 @@ covered it.
 | 7 | Fixed assets and depreciation | FM1 | 3 | | fixed-assets, ip-asset-register |
 | 8 | Intercompany recharges and balances | FM1 | 4 | | intercompany-recharge |
 | 9 | VAT return, in a VAT quarter end | FM1 | 5 | 2, 3 | vat-return |
-| 10 | Balance sheet reconciliations, per entity | FM1 | 4 | 1 to 8 | balance-sheet-matrix |
+| 10 | Balance sheet reconciliations, group level by GL account | FM1 | 4 | 1 to 8 | balance-sheet-matrix, other-balance-sheet-accounts |
 | 11 | FC review of the close | FC | 5 | 10 | this procedure, balance-sheet-matrix |
 | 12 | Management pack and variance commentary | FC | 6 | 11 | variance-commentary |
 | 13 | CFO sign-off | CFO | 7 | 12, 9 | |
@@ -54,8 +54,8 @@ covered it.
    is charged, and the register ties to the ledger.
 8. **Intercompany.** Every pair agrees within tolerance, both sides named.
 9. **VAT.** The return ties to the VAT control account.
-10. **Balance sheet.** Every line on the client's matrix has a current
-    reconciliation or a named exception.
+10. **Balance sheet.** Every balance sheet account with a balance has a current
+    reconciliation on the standard format, or a named exception.
 11. **FC review.** The checks below are run and recorded, and the close is sent
     back or escalated.
 12. **Pack.** Commentary drafted for the CFO to edit, with each variance
@@ -90,3 +90,4 @@ the last invoice raised, the last bill received, the last goods received.
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 29 October 2026 | First version, matching the "Start month-end" template in Work. Bank reconciliation, accruals and prepayments, revenue and deferred revenue, and fixed assets procedures are named here and still to be written. |
+| 1.1.0 | 1 November 2026 | Those procedures are written. Balance sheet reconciliations are group level by GL account, and cover every account with a balance. |

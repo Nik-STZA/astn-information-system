@@ -1,8 +1,8 @@
 ---
 name: balance-sheet-matrix
 title: Balance sheet ownership matrix
-version: 2.0.0
-summary: Who owns each balance sheet line, what proves it, how often, and whether it is mechanical or judgement. The FC's master close control.
+version: 2.1.0
+summary: Who owns each balance sheet line, what proves it, how often, and whether it is mechanical or judgement, plus the one standard format for every reconciliation. The FC's master close control.
 roles: fc,fm1,fm2,ar-clerk,ap-clerk,fpa
 ---
 
@@ -161,6 +161,90 @@ At each close FC works the matrix top to bottom:
    small practice; a record that implies otherwise is not.
 4. Rows added or removed this month are noted in the close task with the reason.
 
+## The reconciliation standard
+
+**Every balance sheet account with a balance gets a reconciliation, on one format.**
+This holds for every client. The procedures for each balance say what proves it:
+`bank-reconciliation`, `accruals-and-prepayments`, `revenue-and-deferred-revenue`,
+`fixed-assets`, and `other-balance-sheet-accounts` for everything else.
+
+**Group level, by GL account.** One rec per GL account across the group. Where
+several companies hold the same account, it is one rec with one row each. Match
+accounts by what they hold, from `get_chart_of_accounts`, never by code alone. A
+single-company client has one row and the same format.
+
+**Who does what.** FM1 prepares, the FC reviews, the CFO signs off. The Owner column
+above says who keeps the register or subledger behind a balance; the rec itself
+follows this chain whatever that column says. Nothing is signed off until the CFO
+has done so.
+
+### The format
+
+Every rec has three parts, in your answer, in this order.
+
+1. **Cover.** The account, the month end, then one row per company and a group total:
+
+   | Company | Ledger | Support | Variance | Comment |
+   |---|---|---|---|---|
+
+   Ledger is the trial balance. Support is the schedule or evidence. Variance is ledger
+   less support, as a figure, even when nil. The comment says what the variance is
+   and what clears it. Below that: the proof used, opening and closing, the prepared,
+   reviewed and signed-off lines with dates, and this procedure's name and version.
+2. **Full trial balance.** Each company's whole trial balance at the month end, from
+   `get_trial_balance`, not only the account. Where several recs go in one run, show
+   it once and point to it.
+3. **Supporting schedule.** The schedule, evidence, or ledger review behind the
+   Support column, with enough detail to retrace it.
+
+In a foreign-currency company, show the company's own currency and the reporting
+currency at the closing rate, and name the rate's source. The group total is a
+simple sum in the reporting currency, before any consolidation entries.
+
+### The three kinds of proof
+
+| Proof | What it is |
+|---|---|
+| Schedule | A list we keep, item by item, rolled forward and tied to the ledger |
+| Outside evidence | A document from someone else, such as a bank, HMRC, a lender or a payroll report |
+| Ledger review | What is in the balance and how old it is, per `other-balance-sheet-accounts` |
+
+Each procedure names the proof. A ledger agreeing with itself is never evidence.
+
+### Rules for every rec
+
+- **Opening equals prior close.** Check it on every rec. Start from the last month the
+  CFO signed off, and roll forward one month at a time without skipping months.
+- **A prior month still open:** carry on, and mark the rec **to re-check** once that
+  month is signed off.
+- **Tolerances come from the client's rules.** No rule means every variance is
+  reported in full. Never call one small, or round it away.
+- **Plugging is banned.** A variance gets a cause, or stays on the rec as a variance.
+- **Nil balances.** A nil account needs no rec, unless it moved in the month, it had a
+  rec last month, or you expected a balance. Then say why it is nil.
+- **Timing.** Say when you pulled the trial balance. A journal posted after that means
+  the rec is pulled again.
+- **Framework.** Read it from `get_client_profile`. Where a procedure marks a point
+  **CFO to confirm**, it is not settled: raise it, and do not treat it as a rule.
+
+### Journals
+
+An agent proposes; the CFO approves; a draft goes to Xero; **the CFO posts it there.**
+
+1. On the rec, FM1 sets out any correction as a suggestion for the FC to review.
+2. After the FC's review, the CFO asks FM1 for the journal. FM1 replies with the
+   proposal, headed as its instructions say, and nothing else that needs a decision.
+3. The platform checks an approval against the answer just before it. So the proposal
+   must be FM1's latest answer, and FM1 does not hand off in that answer. Make one
+   proposal per answer, for one company.
+4. On a plain "approved", FM1 creates the draft with `create_draft_journal`. If the
+   CFO asks for a change, propose again.
+5. Once the CFO has posted it, pull the balance again and update the rec. Keep the
+   journal number on the rec.
+
+The FC holds no journal tool and does not create one. A date before the lock date in
+`get_organisation` cannot be used: stop and ask.
+
 ## Related
 
 `how-work-moves` for the review chain this matrix's artefacts flow through,
@@ -173,3 +257,4 @@ in the Artefact column each have their own skill.
 |---|---|---|
 | 1.0.0 | 31 July 2026 | First version. Master reference composed from the round table of 31 July 2026, incorporating the round table's corrections: incurred loss rather than ECL for FRS 102; FM1 owns provisions with FC challenging; provisions post monthly and re-base quarterly; capitalised development rather than "capitalised R&D"; no owner named who does not exist; cash and bank, accruals, equity, share premium and tax restored as lines |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io: work moves through Work tasks rather than folders and diary files, client specifics come from the client's rules, and client names are removed. Treatment unchanged. |
+| 2.1.0 | 1 November 2026 | Adds the reconciliation standard: every account with a balance, one format, group level by GL account, FM1 prepares, FC reviews, CFO signs off, and how a proposed journal reaches Xero. |
