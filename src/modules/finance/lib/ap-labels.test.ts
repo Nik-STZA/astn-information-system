@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AP_TABS, checkLabel, documentTypeLabel, matchOptions, money, shortDate } from "./ap-labels";
+import { AP_TABS, checkLabel, closedNotice, documentTypeLabel, matchOptions, money, shortDate } from "./ap-labels";
 
 describe("ap-labels", () => {
   it("puts every queue state in exactly one tab, except superseded; Agent review has none of its own", () => {
@@ -49,5 +49,15 @@ describe("matchOptions", () => {
   it("shows everything when nothing is typed, and nothing for no match", () => {
     expect(labels("  ")).toEqual(["442", "620", "6200", "429"]);
     expect(labels("zzz")).toEqual([]);
+  });
+});
+
+describe("closedNotice", () => {
+  it("says nothing when nothing closed", () => {
+    expect(closedNotice([])).toBe("");
+  });
+  it("names every bill that left the queue", () => {
+    expect(closedNotice([{ file: "a.pdf", status: "PAID" }, { file: null, status: "SUBMITTED" }]))
+      .toBe(" 2 finished in Xero, removed from the queue: a.pdf (PAID), a bill (SUBMITTED).");
   });
 });

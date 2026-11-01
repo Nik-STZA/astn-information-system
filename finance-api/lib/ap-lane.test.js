@@ -472,7 +472,11 @@ describe("movedOnInXero", () => {
   const { movedOnInXero } = require("./ap-lane");
   const items = [{ id: "a", ledger_draft_id: "1" }, { id: "b", ledger_draft_id: "2" }, { id: "c", ledger_draft_id: "3" }];
   it("closes what Xero says is finished, keeps a draft and anything it did not return", () => {
-    expect(movedOnInXero(items, [{ InvoiceID: "1", Status: "PAID" }, { InvoiceID: "2", Status: "DRAFT" }])).toEqual([{ id: "a", status: "PAID" }]);
+    expect(movedOnInXero(items, [{ InvoiceID: "1", Status: "PAID" }, { InvoiceID: "2", Status: "DRAFT" }]).map((x) => [x.id, x.status])).toEqual([["a", "PAID"]]);
+  });
+  it("says which bill closed and where it had been", () => {
+    const open = [{ id: "a", ledger_draft_id: "1", file_name: "bill.pdf", state: "exception" }];
+    expect(movedOnInXero(open, [{ InvoiceID: "1", Status: "PAID" }])).toEqual([{ id: "a", file: "bill.pdf", was: "exception", status: "PAID" }]);
   });
   it("counts a deleted or awaiting bill as moved on", () => {
     expect(movedOnInXero(items, [{ InvoiceID: "2", Status: "DELETED" }, { InvoiceID: "3", Status: "SUBMITTED" }]).map((x) => x.id)).toEqual(["b", "c"]);

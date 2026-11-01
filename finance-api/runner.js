@@ -730,7 +730,7 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
         } else if (["list_bills_queue", "get_bill_item", "get_bill_coding_options", "recommend_bill_coding", "record_bill_review", "submit_bill"].includes(tu.name)) {
           result = await billsTool(job, tu.name, tu.input);
           if (tu.name === "recommend_bill_coding") console.log(`    Recommendation: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
-          if (tu.name === "submit_bill") console.log(`    Submit: ${result.submitted ? "at Awaiting Approval" : `stayed (${result.status ?? result.error})`}`);
+          if (tu.name === "submit_bill") console.log(`    Submit: ${result.submitted ? "at Awaiting Approval" : `stayed (${result.status ?? result.error}): ${JSON.stringify(result.stays_with_cfo ?? "").slice(0, 300)}`}`);
         } else if (work.names.includes(tu.name)) {
           result = await work.call(job, connectedEntities, tu.name, tu.input);
           if (tu.name !== "list_tasks") console.log(`    Work: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);

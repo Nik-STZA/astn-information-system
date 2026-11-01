@@ -97,3 +97,13 @@ export function matchOptions<T extends { label: string }>(options: T[], query: s
   });
   return [...hits.filter((o) => o.label.toLowerCase().startsWith(q)), ...hits.filter((o) => !o.label.toLowerCase().startsWith(q))];
 }
+
+// What Fetch took out of the queue because Xero moved on. Each bill is named:
+// closed items sit in no tab, so one must not disappear without a word.
+export interface ClosedItem { file: string | null; status: string }
+
+export function closedNotice(closed: ClosedItem[]): string {
+  if (!closed.length) return "";
+  const named = closed.map((c) => `${c.file ?? "a bill"} (${c.status})`).join(", ");
+  return ` ${closed.length} finished in Xero, removed from the queue: ${named}.`;
+}
