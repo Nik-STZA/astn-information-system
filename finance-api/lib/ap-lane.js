@@ -467,6 +467,38 @@ function submitStops(item) {
   return [...new Set(stops)];
 }
 
+// Would this bill need the agents? (the CFO's idea, agreed 1 Nov 2026). A bill is
+// known after the supplier's last KNOWN_BILLS bills through this lane were all
+// approved in Xero with the coding we sent, the same each time. Older Xero history
+// does not count: a past mistake must not become the rule. New line wording, a
+// cost above KNOWN_BILL_RISE of the recent highest, another currency, or any stop
+// check sends it to the agents as usual.
+//   priors  newest first: { recommendation, proposed_bill, xero } (xero: the bill now)
+// Recorded only so far: nothing here skips a review or writes to Xero.
+const KNOWN_BILLS = 3;
+const KNOWN_BILL_RISE = 1.1;
+const APPROVED_IN_XERO = ["AUTHORISED", "PAID"];
+const wording = (l) => String(l.Description ?? l.description ?? "").toLowerCase().replace(/[^a-z]+/g, " ").trim();
+const codingOf = (lines) => [...new Set(lines.map((l) => `${l.account_code ?? l.AccountCode}|${l.tax_type ?? l.TaxType}`))].sort().join(",");
+
+function knownBill(item, priors) {
+  const recent = priors.slice(0, KNOWN_BILLS);
+  if (recent.length < KNOWN_BILLS) return { known: false, reasons: [`only ${recent.length} earlier bills`] };
+  const reasons = [];
+  if (recent.some((p) => !p.xero || !APPROVED_IN_XERO.includes(p.xero.Status))) reasons.push("an earlier bill is not approved in Xero");
+  const sent = recent.map((p) => codingOf(p.recommendation?.lines ?? []));
+  if (recent.some((p, i) => !sent[i] || !p.xero || codingOf(p.xero.LineItems ?? []) !== sent[i])) reasons.push("an earlier bill's coding was changed");
+  if (new Set(sent).size > 1) reasons.push("the earlier bills were coded differently");
+  const bill = item.proposed_bill ?? {};
+  if (recent.some((p) => p.xero?.CurrencyCode !== bill.CurrencyCode)) reasons.push("a different currency");
+  const highest = Math.max(...recent.map((p) => Number(p.xero?.Total ?? 0)));
+  if (Number(bill.Total) > highest * KNOWN_BILL_RISE) reasons.push("the cost is more than 10% above recent bills");
+  const seen = new Set(recent.flatMap((p) => (p.proposed_bill?.LineItems ?? []).map(wording)));
+  if ((bill.LineItems ?? []).some((l) => !seen.has(wording(l)))) reasons.push("a new line");
+  for (const r of item.review?.reasons || []) if (STOP_CHECKS[r.check]) reasons.push(STOP_CHECKS[r.check]);
+  return { known: !reasons.length, reasons: [...new Set(reasons)], ...(reasons.length ? {} : { coding: recent[0].recommendation.lines }) };
+}
+
 // What the CFO's decision on a queue item does to it, or why it cannot.
 //   item    the finance.ap_items row
 //   action  "approve" | "reject"
@@ -529,5 +561,5 @@ function sendRequest(item) {
 
 module.exports = {
   screenFile, notADocument, matchSupplier, buildBill, duplicatesOf, alreadyBilled, triage, MIN_IMAGE_BYTES,
-  applyEdits, decide, sendRequest, submitStops, movedOnInXero, draftVersion, billFromDraft, draftDifferences, recommendation, billReview,
+  applyEdits, decide, sendRequest, submitStops, knownBill, movedOnInXero, draftVersion, billFromDraft, draftDifferences, recommendation, billReview,
 };

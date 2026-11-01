@@ -179,6 +179,7 @@ function Card({ item, href, active, progress, stepHref }: {
     item.recommended ? "Suggested" : null,
     item.review_verdict === "agree" ? "Reviewed" : null,
     item.review_repetitive === "repetitive" ? "Repetitive" : null,
+    item.known_bill ? "Known bill" : null,
   ].filter(Boolean);
   const bad = [
     item.review_verdict === "disagree" ? "Reviewer disagrees" : null,

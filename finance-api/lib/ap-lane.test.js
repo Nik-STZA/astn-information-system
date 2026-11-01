@@ -468,6 +468,51 @@ describe("submitStops", () => {
   });
 });
 
+describe("knownBill", () => {
+  const { knownBill } = require("./ap-lane");
+  const line = (Description = "Monthly hosting") => ({ Description });
+  const prior = (over = {}, xero = {}) => ({
+    recommendation: { lines: [{ index: 0, account_code: "453", tax_type: "REVERSECHARGES" }] },
+    proposed_bill: { LineItems: [line()] },
+    xero: { Status: "PAID", CurrencyCode: "USD", Total: 100, LineItems: [{ AccountCode: "453", TaxType: "REVERSECHARGES" }], ...xero },
+    ...over,
+  });
+  const item = (over = {}) => ({ proposed_bill: { CurrencyCode: "USD", Total: 105, LineItems: [line()], ...over }, review: { reasons: [] } });
+  const three = (x = {}, o = {}) => [prior(), prior(), prior(o, x)];
+
+  it("knows a bill after three approved, unchanged bills", () => {
+    const r = knownBill(item(), three());
+    expect(r.known).toBe(true);
+    expect(r.coding[0].account_code).toBe("453");
+  });
+  it("needs three", () => {
+    expect(knownBill(item(), [prior(), prior()])).toEqual({ known: false, reasons: ["only 2 earlier bills"] });
+  });
+  it("counts only bills approved in Xero", () => {
+    expect(knownBill(item(), three({ Status: "SUBMITTED" })).reasons).toEqual(["an earlier bill is not approved in Xero"]);
+    expect(knownBill(item(), three({ Status: "AUTHORISED" })).known).toBe(true);
+  });
+  it("does not count a bill whose coding was changed in Xero", () => {
+    expect(knownBill(item(), three({ LineItems: [{ AccountCode: "412", TaxType: "NONE" }] })).reasons).toEqual(["an earlier bill's coding was changed"]);
+  });
+  it("needs the same coding each time", () => {
+    const other = { recommendation: { lines: [{ account_code: "412", tax_type: "NONE" }] } };
+    expect(knownBill(item(), three({ LineItems: [{ AccountCode: "412", TaxType: "NONE" }] }, other)).reasons).toEqual(["the earlier bills were coded differently"]);
+  });
+  it("allows up to 10% above the recent highest", () => {
+    expect(knownBill(item({ Total: 110 }), three()).known).toBe(true);
+    expect(knownBill(item({ Total: 110.01 }), three()).reasons).toEqual(["the cost is more than 10% above recent bills"]);
+  });
+  it("treats new wording or another currency as a change, ignoring numbers and dates", () => {
+    expect(knownBill(item({ LineItems: [line("Consulting")] }), three()).reasons).toEqual(["a new line"]);
+    expect(knownBill(item({ LineItems: [line("Monthly hosting 12/26")] }), three()).known).toBe(true);
+    expect(knownBill(item({ CurrencyCode: "GBP" }), three()).reasons).toEqual(["a different currency"]);
+  });
+  it("leaves a bill with a stop check to the agents", () => {
+    expect(knownBill({ ...item(), review: { reasons: [{ check: "duplicate" }] } }, three()).known).toBe(false);
+  });
+});
+
 describe("movedOnInXero", () => {
   const { movedOnInXero } = require("./ap-lane");
   const items = [{ id: "a", ledger_draft_id: "1" }, { id: "b", ledger_draft_id: "2" }, { id: "c", ledger_draft_id: "3" }];

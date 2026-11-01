@@ -32,6 +32,8 @@ export interface ApItemRow {
   recommended: boolean;
   review_verdict: "agree" | "disagree" | null;
   review_repetitive: "repetitive" | "changed" | "one_off" | null;
+  // Would not have needed the agents (ap-lane.knownBill); they still review it.
+  known_bill?: boolean | null;
   review_agents: Array<string | null>;
   created_at: string;
 }

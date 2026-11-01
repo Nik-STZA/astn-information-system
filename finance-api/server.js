@@ -5114,10 +5114,44 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
       results.push({ file: f.Name, error: e.message.slice(0, 300) });
     }
   }
+  await recordKnownBills(ctx, req, results, get);
   res.json({ entity: entity.name, run_id: runId, inbox_files: inboxFiles.length, xero_drafts: drafts.length,
     read_now: todoDrafts.length + todo.length,
     remaining: (unreadDrafts.length - todoDrafts.length) + (unread.length - todo.length), closed: closed.length, closed_items: closed, results });
 }));
+
+// Would each new bill have needed the agents (lib/ap-lane.js, knownBill)? Recorded
+// on the item and in the audit log, and nothing more: the agents still review it.
+// It never fails a fetch, and it reads Xero only for suppliers with enough bills.
+async function recordKnownBills(ctx, req, results, get) {
+  const { client, entity } = ctx;
+  const ids = results.map((r) => r.item_id).filter(Boolean);
+  try {
+    const items = (await pool.query("SELECT id, proposed_bill, review FROM finance.ap_items WHERE id = ANY($1::uuid[])", [ids])).rows;
+    for (const item of items) {
+      const contact = item.proposed_bill?.Contact;
+      if (!contact?.ContactID && !contact?.Name) continue;
+      const priors = (await pool.query(
+        `SELECT recommendation, proposed_bill, xero_invoice_id FROM finance.ap_items
+          WHERE entity_id = $1 AND state = 'written' AND recommendation IS NOT NULL AND xero_invoice_id IS NOT NULL
+            AND (proposed_bill->'Contact'->>'ContactID' = $2 OR proposed_bill->'Contact'->>'Name' = $3)
+          ORDER BY written_at DESC LIMIT 3`, [entity.id, contact.ContactID ?? null, contact.Name ?? null])).rows;
+      if (priors.length < 3) continue;
+      const now = (await get("/Invoices", { IDs: priors.map((p) => p.xero_invoice_id).join(",") })).Invoices ?? [];
+      const verdict = apLane.knownBill(item, priors.map((p) => ({ ...p, xero: now.find((i) => i.InvoiceID === p.xero_invoice_id) })));
+      await pool.query(
+        "UPDATE finance.ap_items SET review = COALESCE(review, '{}'::jsonb) || jsonb_build_object('known_bill', $2::jsonb) WHERE id = $1",
+        [item.id, JSON.stringify({ known: verdict.known, reasons: verdict.reasons })]);
+      await audit(pool, {
+        actorEmail: (req.get("X-Actor-Email") || "").trim(), action: "ap_item_known_bill", targetType: "ap_item", targetId: item.id, clientId: client.id,
+        payload: { entity: entity.slug, known: verdict.known, reasons: verdict.reasons },
+        ip: req.get("X-Forwarded-For") || req.ip,
+      });
+    }
+  } catch (e) {
+    console.error(`known bill check failed for ${entity.slug}: ${e.message}`);
+  }
+}
 
 // GET /api/finance/clients/:slug/xero/:entity/ap/items?state=clean|exception|...
 // The queue, newest first, without the extraction (GET one item for that).
@@ -5132,6 +5166,7 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items", route(async (req, re
             i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.source,
             i.recommendation IS NOT NULL AS recommended, i.recommendation->'review'->>'verdict' AS review_verdict,
             i.recommendation->'review'->>'repetitive' AS review_repetitive,
+            (i.review->'known_bill'->>'known') = 'true' AS known_bill,
             COALESCE((SELECT jsonb_agg(r->>'agent') FROM jsonb_array_elements(COALESCE(i.recommendation->'reviews', '[]'::jsonb)) r), '[]'::jsonb) AS review_agents,
             i.created_at
        FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
