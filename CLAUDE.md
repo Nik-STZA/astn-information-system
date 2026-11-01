@@ -4,13 +4,13 @@ This file gives standing context to Claude Code for every session in this reposi
 
 ## What this project is
 
-The internal operating system for **African Sports Technology Network (AfricanSTN)**, operated by **Sports Tech Africa Limited (STZA)**. A Next.js 14 dashboard, deployed to Cloud Run, authenticated by Google Cloud Identity-Aware Proxy, backed by Cloud SQL for PostgreSQL 17.
+The internal operating system for **African Sports Technology Network (AfricanSTN)**, operated by **Sports Tech Africa Limited (STZA)**. A Next.js 16 dashboard, deployed to Cloud Run, authenticated by Google Cloud Identity-Aware Proxy, backed by Cloud SQL for PostgreSQL 17.
 
 It is an **internal-only** tool for a single operator today. It is NOT a licensed or public product. See the "Future considerations" section of README.md before doing anything that would expose data externally — licensed access requires a separate architecture (a separate surface, server-side-only DB access, tiered permissions, auditing, rate limiting) and must not be bolted onto this codebase.
 
 ## Tech stack
 
-- Next.js 14 (App Router), TypeScript, Tailwind CSS
+- Next.js 16 (App Router), TypeScript, Tailwind CSS
 - Google Cloud Identity-Aware Proxy for authentication (see "Authentication" below)
 - Cloud SQL for PostgreSQL 17, reached through the Express API on Cloud Run
 - Recharts for charts, `docx` for Word generation
@@ -35,7 +35,7 @@ request at the load balancer and enforces access via IAM
 `x-goog-authenticated-user-email` assertion header.
 
 - `src/lib/auth.ts` — `getIapEmail()` reads and parses the assertion header
-- `src/middleware.ts` — rejects any request lacking the header, and any change that did not come from our own pages
+- `src/proxy.ts` — rejects any request lacking the header, and any change that did not come from our own pages
 - `src/app/(app)/layout.tsx` — reads the email for display, redirects to `/blocked`
 - Sign-out clears the session at the proxy via `/_gcp_iap/clear_login_cookie`
 
@@ -80,7 +80,7 @@ and no Supabase client files in `src/` any more.
 
 - Authenticated routes live under the `src/app/(app)/` route group, which shares a
   layout that reads the IAP identity and renders the TopNav.
-- Auth is enforced in two places (defence in depth): `src/middleware.ts` and the
+- Auth is enforced in two places (defence in depth): `src/proxy.ts` and the
   `(app)` layout.
 - Data-fetching functions live in `src/lib/data/`, and reach the database through
   `src/lib/cloud-run.ts`. **The Next.js app has no database driver.** Every query

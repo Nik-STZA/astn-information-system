@@ -19,7 +19,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ManagementPackPage({ params }: { params: { slug: string } }) {
+export default async function ManagementPackPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
+  const params = await paramsPromise;
   const { slug } = params;
 
   let runs: ReportRunRow[] = [];

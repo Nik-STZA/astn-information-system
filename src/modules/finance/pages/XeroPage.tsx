@@ -96,13 +96,12 @@ function EntityCard({ slug, conn }: { slug: string; conn: XeroConnection }) {
   );
 }
 
-export default async function XeroPage({
-  params,
-  searchParams,
-}: {
-  params: { slug: string };
-  searchParams?: { connected?: string; error?: string };
+export default async function XeroPage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ connected?: string; error?: string }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const status = await fetchXeroStatus(params.slug);
 
   return (

@@ -6,8 +6,12 @@ import { decideApItem, type ApDecisionBody } from "@/modules/finance/lib/ap-queu
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { slug: string; entity: string; id: string } }) {
-  const actorEmail = getIapEmail();
+export async function POST(
+  req: Request,
+  props: { params: Promise<{ slug: string; entity: string; id: string }> }
+) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as ApDecisionBody;
   const r = await decideApItem(params.slug, params.entity, params.id, actorEmail, body);

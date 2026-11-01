@@ -77,7 +77,8 @@ function Entry({ entry }: { entry: DiaryEntryRow }) {
   );
 }
 
-export default async function DiaryPage({ params }: { params: { slug: string } }) {
+export default async function DiaryPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
+  const params = await paramsPromise;
   const entries = await fetchDiary(params.slug);
 
   return (

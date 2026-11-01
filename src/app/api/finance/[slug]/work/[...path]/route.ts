@@ -7,10 +7,11 @@ import { isWorkPath, workCall } from "@/modules/finance/lib/work";
 
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: { slug: string; path: string[] } };
+type Ctx = { params: Promise<{ slug: string; path: string[] }> };
 
-async function pass(req: Request, { params }: Ctx, method: string) {
-  const actorEmail = getIapEmail();
+async function pass(req: Request, ctx: Ctx, method: string) {
+  const params = await ctx.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const path = params.path.map(encodeURIComponent).join("/");
   if (!isWorkPath(path)) return NextResponse.json({ error: "not found" }, { status: 404 });

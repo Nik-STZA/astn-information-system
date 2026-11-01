@@ -10,7 +10,8 @@ import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
-export default function ReportsPage({ params }: { params: { slug: string } }) {
+export default async function ReportsPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
+  const params = await paramsPromise;
   const base = `/finance/clients/${params.slug}/reports`;
   const live = <span className={`${styles.status} ${styles["s-green"]}`}><span className={styles.dot} />Live</span>;
   return (

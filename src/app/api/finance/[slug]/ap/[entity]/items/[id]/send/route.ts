@@ -7,8 +7,12 @@ import { sendApItem } from "@/modules/finance/lib/ap-queue";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export async function POST(req: Request, { params }: { params: { slug: string; entity: string; id: string } }) {
-  const actorEmail = getIapEmail();
+export async function POST(
+  req: Request,
+  props: { params: Promise<{ slug: string; entity: string; id: string }> }
+) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as { dry_run?: boolean };
   const r = await sendApItem(params.slug, params.entity, params.id, actorEmail, body.dry_run !== false);

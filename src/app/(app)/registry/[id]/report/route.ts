@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 // so run on the Node runtime rather than edge.
 export const runtime = "nodejs";
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const org = await fetchOrganization(params.id);
   if (!org) {
     return new NextResponse("Organisation not found", { status: 404 });

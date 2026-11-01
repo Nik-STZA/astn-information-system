@@ -5,16 +5,18 @@ import { clientIpFrom } from "@/shared/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: { slug: string } }) {
-  if (!getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
+export async function GET(_req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
+  if (!await getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const r = await listAgentRuns(params.slug);
   return r.ok
     ? NextResponse.json({ data: r.data })
     : NextResponse.json({ error: r.error }, { status: r.status });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
-  const actorEmail = getIapEmail();
+export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));

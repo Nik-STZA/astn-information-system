@@ -9,8 +9,12 @@ export const dynamic = "force-dynamic";
 // downloads, so a file pretending to be a web page cannot run as one of ours.
 const SHOWN = /^(application\/pdf|image\/(png|jpeg|webp|heic|heif))\b/i;
 
-export async function GET(_req: Request, { params }: { params: { slug: string; entity: string; id: string } }) {
-  if (!getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
+export async function GET(
+  _req: Request,
+  props: { params: Promise<{ slug: string; entity: string; id: string }> }
+) {
+  const params = await props.params;
+  if (!await getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const upstream = await fetchApFile(params.slug, params.entity, params.id);
   if (!upstream.ok) return NextResponse.json({ error: `the document could not be fetched (${upstream.status})` }, { status: upstream.status });
   const type = upstream.headers.get("content-type") ?? "";

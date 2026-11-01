@@ -5,8 +5,9 @@ import { createApSupplier } from "@/modules/finance/lib/ap-queue";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { slug: string; entity: string } }) {
-  const actorEmail = getIapEmail();
+export async function POST(req: Request, props: { params: Promise<{ slug: string; entity: string }> }) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as { name?: string; vat_number?: string | null; country?: string | null; item_id?: string };
   if (!b.name || !b.item_id) return NextResponse.json({ error: "name and item_id are required" }, { status: 400 });

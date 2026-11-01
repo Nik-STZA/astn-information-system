@@ -25,13 +25,12 @@ function Choice({ href, label, active }: { href: string; label: string; active: 
   return <Link href={href} className={active ? "seg-on" : undefined} aria-current={active ? "page" : undefined}>{label}</Link>;
 }
 
-export default async function AgedPayablesPage({
-  params,
-  searchParams,
-}: {
-  params: { slug: string };
-  searchParams: { [key: string]: string | string[] | undefined };
+export default async function AgedPayablesPage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const { slug } = params;
 
   let entities: FinanceEntity[] = [];
