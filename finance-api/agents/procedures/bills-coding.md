@@ -1,7 +1,7 @@
 ---
 name: bills-coding
 title: Supplier bills and statements
-version: 1.9.0
+version: 1.10.0
 summary: Coding supplier bills in the Bills queue, reading the document before the supplier's habit, and reconciling supplier statements.
 roles: ap-clerk,fm2,fc
 ---
@@ -39,6 +39,19 @@ each line's reason.
    it; do not code it.
 
 ## Coding
+
+### The account for each line
+
+**Code each line from what the document says was bought, using the account's own
+name and description in `get_bill_coding_options`.** Do this before you look at how
+the supplier was coded before, and treat every line on its own: one supplier can
+sell several things, and one bill can need several accounts.
+
+Then compare with the supplier's earlier bills. Where they differ, recommend the
+right account for this bill, name the earlier bills, and say what would need
+correcting. "This is how it has always been coded" is never the reason for an
+account: a run of matching bills can be a run of the same mistake. An account the
+CFO has approved in Procedures for this client does take precedence.
 
 **Code from the document, not the supplier's habit.** Where the supplier has
 earlier bills for the same kind of supply, match their account: consistency is
@@ -158,7 +171,19 @@ Xero. The platform refuses a bill on its stop list and says why; that bill stays
 in the Bills tab for the CFO, so report it and do not argue with it. A regular bill
 that **changed** needs the FC, so hand it on rather than submitting it. Clear a
 flag that does not matter, such as no due date on a card receipt, with a reason in
-your note. If you doubt a bill, do not submit it, whatever the checks say.
+your note.
+
+**A review tests the coding, it does not repeat it.** Take each line of the
+document and ask which account you would choose, without relying on the clerk's
+answer or earlier bills. If you would choose a different account or VAT treatment
+on any line, your verdict is **disagree**, and say which line and why. Do not
+record agree with a doubt in the note, and do not call it a judgement call to pass
+it on: a disagreement is what keeps a bill out of Xero until the CFO has seen it.
+If you doubt a bill, do not submit it, whatever the checks say.
+
+Be exact about what was read. `check_bill` marks some checks as not run; that says
+what the platform compared, not that nobody read the document. If you did not open
+the document, say so.
 
 ## Handing on
 
@@ -185,6 +210,7 @@ or approves a bill: those stay with the CFO.
 | 1.7.0 | 30 October 2026 | A platform's receipt stays with the platform: Uber, not the driver. |
 | 1.6.0 | 30 October 2026 | The agent decides the correct VAT treatment and gives the rule; earlier coding is evidence, and a difference is a finding. |
 | 1.4.0 | 30 October 2026 | The line matches the bill only; explanation goes to the bill's notes in Xero. |
+| 1.10.0 | 1 November 2026 | Each line is coded from the document before earlier bills are looked at, and a reviewer who would code a line differently disagrees rather than passing it on as a judgement call. A bill all coded to Rent, on a supplier's habit, reached Awaiting Approval when its lines were room hire and printing. |
 | 1.3.1 | 30 October 2026 | An empty queue is not handed on. |
 | 1.3.0 | 30 October 2026 | The clerk hands the queue to FM2, which records a review and the repetitive flag on each item. FC sees bills only by exception. |
 | 1.2.0 | 30 October 2026 | The note is scannable, and a recommendation can name the right supplier. |
