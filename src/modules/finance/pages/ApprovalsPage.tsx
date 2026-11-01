@@ -9,7 +9,8 @@ import { fetchWipItems, type WipItemRow } from "@/modules/finance/lib/api";
 
 export const dynamic = "force-dynamic";
 
-export default async function ApprovalsPage({ params }: { params: { slug: string } }) {
+export default async function ApprovalsPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
+  const params = await paramsPromise;
   let items: WipItemRow[] = [];
   let error: string | null = null;
 

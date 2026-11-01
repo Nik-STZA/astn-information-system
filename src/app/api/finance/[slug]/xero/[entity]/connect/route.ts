@@ -25,9 +25,10 @@ function redirectUri(req: NextRequest): string {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { slug: string; entity: string } }
+  props: { params: Promise<{ slug: string; entity: string }> }
 ) {
-  if (!getIapEmail()) {
+  const params = await props.params;
+  if (!await getIapEmail()) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   }
 

@@ -7,10 +7,11 @@ import { isMasterPath, masterCall } from "@/modules/finance/lib/clients";
 
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: { path?: string[] } };
+type Ctx = { params: Promise<{ path?: string[] }> };
 
-async function pass(req: Request, { params }: Ctx, method: string) {
-  const actorEmail = getIapEmail();
+async function pass(req: Request, ctx: Ctx, method: string) {
+  const params = await ctx.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const path = (params.path ?? []).map(encodeURIComponent).join("/");
   if (!isMasterPath(path)) return NextResponse.json({ error: "not found" }, { status: 404 });

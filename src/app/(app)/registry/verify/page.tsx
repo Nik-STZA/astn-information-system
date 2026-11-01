@@ -109,7 +109,8 @@ function sortHref(
 
 /* ── Page ────────────────────────────────────────────────────────── */
 
-export default async function VerificationQueuePage({ searchParams }: PageProps) {
+export default async function VerificationQueuePage(props: PageProps) {
+  const searchParams = await props.searchParams;
   const filters: RegistryFilterValues = {
     country: readParam(searchParams.country),
     sport: readParam(searchParams.sport),

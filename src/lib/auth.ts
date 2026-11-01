@@ -9,8 +9,11 @@ import { headers } from "next/headers";
  * request that lacks it.
  */
 
-export function getIapEmail(): string | null {
-  const h = headers();
+// Always await this. A forgotten await gives a Promise, which counts as true in
+// `if (!getIapEmail())` and would let everyone through; auth.guard.test.ts fails
+// the build if a call has no await.
+export async function getIapEmail(): Promise<string | null> {
+  const h = await headers();
   const raw = h.get("x-goog-authenticated-user-email");
   if (!raw) return null;
   const email = raw.split(":").pop();
@@ -20,5 +23,5 @@ export function getIapEmail(): string | null {
 // The signed-in user's email; null if unauthenticated (should not occur
 // behind IAP — the middleware 403s requests without the assertion header).
 export async function getAuthEmail(): Promise<string | null> {
-  return getIapEmail();
+  return await getIapEmail();
 }

@@ -9,13 +9,12 @@ import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProceduresPage({
-  params,
-  searchParams,
-}: {
-  params: { slug: string };
-  searchParams?: { p?: string };
+export default async function ProceduresPage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ p?: string }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const { slug } = params;
   const name = searchParams?.p && /^[a-z0-9-]+$/.test(searchParams.p) ? searchParams.p : null;
   const [list, detail] = await Promise.all([fetchProcedures(slug), name ? fetchProcedure(slug, name) : Promise.resolve(null)]);

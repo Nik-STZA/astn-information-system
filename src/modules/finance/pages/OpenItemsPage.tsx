@@ -66,11 +66,10 @@ function Group({ title, items, slug }: { title: string; items: OpenItemRow[]; sl
   );
 }
 
-export default async function OpenItemsPage({
-  params,
-}: {
-  params: { slug: string };
+export default async function OpenItemsPage({ params: paramsPromise }: {
+  params: Promise<{ slug: string }>;
 }) {
+  const params = await paramsPromise;
   const items = await fetchOpenItems(params.slug);
 
   // The register keeps completed items in the active table until someone tidies

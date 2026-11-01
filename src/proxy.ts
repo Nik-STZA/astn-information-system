@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isSameSite } from "@/shared/lib/request-origin";
 
 /**
- * Middleware for the AfricanSTN information system.
+ * Request gate (proxy) for the AfricanSTN information system.
  *
  * Authentication happens at the edge: the app is served exclusively through a
  * load balancer with Identity-Aware Proxy. IAP authenticates the user
@@ -16,7 +16,7 @@ import { isSameSite } from "@/shared/lib/request-origin";
  * IAP cannot tell a person's click from a request another site made with
  * their cookie, so changes must also come from our own pages.
  */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const assertion = req.headers.get("x-goog-authenticated-user-email");
   if (!assertion) {
     return new NextResponse("Forbidden — this app is served via IAP.", { status: 403 });

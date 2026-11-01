@@ -5,8 +5,12 @@ import { clientIpFrom } from "@/shared/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, { params }: { params: { slug: string; entity: string } }) {
-  const actorEmail = getIapEmail();
+export async function POST(
+  req: NextRequest,
+  props: { params: Promise<{ slug: string; entity: string }> }
+) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as {

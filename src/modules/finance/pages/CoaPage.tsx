@@ -8,13 +8,12 @@ import styles from "@/modules/finance/components/Page.module.css";
 
 export const dynamic = "force-dynamic";
 
-export default async function CoaPage({
-  params,
-  searchParams,
-}: {
-  params: { slug: string };
-  searchParams?: { entity?: string };
+export default async function CoaPage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ entity?: string }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const { slug } = params;
   const [view, meta] = await Promise.all([
     fetchCoaMapping(slug, searchParams?.entity),

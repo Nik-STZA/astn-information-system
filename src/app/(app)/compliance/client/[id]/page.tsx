@@ -3,11 +3,12 @@ import { fetchClients } from "@/lib/data/compliance";
 import { fetchClientRemediation, fetchClientAudit } from "@/lib/data/remediation";
 import RemediationClient from "./RemediationClient";
 
-export default async function ClientRemediationPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function ClientRemediationPage(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const clientId = params.id;
   if (!clientId) redirect("/compliance");
 

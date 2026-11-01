@@ -21,7 +21,7 @@ function back(origin: string, slug: string, params: Record<string, string>) {
 }
 
 export async function GET(req: NextRequest) {
-  const actorEmail = getIapEmail();
+  const actorEmail = await getIapEmail();
   if (!actorEmail) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   }

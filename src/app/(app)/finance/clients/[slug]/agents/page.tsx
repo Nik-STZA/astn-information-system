@@ -1,2 +1,3 @@
 // Route binding only. The page lives in the Finance module.
-export { default, dynamic } from "@/modules/finance/pages/AgentsPage";
+export { default } from "@/modules/finance/pages/AgentsPage";
+export const dynamic = "force-dynamic";

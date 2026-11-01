@@ -16,13 +16,12 @@ export const dynamic = "force-dynamic";
 
 const ALL_STATES = AP_TABS.flatMap((t) => t.states);
 
-export default async function ApQueuePage({
-  params,
-  searchParams,
-}: {
-  params: { slug: string };
-  searchParams: { entity?: string; tab?: string; item?: string; with?: string; agent?: string };
+export default async function ApQueuePage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ entity?: string; tab?: string; item?: string; with?: string; agent?: string }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   let error: string | null = null;
   let entities: Array<{ slug: string; name: string }> = [];
   let items: ApItemRow[] = [];

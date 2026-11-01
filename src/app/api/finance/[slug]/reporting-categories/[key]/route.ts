@@ -5,10 +5,11 @@ import { clientIpFrom } from "@/shared/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { slug: string; key: string } };
+type Params = { params: Promise<{ slug: string; key: string }> };
 
-export async function PUT(req: NextRequest, { params }: Params) {
-  const actorEmail = getIapEmail();
+export async function PUT(req: NextRequest, props: Params) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const r = await saveCategory({
@@ -23,8 +24,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
     : NextResponse.json({ error: r.error, errors: r.errors }, { status: r.status });
 }
 
-export async function DELETE(req: NextRequest, { params }: Params) {
-  const actorEmail = getIapEmail();
+export async function DELETE(req: NextRequest, props: Params) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
   const r = await removeCategory({
     slug: params.slug,

@@ -8,10 +8,12 @@ import { fetchTasks, type Task } from "@/modules/finance/lib/work";
 
 export const dynamic = "force-dynamic";
 
-export default async function WorkPage({ params, searchParams }: {
-  params: { slug: string };
-  searchParams: { task?: string; view?: string };
+export default async function WorkPage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ task?: string; view?: string }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   let tasks: Task[] = [];
   let error: string | null = null;
   let entities: Array<{ id: string; slug: string; name: string }> = [];

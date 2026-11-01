@@ -7,7 +7,8 @@ import { fetchClientProfile, fetchMasterClient } from "@/modules/finance/lib/cli
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientSetupPage({ params }: { params: { slug: string } }) {
+export default async function ClientSetupPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
+  const params = await paramsPromise;
   const [client, profile] = await Promise.all([fetchMasterClient(params.slug), fetchClientProfile(params.slug)]);
   if (!client) notFound();
   const { events, ...rest } = client;

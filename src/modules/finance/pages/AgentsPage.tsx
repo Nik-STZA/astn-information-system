@@ -10,7 +10,8 @@ import { fetchAgentRuns, type AgentRunRow } from "@/modules/finance/lib/api";
 
 export const dynamic = "force-dynamic";
 
-export default async function AgentsPage({ params }: { params: { slug: string } }) {
+export default async function AgentsPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
+  const params = await paramsPromise;
   let runs: AgentRunRow[] = [];
   let error: string | null = null;
 

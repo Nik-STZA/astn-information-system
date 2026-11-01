@@ -110,7 +110,8 @@ function sortHref(
 
 /* -- Page ----------------------------------------------------------- */
 
-export default async function RegistryPage({ searchParams }: PageProps) {
+export default async function RegistryPage(props: PageProps) {
+  const searchParams = await props.searchParams;
   const filters: RegistryFilterValues = {
     country: readParam(searchParams.country),
     sport: readParam(searchParams.sport),

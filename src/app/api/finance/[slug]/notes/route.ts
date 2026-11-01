@@ -8,8 +8,9 @@ import { clientIpFrom } from "@/shared/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
-  if (!getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
+export async function GET(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
+  if (!await getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
 
   const result = await fetchNotes({
     slug: params.slug,
@@ -22,8 +23,9 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     : NextResponse.json({ error: result.error }, { status: result.status });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
-  const actorEmail = getIapEmail();
+export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
+  const actorEmail = await getIapEmail();
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));

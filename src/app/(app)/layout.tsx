@@ -20,7 +20,7 @@ export default async function AuthenticatedLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const userEmail = getIapEmail();
+  const userEmail = await getIapEmail();
   if (!userEmail) {
     // Middleware should have 403'd already; never render unauthenticated.
     redirect("/blocked");
