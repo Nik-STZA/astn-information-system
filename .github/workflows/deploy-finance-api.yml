@@ -112,3 +112,21 @@ jobs:
           gcloud run jobs add-iam-policy-binding agent-runner --region=europe-west1 \
             --member=serviceAccount:stza-finance-api@africanstn-research.iam.gserviceaccount.com \
             --role=roles/run.jobsExecutor
+
+      # The scheduled Bills fetch: same image, same account as the runner, which
+      # already reads finance-api-key. Cloud Scheduler starts it. BILLS_CLIENTS and
+      # BILLS_ACTOR are set on the job itself and kept by --update-env-vars, so no
+      # client or person is named here. Without them the job refuses to run.
+      - name: Deploy the Bills fetch job
+        run: |
+          IMAGE=$(gcloud run services describe stza-finance-api --region=europe-west1 \
+            --format='value(spec.template.spec.containers[0].image)')
+          gcloud run jobs deploy bills-fetch \
+            --region=europe-west1 \
+            --image="$IMAGE" \
+            --command=node --args=lib/bills-fetch.js \
+            --service-account=agent-runner@africanstn-research.iam.gserviceaccount.com \
+            --update-env-vars=FINANCE_API_URL=https://stza-finance-api-782190795609.europe-west1.run.app \
+            --set-secrets=FINANCE_API_KEY=finance-api-key:latest \
+            --tasks=1 --max-retries=0 --task-timeout=1500 \
+            --memory=512Mi --cpu=1
