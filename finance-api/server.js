@@ -2489,6 +2489,8 @@ function erpUnavailable(res, ctx) {
   return res.status(502).json(body);
 }
 
+const xeroReads = require("./lib/xero-limit").xeroLimiter();
+
 // extraHeaders is for internal callers only (the pack change check sends
 // If-Modified-Since). The read passthrough never forwards a caller's headers.
 // One Xero GET. `url` is either an accounting path ("/Invoices") or a full URL
@@ -2497,14 +2499,14 @@ function erpUnavailable(res, ctx) {
 async function xeroFetch(accessToken, tenantId, url, params = {}, { accept = "application/json", extraHeaders = {} } = {}) {
   const full = url.startsWith("https://") ? url : `${XERO_API}${url}`;
   const qs = new URLSearchParams(params).toString();
-  const r = await fetch(`${full}${qs ? `?${qs}` : ""}`, {
+  const r = await xeroReads(tenantId, () => fetch(`${full}${qs ? `?${qs}` : ""}`, {
     headers: {
       ...extraHeaders,
       Authorization: `Bearer ${accessToken}`,
       "Xero-Tenant-Id": tenantId,
       Accept: accept,
     },
-  });
+  }));
   if (!r.ok) {
     const body = await r.text().catch(() => "");
     const path = full.replace(/^https:\/\/api\.xero\.com/, "");
