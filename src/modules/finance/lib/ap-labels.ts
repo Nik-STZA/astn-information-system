@@ -3,8 +3,9 @@
 import type { ApState } from "./ap-queue";
 
 export const AP_TABS: Array<{ key: string; label: string; states: ApState[] }> = [
-  { key: "exceptions", label: "For you", states: ["exception"] },
-  { key: "clean", label: "Clean", states: ["clean", "approved"] },
+  // Open bills are split by who has them (ap-agents.ts), so Agent review holds no state of its own.
+  { key: "agents", label: "Agent review", states: [] },
+  { key: "exceptions", label: "For you", states: ["exception", "clean", "approved"] },
   { key: "sent", label: "Sent to Xero", states: ["written"] },
   { key: "set-aside", label: "Set aside", states: ["skipped", "rejected"] },
 ];

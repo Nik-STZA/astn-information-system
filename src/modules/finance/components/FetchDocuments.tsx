@@ -31,6 +31,7 @@ export default function FetchDocuments({ slug, entity, uncoded }: { slug: string
   const [working, setWorking] = useState<{ name: string; since: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const wasWorking = useRef(false);
+  const lastAgent = useRef<string | null>(null);
 
   const check = useCallback(async () => {
     try {
@@ -43,6 +44,10 @@ export default function FetchDocuments({ slug, entity, uncoded }: { slug: string
         setStatus("The agents have finished. Their suggestions are on each item.");
         router.refresh();
       }
+      // A new agent means the bills have moved on: redraw who has each one.
+      const agent = live?.agent ?? null;
+      if (agent !== lastAgent.current && live) router.refresh();
+      lastAgent.current = agent;
       wasWorking.current = !!live;
     } catch { /* the next look tries again */ }
   }, [slug, router]);

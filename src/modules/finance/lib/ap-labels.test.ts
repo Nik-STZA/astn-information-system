@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { AP_TABS, checkLabel, documentTypeLabel, matchOptions, money, shortDate } from "./ap-labels";
 
 describe("ap-labels", () => {
-  it("puts every queue state in exactly one tab, except superseded", () => {
+  it("puts every queue state in exactly one tab, except superseded; Agent review has none of its own", () => {
+    expect(AP_TABS.find((t) => t.key === "agents")?.states).toEqual([]);
     const states = AP_TABS.flatMap((t) => t.states);
     expect(new Set(states).size).toBe(states.length);
     expect(states.sort()).toEqual(["approved", "clean", "exception", "rejected", "skipped", "written"]);

@@ -5124,7 +5124,9 @@ app.get("/api/finance/clients/:slug/xero/:entity/ap/items", route(async (req, re
             i.proposed_bill->>'DateString' AS date, i.proposed_bill->>'Total' AS total, i.proposed_bill->>'CurrencyCode' AS currency,
             i.review->'reasons' AS reasons, i.decided_by_email, i.decided_at, i.xero_invoice_id, i.source,
             i.recommendation IS NOT NULL AS recommended, i.recommendation->'review'->>'verdict' AS review_verdict,
-            i.recommendation->'review'->>'repetitive' AS review_repetitive, i.created_at
+            i.recommendation->'review'->>'repetitive' AS review_repetitive,
+            COALESCE((SELECT jsonb_agg(r->>'agent') FROM jsonb_array_elements(COALESCE(i.recommendation->'reviews', '[]'::jsonb)) r), '[]'::jsonb) AS review_agents,
+            i.created_at
        FROM finance.ap_items i JOIN finance.entities e ON e.id = i.entity_id
       WHERE i.client_id = $1 AND e.slug = $2 AND i.state = ANY($3::text[])
       ORDER BY i.created_at DESC, i.document_index LIMIT 500`, [client.id, req.params.entity, states]);

@@ -9,6 +9,8 @@ import { fetchEntities } from "@/modules/finance/lib/api";
 import { fetchApItem, fetchApItems, fetchApOptions, type ApItemDetail, type ApItemRow } from "@/modules/finance/lib/ap-queue";
 import type { CodingNames } from "@/modules/finance/components/ApQueue";
 import { AP_TABS } from "@/modules/finance/lib/ap-labels";
+import { activeAgents, isStep } from "@/modules/finance/lib/ap-agents";
+import { listAgentRuns } from "@/modules/finance/lib/agent-runs";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +21,14 @@ export default async function ApQueuePage({
   searchParams,
 }: {
   params: { slug: string };
-  searchParams: { entity?: string; tab?: string; item?: string };
+  searchParams: { entity?: string; tab?: string; item?: string; with?: string; agent?: string };
 }) {
   let error: string | null = null;
   let entities: Array<{ slug: string; name: string }> = [];
   let items: ApItemRow[] = [];
   let selected: ApItemDetail | null = null;
   let names: CodingNames = { accounts: {}, taxes: {} };
+  let active: string[] = [];
 
   try {
     entities = (await fetchEntities(params.slug)).filter((e) => e.connected).map((e) => ({ slug: e.slug, name: e.name }));
@@ -33,11 +36,14 @@ export default async function ApQueuePage({
     error = e instanceof Error ? e.message : "Could not load the companies";
   }
   const entity = entities.find((e) => e.slug === searchParams.entity)?.slug ?? entities[0]?.slug;
-  const tab = AP_TABS.some((t) => t.key === searchParams.tab) ? searchParams.tab! : AP_TABS[0].key;
+  const tab = AP_TABS.some((t) => t.key === searchParams.tab) ? searchParams.tab! : "exceptions";
 
   if (entity && !error) {
     try {
       items = await fetchApItems(params.slug, entity, ALL_STATES);
+      // No runs to read leaves every open bill with the CFO, which is the safe side.
+      const runs = await listAgentRuns(params.slug);
+      if (runs.ok) active = activeAgents((runs.data ?? []) as Array<{ agent: string | null; status: string }>);
       if (searchParams.item) selected = await fetchApItem(params.slug, entity, searchParams.item);
       // Account and VAT names for the open item; codes alone if Xero is slow.
       if (selected) {
@@ -56,13 +62,14 @@ export default async function ApQueuePage({
 
   return (
     <div className={styles.page}>
-      <PageHeader title="Bills" sub="Supplier documents read and coded, waiting for your decision before they go to Xero." />
+      <PageHeader title="Bills" sub="Agents work through each bill. You only see what needs you." />
       {error ? (
         <div className={styles.error} role="alert">{error}</div>
       ) : !entity ? (
         <div className={styles.empty}>No company is connected to Xero for this client.</div>
       ) : (
-        <ApQueue slug={params.slug} entity={entity} entities={entities} tab={tab} items={items} selected={selected} names={names} />
+        <ApQueue slug={params.slug} entity={entity} entities={entities} tab={tab} items={items} selected={selected} names={names} active={active}
+          withAgent={isStep(searchParams.with) ? searchParams.with : null} noteAgent={isStep(searchParams.agent) ? searchParams.agent : null} />
       )}
     </div>
   );
