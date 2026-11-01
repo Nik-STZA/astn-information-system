@@ -550,3 +550,12 @@ def test_a_supplier_name_is_never_a_formula(tmp_path, profile):
     ws = wb[sup.SOURCE]
     cell = next(c for row in ws.iter_rows(min_col=4, max_col=4, min_row=5) for c in row if c.value == "=1+1 Trading")
     assert cell.data_type == "s"
+
+
+def test_the_existing_tabs_are_the_same_with_the_tabs_on(tmp_path, profile):
+    _, on = build(tmp_path / "on", Books())
+    del profile["supplier_tabs"]
+    _, off = build(tmp_path / "off", Books())
+    for name in ("Profit and loss", "Balance sheet", "Cash flow", "Mapping", "Source - Trial balance"):
+        cells = lambda wb: [(c.coordinate, c.value, c.number_format) for r in wb[name].iter_rows() for c in r]
+        assert cells(on) == cells(off), name
