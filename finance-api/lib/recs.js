@@ -58,6 +58,34 @@ const pounds = (p) => fromPence(p);
 // real typo gives two recs, which is visible, rather than a hidden merge.
 const accountKey = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
+// Which group account a line belongs to. The same name across companies joins
+// only within a class: an asset and a liability called Deposits are two things.
+// A bank account never joins: each is its own account at its own bank.
+function lineKey(id, acct, name) {
+  if (acct?.Type === "BANK") return `bank:${id}`;
+  const flat = accountKey(name);
+  return `${String(acct?.Class ?? "unknown").toLowerCase()}:${flat || `id-${id}`}`;
+}
+
+// A report with no account rows is a failed read. It must never look like a
+// company with nothing on its balance sheet.
+const hasRows = (report) => (report?.Rows ?? []).some((s) => (s?.Rows ?? []).some((r) => r?.RowType === "Row"));
+
+// Rows carrying figures but no account id cannot be placed anywhere: they are
+// reported, not skipped.
+function unidentifiedRows(report) {
+  const out = [];
+  for (const section of report?.Rows ?? []) {
+    for (const row of section?.Rows ?? []) {
+      if (row?.RowType !== "Row") continue;
+      const cells = row.Cells ?? [];
+      if (cells[0]?.Attributes?.some((a) => a.Id === "account")) continue;
+      if (cells.slice(1).some((c) => Number(String(c?.Value ?? "").replace(/,/g, "")))) out.push(String(cells[0]?.Value ?? "A row with no name"));
+    }
+  }
+  return out;
+}
+
 // One company's accounts needing a rec this month.
 //   accounts  Xero's chart
 //   closeTb   Xero's trial balance dated the month end
@@ -82,10 +110,9 @@ function entityLines({ accounts, closeTb, openTb }) {
     const opening = o ? pence(o.ytdDebit) - pence(o.ytdCredit) : 0;
     const turned = c ? pence(c.debit) + pence(c.credit) : 0;
     if (closing === 0 && opening === closing && turned === 0) continue;
-    const name = acct?.Name ?? String(c?.name ?? o?.name ?? "").replace(/\s+\([^)]*\)$/, "");
-    if (!name) continue;
+    const name = acct?.Name || String(c?.name ?? o?.name ?? "").replace(/\s+\([^)]*\)$/, "") || `Account ${acct?.Code ?? id}`;
     out.push({
-      account_id: id, code: acct?.Code ?? null, name, key: accountKey(name),
+      account_id: id, code: acct?.Code ?? null, name, key: lineKey(id, acct, name), odd_name: !accountKey(name),
       opening, closing, movement: closing - opening,
       zero_after_movement: closing === 0,
       chart: acct ?? null,
@@ -97,23 +124,36 @@ function entityLines({ accounts, closeTb, openTb }) {
 // Every company's lines joined into group accounts, with the line of the matrix
 // each belongs to. An account Xero or its name cannot place stays unplaced, for
 // a person to place; it is listed all the same.
-//   entities  [{ id, slug, name, lines }]
-// accounts: [{ key, name, line_key, proof, by_entity: [{ entity_id, code, name, opening, closing, movement }] }]
+//   entities  [{ id, slug, name, currency, lines }]
+// accounts: [{ key, name, line_key, proof, by_entity: [{ entity_id, code, name, currency, opening, closing, movement }] }]
+// notes: what a person should know, in words
+//
+// Two accounts in ONE company can reduce to the same key. Each company has one
+// row per rec, so those two must never share a rec: each gets its own, by code.
 function composeAccounts(entities) {
   const groups = new Map();
+  const notes = new Set();
   for (const e of entities) {
+    const seen = new Map();
+    for (const l of e.lines) seen.set(l.key, (seen.get(l.key) ?? 0) + 1);
     for (const l of e.lines) {
-      if (!groups.has(l.key)) {
+      const clash = seen.get(l.key) > 1;
+      const key = clash ? `${l.key}:${l.code ?? l.account_id}` : l.key;
+      const bank = l.key.startsWith("bank:");
+      const name = clash ? `${l.name} (${l.code ?? "no code"})` : bank ? `${l.name}: ${e.name}` : l.name;
+      if (clash) notes.add(`${e.name} has more than one account named like ${l.name}. Each has its own reconciliation; check they are not duplicates.`);
+      if (l.odd_name) notes.add(`${e.name}: the account named "${l.name}" has no letters or digits in its name, so it cannot join other companies.`);
+      if (!groups.has(key)) {
         const hit = l.chart ? classify(l.chart) : classify({ Name: l.name });
         const line = hit ? lineFor(hit.key) : null;
-        groups.set(l.key, { key: l.key, name: l.name, line_key: line?.key ?? null, proof: line?.proof ?? "ledger_review", by_entity: [] });
+        groups.set(key, { key, name, line_key: line?.key ?? null, proof: line?.proof ?? "ledger_review", by_entity: [] });
       }
-      groups.get(l.key).by_entity.push({
-        entity_id: e.id, code: l.code, name: l.name, opening: l.opening, closing: l.closing, movement: l.movement,
+      groups.get(key).by_entity.push({
+        entity_id: e.id, code: l.code, name: l.name, currency: e.currency ?? null, opening: l.opening, closing: l.closing, movement: l.movement,
       });
     }
   }
-  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return { accounts: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name)), notes: [...notes] };
 }
 
 // What the matrix puts on a rec. Unplaced: nothing, and a person must place it.
@@ -261,19 +301,30 @@ function finishItem(row) {
 // Each company's ledger against its support, and the group total.
 //   balances  [{ entity_id, closing (pounds) }]
 //   support   Map entity id -> pence, or null where the proof has no figure yet
+//
+// A company with support but no ledger row is on the cover, as a variance: if
+// it dropped out, its schedule would vanish from the tie and the group total.
+// Companies in different base currencies are not added up. There are no closing
+// rates in the platform, so the group total is refused and each company stands
+// on its own.
 function cover(balances, support, tolerancePence) {
-  const rows = balances.map((b) => {
-    const gl = pence(b.closing);
-    const sch = support ? support.get(b.entity_id) ?? 0 : null;
+  const byId = new Map(balances.map((b) => [b.entity_id, b]));
+  const extra = support ? [...support.keys()].filter((id) => !byId.has(id) && support.get(id) !== 0) : [];
+  const rows = [...byId.keys(), ...extra].map((id) => {
+    const b = byId.get(id);
+    const gl = pence(b?.closing);
+    const sch = support ? support.get(id) ?? 0 : null;
     const variance = sch === null ? null : gl - sch;
-    return { entity_id: b.entity_id, gl, schedule: sch, variance, ties: variance === null ? null : Math.abs(variance) <= tolerancePence };
+    return { entity_id: id, gl, schedule: sch, variance, currency: b?.currency ?? null, no_ledger: !b, ties: variance === null ? null : Math.abs(variance) <= tolerancePence };
   });
   const known = rows.every((r) => r.variance !== null);
+  const mixed = new Set(rows.map((r) => r.currency).filter(Boolean)).size > 1;
   const gl = rows.reduce((a, r) => a + r.gl, 0);
   const schedule = known ? rows.reduce((a, r) => a + r.schedule, 0) : null;
   return {
     rows,
-    group: { gl, schedule, variance: known ? gl - schedule : null },
+    group: mixed ? { gl: null, schedule: null, variance: null } : { gl, schedule, variance: known ? gl - schedule : null },
+    mixed_currency: mixed,
     ties: known && rows.length > 0 && rows.every((r) => r.ties),
   };
 }
@@ -284,10 +335,13 @@ function cover(balances, support, tolerancePence) {
 const snapshotOf = (balances) => Object.fromEntries(balances.map((b) => [b.entity_id, { opening: pence(b.opening), closing: pence(b.closing) }]));
 
 // Plain words for what changed since preparation, or null. A company that
-// joined the account since then counts as a change.
-//   label   the prior month, as words
-//   names   Map entity id -> company name
-function recheckReason(snapshot, balances, { priorLabel, names }) {
+// joined the account, or left it, counts as a change. So does a schedule edit
+// that moves this month's figures: months share one schedule, so an edit made
+// from a later month reaches back into one already reviewed or signed.
+//   priorLabel  the prior month, as words
+//   names       Map entity id -> company name
+//   items       the schedule now, with period, to compare with what was seen
+function recheckReason(snapshot, balances, { priorLabel, names, items, period }) {
   if (!snapshot) return null;
   const said = [];
   const seen = snapshot.balances || {};
@@ -299,6 +353,23 @@ function recheckReason(snapshot, balances, { priorLabel, names }) {
     const closing = pence(b.closing);
     if (opening !== was.opening) said.push(`${name(b.entity_id)}: the ${priorLabel} closing figure moved from ${money(was.opening)} to ${money(opening)} after this was prepared.`);
     else if (closing !== was.closing) said.push(`${name(b.entity_id)}: the ledger moved from ${money(was.closing)} to ${money(closing)} after this was prepared.`);
+  }
+  const here = new Set(balances.map((b) => b.entity_id));
+  for (const [id, was] of Object.entries(seen)) {
+    if (!here.has(id) && (was.closing !== 0 || was.opening !== 0)) {
+      said.push(`${name(id)}: it held ${money(was.closing)} on this account when prepared, and no longer has the account.`);
+    }
+  }
+  if (items && snapshot.schedule) {
+    const before = new Map(snapshot.schedule.map((i) => [i.id, i]));
+    const now = new Map(items.map((i) => [i.id, i]));
+    for (const id of new Set([...before.keys(), ...now.keys()])) {
+      const a = before.get(id);
+      const b = now.has(id) ? itemAt(now.get(id), period) : null;
+      if ((a?.balance ?? 0) !== (b?.balance ?? 0) || (a?.this_month ?? 0) !== (b?.this_month ?? 0)) {
+        said.push(`The schedule changed after this was prepared: ${(now.get(id) ?? a).supplier} moved from ${money(a?.balance ?? 0)} to ${money(b?.balance ?? 0)} at this month end.`);
+      }
+    }
   }
   return said.length ? said.join(" ") : null;
 }
@@ -420,7 +491,16 @@ function journalChecks({ items, journals, accountCode, period, tolerancePence })
 // ── Moving a rec along ───────────────────────────────────────────────────────
 
 const STATUS = ["not_started", "in_progress", "with_fc", "with_cfo", "signed_off", "sent_back"];
-const CFO_ROLE = /\bcfo\b|finance director|chief financial/i;
+// The whole role, not a word in it. A qualifier such as Fractional is fine;
+// "Assistant to the CFO" is not the CFO.
+const CFO_ROLE = /^(?:(?:fractional|interim|group|outsourced)\s+)?(?:cfo|chief financial officer|finance director)$/i;
+const REVIEW_ROLE = /^(?:(?:fractional|interim|group|outsourced)\s+)?(?:fc|financial controller|cfo|chief financial officer|finance director)$/i;
+const samePerson = (a, b) => Boolean(a && b) && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+// Whoever prepared or reviewed a rec, or started the agents that did, is not an
+// independent signer. In a small practice that is normal, and the record must
+// say so: the balance-sheet-matrix procedure flags it rather than forbids it.
+const needsSoleReviewer = (rec, person) => samePerson(rec.prepared_by_person, person) || samePerson(rec.reviewed_by_person, person);
 
 // Who is acting, as the history records it.
 const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent}` : actorEmail);
@@ -431,8 +511,12 @@ const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent
 //   via      null for a person; { kind, agent } for an agent or Claude
 //   role     the actor's engagement role
 //   actor    actorOf(...)
+//   person   the email behind the action. An agent acts for the person who
+//            started it, and that person answers for what it prepared
+//   sole     the CFO says, on the screen, they are the only reviewer
 //   note     the note given
-function stepIssues(step, { rec, tied, via, role, actor, note, comments }) {
+//   reads    why the figures cannot be relied on at sign-off
+function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = [] }) {
   const issues = [];
   const say = (s) => issues.push(s);
   const worked = workable(rec.line_key, rec.proof);
@@ -445,7 +529,10 @@ function stepIssues(step, { rec, tied, via, role, actor, note, comments }) {
   } else if (step === "review_pass" || step === "review_back") {
     if (rec.status !== "with_fc") say("This is not with the FC for review");
     if (via && via.agent !== "fc") say("Only the FC or a person reviews a reconciliation");
-    if (!via && rec.prepared_by === actor) say("The preparer cannot review their own reconciliation");
+    if (!via && !REVIEW_ROLE.test(String(role ?? ""))) say("Only the FC or the CFO reviews a reconciliation");
+    if (!via && samePerson(rec.prepared_by_person, person) && !(sole && CFO_ROLE.test(String(role ?? "")))) {
+      say("The preparer cannot review their own reconciliation, unless the CFO marks themselves sole reviewer");
+    }
     if (step === "review_back" && !String(note ?? "").trim()) say("Say what needs changing");
   } else if (step === "sign_off") {
     if (via) say("Only a person signs off, in os.stza.io");
@@ -453,13 +540,19 @@ function stepIssues(step, { rec, tied, via, role, actor, note, comments }) {
     if (rec.status !== "with_cfo") say("This has not passed FC review");
     if (rec.recheck_reason) say("A figure moved after this was prepared, so it needs preparing again");
     if (!tied) say("It does not tie. Post the journal in Xero and refresh, or correct the schedule");
+    if (!via && needsSoleReviewer(rec, person) && !sole) {
+      say("You prepared or reviewed this, or started the agents that did. Tick sole reviewer to sign off: it is recorded and shown on the reconciliation");
+    }
+    issues.push(...reads);
   } else if (step === "send_back") {
     if (via) say("Only a person sends this back, in os.stza.io");
+    if (!CFO_ROLE.test(String(role ?? ""))) say("Only the CFO sends a reconciliation back from sign-off");
     if (rec.status !== "with_cfo") say("This has not reached you");
     if (!String(note ?? "").trim()) say("Say what needs changing");
   } else if (step === "reopen") {
     if (via) say("Only a person reopens a reconciliation, in os.stza.io");
     if (!["signed_off", "with_cfo", "with_fc"].includes(rec.status)) say("There is nothing to reopen");
+    if (rec.status === "signed_off" && !CFO_ROLE.test(String(role ?? ""))) say("Only the CFO reopens a signed reconciliation");
   } else {
     say(`Unknown step ${step}`);
   }
@@ -486,13 +579,15 @@ function journalProposalIssues(body, { period, recAccountCode }) {
   if (lines.length < 2) issues.push("at least 2 lines are required");
   let net = 0;
   for (const [i, l] of lines.entries()) {
+    if (!l || typeof l !== "object") { issues.push(`line ${i + 1}: is not a journal line`); continue; }
     const p = toPence(l.amount);
     if (p === null || p === 0) issues.push(`line ${i + 1}: amount must be money, and not zero`);
     else net += p;
     if (!String(l.account_code ?? "").trim()) issues.push(`line ${i + 1}: account_code is required`);
   }
   if (net !== 0) issues.push(`the journal does not balance: it is out by ${pounds(Math.abs(net))}`);
-  if (recAccountCode && lines.length && !lines.some((l) => String(l.account_code) === String(recAccountCode))) {
+  if (!String(recAccountCode ?? "").trim()) issues.push("this company has no ledger account on this reconciliation, so a journal cannot be checked against it");
+  else if (!lines.some((l) => String(l?.account_code) === String(recAccountCode))) {
     issues.push(`the journal must touch the account being reconciled (${recAccountCode})`);
   }
   return issues;
@@ -500,12 +595,70 @@ function journalProposalIssues(body, { period, recAccountCode }) {
 
 // True only when a journal is exactly the one approved: same date, narration,
 // and the same code and amount on every line.
+const linesKey = (lines) => (Array.isArray(lines) ? lines : [])
+  .map((l) => `${String(l?.account_code ?? "").trim()}|${toPence(l?.amount)}`).sort().join(",");
+
 function journalMatches(approved, input) {
-  const key = (lines) => (Array.isArray(lines) ? lines : [])
-    .map((l) => `${String(l.account_code ?? "").trim()}|${toPence(l.amount)}`).sort().join(",");
   return String(approved.journal_date).slice(0, 10) === input.date
     && String(approved.narration).trim() === String(input.narration ?? "").trim()
-    && key(approved.lines) === key(input.lines);
+    && linesKey(approved.lines) === linesKey(input.lines);
+}
+
+// The key a proposal reaches Xero under. It belongs to the proposal, not to a
+// run, so a second run cannot make a second draft.
+const recJournalKey = (j) => `rec-journal-${j.id}-${j.attempts ?? 1}`;
+
+// The one gate between a rec and Xero, applied at the journal routes.
+//   runId        the agent run asking, if any
+//   inRecThread  that run is in a conversation that started on, or proposed on, a rec
+//   proposals    this company's proposals for this month, not superseded
+//   input        { date, narration, status, lines }
+// A journal proposed on a rec reaches Xero only as the run the CFO approved, as
+// the exact journal, as a DRAFT. A reply in a chat, whatever its words, is not
+// that approval. Any other caller sending the same lines for the month is
+// refused too; a journal nothing to do with a rec is left alone.
+function recJournalGate({ runId, inRecThread, proposals, input }) {
+  const refuse = (detail) => ({ refuse: detail });
+  const mine = runId ? proposals.find((p) => p.approved_run_id === runId && p.state === "approved") : null;
+  if (mine) {
+    if ((input.status ?? "DRAFT") !== "DRAFT") return refuse("A journal approved on a reconciliation is created only as a DRAFT.");
+    if (!journalMatches(mine, input)) return refuse("This differs from the journal approved on the reconciliation.");
+    return { journal: mine, key: recJournalKey(mine) };
+  }
+  if (inRecThread) return refuse("A journal on a reconciliation is approved on the reconciliation, by the CFO. A reply here does not approve it.");
+  if (proposals.some((p) => linesKey(p.lines) === linesKey(input.lines))) {
+    return refuse("This journal is proposed on a reconciliation for this month. It is approved there, by the CFO.");
+  }
+  return {};
+}
+
+// A run that could still create the journal. An approval goes stale after 30
+// minutes (lib/journal.js), so an older run can no longer reach Xero.
+const RUN_LIVE_MINUTES = 35;
+const runIsLive = (run, now = Date.now()) => Boolean(run) && ["queued", "running"].includes(run.status)
+  && now - Date.parse(run.queued_at) < RUN_LIVE_MINUTES * 60_000;
+
+// Whether approving again is safe, from what is known of the last attempt.
+//   go       never reached Xero
+//   live     a run may still create it
+//   drafted  it is in Xero; the record just needs catching up
+//   retry    Xero definitely refused it, so a new attempt cannot duplicate it
+//   unknown  it may be in Xero: a timeout, a 5xx, or a crash part-way
+function retryState({ runLive, post }) {
+  if (runLive) return "live";
+  if (!post) return "go";
+  if (["draft", "posted"].includes(post.outcome)) return "drafted";
+  const code = Number(post.http_status);
+  if (post.outcome === "failed" && code >= 400 && code < 500 && code !== 408 && code !== 429) return "retry";
+  return "unknown";
+}
+
+// What stops an approval, whatever the state of the proposal.
+function approvalIssues(rec) {
+  if (rec.dropped_at) return "This account is no longer on the trial balance for the month.";
+  if (rec.status === "signed_off") return "This is signed off. Reopen it first.";
+  if (rec.recheck_reason) return "A figure moved after this was prepared. Check it before approving a journal.";
+  return null;
 }
 
 // The fixed words of a follow-up: they must read as a plain approval to
@@ -528,10 +681,10 @@ function prepareInstruction(rec) {
 }
 
 module.exports = {
-  STATUS, CFO_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
+  STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
-  accountKey, entityLines, composeAccounts, matrixFields, workable,
+  accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks,
-  actorOf, stepIssues, journalProposalIssues, journalMatches, approvalInstruction, namesRecProposal, prepareInstruction,
+  actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,
 };

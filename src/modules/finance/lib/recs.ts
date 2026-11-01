@@ -18,10 +18,12 @@ export interface RecRow {
   challenge: string | null;
   class: "M" | "J" | null;
   with: string | null;
-  ledger: string;
+  ledger: string | null;
   support: string | null;
   difference: string | null;
   ties: boolean;
+  mixed_currency: boolean;
+  sole_reviewer: boolean;
   recheck_reason: string | null;
   workable: boolean;
   companies: number;
@@ -37,6 +39,7 @@ export interface RecList {
   tolerance?: string;
   composed_at?: string | null;
   entity_errors: EntityError[];
+  notes: string[];
   complete?: boolean;
   migration_missing?: boolean;
   entities: Array<{ id: string; slug: string; name: string }>;
@@ -56,6 +59,8 @@ export interface CoverRow {
   schedule: string | null;
   variance: string | null;
   ties: boolean | null;
+  currency: string | null;
+  no_ledger: boolean;
 }
 
 export interface ScheduleItem {
@@ -90,7 +95,7 @@ export interface RecJournal {
   id: string;
   entity_id: string;
   entity_name: string;
-  state: "proposed" | "approved" | "draft_created" | "rejected";
+  state: "proposed" | "approved" | "draft_created" | "rejected" | "superseded";
   journal_date: string;
   narration: string;
   lines: Array<{ account_code: string; description?: string; amount: number }>;
@@ -99,6 +104,8 @@ export interface RecJournal {
   approved_by: string | null;
   xero_journal_no: string | null;
   created_at: string;
+  retry_state: "go" | "live" | "drafted" | "retry" | "unknown" | null;
+  can_retry: boolean;
 }
 
 export interface EntityChecks {
@@ -118,10 +125,10 @@ export interface RecDetail {
     line: string | null; line_key: string | null; with: string | null; preparer_note: string | null; review_note: string | null;
     prepared_by: string | null; prepared_at: string | null; reviewed_by: string | null; reviewed_at: string | null;
     signed_off_by: string | null; signed_off_at: string | null; recheck_reason: string | null; recheck_at: string | null;
-    checks_at: string | null; workable: boolean;
+    checks_at: string | null; workable: boolean; sole_reviewer: boolean; shown_as_signed: boolean;
   };
   tolerance: string;
-  cover: { rows: CoverRow[]; group: { gl: string; schedule: string | null; variance: string | null }; ties: boolean };
+  cover: { rows: CoverRow[]; group: { gl: string | null; schedule: string | null; variance: string | null }; ties: boolean; mixed_currency: boolean };
   schedule: { months: string[]; items: ScheduleItem[] };
   checks: { at: string; note: string; entities: EntityChecks[] } | null;
   journals: RecJournal[];
@@ -220,6 +227,7 @@ export const EVENT_LABEL: Record<string, string> = {
   journal_approved: "Journal approved for a Xero draft",
   journal_rejected: "Journal rejected",
   journal_drafted: "Draft created in Xero",
+  journal_superseded: "Journal replaced by a new proposal",
 };
 
 // agent:fm1 to FM1; a person stays as their address.

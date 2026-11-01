@@ -25,19 +25,30 @@
 -- Release amounts are not stored. They are worked out from each item
 -- (lib/recs.js); what was shown when a rec was prepared is kept on the rec.
 --
--- Additive and re-runnable.
+-- Additive and re-runnable. Run it as the owner of finance.client_finance_config
+-- and finance.agent_runs, which it alters; the grants at the end are what the
+-- app role needs on the new tables, as it owns none of them.
+
+-- Give up rather than queue behind live traffic: the two ALTERs take a brief
+-- exclusive lock on tables the running service uses.
+SET lock_timeout = '10s';
 
 ALTER TABLE finance.client_finance_config
-  ADD COLUMN IF NOT EXISTS rec_tolerance numeric(10,2) NOT NULL DEFAULT 1.00;
+  ADD COLUMN IF NOT EXISTS rec_tolerance numeric(10,2) NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN finance.client_finance_config.rec_tolerance IS
-  'Rounding tolerance per company for a balance sheet reconciliation: a difference at or under this ties.';
+  'Rounding tolerance per company for a balance sheet reconciliation: a difference at or under this ties. Nil until a client rule sets it, so every variance is reported.';
+
+-- The rec a run was started on. Not a foreign key: a finished run cannot be
+-- updated, so it could not follow a rec being removed.
+ALTER TABLE finance.agent_runs ADD COLUMN IF NOT EXISTS rec_id uuid;
 
 CREATE TABLE IF NOT EXISTS finance.rec_accounts (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id     uuid NOT NULL REFERENCES shared.clients (id) ON DELETE CASCADE,
-  -- The account name reduced to letters and digits. Companies in a group can
-  -- number the same account differently, so the name joins them, not the code.
+  -- Class and account name, reduced to letters and digits. Companies in a group
+  -- can number the same account differently, so the name joins them, not the
+  -- code. A bank account never joins: each is keyed on its own Xero account id.
   account_key   text NOT NULL CHECK (length(account_key) > 0),
   account_name  text NOT NULL,
   -- A line of the balance sheet matrix, or null while no one has placed it.
@@ -58,6 +69,8 @@ CREATE TABLE IF NOT EXISTS finance.rec_periods (
   -- Companies whose trial balance could not be read: the list is then not
   -- complete, and says so.
   entity_errors  jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- What a person should know about the read, in words.
+  notes          jsonb NOT NULL DEFAULT '[]'::jsonb,
   PRIMARY KEY (client_id, period)
 );
 
@@ -79,13 +92,23 @@ CREATE TABLE IF NOT EXISTS finance.recs (
   review_note        text,
   -- What the preparer saw: each company's opening and closing, and the schedule.
   prepared_snapshot  jsonb,
+  -- prepared_by is who did it (agent:fm1). _person is who answers for it: the
+  -- person, or the one who started the agent.
   prepared_by        text,
+  prepared_by_person text,
   prepared_at        timestamptz,
   reviewed_by        text,
+  reviewed_by_person text,
   reviewed_at        timestamptz,
   signed_off_by      text,
   signed_off_role    text,
   signed_off_at      timestamptz,
+  -- One person acted in more than one seat, which is normal in a small practice
+  -- but must be on the record and on the screen.
+  sole_reviewer      boolean NOT NULL DEFAULT false,
+  -- The figures as signed. Screens show these from then on; the ledger read
+  -- carries on in rec_balances, which is how a later move is noticed.
+  signed_snapshot    jsonb,
   -- Set when a figure moved after preparation. Cleared by preparing it again.
   recheck_reason     text,
   recheck_at         timestamptz,
@@ -107,6 +130,8 @@ CREATE TABLE IF NOT EXISTS finance.rec_balances (
   entity_id     uuid NOT NULL REFERENCES finance.entities (id) ON DELETE CASCADE,
   account_code  text,
   account_name  text NOT NULL,
+  -- The company's base currency in Xero.
+  currency      text,
   -- Signed debit minus credit, from Xero's trial balance.
   opening       numeric(14,2) NOT NULL DEFAULT 0,
   closing       numeric(14,2) NOT NULL DEFAULT 0,
@@ -169,7 +194,7 @@ CREATE TABLE IF NOT EXISTS finance.rec_journals (
   rec_id           uuid NOT NULL REFERENCES finance.recs (id) ON DELETE CASCADE,
   entity_id        uuid NOT NULL REFERENCES finance.entities (id) ON DELETE CASCADE,
   state            text NOT NULL DEFAULT 'proposed'
-                     CHECK (state IN ('proposed', 'approved', 'draft_created', 'rejected')),
+                     CHECK (state IN ('proposed', 'approved', 'draft_created', 'rejected', 'superseded')),
   journal_date     date NOT NULL,
   narration        text NOT NULL,
   -- [{ account_code, description, amount }], debits positive, credits negative.
@@ -183,6 +208,8 @@ CREATE TABLE IF NOT EXISTS finance.rec_journals (
   approved_at      timestamptz,
   -- The follow-up run that may create exactly this journal, and no other.
   approved_run_id  uuid UNIQUE,
+  -- Part of the Xero idempotency key. Moves on only after Xero definitely refused.
+  attempts         integer NOT NULL DEFAULT 1,
   rejected_by      text,
   rejected_at      timestamptz,
   xero_journal_id  text,
@@ -192,6 +219,10 @@ CREATE TABLE IF NOT EXISTS finance.rec_journals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_finance_rec_journals_rec ON finance.rec_journals (rec_id);
+
+-- One live proposal per rec and company.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_rec_journals_live
+  ON finance.rec_journals (rec_id, entity_id) WHERE state IN ('proposed', 'approved');
 
 CREATE TABLE IF NOT EXISTS finance.rec_events (
   id         bigserial PRIMARY KEY,
@@ -207,3 +238,11 @@ CREATE INDEX IF NOT EXISTS idx_finance_rec_events_rec ON finance.rec_events (rec
 
 COMMENT ON TABLE finance.recs IS
   'A balance sheet reconciliation: one GL account for one month, across the client''s companies. Group level by design.';
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  finance.rec_accounts, finance.rec_periods, finance.recs, finance.rec_balances,
+  finance.rec_schedule_items, finance.rec_evidence, finance.rec_journals
+  TO africastn_app;
+-- History is added to, never changed.
+GRANT SELECT, INSERT ON finance.rec_events TO africastn_app;
+GRANT USAGE, SELECT ON SEQUENCE finance.rec_events_id_seq TO africastn_app;

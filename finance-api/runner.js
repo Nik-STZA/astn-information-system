@@ -447,7 +447,8 @@ async function createDraftJournal(job, input) {
     approval: a.approval,
   };
   const path = `/api/finance/clients/${slug}/xero/${encodeURIComponent(input.entity)}/journals`;
-  const headers = { "X-Actor-Email": current.requested_by_email };
+  // The run is named so finance-api can apply the reconciliation gate itself.
+  const headers = { "X-Actor-Email": current.requested_by_email, "X-Agent-Run": job.id };
 
   // Dry run first, so a mismatch with the approved text comes back without
   // anything reaching Xero.
@@ -460,11 +461,11 @@ async function createDraftJournal(job, input) {
     };
   }
 
-  const res = await apiRequest("POST", path, { ...body, idempotency_key: `agent-run-${job.id}` }, headers);
-  if (!res.ok) {
+  const res = await apiRequest("POST", path, { ...body, idempotency_key: recJournal?.key ?? `agent-run-${job.id}` }, headers);
+  // A replayed failure comes back as a 200 with ok: false.
+  if (!res.ok || res.body?.ok === false) {
     return { error: "Xero or the platform refused the draft. Nothing was created.", status: res.status, detail: res.body };
   }
-  if (recJournal) await recordRecDraft(job, recJournal, res.body);
   return {
     created: true,
     status: res.body?.status ?? "DRAFT",
@@ -489,15 +490,6 @@ function recJournalRefusal(approved, input) {
     return "This differs from the journal approved on the reconciliation. Nothing was created. Use exactly the approved date, narration, codes and amounts.";
   }
   return null;
-}
-
-// The draft is in Xero by now, so a failure here is reported, not retried.
-async function recordRecDraft(job, approved, created) {
-  const slug = encodeURIComponent(job.client.slug);
-  const res = await apiRequest("POST", `/api/finance/clients/${slug}/recs/journals/${approved.id}/drafted`,
-    { journal_id: created?.journal_id, journal_number: created?.journal_number },
-    { "X-Actor-Email": await requesterOf(job), "X-Work-Via": `agent:${job.agent || "general"}:${job.id}` });
-  if (!res.ok) console.error(`  Draft created, but not recorded on the reconciliation (${res.status})`);
 }
 
 // ── The Bills queue ──────────────────────────────────────────────────────────
@@ -624,6 +616,7 @@ Journals:
 - First, check the chart of accounts, then reply with a proposal headed "Proposed journal (draft)". It must name the entity, give the date in YYYY-MM-DD form (for example 2026-08-31), give the narration, and list each line with ONE account code, a description and the amount. If you are unsure which account to use, ask; do not list alternatives. End by asking the user to reply "approved" to create it as a draft in Xero.
 - Only when the user's follow-up plainly approves that proposal, call create_draft_journal with exactly the proposed entity, date, narration, codes and amounts (debits positive, credits negative). If they ask for a change, make it and propose again.
 - After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.
+- A journal on a reconciliation is different: the CFO approves it on the reconciliation in os.stza.io, not by a reply here. If someone replies "approved" to one, tell them to approve it there; the platform refuses it otherwise.
 
 The Bills queue:
 - "Bills" means the Bills tab in os.stza.io, not Xero's bills list. Read it with list_bills_queue and get_bill_item. Draft bills in Xero do not appear in aged payables, so never look for a Bills item there.

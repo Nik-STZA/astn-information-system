@@ -18,7 +18,7 @@ const MISSING = "Reconciliations are waiting for migration 032 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 const money = (p) => (p === null || p === undefined ? null : recs.pounds(p));
 
-function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner, viaInput = work.viaInput }) {
+function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner, viaInput = work.viaInput }) {
   const BASE = "/api/finance/clients/:slug/recs";
 
   const tolerant = (fn) => route(async (req, res) => {
@@ -59,13 +59,31 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     return res.status(out.status).json(out.body);
   }
 
+  // Who is asking, before anything is read from Xero. Answers and returns null
+  // when they cannot.
+  async function preflight(req, res) {
+    const actorEmail = (req.get("X-Actor-Email") || "").trim();
+    if (!actorEmail) { res.status(400).json({ error: "X-Actor-Email is required" }); return null; }
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) { res.status(404).json({ error: "client not found" }); return null; }
+    const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+    if (!role) { res.status(403).json({ error: `${actorEmail} holds no engagement role for this client` }); return null; }
+    return { client, role, actorEmail };
+  }
+
+  // The acts an auditor would ask for, in the same log as the journals.
+  const auditRec = (conn, req, { client, actorEmail, role, action, id, payload }) => audit(conn, {
+    actorEmail, actorRole: role, action, targetType: "reconciliation", targetId: id, clientId: client.id, payload,
+    ip: req.get("X-Forwarded-For") || req.ip,
+  });
+
   const event = (conn, recId, clientId, actor, action, detail = {}) => conn.query(
     "INSERT INTO finance.rec_events (rec_id, client_id, actor, action, detail) VALUES ($1,$2,$3,$4,$5)",
     [recId, clientId, actor, action, JSON.stringify(detail)]);
 
   const tolerance = async (db, clientId) => {
     const r = await db.query("SELECT rec_tolerance FROM finance.client_finance_config WHERE client_id = $1", [clientId]);
-    return recs.pence(r.rows[0]?.rec_tolerance ?? 1);
+    return recs.pence(r.rows[0]?.rec_tolerance ?? 0);
   };
 
   const companies = async (db, clientId) => (await db.query(
@@ -85,7 +103,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
       WHERE r.id = $1 AND r.client_id = $2 ${lock ? "FOR UPDATE OF r" : ""}`, [id, clientId])).rows[0];
 
   const balancesOf = async (db, recId) => (await db.query(
-    `SELECT b.entity_id, b.account_code, b.account_name, b.opening, b.closing, b.movement, b.comment, e.name AS entity_name, e.slug AS entity_slug
+    `SELECT b.entity_id, b.account_code, b.account_name, b.currency, b.opening, b.closing, b.movement, b.comment, e.name AS entity_name, e.slug AS entity_slug
        FROM finance.rec_balances b JOIN finance.entities e ON e.id = b.entity_id
       WHERE b.rec_id = $1 ORDER BY e.name`, [recId])).rows;
 
@@ -97,8 +115,29 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     const balances = await balancesOf(conn, rec.id);
     const items = await itemsOf(conn, client.id, [rec.rec_account_id]);
     const tol = await tolerance(conn, client.id);
-    return { balances, items, tied: recs.cover(balances, supportFor(rec, items), tol) };
+    return { balances, items, tol, tied: recs.cover(balances, supportFor(rec, items), tol) };
   };
+
+  // Re-works a rec's flag against the ledger and schedule as they are now.
+  async function reflag(conn, client, rec, actor, names) {
+    const period = rec.period;
+    const items = await itemsOf(conn, client.id, [rec.rec_account_id]);
+    const reason = recs.recheckReason(rec.prepared_snapshot, await balancesOf(conn, rec.id),
+      { priorLabel: recs.periodLabel(recs.priorPeriod(period)), names, items, period });
+    if (reason === (rec.recheck_reason ?? null)) return;
+    await conn.query("UPDATE finance.recs SET recheck_reason = $2, recheck_at = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END, updated_at = now() WHERE id = $1", [rec.id, reason]);
+    if (reason) await event(conn, rec.id, client.id, actor, "recheck", { reason });
+  }
+
+  // A schedule is shared across months, so an edit from one month reaches every
+  // month prepared from it. Each is checked against what its preparer saw.
+  async function reflagSchedule(conn, client, recAccountId, actor) {
+    const names = new Map((await companies(conn, client.id)).map((e) => [e.id, e.name]));
+    const others = (await conn.query(
+      `SELECT id, rec_account_id, period, prepared_snapshot, recheck_reason FROM finance.recs
+        WHERE rec_account_id = $1 AND prepared_snapshot IS NOT NULL AND dropped_at IS NULL`, [recAccountId])).rows;
+    for (const r of others) await reflag(conn, client, r, actor, names);
+  }
 
   // What "with" says: who has this rec now.
   const holder = (rec) => ({
@@ -117,11 +156,11 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     const base = { period, label: recs.periodLabel(period), prior: { period: prior, label: recs.periodLabel(prior), open: false } };
     try {
       const [run, rows, entities, tol, priorRecs] = await Promise.all([
-        pool.query("SELECT composed_at, composed_by, entity_errors FROM finance.rec_periods WHERE client_id = $1 AND period = $2", [client.id, period]),
+        pool.query("SELECT composed_at, composed_by, entity_errors, notes FROM finance.rec_periods WHERE client_id = $1 AND period = $2", [client.id, period]),
         pool.query(
           `SELECT r.id, r.rec_account_id, r.period, r.status, r.owner, r.challenge, r.class, r.artefact, r.proof, r.recheck_reason,
-                  a.account_name, a.line_key,
-                  COALESCE(json_agg(json_build_object('entity_id', b.entity_id, 'closing', b.closing, 'code', b.account_code)) FILTER (WHERE b.rec_id IS NOT NULL), '[]') AS balances
+                  r.sole_reviewer, r.signed_snapshot, a.account_name, a.line_key,
+                  COALESCE(json_agg(json_build_object('entity_id', b.entity_id, 'closing', b.closing, 'code', b.account_code, 'currency', b.currency)) FILTER (WHERE b.rec_id IS NOT NULL), '[]') AS balances
              FROM finance.recs r
              JOIN finance.rec_accounts a ON a.id = r.rec_account_id
              LEFT JOIN finance.rec_balances b ON b.rec_id = r.id
@@ -129,27 +168,32 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
             GROUP BY r.id, a.id ORDER BY a.account_name`, [client.id, period]),
         companies(pool, client.id),
         tolerance(pool, client.id),
-        pool.query("SELECT rec_account_id, status FROM finance.recs WHERE client_id = $1 AND period = $2 AND dropped_at IS NULL", [client.id, prior]),
+        pool.query("SELECT rec_account_id, status, recheck_reason FROM finance.recs WHERE client_id = $1 AND period = $2 AND dropped_at IS NULL", [client.id, prior]),
       ]);
       const items = await itemsOf(pool, client.id, rows.rows.map((r) => r.rec_account_id));
       const priorBy = new Map(priorRecs.rows.map((r) => [r.rec_account_id, r.status]));
       const list = rows.rows.map((r) => {
-        const support = supportFor(r, items.filter((i) => i.rec_account_id === r.rec_account_id));
-        const c = recs.cover(r.balances, support, tol);
+        // A signed rec shows what was signed, not the ledger since.
+        const signed = r.status === "signed_off" ? r.signed_snapshot : null;
+        const mine = signed ? signed.items : items.filter((i) => i.rec_account_id === r.rec_account_id);
+        const support = supportFor(r, mine);
+        const balances = signed ? signed.balances.map((b) => ({ ...b, code: b.account_code })) : r.balances;
+        const c = recs.cover(balances, support, signed ? signed.tolerance : tol);
         return {
-          id: r.id, account_name: r.account_name, codes: [...new Set(r.balances.map((b) => b.code).filter(Boolean))].sort(),
+          id: r.id, account_name: r.account_name, codes: [...new Set(balances.map((b) => b.code).filter(Boolean))].sort(),
           line: lineFor(r.line_key)?.line ?? null, line_key: r.line_key, placed: Boolean(r.line_key),
           proof: r.proof, status: r.status, owner: r.owner, challenge: r.challenge, class: r.class, with: holder(r),
-          ledger: money(c.group.gl), support: money(c.group.schedule), difference: money(c.group.variance), ties: c.ties,
-          recheck_reason: r.recheck_reason, workable: recs.workable(r.line_key, r.proof), companies: r.balances.length,
+          ledger: money(c.group.gl), support: money(c.group.schedule), difference: money(c.group.variance), ties: c.ties, mixed_currency: c.mixed_currency,
+          sole_reviewer: r.sole_reviewer, recheck_reason: r.recheck_reason, workable: recs.workable(r.line_key, r.proof), companies: balances.length,
           prior_status: priorBy.get(r.rec_account_id) ?? null,
         };
       });
       const errors = run.rows[0]?.entity_errors ?? [];
       res.json({
         ...base,
-        prior: { ...base.prior, open: priorRecs.rows.some((r) => r.status !== "signed_off") },
+        prior: { ...base.prior, open: priorRecs.rows.some((r) => r.status !== "signed_off" || r.recheck_reason) },
         tolerance: money(tol),
+        notes: run.rows[0]?.notes ?? [],
         composed_at: run.rows[0]?.composed_at ?? null,
         entity_errors: errors,
         complete: Boolean(run.rows.length) && errors.length === 0,
@@ -160,7 +204,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
       });
     } catch (e) {
       if (!isMissingTable(e)) throw e;
-      res.json({ ...base, migration_missing: true, recs: [], entities: [], entity_errors: [], counts: { total: 0, signed_off: 0, recheck: 0 }, lines: [] });
+      res.json({ ...base, migration_missing: true, recs: [], entities: [], entity_errors: [], notes: [], counts: { total: 0, signed_off: 0, recheck: 0 }, lines: [] });
     }
   }));
 
@@ -175,9 +219,15 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     };
     try {
       const accounts = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts"))?.Accounts ?? [];
+      const org = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Organisation"))?.Organisations?.[0];
       const closeTb = await tb(recs.monthEnd(period));
       const openTb = await tb(recs.monthEnd(recs.priorPeriod(period)));
-      return { lines: recs.entityLines({ accounts, closeTb, openTb }) };
+      if (!recs.hasRows(closeTb) || !recs.hasRows(openTb)) return { error: "Xero returned a trial balance with no rows, so this company could not be read" };
+      return {
+        lines: recs.entityLines({ accounts, closeTb, openTb }),
+        currency: org?.BaseCurrency ?? null,
+        unidentified: [...recs.unidentifiedRows(closeTb), ...recs.unidentifiedRows(openTb)],
+      };
     } catch (e) {
       return { error: e.message };
     }
@@ -198,7 +248,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
           await conn.query("UPDATE finance.rec_balances SET opening = $3, movement = closing - $3 WHERE rec_id = $1 AND entity_id = $2", [n.id, b.entity_id, b.opening]);
         }
       }
-      const reason = recs.recheckReason(n.prepared_snapshot, bals, { priorLabel: recs.periodLabel(period), names });
+      const reason = recs.recheckReason(n.prepared_snapshot, bals, { priorLabel: recs.periodLabel(period), names, items: await itemsOf(conn, client.id, [n.rec_account_id]), period: recs.nextPeriod(period) });
       if (reason && reason !== n.recheck_reason) {
         await conn.query("UPDATE finance.recs SET recheck_reason = $2, recheck_at = now(), updated_at = now() WHERE id = $1", [n.id, reason]);
         await event(conn, n.id, client.id, actor, "recheck", { reason });
@@ -211,8 +261,9 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
   // moved figure is noticed. A company that cannot be read keeps what it had,
   // and the list then says it is not complete.
   app.post(`${BASE}/compose`, tolerant(async (req, res) => {
-    const client = await clientIdFromSlug(req.params.slug);
-    if (!client) return res.status(404).json({ error: "client not found" });
+    const who = await preflight(req, res);
+    if (!who) return;
+    const { client } = who;
     const period = String(req.body?.period ?? "");
     if (!recs.isPeriod(period)) return res.status(422).json({ issues: ["period must be a month (YYYY-MM)"] });
 
@@ -223,9 +274,12 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     for (const e of entities) {
       const r = await readEntity(client, e.slug, period);
       if (r.error) errors.push({ entity_id: e.id, entity: e.name, error: r.error });
-      else read.push({ ...e, lines: r.lines });
+      else read.push({ ...e, lines: r.lines, currency: r.currency, unidentified: r.unidentified });
     }
-    const accounts = recs.composeAccounts(read);
+    const { accounts, notes } = recs.composeAccounts(read);
+    for (const e of read) {
+      for (const label of new Set(e.unidentified)) notes.push(`${e.name}: the trial balance has a row with no account id, so it is not on this list: ${label}.`);
+    }
     const names = new Map(entities.map((e) => [e.id, e.name]));
     const readIds = new Set(read.map((e) => e.id));
 
@@ -247,7 +301,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
            ON CONFLICT (rec_account_id, period) DO UPDATE
              SET owner = EXCLUDED.owner, challenge = EXCLUDED.challenge, class = EXCLUDED.class,
                  artefact = EXCLUDED.artefact, dropped_at = NULL
-           RETURNING id, prepared_snapshot, recheck_reason, (xmax = 0) AS is_new`,
+           RETURNING id, rec_account_id, period, prepared_snapshot, recheck_reason, (xmax = 0) AS is_new`,
           [client.id, ra.id, period, recs.monthEnd(period), m.owner, m.challenge, m.class, m.artefact, ra.proof])).rows[0];
         seen.add(rec.id);
         if (rec.is_new) { added += 1; await event(conn, rec.id, client.id, actor, "composed", { from: "trial balance" }); }
@@ -255,40 +309,47 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
         for (const b of a.by_entity) {
           here.set(b.entity_id, b.closing);
           await conn.query(
-            `INSERT INTO finance.rec_balances (rec_id, entity_id, account_code, account_name, opening, closing, movement)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)
+            `INSERT INTO finance.rec_balances (rec_id, entity_id, account_code, account_name, currency, opening, closing, movement)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
              ON CONFLICT (rec_id, entity_id) DO UPDATE
-               SET account_code = EXCLUDED.account_code, account_name = EXCLUDED.account_name, opening = EXCLUDED.opening,
-                   closing = EXCLUDED.closing, movement = EXCLUDED.movement, read_at = now()`,
-            [rec.id, b.entity_id, b.code, b.name, recs.pounds(b.opening), recs.pounds(b.closing), recs.pounds(b.movement)]);
+               SET account_code = EXCLUDED.account_code, account_name = EXCLUDED.account_name, currency = EXCLUDED.currency,
+                   opening = EXCLUDED.opening, closing = EXCLUDED.closing, movement = EXCLUDED.movement, read_at = now()`,
+            [rec.id, b.entity_id, b.code, b.name, b.currency, recs.pounds(b.opening), recs.pounds(b.closing), recs.pounds(b.movement)]);
         }
-        // A company read just now that no longer has this account.
+        // A company read just now that no longer has this account. A row holding
+        // a person's comment stays, at nil, so the comment is not lost.
         await conn.query(
-          "DELETE FROM finance.rec_balances WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[])",
+          `UPDATE finance.rec_balances SET opening = 0, closing = 0, movement = 0, read_at = now()
+            WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[]) AND comment IS NOT NULL`,
+          [rec.id, [...readIds], [...here.keys()]]);
+        await conn.query(
+          "DELETE FROM finance.rec_balances WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[]) AND comment IS NULL",
           [rec.id, [...readIds], [...here.keys()]]);
         closings.set(ra.id, here);
-        const reason = recs.recheckReason(rec.prepared_snapshot, await balancesOf(conn, rec.id), { priorLabel: recs.periodLabel(recs.priorPeriod(period)), names });
-        if (reason !== rec.recheck_reason) {
-          await conn.query("UPDATE finance.recs SET recheck_reason = $2, recheck_at = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END, updated_at = now() WHERE id = $1", [rec.id, reason]);
-          if (reason) await event(conn, rec.id, client.id, actor, "recheck", { reason });
-        }
+        await reflag(conn, client, rec, actor, names);
       }
       // Off the trial balance after a correction. Only safe to act on when every
       // company was read: a missing company must not look like a cleared account.
       if (!errors.length) {
+        // Removed only when nothing has touched it: a journal, evidence, or any
+        // history beyond being listed keeps it, as dropped.
         await conn.query(
-          "DELETE FROM finance.recs WHERE client_id = $1 AND period = $2 AND status = 'not_started' AND NOT id = ANY($3::uuid[])",
+          `DELETE FROM finance.recs r
+            WHERE r.client_id = $1 AND r.period = $2 AND r.status = 'not_started' AND NOT r.id = ANY($3::uuid[])
+              AND NOT EXISTS (SELECT 1 FROM finance.rec_journals j WHERE j.rec_id = r.id)
+              AND NOT EXISTS (SELECT 1 FROM finance.rec_evidence v WHERE v.rec_id = r.id)
+              AND NOT EXISTS (SELECT 1 FROM finance.rec_events e WHERE e.rec_id = r.id AND e.action <> 'composed')`,
           [client.id, period, [...seen]]);
         await conn.query(
           "UPDATE finance.recs SET dropped_at = now() WHERE client_id = $1 AND period = $2 AND dropped_at IS NULL AND NOT id = ANY($3::uuid[])",
           [client.id, period, [...seen]]);
       }
       await conn.query(
-        `INSERT INTO finance.rec_periods (client_id, period, composed_by, entity_errors) VALUES ($1,$2,$3,$4)
-         ON CONFLICT (client_id, period) DO UPDATE SET composed_at = now(), composed_by = EXCLUDED.composed_by, entity_errors = EXCLUDED.entity_errors`,
-        [client.id, period, actor, JSON.stringify(errors)]);
+        `INSERT INTO finance.rec_periods (client_id, period, composed_by, entity_errors, notes) VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (client_id, period) DO UPDATE SET composed_at = now(), composed_by = EXCLUDED.composed_by, entity_errors = EXCLUDED.entity_errors, notes = EXCLUDED.notes`,
+        [client.id, period, actor, JSON.stringify(errors), JSON.stringify(notes)]);
       await flagNextMonth(conn, client, period, closings, names, actor);
-      return { status: 200, body: { period, accounts: accounts.length, added, complete: errors.length === 0, entity_errors: errors } };
+      return { status: 200, body: { period, accounts: accounts.length, added, complete: errors.length === 0, entity_errors: errors, notes } };
     });
   }));
 
@@ -307,14 +368,20 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
   // ── One reconciliation ──────────────────────────────────────────────────────
 
   async function recView(client, rec) {
-    const [balances, tol, items, journals, events, prior] = await Promise.all([
+    const [liveBalances, liveTol, liveItems, journals, events, prior] = await Promise.all([
       balancesOf(pool, rec.id),
       tolerance(pool, client.id),
       itemsOf(pool, client.id, [rec.rec_account_id]),
       pool.query(
         `SELECT j.id, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text, j.narration, j.lines, j.reason, j.proposed_by,
-                j.approved_by, j.approved_at, j.rejected_by, j.xero_journal_no, j.xero_journal_id, j.drafted_at, j.created_at
-           FROM finance.rec_journals j JOIN finance.entities e ON e.id = j.entity_id WHERE j.rec_id = $1 ORDER BY j.created_at DESC`, [rec.id]),
+                j.approved_by, j.approved_at, j.rejected_by, j.xero_journal_no, j.xero_journal_id, j.drafted_at, j.created_at,
+                r.status AS run_status, r.queued_at AS run_queued_at, p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http
+           FROM finance.rec_journals j
+           JOIN finance.entities e ON e.id = j.entity_id
+           LEFT JOIN finance.agent_runs r ON r.id = j.approved_run_id
+           LEFT JOIN finance.journal_posts p ON p.client_id = j.client_id AND p.entity_id = j.entity_id
+             AND p.idempotency_key = 'rec-journal-' || j.id || '-' || j.attempts
+          WHERE j.rec_id = $1 ORDER BY j.created_at DESC`, [rec.id]),
       pool.query("SELECT at, actor, action, detail FROM finance.rec_events WHERE rec_id = $1 ORDER BY at DESC, id DESC LIMIT 100", [rec.id]),
       pool.query(
         `SELECT r.id, r.status, r.recheck_reason,
@@ -322,6 +389,12 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
            FROM finance.recs r LEFT JOIN finance.rec_balances b ON b.rec_id = r.id
           WHERE r.rec_account_id = $1 AND r.period = $2 GROUP BY r.id`, [rec.rec_account_id, recs.priorPeriod(rec.period)]),
     ]);
+    // A signed rec shows what was signed: the schedule is shared with later
+    // months, and the ledger read carries on.
+    const signed = rec.status === "signed_off" ? rec.signed_snapshot : null;
+    const balances = signed?.balances ?? liveBalances;
+    const items = signed?.items ?? liveItems;
+    const tol = signed?.tolerance ?? liveTol;
     const support = supportFor(rec, items);
     const c = recs.cover(balances, support, tol);
     const names = new Map(balances.map((b) => [b.entity_id, b.entity_name]));
@@ -337,18 +410,21 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
         prepared_by: rec.prepared_by, prepared_at: rec.prepared_at, reviewed_by: rec.reviewed_by, reviewed_at: rec.reviewed_at,
         signed_off_by: rec.signed_off_by, signed_off_at: rec.signed_off_at, recheck_reason: rec.recheck_reason, recheck_at: rec.recheck_at,
         checks_at: rec.checks_at, workable: recs.workable(rec.line_key, rec.proof),
+        sole_reviewer: rec.sole_reviewer, shown_as_signed: Boolean(signed),
       },
       tolerance: money(tol),
       cover: {
         rows: c.rows.map((r) => {
           const b = balances.find((x) => x.entity_id === r.entity_id);
           return {
-            entity_id: r.entity_id, entity: b.entity_name, code: b.account_code, gl_name: b.account_name, comment: b.comment,
-            opening: b.opening, gl: money(r.gl), schedule: money(r.schedule), variance: money(r.variance), ties: r.ties,
+            entity_id: r.entity_id, entity: names.get(r.entity_id) ?? "A company", code: b?.account_code ?? null, gl_name: b?.account_name ?? rec.account_name,
+            comment: b?.comment ?? null, opening: b?.opening ?? "0.00", gl: money(r.gl), schedule: money(r.schedule), variance: money(r.variance),
+            ties: r.ties, currency: r.currency, no_ledger: r.no_ledger,
           };
         }),
         group: { gl: money(c.group.gl), schedule: money(c.group.schedule), variance: money(c.group.variance) },
         ties: c.ties,
+        mixed_currency: c.mixed_currency,
       },
       schedule: {
         months,
@@ -362,7 +438,12 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
         }),
       },
       checks: rec.checks,
-      journals: journals.rows,
+      journals: journals.rows.map(({ run_status, run_queued_at, post_outcome, post_http, ...j }) => {
+        const state = j.state === "approved"
+          ? recs.retryState({ runLive: recs.runIsLive({ status: run_status, queued_at: run_queued_at }), post: post_outcome ? { outcome: post_outcome, http_status: post_http } : null })
+          : null;
+        return { ...j, retry_state: state, can_retry: ["go", "retry"].includes(state) };
+      }),
       events: events.rows,
       prior: p ? {
         status: p.status, label: recs.periodLabel(recs.priorPeriod(rec.period)), recheck: Boolean(p.recheck_reason),
@@ -380,25 +461,12 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     const client = await clientIdFromSlug(req.params.slug);
     if (!client) return res.status(404).json({ error: "client not found" });
     const { rows } = await pool.query(
-      `SELECT j.id, j.state, j.journal_date::text, j.narration, j.lines, e.slug AS entity_slug
+      `SELECT j.id, j.state, j.attempts, j.journal_date::text, j.narration, j.lines, e.slug AS entity_slug
          FROM finance.rec_journals j JOIN finance.entities e ON e.id = j.entity_id
         WHERE j.client_id = $1 AND j.approved_run_id = $2`, [client.id, req.params.runId]);
     if (!rows.length) return res.status(404).json({ error: "no proposal for this run" });
-    res.json(rows[0]);
+    res.json({ ...rows[0], key: recs.recJournalKey(rows[0]) });
   }));
-
-  // POST /recs/journals/:jid/drafted   body: { journal_id, journal_number }
-  app.post(`${BASE}/journals/:jid/drafted`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, actor, via }) => {
-    if (!work.isGuid(req.params.jid)) return { status: 400, body: { error: "id must be an id" } };
-    if (via?.kind !== "agent") return { status: 403, body: { error: "only the runner records this" } };
-    const j = (await conn.query(
-      `UPDATE finance.rec_journals SET state = 'draft_created', xero_journal_id = $3, xero_journal_no = $4, drafted_at = now()
-        WHERE id = $1 AND client_id = $2 AND state = 'approved' AND approved_run_id = $5 RETURNING rec_id`,
-      [req.params.jid, client.id, req.body?.journal_id ?? null, req.body?.journal_number != null ? String(req.body.journal_number) : null, via.run_id])).rows[0];
-    if (!j) return { status: 409, body: { error: "this proposal is not waiting for this run" } };
-    await event(conn, j.rec_id, client.id, actor, "journal_drafted", { journal_id: req.params.jid, number: req.body?.journal_number ?? null });
-    return { status: 200, body: { ok: true } };
-  })));
 
   // GET /recs/:id
   app.get(`${BASE}/:id`, tolerant(async (req, res) => {
@@ -446,10 +514,18 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     const stop = editable(rec);
     if (stop) return stop;
     const comment = String(req.body?.comment ?? "").trim().slice(0, 1000);
+    if (!work.isGuid(req.body?.entity_id)) return { status: 400, body: { error: "entity_id must be a company id" } };
     const r = await conn.query(
       "UPDATE finance.rec_balances SET comment = $3 WHERE rec_id = $1 AND entity_id = $2 RETURNING entity_id",
-      [rec.id, req.body?.entity_id, comment || null]);
-    if (!r.rows.length) return { status: 404, body: { error: "that company is not on this reconciliation" } };
+      [rec.id, req.body.entity_id, comment || null]);
+    if (!r.rows.length) {
+      // A company on the schedule with nothing in the ledger has a variance to
+      // explain, and so needs somewhere to hold the comment.
+      const has = (await conn.query(
+        "SELECT 1 FROM finance.rec_schedule_items WHERE rec_account_id = $1 AND entity_id = $2 AND deleted_at IS NULL LIMIT 1", [rec.rec_account_id, req.body.entity_id])).rows[0];
+      if (!has) return { status: 404, body: { error: "that company is not on this reconciliation" } };
+      await conn.query("INSERT INTO finance.rec_balances (rec_id, entity_id, account_name, comment) VALUES ($1,$2,$3,$4)", [rec.id, req.body.entity_id, rec.account_name, comment || null]);
+    }
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "comment", { entity_id: req.body.entity_id, comment });
     return { status: 200, body: { ok: true } };
@@ -462,7 +538,8 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     const { issues, fields } = recs.scheduleItemInput(req.body);
     const { issues: more, row } = recs.finishItem(fields);
     issues.push(...more);
-    const entity = (await conn.query("SELECT id FROM finance.entities WHERE id = $1 AND client_id = $2 AND retired_at IS NULL", [req.body?.entity_id, client.id]).catch(() => ({ rows: [] }))).rows[0];
+    if (!work.isGuid(req.body?.entity_id)) return { status: 400, body: { error: "entity_id must be a company id" } };
+    const entity = (await conn.query("SELECT id FROM finance.entities WHERE id = $1 AND client_id = $2 AND retired_at IS NULL", [req.body.entity_id, client.id])).rows[0];
     if (!entity) issues.push("choose one of this client's companies");
     if (issues.length) return { status: 422, body: { issues } };
     if (row.item_no === undefined) {
@@ -477,6 +554,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
       [client.id, rec.rec_account_id, entity.id, actor, ...cols.map((c) => row[c])])).rows[0];
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "item_added", { item_id: saved.id, supplier: row.supplier });
+    await reflagSchedule(conn, client, rec.rec_account_id, actor);
     return { status: 201, body: { id: saved.id } };
   }))));
 
@@ -502,6 +580,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
       [req.params.itemId, ...cols.map((c) => fields[c])]);
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "item_changed", { item_id: req.params.itemId, fields: cols });
+    await reflagSchedule(conn, client, rec.rec_account_id, actor);
     return { status: 200, body: { ok: true } };
   }))));
 
@@ -516,6 +595,7 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
         WHERE id = $1 AND rec_account_id = $2 AND deleted_at IS NULL RETURNING supplier`, [req.params.itemId, rec.rec_account_id, actorEmail]);
     if (!r.rows.length) return { status: 404, body: { error: "item not found" } };
     await event(conn, rec.id, client.id, actor, "item_removed", { item_id: req.params.itemId, supplier: r.rows[0].supplier });
+    await reflagSchedule(conn, client, rec.rec_account_id, actor);
     return { status: 200, body: { ok: true } };
   }), { peopleOnly: true })));
 
@@ -524,8 +604,9 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
   // people see the same answer.
   app.post(`${BASE}/:id/checks`, tolerant(async (req, res) => {
     if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a reconciliation id" });
-    const client = await clientIdFromSlug(req.params.slug);
-    if (!client) return res.status(404).json({ error: "client not found" });
+    const who = await preflight(req, res);
+    if (!who) return;
+    const { client } = who;
     const rec = await loadRec(pool, client.id, req.params.id);
     if (!rec) return res.status(404).json({ error: "reconciliation not found" });
     if (!recs.workable(rec.line_key, rec.proof)) return res.status(409).json({ error: "Checks work only for Prepayments for now" });
@@ -572,45 +653,88 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
   });
 
   // POST /recs/:id/prepare   body: { note }   hands to the FC. Clears any re-check.
-  app.post(`${BASE}/:id/prepare`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
+  app.post(`${BASE}/:id/prepare`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
     const { balances, items, tied: c } = await figuresOn(conn, client, rec);
     const note = String(req.body?.note ?? "").trim().slice(0, 4000);
     const comments = c.rows.every((r) => r.ties || balances.find((b) => b.entity_id === r.entity_id)?.comment);
     const issues = recs.stepIssues("prepare", { rec, tied: c.ties, via, role, actor, note, comments });
     if (issues.length) return { status: 422, body: { issues } };
     await conn.query(
-      `UPDATE finance.recs SET status = 'with_fc', preparer_note = $2, prepared_snapshot = $3, prepared_by = $4, prepared_at = now(),
-         recheck_reason = NULL, recheck_at = NULL, review_note = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = now() WHERE id = $1`,
-      [rec.id, note || null, JSON.stringify(snapshotFor(balances, items, rec)), actor]);
+      `UPDATE finance.recs SET status = 'with_fc', preparer_note = $2, prepared_snapshot = $3, prepared_by = $4, prepared_by_person = $5, prepared_at = now(),
+         recheck_reason = NULL, recheck_at = NULL, review_note = NULL, reviewed_by = NULL, reviewed_by_person = NULL, reviewed_at = NULL,
+         sole_reviewer = false, signed_snapshot = NULL, updated_at = now() WHERE id = $1`,
+      [rec.id, note || null, JSON.stringify(snapshotFor(balances, items, rec)), actor, actorEmail]);
     await event(conn, rec.id, client.id, actor, "prepared", { ties: c.ties, difference: money(c.group.variance) });
     return { status: 200, body: { status: "with_fc" } };
   }))));
 
   // POST /recs/:id/review   body: { pass: true|false, note }
-  app.post(`${BASE}/:id/review`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
+  app.post(`${BASE}/:id/review`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
     const pass = req.body?.pass === true;
     const note = String(req.body?.note ?? "").trim().slice(0, 4000);
-    const issues = recs.stepIssues(pass ? "review_pass" : "review_back", { rec, via, role, actor, note });
+    const sole = !via && req.body?.sole_reviewer === true;
+    const issues = recs.stepIssues(pass ? "review_pass" : "review_back", { rec, via, role, actor, person: actorEmail, sole, note });
     if (issues.length) return { status: 422, body: { issues } };
     const status = pass ? "with_cfo" : "sent_back";
     await conn.query(
-      "UPDATE finance.recs SET status = $2, review_note = $3, reviewed_by = $4, reviewed_at = now(), updated_at = now() WHERE id = $1",
-      [rec.id, status, note || null, actor]);
+      `UPDATE finance.recs SET status = $2, review_note = $3, reviewed_by = $4, reviewed_by_person = $5, reviewed_at = now(),
+         sole_reviewer = sole_reviewer OR $6, updated_at = now() WHERE id = $1`,
+      [rec.id, status, note || null, actor, actorEmail, sole && recs.needsSoleReviewer(rec, actorEmail)]);
     await event(conn, rec.id, client.id, actor, pass ? "review_passed" : "sent_back", { note });
     return { status: 200, body: { status } };
   }))));
 
   // POST /recs/:id/sign-off   a person, the CFO, and only when it ties
-  app.post(`${BASE}/:id/sign-off`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
-    const { tied: c } = await figuresOn(conn, client, rec);
-    const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor });
-    if (issues.length) return { status: 422, body: { issues } };
-    await conn.query(
-      "UPDATE finance.recs SET status = 'signed_off', signed_off_by = $2, signed_off_role = $3, signed_off_at = now(), updated_at = now() WHERE id = $1",
-      [rec.id, actorEmail, role]);
-    await event(conn, rec.id, client.id, actor, "signed_off", { role, group_ledger: money(c.group.gl) });
-    return { status: 200, body: { status: "signed_off" } };
-  }), { peopleOnly: true })));
+  app.post(`${BASE}/:id/sign-off`, tolerant(async (req, res) => {
+    // Xero is read first, outside the transaction, and only for someone who
+    // could sign this.
+    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a reconciliation id" });
+    const who = await preflight(req, res);
+    if (!who) return;
+    let reads = [];
+    const first = await loadRec(pool, who.client.id, req.params.id);
+    if (first && !req.get("X-Work-Via") && recs.CFO_ROLE.test(who.role) && first.status === "with_cfo") {
+      reads = await readIssuesAtSignOff(who.client, first);
+    }
+    return recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
+      const { balances, items, tol, tied: c } = await figuresOn(conn, client, rec);
+      const sole = req.body?.sole_reviewer === true;
+      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads });
+      if (issues.length) return { status: 422, body: { issues } };
+      const flagged = rec.sole_reviewer || recs.needsSoleReviewer(rec, actorEmail);
+      await conn.query(
+        `UPDATE finance.recs SET status = 'signed_off', signed_off_by = $2, signed_off_role = $3, signed_off_at = now(),
+           sole_reviewer = $4, signed_snapshot = $5, updated_at = now() WHERE id = $1`,
+        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, tolerance: tol, at: new Date().toISOString() })]);
+      const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged };
+      await event(conn, rec.id, client.id, actor, "signed_off", { role, ...payload });
+      await auditRec(conn, req, { client, actorEmail, role, action: "rec_signed_off", id: rec.id, payload });
+      return { status: 200, body: { status: "signed_off" } };
+    }), { peopleOnly: true });
+  }));
+
+  // The list may be an hour old, and may be missing a company. Signing needs
+  // every company read cleanly, and this account unchanged in Xero right now.
+  async function readIssuesAtSignOff(client, rec) {
+    const run = (await pool.query("SELECT entity_errors FROM finance.rec_periods WHERE client_id = $1 AND period = $2", [client.id, rec.period])).rows[0];
+    if (!run) return ["This month has not been read from the trial balance"];
+    if (run.entity_errors.length) return [`This list is not complete: ${run.entity_errors.map((e) => e.entity).join(", ")} could not be read. Refresh it first`];
+    const entities = await companies(pool, client.id);
+    const read = [];
+    for (const e of entities) {
+      const r = await readEntity(client, e.slug, rec.period);
+      if (r.error) return [`${e.name} could not be read just now, so this cannot be signed off: ${r.error}`];
+      read.push({ ...e, lines: r.lines, currency: r.currency });
+    }
+    const now = recs.composeAccounts(read).accounts.find((a) => a.key === rec.account_key);
+    const held = await balancesOf(pool, rec.id);
+    const ledger = new Map((now?.by_entity ?? []).map((b) => [b.entity_id, b.closing]));
+    for (const id of new Set([...ledger.keys(), ...held.map((b) => b.entity_id)])) {
+      const b = held.find((x) => x.entity_id === id);
+      if ((ledger.get(id) ?? 0) !== recs.pence(b?.closing)) return ["The ledger has moved since this list was read. Refresh it, then check the reconciliation"];
+    }
+    return [];
+  }
 
   // POST /recs/:id/send-back   body: { note }   the CFO returns it to the preparer
   app.post(`${BASE}/:id/send-back`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
@@ -623,12 +747,13 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
   }), { peopleOnly: true })));
 
   // POST /recs/:id/reopen   back to the preparer, for a re-check or a late change
-  app.post(`${BASE}/:id/reopen`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
+  app.post(`${BASE}/:id/reopen`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
     const issues = recs.stepIssues("reopen", { rec, via, role, actor });
     if (issues.length) return { status: 422, body: { issues } };
     await conn.query(
       "UPDATE finance.recs SET status = 'in_progress', signed_off_by = NULL, signed_off_role = NULL, signed_off_at = NULL, updated_at = now() WHERE id = $1", [rec.id]);
     await event(conn, rec.id, client.id, actor, "reopened", { from: rec.status });
+    if (rec.status === "signed_off") await auditRec(conn, req, { client, actorEmail, role, action: "rec_reopened", id: rec.id, payload: { period: rec.period, account: rec.account_name, signed_off_by: rec.signed_off_by } });
     return { status: 200, body: { status: "in_progress" } };
   }), { peopleOnly: true })));
 
@@ -637,9 +762,9 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: "Agents work only on Prepayments for now" } };
     if (!["not_started", "in_progress", "sent_back"].includes(rec.status)) return { status: 409, body: { error: "This is already with a reviewer" } };
     const run = (await conn.query(
-      `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status)
-       VALUES ($1,$2,$3,'fm1',$4,'queued') RETURNING id`,
-      [client.id, actorEmail, role, recs.prepareInstruction(rec)])).rows[0];
+      `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, rec_id)
+       VALUES ($1,$2,$3,'fm1',$4,'queued',$5) RETURNING id`,
+      [client.id, actorEmail, role, recs.prepareInstruction(rec), rec.id])).rows[0];
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "agent_started", { run_id: run.id });
     return { status: 201, body: { run_id: run.id }, after: async () => ({ runner: await startAgentRunner(run.id) }) };
@@ -659,12 +784,22 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
     const code = (await conn.query("SELECT account_code FROM finance.rec_balances WHERE rec_id = $1 AND entity_id = $2", [rec.id, entity.id])).rows[0]?.account_code;
     const issues = recs.journalProposalIssues(req.body, { period: rec.period, recAccountCode: code });
     if (issues.length) return { status: 422, body: { issues } };
+    // One live proposal per rec and company: a new one replaces one not yet
+    // decided. One already approved may be on its way to Xero, so it stands.
+    const live = (await conn.query(
+      "SELECT id, state FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved') FOR UPDATE", [rec.id, entity.id])).rows[0];
+    if (live?.state === "approved") return { status: 409, body: { error: "A journal for this company is already approved. It must finish or be rejected first." } };
+    if (live) {
+      await conn.query("UPDATE finance.rec_journals SET state = 'superseded' WHERE id = $1", [live.id]);
+      await event(conn, rec.id, client.id, actor, "journal_superseded", { journal_id: live.id });
+    }
     const row = (await conn.query(
       `INSERT INTO finance.rec_journals (client_id, rec_id, entity_id, journal_date, narration, lines, reason, proposed_by, proposed_run_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [client.id, rec.id, entity.id, req.body.date, String(req.body.narration).trim(),
         JSON.stringify(req.body.lines.map((l) => ({ account_code: String(l.account_code), description: l.description ?? "", amount: Number(l.amount) }))),
         String(req.body.reason).trim().slice(0, 2000), actor, via.run_id])).rows[0];
+    await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "journal_proposed", { journal_id: row.id });
     return { status: 201, body: { id: row.id } };
   }))));
@@ -680,8 +815,22 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
          FROM finance.rec_journals j JOIN finance.entities e ON e.id = j.entity_id
         WHERE j.id = $1 AND j.rec_id = $2 FOR UPDATE OF j`, [req.params.jid, rec.id])).rows[0];
     if (!j) return { status: 404, body: { error: "proposal not found" } };
-    // Approved already and the run failed: approving again queues a fresh one.
+    const stop = recs.approvalIssues(rec);
+    if (stop) return { status: 409, body: { error: stop } };
     if (!["proposed", "approved"].includes(j.state)) return { status: 409, body: { error: `This proposal is already ${j.state.replace("_", " ")}` } };
+    // Approved already and the run ended without a draft: approving again is
+    // allowed only if a second draft cannot result.
+    let attempts = j.attempts;
+    if (j.state === "approved") {
+      const after = await lastAttempt(conn, j);
+      if (after.state === "live") return { status: 409, body: { error: "A run is still working on this journal." } };
+      if (after.state === "unknown") return { status: 409, body: { error: "This draft may already be in Xero. Check Xero. If it is not there, reject this and ask FM1 to propose it again." } };
+      if (after.state === "drafted") {
+        await markDrafted(conn, j.id, after.post?.response_body);
+        return { status: 200, body: { drafted: true } };
+      }
+      if (after.state === "retry") attempts += 1;
+    }
     const parent = (await conn.query(
       "SELECT id, output, finished_at FROM finance.agent_runs WHERE id = $1 AND client_id = $2", [j.proposed_run_id, client.id])).rows[0];
     if (!parent?.finished_at) return { status: 409, body: { error: "The run that proposed this has not finished yet" } };
@@ -693,26 +842,92 @@ function mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xero
       return { status: 422, body: { issues: [`The agent's answer does not show this journal in full (${missing.join("; ")}). Ask FM1 to propose it again.`] } };
     }
     const run = (await conn.query(
-      `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id)
-       VALUES ($1,$2,$3,'fm1',$4,'queued',$5) RETURNING id`,
-      [client.id, actorEmail, role, recs.approvalInstruction(j.id), parent.id])).rows[0];
+      `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id, rec_id)
+       VALUES ($1,$2,$3,'fm1',$4,'queued',$5,$6) RETURNING id`,
+      [client.id, actorEmail, role, recs.approvalInstruction(j.id), parent.id, rec.id])).rows[0];
     await conn.query(
-      "UPDATE finance.rec_journals SET state = 'approved', approved_by = $2, approved_at = now(), approved_run_id = $3 WHERE id = $1",
-      [j.id, actorEmail, run.id]);
+      "UPDATE finance.rec_journals SET state = 'approved', approved_by = $2, approved_at = now(), approved_run_id = $3, attempts = $4 WHERE id = $1",
+      [j.id, actorEmail, run.id, attempts]);
     await event(conn, rec.id, client.id, actor, "journal_approved", { journal_id: j.id, run_id: run.id });
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_journal_approved", id: rec.id, payload: { journal_id: j.id, run_id: run.id, date: j.journal_date, narration: j.narration, lines: j.lines, entity: j.slug } });
     return { status: 200, body: { run_id: run.id }, after: async () => ({ runner: await startAgentRunner(run.id) }) };
   }), { peopleOnly: true })));
 
   // POST /recs/:id/journals/:jid/reject
-  app.post(`${BASE}/:id/journals/:jid/reject`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail }) => withRec(conn, client, req.params.id, async (rec) => {
+  app.post(`${BASE}/:id/journals/:jid/reject`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO rejects a journal" } };
     if (!work.isGuid(req.params.jid)) return { status: 400, body: { error: "id must be an id" } };
-    const r = await conn.query(
-      `UPDATE finance.rec_journals SET state = 'rejected', rejected_by = $3, rejected_at = now()
-        WHERE id = $1 AND rec_id = $2 AND state = 'proposed' RETURNING id`, [req.params.jid, rec.id, actorEmail]);
-    if (!r.rows.length) return { status: 409, body: { error: "This proposal is not waiting for a decision" } };
+    const j = (await conn.query("SELECT * FROM finance.rec_journals WHERE id = $1 AND rec_id = $2 FOR UPDATE", [req.params.jid, rec.id])).rows[0];
+    if (!j || !["proposed", "approved"].includes(j.state)) return { status: 409, body: { error: "This proposal is not waiting for a decision" } };
+    if (j.state === "approved") {
+      const after = await lastAttempt(conn, j);
+      if (after.state === "live") return { status: 409, body: { error: "A run is still working on this journal." } };
+      if (after.state === "drafted") return { status: 409, body: { error: "This journal is already a draft in Xero. Void it there if it is not wanted." } };
+    }
+    await conn.query("UPDATE finance.rec_journals SET state = 'rejected', rejected_by = $2, rejected_at = now() WHERE id = $1", [j.id, actorEmail]);
     await event(conn, rec.id, client.id, actor, "journal_rejected", { journal_id: req.params.jid });
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_journal_rejected", id: rec.id, payload: { journal_id: j.id, was: j.state } });
     return { status: 200, body: { ok: true } };
   }), { peopleOnly: true })));
+
+  // What is known of an approved proposal's last attempt.
+  async function lastAttempt(conn, j) {
+    const run = j.approved_run_id
+      ? (await conn.query("SELECT status, queued_at FROM finance.agent_runs WHERE id = $1", [j.approved_run_id])).rows[0] : null;
+    const row = (await conn.query(
+      "SELECT outcome, response_body FROM finance.journal_posts WHERE client_id = $1 AND entity_id = $2 AND idempotency_key = $3",
+      [j.client_id, j.entity_id, recs.recJournalKey(j)])).rows[0];
+    const post = row ? { outcome: row.outcome, http_status: row.response_body?.http_status, response_body: row.response_body } : null;
+    return { state: recs.retryState({ runLive: recs.runIsLive(run), post }), post };
+  }
+
+  // Recorded by the journal route, in the transaction that closes the post, so
+  // a draft in Xero cannot be left looking as if it never happened.
+  async function markDrafted(db, journalId, created) {
+    const j = (await db.query(
+      `UPDATE finance.rec_journals SET state = 'draft_created', xero_journal_id = $2, xero_journal_no = $3, drafted_at = now()
+        WHERE id = $1 AND state = 'approved' RETURNING rec_id, client_id`,
+      [journalId, created?.journal_id ?? null, created?.journal_number != null ? String(created.journal_number) : null])).rows[0];
+    if (j) await event(db, j.rec_id, j.client_id, "automatic", "journal_drafted", { journal_id: journalId, number: created?.journal_number ?? null });
+  }
+
+  // The gate at the journal routes. Fails closed: a read that fails throws, and
+  // nothing is posted. Only a database without migration 032 passes, because it
+  // can hold no proposals. X-Agent-Run is set by the runner, behind the API key.
+  async function journalGate(clientId, entityId, { runId, input }) {
+    if (runId && !work.isGuid(runId)) return { refuse: "X-Agent-Run is not a run id." };
+    const month = String(input?.date ?? "").slice(0, 7);
+    try {
+      let inRecThread = false;
+      if (runId) {
+        const t = (await pool.query(
+          `WITH RECURSIVE up AS (
+             SELECT id, parent_run_id FROM finance.agent_runs WHERE id = $1 AND client_id = $2
+             UNION ALL
+             SELECT a.id, a.parent_run_id FROM finance.agent_runs a JOIN up ON a.id = up.parent_run_id
+           ), down AS (
+             SELECT id, rec_id FROM finance.agent_runs WHERE id IN (SELECT id FROM up WHERE parent_run_id IS NULL)
+             UNION ALL
+             SELECT a.id, a.rec_id FROM finance.agent_runs a JOIN down ON a.parent_run_id = down.id
+           )
+           SELECT count(*)::int AS runs,
+                  bool_or(rec_id IS NOT NULL) OR EXISTS (SELECT 1 FROM finance.rec_journals j WHERE j.proposed_run_id IN (SELECT id FROM down)) AS on_rec
+             FROM down`, [runId, clientId])).rows[0];
+        if (!t.runs) return { refuse: "That run is not one of this client's." };
+        inRecThread = Boolean(t.on_rec);
+      }
+      const proposals = (await pool.query(
+        `SELECT id, state, attempts, approved_run_id, journal_date::text, narration, lines FROM finance.rec_journals
+          WHERE client_id = $1 AND entity_id = $2 AND state <> 'superseded'
+            AND (to_char(journal_date, 'YYYY-MM') = $3 OR approved_run_id = $4::uuid)`, [clientId, entityId, month, runId || null])).rows;
+      return recs.recJournalGate({ runId, inRecThread, proposals, input });
+    } catch (e) {
+      if (isMissingTable(e)) return {};
+      throw e;
+    }
+  }
+
+  return { journalGate, markDrafted };
 }
 
 module.exports = { mountRecs };

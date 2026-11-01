@@ -3,6 +3,7 @@ import {
   accountKey, approvalInstruction, composeAccounts, cover, entityLines, finishItem, itemAt, journalChecks, journalMatches,
   journalProposalIssues, matrixFields, namesRecProposal, monthEnd, nextPeriod, priorPeriod, recheckReason, releaseIn, releaseProfile, scheduleItemInput,
   scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction,
+  CFO_ROLE, approvalIssues, hasRows, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows,
 } from "./recs";
 import { approvalFromThread } from "./draft-approval";
 import { checkApprovalText } from "./journal";
@@ -40,7 +41,7 @@ describe("the list comes from the trial balance", () => {
     ),
     openTb: tb(tbRow("pre", "Prepayments (620)", 0, 500, 2000, 0), tbRow("sus", "Suspense (850)", 0, 0, 250, 0)),
   });
-  const byKey = Object.fromEntries(lines.map((l) => [l.key, l]));
+  const byKey = Object.fromEntries(lines.map((l) => [accountKey(l.name), l]));
 
   it("takes every balance sheet account with a balance, and leaves out the P&L", () => {
     expect(Object.keys(byKey).sort()).toEqual(["businessbank", "oldloan", "prepayments", "suspense"]);
@@ -66,7 +67,7 @@ describe("a group rec joins companies by account name", () => {
       { key: "oddthing", code: "860", name: "Odd thing", opening: 0, closing: -9, movement: -9, chart: { Name: "Odd thing", Type: "CURRLIAB" } },
     ] },
   ];
-  const out = composeAccounts(entities);
+  const { accounts: out } = composeAccounts(entities);
 
   it("gives one rec across companies, even with different codes", () => {
     const pre = out.find((a) => a.key === "prepayments");
@@ -85,6 +86,48 @@ describe("a group rec joins companies by account name", () => {
   it("works end to end only for prepayments, for now", () => {
     expect(workable("prepay", "schedule")).toBe(true);
     expect(workable("accruals", "schedule")).toBe(false);
+  });
+});
+
+describe("H6: keys never lose a balance", () => {
+  const l = (key, code, name, closing) => ({ key, code, name, closing, opening: 0, movement: closing, account_id: code });
+  it("keeps two accounts in one company that reduce to one key, and says so", () => {
+    const { accounts, notes } = composeAccounts([{ id: A, name: "Acme Ltd", lines: [l("asset:staffloan", "612", "Staff loan", 100), l("asset:staffloan", "613", "Staff Loan!", 40)] }]);
+    expect(accounts).toHaveLength(2);
+    expect(accounts.flatMap((x) => x.by_entity).map((b) => b.closing).sort()).toEqual([100, 40].sort());
+    for (const a of accounts) expect(a.by_entity).toHaveLength(1);
+    expect(notes[0]).toMatch(/more than one account named like/);
+  });
+  it("gives each company at most one row on a rec", () => {
+    const { accounts } = composeAccounts([{ id: A, name: "Acme", lines: [l("k", "1", "N", 1), l("k", "2", "N", 2)] }, { id: B, name: "Beta", lines: [l("k", "3", "N", 3)] }]);
+    for (const a of accounts) expect(new Set(a.by_entity.map((b) => b.entity_id)).size).toBe(a.by_entity.length);
+    expect(accounts.flatMap((x) => x.by_entity)).toHaveLength(3);
+  });
+  it("does not merge across class, or merge bank accounts", () => {
+    const chart = [{ AccountID: "x", Code: "1", Name: "Deposits", Class: "ASSET", Type: "CURRENT" }];
+    const lb = [{ AccountID: "y", Code: "2", Name: "Deposits", Class: "LIABILITY", Type: "CURRLIAB" }];
+    const a = entityLines({ accounts: chart, closeTb: tb(tbRow("x", "Deposits (1)", 0, 0, 5, 0)), openTb: tb() });
+    const b = entityLines({ accounts: lb, closeTb: tb(tbRow("y", "Deposits (2)", 0, 0, 0, 5)), openTb: tb() });
+    expect(a[0].key).not.toBe(b[0].key);
+    const bank = (id) => entityLines({ accounts: [{ AccountID: id, Code: id, Name: "Bank", Class: "ASSET", Type: "BANK" }], closeTb: tb(tbRow(id, "Bank", 0, 0, 5, 0)), openTb: tb() })[0].key;
+    expect(bank("p")).not.toBe(bank("q"));
+  });
+  it("keeps an account whose name has no letters or digits", () => {
+    const r = entityLines({ accounts: [{ AccountID: "x", Code: "1", Name: "***", Class: "ASSET", Type: "CURRENT" }], closeTb: tb(tbRow("x", "*** (1)", 0, 0, 5, 0)), openTb: tb() });
+    expect(r[0].key).toBe("asset:id-x");
+    expect(composeAccounts([{ id: A, name: "Acme", lines: r }]).notes[0]).toMatch(/no letters or digits/);
+  });
+});
+
+describe("what counts as a read", () => {
+  it("treats a report with no rows as failed, not as an empty company", () => {
+    expect(hasRows({ Rows: [] })).toBe(false);
+    expect(hasRows({})).toBe(false);
+    expect(hasRows(tb(tbRow("x", "A", 0, 0, 0, 0)))).toBe(true);
+  });
+  it("reports a row with figures and no account id", () => {
+    expect(unidentifiedRows(tb({ RowType: "Row", Cells: [{ Value: "Mystery" }, { Value: "5.00" }] }))).toEqual(["Mystery"]);
+    expect(unidentifiedRows(tb({ RowType: "Row", Cells: [{ Value: "Blank" }, { Value: "0" }] }))).toEqual([]);
   });
 });
 
@@ -176,6 +219,21 @@ describe("the cover", () => {
     expect(c.group.variance).toBe(0);
     expect(c.ties).toBe(false);
   });
+  it("H3: keeps a company with schedule items and no ledger row, as a variance", () => {
+    const c = cover([bal[0]], new Map([[A, 100040], [B, 50000]]), 100);
+    expect(c.rows.find((r) => r.entity_id === B)).toMatchObject({ gl: 0, schedule: 50000, variance: -50000, ties: false, no_ledger: true });
+    expect(c.group).toEqual({ gl: 100040, schedule: 150040, variance: -50000 });
+    expect(c.ties).toBe(false);
+  });
+  it("does not add up companies in different currencies, but still ties each", () => {
+    const c = cover([{ ...bal[0], currency: "GBP" }, { ...bal[1], currency: "USD" }], new Map([[A, 100040], [B, 50000]]), 0);
+    expect(c.group).toEqual({ gl: null, schedule: null, variance: null });
+    expect(c.mixed_currency).toBe(true);
+    expect(c.ties).toBe(true);
+  });
+  it("reports every variance with a nil tolerance", () => {
+    expect(cover([{ entity_id: A, closing: "100.01" }], new Map([[A, 10000]]), 0).ties).toBe(false);
+  });
   it("says nothing ties where the proof has no figure yet", () => {
     expect(cover(bal, null, 100)).toMatchObject({ ties: false, group: { schedule: null, variance: null } });
   });
@@ -195,6 +253,23 @@ describe("re-check when a figure moves after preparation", () => {
   });
   it("catches this month's ledger moving too", () => {
     expect(recheckReason(snapshot, [{ ...was[0], closing: "210.00" }], ctx)).toMatch(/the ledger moved from 200.00 to 210.00/);
+  });
+  it("catches a company that left the account", () => {
+    expect(recheckReason(snapshot, [], ctx)).toMatch(/Acme Ltd: it held 200.00/);
+  });
+  it("H5: catches a schedule edit that moves this month's figures", () => {
+    const i = item();
+    const snap = { balances: {}, schedule: [{ id: "i1", supplier: "Insurer Ltd", ...itemAt(i, "2026-10") }] };
+    const c = { ...ctx, period: "2026-10" };
+    expect(recheckReason(snap, [], { ...c, items: [i] })).toBeNull();
+    expect(recheckReason(snap, [], { ...c, items: [{ ...i, total_cost: "8400.00" }] })).toMatch(/The schedule changed after this was prepared: Insurer Ltd moved from 1,200.00 to 1,400.00/);
+    expect(recheckReason(snap, [], { ...c, items: [] })).toMatch(/moved from 1,200.00 to 0.00/);
+  });
+  it("H5: leaves alone an edit that does not reach this month", () => {
+    const i = item();
+    const snap = { balances: {}, schedule: [{ id: "i1", supplier: "x", ...itemAt(i, "2026-10") }] };
+    const later = item({ id: "i9", invoice_date: "2026-11-02", service_start: "2026-11-01", service_end: "2026-12-31", amort_commenced: "2026-11-01" });
+    expect(recheckReason(snap, [], { ...ctx, period: "2026-10", items: [i, later] })).toBeNull();
   });
   it("catches a company new to the account", () => {
     expect(recheckReason(snapshot, [...was, { entity_id: B, opening: "0", closing: "5.00" }], ctx)).toMatch(/A company/);
@@ -271,7 +346,10 @@ describe("moving a rec along", () => {
     const r = rec({ status: "with_fc" });
     expect(stepIssues("review_pass", { rec: r, via: { agent: "fc" }, actor: "agent:fc" })).toEqual([]);
     expect(stepIssues("review_pass", { rec: r, via: { agent: "fm1" }, actor: "agent:fm1" })).toHaveLength(1);
-    expect(stepIssues("review_pass", { rec: rec({ status: "with_fc", prepared_by: "cfo@example.com" }), ...person })).toContain("The preparer cannot review their own reconciliation");
+    const own = { rec: rec({ status: "with_fc", prepared_by_person: "cfo@example.com" }), ...person, person: "cfo@example.com" };
+    expect(stepIssues("review_pass", own).join()).toMatch(/preparer cannot review/);
+    expect(stepIssues("review_pass", { ...own, sole: true })).toEqual([]);
+    expect(stepIssues("review_pass", { rec: r, via: null, role: "Bookkeeper", actor: "b" }).join()).toMatch(/Only the FC or the CFO/);
     expect(stepIssues("review_back", { rec: r, via: { agent: "fc" }, note: " " })).toContain("Say what needs changing");
   });
   it("lets only a person with the CFO role sign off, once it ties", () => {
@@ -281,6 +359,28 @@ describe("moving a rec along", () => {
     expect(stepIssues("sign_off", { rec: r, tied: true, via: null, role: "Bookkeeper" })).toContain("Only the CFO signs off");
     expect(stepIssues("sign_off", { rec: r, tied: false, ...person })[0]).toMatch(/does not tie/);
     expect(stepIssues("sign_off", { rec: rec({ status: "with_fc" }), tied: true, ...person })).toContain("This has not passed FC review");
+  });
+  it("needs a visible flag when the signer prepared, reviewed, or started the agents", () => {
+    const signer = { ...person, person: "cfo@example.com", tied: true };
+    for (const seat of ["prepared_by_person", "reviewed_by_person"]) {
+      const r = rec({ status: "with_cfo", [seat]: "CFO@example.com" });
+      expect(stepIssues("sign_off", { rec: r, ...signer }).join()).toMatch(/sole reviewer/);
+      expect(stepIssues("sign_off", { rec: r, ...signer, sole: true })).toEqual([]);
+    }
+    expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo", prepared_by_person: "other@example.com" }), ...signer })).toEqual([]);
+  });
+  it("H4: will not sign off on a read that cannot be relied on", () => {
+    expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo" }), tied: true, ...person, reads: ["Not complete"] })).toEqual(["Not complete"]);
+  });
+  it("keeps send back and reopening a signed rec to the CFO", () => {
+    const clerk = { via: null, role: "Bookkeeper", actor: "b", note: "x" };
+    expect(stepIssues("send_back", { rec: rec({ status: "with_cfo" }), ...clerk }).join()).toMatch(/Only the CFO/);
+    expect(stepIssues("reopen", { rec: rec({ status: "signed_off" }), ...clerk }).join()).toMatch(/Only the CFO/);
+    expect(stepIssues("reopen", { rec: rec({ status: "with_fc" }), ...clerk })).toEqual([]);
+  });
+  it("reads the whole role, not a word in it", () => {
+    for (const r of ["CFO", "Fractional CFO", "Fractional Finance Director", "Chief Financial Officer"]) expect(CFO_ROLE.test(r), r).toBe(true);
+    for (const r of ["Assistant to the CFO", "Not CFO", "Bookkeeper", "CFO Assistant"]) expect(CFO_ROLE.test(r), r).toBe(false);
   });
   it("will not sign off what is marked to re-check", () => {
     expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo", recheck_reason: "moved" }), tied: true, ...person })[0]).toMatch(/preparing again/);
@@ -299,6 +399,12 @@ describe("a proposed journal", () => {
     expect(journalProposalIssues({ ...ok, date: "2026-09-30" }, ctx).join()).toMatch(/dated in October 2026/);
     expect(journalProposalIssues(ok, { ...ctx, recAccountCode: "999" }).join()).toMatch(/account being reconciled/);
   });
+  it("fails, not skips, when the company has no account code", () => {
+    for (const code of [null, undefined, " "]) expect(journalProposalIssues(ok, { ...ctx, recAccountCode: code }).join()).toMatch(/no ledger account/);
+  });
+  it("copes with lines that are not lines", () => {
+    expect(journalProposalIssues({ ...ok, lines: [null, null] }, ctx).join()).toMatch(/not a journal line/);
+  });
   it("keeps the narration short: the reasoning stays out of Xero", () => {
     expect(journalProposalIssues({ ...ok, narration: "x".repeat(121) }, ctx).join()).toMatch(/120 characters/);
   });
@@ -314,6 +420,67 @@ describe("a proposed journal", () => {
     expect(journalMatches(approved, { ...ok, narration: "Other" })).toBe(false);
     expect(journalMatches(approved, { ...ok, lines: [{ account_code: "400", amount: 601 }, { account_code: "620", amount: -601 }] })).toBe(false);
     expect(journalMatches(approved, { ...ok, lines: [{ account_code: "401", amount: 600 }, { account_code: "620", amount: -600 }] })).toBe(false);
+  });
+});
+
+describe("H1: a journal proposed on a rec reaches Xero only through the CFO's approval", () => {
+  const lines = [{ account_code: "485", amount: 600 }, { account_code: "620", amount: -600 }];
+  const input = { date: "2026-10-31", narration: "Release", status: "DRAFT", lines };
+  const proposal = { id: "j1", state: "proposed", attempts: 1, approved_run_id: null, journal_date: "2026-10-31", narration: "Release", lines };
+  const approved = { ...proposal, state: "approved", approved_run_id: "run-2" };
+
+  it("refuses a chat reply in a rec thread, whatever the journal", () => {
+    expect(recJournalGate({ runId: "run-1", inRecThread: true, proposals: [proposal], input }).refuse).toMatch(/approved on the reconciliation/);
+    expect(recJournalGate({ runId: "run-1", inRecThread: true, proposals: [], input }).refuse).toBeTruthy();
+  });
+  it("refuses another run while one is approved", () => {
+    expect(recJournalGate({ runId: "run-9", inRecThread: true, proposals: [approved], input }).refuse).toBeTruthy();
+  });
+  it("refuses the same lines from a caller that names no run", () => {
+    expect(recJournalGate({ proposals: [proposal], input, inRecThread: false }).refuse).toMatch(/proposed on a reconciliation/);
+  });
+  it("lets the approved run through, on the proposal's key", () => {
+    expect(recJournalGate({ runId: "run-2", inRecThread: true, proposals: [approved], input })).toMatchObject({ journal: approved, key: "rec-journal-j1-1" });
+  });
+  it("holds even the approved run to the exact journal, as a draft", () => {
+    expect(recJournalGate({ runId: "run-2", inRecThread: true, proposals: [approved], input: { ...input, status: "POSTED" } }).refuse).toMatch(/DRAFT/);
+    expect(recJournalGate({ runId: "run-2", inRecThread: true, proposals: [approved], input: { ...input, narration: "Other" } }).refuse).toMatch(/differs/);
+  });
+  it("leaves a journal nothing to do with a rec alone", () => {
+    expect(recJournalGate({ proposals: [], input, inRecThread: false })).toEqual({});
+    expect(recJournalGate({ runId: "run-1", proposals: [proposal], input: { ...input, lines: [{ account_code: "1", amount: 5 }, { account_code: "2", amount: -5 }] }, inRecThread: false })).toEqual({});
+  });
+  it("survives a malformed journal", () => {
+    expect(recJournalGate({ proposals: [proposal], input: { lines: [null] }, inRecThread: false })).toEqual({});
+  });
+});
+
+describe("H2: one approval, one draft", () => {
+  const now = Date.parse("2026-11-01T12:00:00Z");
+  it("keys on the proposal, moving on only by attempt", () => {
+    expect(recJournalKey({ id: "j", attempts: 1 })).toBe("rec-journal-j-1");
+    expect(recJournalKey({ id: "j", attempts: 2 })).toBe("rec-journal-j-2");
+  });
+  it("treats a recent queued or running run as live, and one past the approval's age as not", () => {
+    expect(runIsLive({ status: "queued", queued_at: "2026-11-01T11:50:00Z" }, now)).toBe(true);
+    expect(runIsLive({ status: "running", queued_at: "2026-11-01T11:00:00Z" }, now)).toBe(false);
+    expect(runIsLive({ status: "failed", queued_at: "2026-11-01T11:59:00Z" }, now)).toBe(false);
+    expect(runIsLive(null, now)).toBe(false);
+  });
+  it("retries only when a second draft cannot result", () => {
+    expect(retryState({ runLive: true, post: null })).toBe("live");
+    expect(retryState({ runLive: false, post: null })).toBe("go");
+    expect(retryState({ runLive: false, post: { outcome: "draft" } })).toBe("drafted");
+    expect(retryState({ runLive: false, post: { outcome: "failed", http_status: 400 } })).toBe("retry");
+    for (const post of [{ outcome: "pending" }, { outcome: "failed", http_status: 0 }, { outcome: "failed", http_status: 503 }, { outcome: "failed", http_status: 429 }]) {
+      expect(retryState({ runLive: false, post }), JSON.stringify(post)).toBe("unknown");
+    }
+  });
+  it("refuses approval on a signed, dropped, or re-check rec", () => {
+    expect(approvalIssues({ status: "signed_off" })).toMatch(/signed off/);
+    expect(approvalIssues({ status: "in_progress", dropped_at: "x" })).toMatch(/no longer/);
+    expect(approvalIssues({ status: "in_progress", recheck_reason: "x" })).toMatch(/moved/);
+    expect(approvalIssues({ status: "in_progress" })).toBeNull();
   });
 });
 

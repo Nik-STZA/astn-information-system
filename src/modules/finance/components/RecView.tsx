@@ -22,6 +22,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
+  const [sole, setSole] = useState(false);
 
   const send: Send = async (path, body = {}, method = "POST") => {
     setBusy(true);
@@ -65,12 +66,16 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("reopen")}>Reopen</button>
           )}
           {rec.status === "with_cfo" && (
-            <button type="button" className="btn-primary" disabled={busy || !cover.ties || Boolean(rec.recheck_reason)} onClick={() => send("sign-off")}>Sign off</button>
+            <button type="button" className="btn-primary" disabled={busy || !cover.ties || Boolean(rec.recheck_reason)} onClick={() => send("sign-off", { sole_reviewer: sole })}>Sign off</button>
           )}
         </div>
       </div>
 
       {error && <div className={styles.err} role="alert">{error}</div>}
+
+      {rec.sole_reviewer && <div className={styles.note}>Sole reviewer: one person acted in more than one seat on this reconciliation.</div>}
+      {rec.shown_as_signed && <div className={styles.note}>Shown as signed off on {dayLabel(rec.signed_off_at)}, by {rec.signed_off_by}.</div>}
+      {cover.mixed_currency && <div className={styles.alert} role="status">These companies report in different currencies and no closing rate is held, so there is no group total. Each company ties on its own.</div>}
 
       {rec.recheck_reason && (
         <div className={styles.alert} role="alert"><strong>Re-check.</strong> {rec.recheck_reason}{rec.status !== "in_progress" && " Reopen it, then prepare it again."}</div>
@@ -80,7 +85,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         <Tile label={`Ledger at ${dayLabel(rec.period_end)}`} value={money(cover.group.gl)} />
         <Tile label={rec.proof === "schedule" ? "Schedule" : "Support"} value={money(cover.group.schedule)} />
         <Tile label="Difference" value={money(difference)} off={Boolean(difference && !cover.ties)} />
-        <Tile label={`Rolled from ${prior.label}`} value={prior.status === null ? "Nothing earlier" : prior.status === "signed_off" ? "Signed off" : "Not signed off"} />
+        <Tile label={`Rolled from ${prior.label}`} value={prior.status === null ? "Nothing earlier" : prior.recheck ? "Needs re-check" : prior.status === "signed_off" ? "Signed off" : "Not signed off"} />
       </div>
 
       {rec.preparer_note && (
@@ -167,6 +172,10 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
 
       {rec.status === "with_cfo" && (
         <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
+          <label className={styles.small} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 12 }}>
+            <input type="checkbox" checked={sole} onChange={(e) => setSole(e.target.checked)} />
+            <span>I prepared or reviewed this, or started the agents that did, and I am its only reviewer. This is recorded and shown on the reconciliation.</span>
+          </label>
           <h2 className={styles.h2}>Send back</h2>
           <label className={styles.field}>What needs changing
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -208,7 +217,7 @@ function Cover({ rows, group, canComment, busy, send }: {
       <div className={styles.cards} style={{ gap: 0 }}>
         {rows.map((r) => (
           <div key={r.entity_id} className={styles.coverCard}>
-            <div className={styles.rowTop}><span className={styles.rowName}>{r.entity}</span><span className={styles.small}>{r.code ?? ""}</span></div>
+            <div className={styles.rowTop}><span className={styles.rowName}>{r.entity}</span><span className={styles.small}>{r.no_ledger ? "Nothing in the ledger" : `${r.code ?? ""}${r.currency ? ` ${r.currency}` : ""}`}</span></div>
             <div className={styles.rowFigs}>
               <div className={styles.fig}><div className={styles.figLabel}>Ledger</div><div className={styles.figValue}>{money(r.gl)}</div></div>
               <div className={styles.fig}><div className={styles.figLabel}>Schedule</div><div className={styles.figValue}>{money(r.schedule)}</div></div>
@@ -233,7 +242,7 @@ function Cover({ rows, group, canComment, busy, send }: {
             {rows.map((r) => (
               <tr key={r.entity_id}>
                 <td>{r.entity}</td>
-                <td className={styles.sub}>{r.code ? `${r.code} ` : ""}{r.gl_name}</td>
+                <td className={styles.sub}>{r.no_ledger ? "Nothing in the ledger" : `${r.code ? `${r.code} ` : ""}${r.gl_name}${r.currency ? ` (${r.currency})` : ""}`}</td>
                 <td className={styles.num}>{money(r.gl)}</td>
                 <td className={styles.num}>{money(r.schedule)}</td>
                 <td className={`${styles.num} ${r.ties === false ? styles.strong : ""}`}>{money(r.variance)}</td>
@@ -404,7 +413,11 @@ function ItemForm({ entities, busy, send, onDone }: { entities: RecDetail["entit
 }
 
 function Journal({ j, busy, send }: { j: RecJournal; busy: boolean; send: Send }) {
-  const state = { proposed: null, approved: "Approved. An agent is creating the draft in Xero.", draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`, rejected: "Rejected." }[j.state];
+  if (j.state === "superseded") return null;
+  const approved = j.retry_state === "live" ? "Approved. An agent is creating the draft in Xero."
+    : j.retry_state === "unknown" ? "The last attempt did not finish cleanly, so this draft may already be in Xero. Check Xero. If it is not there, reject this and ask FM1 to propose it again."
+      : j.retry_state === "drafted" ? "This draft is in Xero." : "Approved, but no draft was created.";
+  const state = { proposed: null, approved, draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`, rejected: "Rejected." }[j.state];
   return (
     <div style={{ marginBottom: 12 }}>
       <div className={styles.small}>{j.entity_name} · {dayLabel(j.journal_date)} · {j.narration}</div>
@@ -418,8 +431,11 @@ function Journal({ j, busy, send }: { j: RecJournal; busy: boolean; send: Send }
       </div>
       {j.reason && <p className={styles.small}>{j.reason}</p>}
       {state ? <p className={styles.sub}>{state}</p> : <p className={styles.small}>After your approval, an agent creates it as a draft in Xero and you post it there.</p>}
-      {j.state === "approved" && !j.xero_journal_no && (
-        <div className={styles.actions}><button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/approve`)}>Try again</button></div>
+      {j.state === "approved" && j.retry_state !== "live" && (
+        <div className={styles.actions}>
+          {j.can_retry && <button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/approve`)}>Try again</button>}
+          {j.retry_state !== "drafted" && <button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/reject`)}>Reject</button>}
+        </div>
       )}
       {j.state === "proposed" && (
         <div className={styles.actions}>

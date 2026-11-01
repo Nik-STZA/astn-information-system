@@ -31,8 +31,9 @@ behind the movement. The management pack is a presentation of the ledger and
 may lag it.
 
 **Journals.** Where a journal is needed, propose it as your instructions
-describe and let the person who asked approve it; only then create it, as a
-DRAFT. Someone else posts it in Xero.
+describe. On a reconciliation, the CFO approves it on the reconciliation, and a
+reply in a conversation does not. Anywhere else, the person who asked approves
+it. Only then create it, as a DRAFT. Someone else posts it in Xero.
 
 **Reconciliations.** They live in Reconciliations in os.stza.io, one per GL
 account at group level, across the companies. For prepayments, read

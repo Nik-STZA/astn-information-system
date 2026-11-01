@@ -3233,6 +3233,8 @@ app.get("/api/finance/clients/:slug/reports/aged-payables", route(async (req, re
 //     every failure at once.
 
 const JOURNAL_TARGET_TYPE = "xero_journal";
+// Set where the rec routes are mounted, below. The journal routes need its gate.
+let recRoutes;
 
 // Reads the organisation's lock dates. A journal dated into a locked period is
 // rejected here rather than by Xero, so the caller gets a reason rather than a
@@ -3279,6 +3281,23 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
   if (ctx.error) return erpUnavailable(res, ctx);
 
+  // A journal proposed on a reconciliation reaches Xero only through the CFO's
+  // approval there, and under the proposal's own key (lib/recs.js).
+  const recGate = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId: req.get("X-Agent-Run"), input: body });
+  if (recGate.refuse) {
+    const conn = await pool.connect();
+    try {
+      await audit(conn, {
+        actorEmail, action: "journal_rejected", targetType: JOURNAL_TARGET_TYPE, targetId: `rec-gate:${requestFingerprint(body)}`,
+        clientId: ctx.client.id, ip, payload: { stage: "rec_gate", detail: recGate.refuse, run: req.get("X-Agent-Run") ?? null, entity: ctx.entity.slug },
+      });
+    } finally {
+      conn.release();
+    }
+    return res.status(422).json({ ok: false, stage: "validation", issues: [{ code: "REC_APPROVAL_REQUIRED", detail: recGate.refuse }] });
+  }
+  if (recGate.key) body.idempotency_key = recGate.key;
+
   const { rows: cfgRows } = await pool.query(
     `SELECT COALESCE((cfc.materiality_thresholds->>'journal_materiality_gbp')::numeric, 1) AS journal_materiality_gbp
      FROM finance.client_finance_config cfc WHERE cfc.client_id = $1`,
@@ -3318,6 +3337,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
         });
       }
       // Same key, same journal: replay the original answer verbatim.
+      if (recGate.journal && ["draft", "posted"].includes(prior.outcome)) await recRoutes.markDrafted(pool, recGate.journal.id, prior.response_body);
       return res.json({ ...prior.response_body, idempotent_replay: true });
     }
   }
@@ -3570,6 +3590,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
         ]
       );
     }
+    if (ok && recGate.journal) await recRoutes.markDrafted(conn2, recGate.journal.id, responseBody);
     await conn2.query("COMMIT");
   } catch (e) {
     try { await conn2.query("ROLLBACK"); } catch { /* already gone */ }
@@ -4179,6 +4200,12 @@ function journalsPlan(source, origin) {
     if (!["DRAFT", "POSTED"].includes(status)) issues.push("status must be DRAFT or POSTED");
     const parsed = source(q, req);
     issues.push(...parsed.issues);
+    // A journal proposed on a reconciliation goes only through its approval,
+    // which uses the journals endpoint above, never this one.
+    for (const j of parsed.journals) {
+      const g = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId: req.get("X-Agent-Run"), input: { date: j.date, narration: j.narration, status, lines: j.lines } });
+      if (g.refuse || g.journal) issues.push(`Journal "${j.narration}" ${j.date}: ${g.refuse ?? "approved on a reconciliation, so it goes through that approval"}`);
+    }
     if (issues.length) return { issues, operation: "create" };
 
     const [accounts, taxRates, lockDates] = await Promise.all([
@@ -6202,7 +6229,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
 
 // ── Reconciliations ─────────────────────────────────────────────────────────
 
-require("./lib/recs-routes").mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner });
+recRoutes = require("./lib/recs-routes").mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner });
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

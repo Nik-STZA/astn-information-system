@@ -91,6 +91,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
           <strong>This list is not complete.</strong> {data.entity_errors.map((e) => `${e.entity}: ${e.error}`).join(" ")}
         </div>
       )}
+      {data.notes.map((n) => <div key={n} className={styles.alert} role="status">{n}</div>)}
       {data.prior.open && (
         <div className={styles.note}>{data.prior.label} is still open. Opening balances may move if it changes, and any reconciliation affected will be marked to re-check.</div>
       )}
@@ -114,6 +115,8 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                   <div className={styles.fig}><div className={styles.figLabel}>Support</div><div className={styles.figValue}>{money(r.support)}</div></div>
                   <div className={styles.fig}><div className={styles.figLabel}>Difference</div><div className={styles.figValue}>{money(r.difference)}</div></div>
                 </div>
+                {r.mixed_currency && <div className={styles.small}>Mixed currencies: no group total. Open it for each company.</div>}
+                {r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}
                 <div className={styles.rowMeta}><span>{PROOF_LABEL[r.proof]}</span><span>{r.placed || r.with ? `With ${ownerOf(r)}` : "Not placed"}</span>{r.class && <span>Class {r.class}</span>}</div>
               </Link>
             ))}
@@ -131,12 +134,12 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                   <tr key={r.id}>
                     <td><Link className={styles.link} href={`/finance/clients/${slug}/reconciliations/${r.id}`}>{accountOf(r)}</Link></td>
                     <td className={styles.sub}>{PROOF_LABEL[r.proof]}</td>
-                    <td className={styles.num}>{money(r.ledger)}</td>
-                    <td className={styles.num}>{money(r.support)}</td>
+                    <td className={styles.num}>{r.mixed_currency ? "Mixed" : money(r.ledger)}</td>
+                    <td className={styles.num}>{r.mixed_currency ? "Mixed" : money(r.support)}</td>
                     <td className={`${styles.num} ${r.difference && !r.ties ? styles.strong : ""}`}>{money(r.difference)}</td>
                     <td>{r.class ?? "-"}</td>
                     <td>{ownerOf(r)}</td>
-                    <td><StatusPill r={r} /></td>
+                    <td><StatusPill r={r} />{r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -144,7 +147,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
           </div>
         </>
       )}
-      <p className={styles.small}>Rounding tolerance: {money(data.tolerance)} per company.</p>
+      <p className={styles.small}>{Number(data.tolerance ?? 0) === 0 ? "No rounding tolerance is set, so every variance is reported." : `Rounding tolerance: ${money(data.tolerance)} per company.`}</p>
     </div>
   );
 }
