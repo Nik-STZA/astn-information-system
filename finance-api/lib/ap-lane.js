@@ -419,7 +419,7 @@ function billReview(item, body = {}) {
 function movedOnInXero(items, invoices) {
   const status = new Map(invoices.map((i) => [i.InvoiceID, i.Status]));
   return items.filter((i) => status.has(i.ledger_draft_id) && status.get(i.ledger_draft_id) !== "DRAFT")
-    .map((i) => ({ id: i.id, status: status.get(i.ledger_draft_id) }));
+    .map((i) => ({ id: i.id, file: i.file_name ?? null, was: i.state ?? null, status: status.get(i.ledger_draft_id) }));
 }
 
 // Checks that keep a bill with the CFO, however the reviewers read it.

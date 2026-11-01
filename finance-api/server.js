@@ -4901,7 +4901,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
   }
   // A bill finished in Xero leaves the queue: nothing is left to decide on it.
   const stillOpen = (await pool.query(
-    `SELECT id, ledger_draft_id FROM finance.ap_items
+    `SELECT id, ledger_draft_id, file_name, state FROM finance.ap_items
       WHERE entity_id = $1 AND ledger_draft_id IS NOT NULL AND state IN ('clean', 'exception', 'approved')`, [entity.id])).rows;
   const keyedDrafts = new Set(drafts.map((d) => d.InvoiceID));
   const gone = stillOpen.filter((i) => !keyedDrafts.has(i.ledger_draft_id));
@@ -4916,6 +4916,13 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
       `UPDATE finance.ap_items SET state = 'superseded', state_reason = $2
         WHERE id = $1 AND state IN ('clean', 'exception', 'approved')`, [c.id, `Finished in Xero: ${c.status}`]);
     await workBillDecided(c.id, "finished in Xero");
+    // A record of what left the queue, so an exception never closes unseen. It
+    // does not stop the fetch: the bill has already finished in Xero.
+    await audit(pool, {
+      actorEmail, action: "ap_item_closed_at_fetch", targetType: "ap_item", targetId: c.id, clientId: client.id,
+      payload: { entity: entity.slug, file: c.file, was: c.was, xero_status: c.status },
+      ip: req.get("X-Forwarded-For") || req.ip,
+    }).catch((e) => console.error(`audit of closed item ${c.id} failed: ${e.message}`));
   }
 
   const draftsRead = new Set((await pool.query(
@@ -5109,7 +5116,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/intake", route(async (req, 
   }
   res.json({ entity: entity.name, run_id: runId, inbox_files: inboxFiles.length, xero_drafts: drafts.length,
     read_now: todoDrafts.length + todo.length,
-    remaining: (unreadDrafts.length - todoDrafts.length) + (unread.length - todo.length), closed: closed.length, results });
+    remaining: (unreadDrafts.length - todoDrafts.length) + (unread.length - todo.length), closed: closed.length, closed_items: closed, results });
 }));
 
 // GET /api/finance/clients/:slug/xero/:entity/ap/items?state=clean|exception|...
@@ -5328,18 +5335,20 @@ app.post("/api/finance/clients/:slug/xero/:entity/ap/items/:id/submit",
     const found = await itemToWrite(ctx, req);
     if (found.plan) return found.plan;
     const { item, actorEmail } = found;
-    if (!["fm2", "fc"].includes(b.agent)) return { issues: ["only FM2 or the FC submits a bill"], operation: "create" };
+    // On every outcome, so the audit row of a refusal names the bill.
+    const onItem = (plan) => ({ ...plan, extra: { ...(plan.extra || {}), item_id: item.id, file: item.file_name, agent: b.agent } });
+    if (!["fm2", "fc"].includes(b.agent)) return onItem({ issues: ["only FM2 or the FC submits a bill"], operation: "create" });
     const stops = apLane.submitStops(item);
-    if (stops.length) return { issues: stops, operation: "create", extra: { item_state: item.state } };
+    if (stops.length) return onItem({ issues: stops, operation: "create", extra: { item_state: item.state } });
     const rec = item.recommendation;
     const decided = apLane.decide(item, {
       action: "approve",
       note: `Reviewed and submitted by ${b.agent === "fc" ? "the FC" : "FM2"}`,
       edits: { lines: rec.lines.map((l) => ({ index: l.index, account_code: l.account_code, tax_type: l.tax_type })), ...(rec.due_date ? { due_date: rec.due_date } : {}) },
     });
-    if (decided.issues.length) return { issues: decided.issues, operation: "create", extra: { item_state: item.state } };
-    return billSendPlan(ctx, { ...item, state: decided.state, proposed_bill: decided.bill, decision_note: decided.note, edits: decided.edits }, actorEmail,
-      { agent: b.agent, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null });
+    if (decided.issues.length) return onItem({ issues: decided.issues, operation: "create", extra: { item_state: item.state } });
+    return onItem(await billSendPlan(ctx, { ...item, state: decided.state, proposed_bill: decided.bill, decision_note: decided.note, edits: decided.edits }, actorEmail,
+      { agent: b.agent, run_id: writeRules.isGuid(b.run_id) ? b.run_id : null }));
   }));
 
 async function itemToWrite(ctx, req) {
