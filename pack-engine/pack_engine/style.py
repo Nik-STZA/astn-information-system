@@ -25,6 +25,18 @@ STZA_TAB_COLOURS = {
     "control": "8E9196",    # Warm Grey
 }
 
+# Balance sheet recs (recs.py) carry brand colour on the sheets themselves, unlike
+# the pack. These are the STZA defaults; a client profile can replace them.
+STZA_REC_COLOURS = {"primary": "1A1C1E", "accent": "C5A059", "band": "F5F0E8"}
+INPUT_BLUE = "0000CC"       # typed inputs, as opposed to black formulas
+ALERT_RED = "CC0000"
+ALERT_TINT = "FBE5E5"
+SUCCESS_GREEN = "2E7D32"
+SUCCESS_TINT = "E5F2E6"
+NUM_MONTH = '#,##0.00;(#,##0.00);""'
+DATE = "d mmm yyyy"
+DATE_TIME = "d mmm yyyy hh:mm"
+
 NUM = '#,##0;(#,##0);"-"'
 NUM_2DP = '#,##0.00;(#,##0.00);"-"'
 

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -6,6 +7,7 @@ import pack_engine.build as build_mod
 import pack_engine.job as job
 from fake_api import FakeApi
 from pack_engine.drive import output_folder_path
+from recs_fixture import group
 
 
 class FakeDrive:
@@ -85,6 +87,19 @@ def test_a_run_saves_the_pack_to_the_profile_folder_and_reports_success(env):
     url, body = env[-1]
     assert url == "https://api.example/api/finance/report-runs/run-1/complete"
     assert body["status"] == "succeeded" and len(body["outputFiles"]) == 2
+
+
+def test_recs_workbook_goes_to_the_same_folder_only_when_switched_on(env, monkeypatch, tmp_path):
+    raw = group()
+    raw["period_end"] = "2026-05-31"
+    src = tmp_path / "recs.json"
+    src.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setenv("PACK_RECS_JSON", str(src))
+    drive = FakeDrive()
+    assert job.run(drive=drive, now=datetime(2026, 6, 10, 9, 30)) == 0
+    names = [n for n, _ in drive.uploads]
+    assert names[2] == "DEMO - Balance Sheet Recs - May2026 - 2026-06-10 0930 - INCOMPLETE.xlsx"
+    assert len({folder for _, folder in drive.uploads}) == 1
 
 
 def test_existing_folders_are_reused_not_duplicated(env):

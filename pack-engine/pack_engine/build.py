@@ -12,14 +12,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from openpyxl.styles import Alignment, Font
 
-from . import ENGINE_VERSION, controls as ctl, style
+from . import ENGINE_VERSION, controls as ctl, recs, style
 from .api import FinanceApi
 from .fiscal import FiscalCalendar, date_label, month_end, parse_period
 from .ledger import fetch_ledger
@@ -48,6 +48,7 @@ class BuildResult:
     path: Path
     controls: list
     failed: list
+    extra_files: list = field(default_factory=list)     # saved to the drive with the pack
 
 
 def _controls_sheet(wb, controls):
@@ -197,7 +198,7 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     (out_dir / (path.stem + " - controls.json")).write_text(
         json.dumps({"client": client, "period": period, "engine_version": ENGINE_VERSION,
                     "controls": [c.as_dict() for c in controls]}, indent=2), encoding="utf-8")
-    return BuildResult(path, controls, fails)
+    return BuildResult(path, controls, fails, recs.rec_files(profile, period, out_dir, stamp_dt))
 
 
 def main(argv=None) -> int:

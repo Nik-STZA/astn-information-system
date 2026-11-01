@@ -94,7 +94,7 @@ def run(*, drive=None, now: datetime | None = None) -> int:
             path = gdrive.output_folder_path(output["folder_path"], fy=fy, period=period)
             folder = gdrive.ensure_folder_path(svc, output["drive_id"], path)
             saved = []
-            for f in (result.path, result.path.with_name(result.path.stem + " - controls.json")):
+            for f in (result.path, result.path.with_name(result.path.stem + " - controls.json"), *result.extra_files):
                 meta = gdrive.upload(svc, folder, f)
                 saved.append({"name": f.name, "path": meta.get("webViewLink", "")})
                 log(f"saved {f.name} to {' / '.join(path)}")

@@ -15,6 +15,7 @@ calendar -> ledger -> mapping -> statement model -> workbook -> controls
 | `mapping.py` | Puts each account in a pack category by rule, recording why. Approved mappings from finance-api will replace the rules at `resolve_mapping` |
 | `model.py` | Profit and loss and balance sheet figures, as data |
 | `render.py` | The workbook. The only typed numbers are on "Source - Trial balance"; every statement figure and total is a formula, and rows are found by what they are, never by number |
+| `recs.py` | Balance sheet reconciliations workbook, written next to the pack. Off unless `PACK_RECS_JSON` names an input file. See below |
 | `controls.py` | Checks that fail the build: mapping coverage, trial balances balance, Xero's financial year matches the profile, the balance sheet balances, net profit and balance sheet totals tie to Xero's own reports, totals are formulas |
 
 A failed control still writes the workbook, with `FAILED CONTROLS` in its name.
@@ -60,6 +61,22 @@ nothing saved fall back to the rules, and the "Account mapping approved" control
 warns until every account with activity is approved. finance-api ports the rules
 for the portal's suggestions; `tests/mapping_rule_cases.json` is shared by both test
 suites so they cannot drift.
+
+## Balance sheet recs
+
+`recs.py` writes a companion workbook for a group and month end. Excel appears only
+here, in the pack saved to the client's own drive: there is no ad hoc download and
+no portal route. The input shape is documented at the top of `recs.py`; the fixture
+in `tests/recs_fixture.py` is a working example. Wiring to the finance-api rec
+record replaces the file read in `rec_files`; until then live builds are unchanged.
+
+A rec reads as complete only with three dated sign-offs, no variance, and a ledger
+that has not moved since. Anything else is red, and the file name says INCOMPLETE.
+
+Branding, optional in a profile under `branding`: `mode` (`stza` or `client`),
+`logo_file` (a bare PNG or JPEG name in `profiles/logos`), and `colours`
+(`primary`, `accent`, `band`, as hex). A missing or invalid field falls back to
+STZA with a warning on the Recs index.
 
 ## Deploy
 
