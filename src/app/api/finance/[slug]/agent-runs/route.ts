@@ -20,10 +20,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
   if (!actorEmail) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const { agent, instruction, parentRunId } = body as {
+  const { agent, instruction, parentRunId, recId } = body as {
     agent?: string;
     instruction?: string;
     parentRunId?: string;
+    recId?: string | null;
   };
   if (!instruction || !instruction.trim()) {
     return NextResponse.json({ error: "instruction is required" }, { status: 400 });
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
     agent,
     instruction,
     parentRunId,
+    recId,
     ip: clientIpFrom(req.headers.get("x-forwarded-for")) ?? undefined,
   });
 

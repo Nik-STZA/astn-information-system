@@ -516,7 +516,7 @@ const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent
 //   sole     the CFO says, on the screen, they are the only reviewer
 //   note     the note given
 //   reads    why the figures cannot be relied on at sign-off
-function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = [] }) {
+function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null }) {
   const issues = [];
   const say = (s) => issues.push(s);
   const worked = workable(rec.line_key, rec.proof);
@@ -543,7 +543,9 @@ function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, com
     if (!via && needsSoleReviewer(rec, person) && !sole) {
       say("You prepared or reviewed this, or started the agents that did. Tick sole reviewer to sign off: it is recorded and shown on the reconciliation");
     }
-    issues.push(...reads);
+    // Null means the read at sign-off never ran, which is a refusal, not a pass.
+    if (reads === null) say("The ledger was not read at sign-off, so this cannot be signed off. Try again");
+    else issues.push(...reads);
   } else if (step === "send_back") {
     if (via) say("Only a person sends this back, in os.stza.io");
     if (!CFO_ROLE.test(String(role ?? ""))) say("Only the CFO sends a reconciliation back from sign-off");
@@ -552,7 +554,7 @@ function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, com
   } else if (step === "reopen") {
     if (via) say("Only a person reopens a reconciliation, in os.stza.io");
     if (!["signed_off", "with_cfo", "with_fc"].includes(rec.status)) say("There is nothing to reopen");
-    if (rec.status === "signed_off" && !CFO_ROLE.test(String(role ?? ""))) say("Only the CFO reopens a signed reconciliation");
+    if (["signed_off", "with_cfo"].includes(rec.status) && !CFO_ROLE.test(String(role ?? ""))) say("Only the CFO reopens a reconciliation that has reached them");
   } else {
     say(`Unknown step ${step}`);
   }
@@ -595,13 +597,22 @@ function journalProposalIssues(body, { period, recAccountCode }) {
 
 // True only when a journal is exactly the one approved: same date, narration,
 // and the same code and amount on every line.
-const linesKey = (lines) => (Array.isArray(lines) ? lines : [])
+const amountsKey = (lines) => (Array.isArray(lines) ? lines : [])
   .map((l) => `${String(l?.account_code ?? "").trim()}|${toPence(l?.amount)}`).sort().join(",");
+const linesKey = (lines) => (Array.isArray(lines) ? lines : [])
+  .map((l) => [String(l?.account_code ?? "").trim(), toPence(l?.amount), String(l?.description ?? "").trim(), l?.tax_type ?? "NONE"].join("|")).sort().join(",");
 
-function journalMatches(approved, input) {
+// Date, narration, codes, and amounts agree. What a model is asked to repeat:
+// the runner then sends the stored journal, not what the model typed.
+function journalAgrees(approved, input) {
   return String(approved.journal_date).slice(0, 10) === input.date
     && String(approved.narration).trim() === String(input.narration ?? "").trim()
-    && linesKey(approved.lines) === linesKey(input.lines);
+    && amountsKey(approved.lines) === amountsKey(input.lines);
+}
+
+// Exactly the stored journal, every line's description and tax type included.
+function journalMatches(approved, input) {
+  return journalAgrees(approved, input) && linesKey(approved.lines) === linesKey(input.lines);
 }
 
 // The key a proposal reaches Xero under. It belongs to the proposal, not to a
@@ -615,20 +626,35 @@ const recJournalKey = (j) => `rec-journal-${j.id}-${j.attempts ?? 1}`;
 //   input        { date, narration, status, lines }
 // A journal proposed on a rec reaches Xero only as the run the CFO approved, as
 // the exact journal, as a DRAFT. A reply in a chat, whatever its words, is not
-// that approval. Any other caller sending the same lines for the month is
-// refused too; a journal nothing to do with a rec is left alone.
+// that approval.
+//
+// Any other caller is held when, for this company:
+//   - it sends the same amounts as a live proposal, on any date, or as any
+//     proposal for that month, including one superseded or rejected
+//   - it touches the rec's GL account in a month with a live proposal, so a
+//     changed penny or a split cannot slip round it
+// A journal on other accounts is left alone.
 function recJournalGate({ runId, inRecThread, proposals, input }) {
   const refuse = (detail) => ({ refuse: detail });
   const mine = runId ? proposals.find((p) => p.approved_run_id === runId && p.state === "approved") : null;
   if (mine) {
+    const stop = approvalIssues(mine);
+    if (stop) return refuse(stop);
     if ((input.status ?? "DRAFT") !== "DRAFT") return refuse("A journal approved on a reconciliation is created only as a DRAFT.");
     if (!journalMatches(mine, input)) return refuse("This differs from the journal approved on the reconciliation.");
     return { journal: mine, key: recJournalKey(mine) };
   }
   if (inRecThread) return refuse("A journal on a reconciliation is approved on the reconciliation, by the CFO. A reply here does not approve it.");
-  if (proposals.some((p) => linesKey(p.lines) === linesKey(input.lines))) {
-    return refuse("This journal is proposed on a reconciliation for this month. It is approved there, by the CFO.");
+  const live = (p) => ["proposed", "approved"].includes(p.state);
+  const month = String(input.date ?? "").slice(0, 7);
+  const inMonth = (p) => String(p.journal_date).slice(0, 7) === month;
+  const same = amountsKey(input.lines);
+  if (proposals.some((p) => amountsKey(p.lines) === same && (live(p) || inMonth(p)))) {
+    return refuse("This journal is proposed on a reconciliation. It is approved there, by the CFO.");
   }
+  const codes = new Set((Array.isArray(input.lines) ? input.lines : []).map((l) => String(l?.account_code ?? "").trim()));
+  const held = proposals.find((p) => live(p) && inMonth(p) && p.rec_code && codes.has(String(p.rec_code)));
+  if (held) return refuse(`Account ${held.rec_code} has a journal waiting on its reconciliation for this month. Decide that one first.`);
   return {};
 }
 
@@ -651,6 +677,19 @@ function retryState({ runLive, post }) {
   const code = Number(post.http_status);
   if (post.outcome === "failed" && code >= 400 && code < 500 && code !== 408 && code !== 429) return "retry";
   return "unknown";
+}
+
+// What the runner tells the agent when a create did not return a draft. Only a
+// definite refusal may say nothing was created. A timeout, a 5xx, or a journal
+// already in flight can have reached Xero.
+function draftFailure(status, body) {
+  const http = body?.http_status;
+  const refused = (status === 400 || status === 404 || status === 422)
+    || (status === 502 && body?.stage === "xero" && http >= 400 && http < 500 && http !== 408 && http !== 429)
+    || (status === 200 && http >= 400 && http < 500 && http !== 408 && http !== 429);
+  return refused
+    ? "Xero or the platform refused the draft. Nothing was created."
+    : "This did not finish cleanly, so the draft may be in Xero. Do not try again. Tell the user to check Xero first.";
 }
 
 // What stops an approval, whatever the state of the proposal.
@@ -686,5 +725,5 @@ module.exports = {
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks,
-  actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,
+  actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,
 };

@@ -1724,7 +1724,7 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
   if (!client) return res.status(404).json({ error: "client not found" });
 
-  const { agent, instruction, parentRunId } = req.body || {};
+  const { agent, instruction, parentRunId, recId } = req.body || {};
   const actorEmail = (req.get("X-Actor-Email") || "").trim();
 
   if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
@@ -1750,18 +1750,33 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
     if (!parent.finished_at) return res.status(409).json({ error: "that run has not finished yet" });
   }
 
+  // Asked from a reconciliation's page: the run belongs to that rec, so a journal
+  // in this conversation can be approved only on the rec (lib/recs.js).
+  let onRec = null;
+  if (recId) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(recId))) return res.status(400).json({ error: "recId is not a reconciliation id" });
+    try {
+      const r = await pool.query("SELECT id FROM finance.recs WHERE id = $1 AND client_id = $2", [recId, client.id]);
+      if (!r.rows.length) return res.status(404).json({ error: "that reconciliation was not found for this client" });
+      onRec = r.rows[0].id;
+    } catch (e) {
+      // Before migration 032 there are no recs, so nothing to carry.
+      if (e.code !== "42P01") throw e;
+    }
+  }
+
   const role = await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [
     client.id, actorEmail,
   ]);
 
   const { rows } = await pool.query(
     `INSERT INTO finance.agent_runs
-       (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id)
-     VALUES ($1,$2,$3,$4,$5,'queued',$6)
+       (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id${onRec ? ", rec_id" : ""})
+     VALUES ($1,$2,$3,$4,$5,'queued',$6${onRec ? ",$7" : ""})
      RETURNING id, agent, instruction, status, queued_at, parent_run_id`,
     [
       client.id, actorEmail, role.rows[0].role,
-      agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null,
+      agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null, ...(onRec ? [onRec] : []),
     ]
   );
   res.status(201).json({ ...rows[0], runner: await startAgentRunner(rows[0].id) });
@@ -3504,6 +3519,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
         "Xero-Tenant-Id": ctx.tenantId,
         Accept: "application/json",
         "Content-Type": "application/json",
+        ...(key ? { "Idempotency-Key": key } : {}),
       },
       body: JSON.stringify({ ManualJournals: [xeroPayload] }),
       signal: AbortSignal.timeout(30_000),

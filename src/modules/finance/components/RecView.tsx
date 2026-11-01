@@ -75,6 +75,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
 
       {rec.sole_reviewer && <div className={styles.note}>Sole reviewer: one person acted in more than one seat on this reconciliation.</div>}
       {rec.shown_as_signed && <div className={styles.note}>Shown as signed off on {dayLabel(rec.signed_off_at)}, by {rec.signed_off_by}.</div>}
+      {rec.signed_before > 0 && <div className={styles.small}>Signed off before and reopened: {rec.signed_before} earlier {rec.signed_before === 1 ? "signing is" : "signings are"} kept on the record.</div>}
       {cover.mixed_currency && <div className={styles.alert} role="status">These companies report in different currencies and no closing rate is held, so there is no group total. Each company ties on its own.</div>}
 
       {rec.recheck_reason && (
@@ -163,19 +164,17 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           <label className={styles.field}>Your view
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
+          <SoleTick sole={sole} setSole={setSole} />
           <div className={styles.actions} style={{ marginTop: 8 }}>
-            <button type="button" className="btn-primary" disabled={busy} onClick={async () => { if (await send("review", { pass: true, note })) setNote(""); }}>Pass to the CFO</button>
-            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => { if (await send("review", { pass: false, note })) setNote(""); }}>Send back</button>
+            <button type="button" className="btn-primary" disabled={busy} onClick={async () => { if (await send("review", { pass: true, note, sole_reviewer: sole })) setNote(""); }}>Pass to the CFO</button>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => { if (await send("review", { pass: false, note, sole_reviewer: sole })) setNote(""); }}>Send back</button>
           </div>
         </section>
       )}
 
       {rec.status === "with_cfo" && (
         <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
-          <label className={styles.small} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 12 }}>
-            <input type="checkbox" checked={sole} onChange={(e) => setSole(e.target.checked)} />
-            <span>I prepared or reviewed this, or started the agents that did, and I am its only reviewer. This is recorded and shown on the reconciliation.</span>
-          </label>
+          <SoleTick sole={sole} setSole={setSole} />
           <h2 className={styles.h2}>Send back</h2>
           <label className={styles.field}>What needs changing
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -197,6 +196,15 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         ))}
       </section>
     </div>
+  );
+}
+
+function SoleTick({ sole, setSole }: { sole: boolean; setSole: (v: boolean) => void }) {
+  return (
+    <label className={styles.small} style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "8px 0 12px" }}>
+      <input type="checkbox" checked={sole} onChange={(e) => setSole(e.target.checked)} />
+      <span>I prepared or reviewed this, or started the agents that did, and I am its only reviewer. This is recorded and shown on the reconciliation.</span>
+    </label>
   );
 }
 
@@ -434,7 +442,8 @@ function Journal({ j, busy, send }: { j: RecJournal; busy: boolean; send: Send }
       {j.state === "approved" && j.retry_state !== "live" && (
         <div className={styles.actions}>
           {j.can_retry && <button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/approve`)}>Try again</button>}
-          {j.retry_state !== "drafted" && <button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/reject`)}>Reject</button>}
+          {j.retry_state !== "drafted" && j.retry_state !== "unknown" && <button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/reject`)}>Reject</button>}
+          {j.retry_state === "unknown" && <button type="button" className="btn-text" disabled={busy} onClick={() => send(`journals/${j.id}/reject`, { confirmed_not_in_xero: true })}>I checked: it is not in Xero. Reject</button>}
         </div>
       )}
       {j.state === "proposed" && (

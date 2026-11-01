@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   accountKey, approvalInstruction, composeAccounts, cover, entityLines, finishItem, itemAt, journalChecks, journalMatches,
   journalProposalIssues, matrixFields, namesRecProposal, monthEnd, nextPeriod, priorPeriod, recheckReason, releaseIn, releaseProfile, scheduleItemInput,
   scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction,
-  CFO_ROLE, approvalIssues, hasRows, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows,
+  CFO_ROLE, approvalIssues, draftFailure, hasRows, journalAgrees, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows,
 } from "./recs";
 import { approvalFromThread } from "./draft-approval";
 import { checkApprovalText } from "./journal";
@@ -328,7 +330,7 @@ describe("the monthly release journals, inferred from manual journals", () => {
 
 describe("moving a rec along", () => {
   const rec = (over) => ({ line_key: "prepay", proof: "schedule", status: "in_progress", prepared_by: "agent:fm1", recheck_reason: null, ...over });
-  const person = { via: null, role: "Fractional CFO", actor: "cfo@example.com" };
+  const person = { via: null, role: "Fractional CFO", actor: "cfo@example.com", reads: [] };
 
   it("lets FM1 prepare, with a note and comments if it does not tie", () => {
     const fm1 = { via: { kind: "agent", agent: "fm1" }, role: "x", actor: "agent:fm1" };
@@ -368,6 +370,9 @@ describe("moving a rec along", () => {
       expect(stepIssues("sign_off", { rec: r, ...signer, sole: true })).toEqual([]);
     }
     expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo", prepared_by_person: "other@example.com" }), ...signer })).toEqual([]);
+  });
+  it("L1: will not sign off unless the read ran", () => {
+    expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo" }), tied: true, ...person, reads: null }).join()).toMatch(/not read at sign-off/);
   });
   it("H4: will not sign off on a read that cannot be relied on", () => {
     expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo" }), tied: true, ...person, reads: ["Not complete"] })).toEqual(["Not complete"]);
@@ -415,6 +420,14 @@ describe("a proposed journal", () => {
     expect(journalMatches(approved, { ...ok, lines: [...ok.lines].reverse() })).toBe(true);
     expect(journalMatches(approved, { ...ok, lines: [{ account_code: "400", amount: "600.00" }, { account_code: "620", amount: "-600.00" }] })).toBe(true);
   });
+  it("M7: refuses a changed description or tax type, which the model may vary but the run may not", () => {
+    const stored = { ...approved, lines: [{ account_code: "400", amount: 600, description: "A", tax_type: "NONE" }, { account_code: "620", amount: -600, description: "B", tax_type: "NONE" }] };
+    expect(journalMatches(stored, { ...ok, lines: stored.lines })).toBe(true);
+    expect(journalMatches(stored, { ...ok, lines: [{ ...stored.lines[0], description: "Z" }, stored.lines[1]] })).toBe(false);
+    expect(journalMatches(stored, { ...ok, lines: [{ ...stored.lines[0], tax_type: "INPUT2" }, stored.lines[1]] })).toBe(false);
+    expect(journalAgrees(stored, { ...ok, lines: [{ account_code: "400", amount: 600 }, { account_code: "620", amount: -600 }] })).toBe(true);
+    expect(journalAgrees(stored, { ...ok, lines: [{ account_code: "400", amount: 601 }, { account_code: "620", amount: -601 }] })).toBe(false);
+  });
   it("refuses any change to what was approved", () => {
     expect(journalMatches(approved, { ...ok, date: "2026-10-30" })).toBe(false);
     expect(journalMatches(approved, { ...ok, narration: "Other" })).toBe(false);
@@ -450,6 +463,26 @@ describe("H1: a journal proposed on a rec reaches Xero only through the CFO's ap
     expect(recJournalGate({ proposals: [], input, inRecThread: false })).toEqual({});
     expect(recJournalGate({ runId: "run-1", proposals: [proposal], input: { ...input, lines: [{ account_code: "1", amount: 5 }, { account_code: "2", amount: -5 }] }, inRecThread: false })).toEqual({});
   });
+  it("M3: holds other callers on the rec's account, and only there", () => {
+    const live = { ...proposal, rec_code: "620" };
+    const other = (over) => recJournalGate({ proposals: [live], inRecThread: false, input: { ...input, ...over } });
+    expect(other({ lines: [{ account_code: "485", amount: 601 }, { account_code: "620", amount: -601 }] }).refuse).toMatch(/Account 620/);
+    expect(other({ lines: [{ account_code: "485", amount: 300 }, { account_code: "486", amount: 300 }, { account_code: "620", amount: -600 }] }).refuse).toMatch(/Account 620/);
+    expect(other({ date: "2026-11-02" }).refuse).toMatch(/proposed on a reconciliation/);
+    expect(other({ date: "2026-11-02", lines: [{ account_code: "485", amount: 9 }, { account_code: "620", amount: -9 }] })).toEqual({});
+    expect(other({ lines: [{ account_code: "485", amount: 5 }, { account_code: "090", amount: -5 }] })).toEqual({});
+  });
+  it("M3: remembers superseded and rejected lines for their month only", () => {
+    const old = { ...proposal, state: "superseded", rec_code: "620" };
+    const g = (over) => recJournalGate({ proposals: [old], inRecThread: false, input: { ...input, ...over } });
+    expect(g({}).refuse).toBeTruthy();
+    expect(g({ date: "2026-11-30" })).toEqual({});
+    expect(g({ lines: [{ account_code: "485", amount: 601 }, { account_code: "620", amount: -601 }] })).toEqual({});
+  });
+  it("L9: checks the rec again for the approved run", () => {
+    expect(recJournalGate({ runId: "run-2", inRecThread: true, proposals: [{ ...approved, recheck_reason: "moved" }], input }).refuse).toMatch(/moved/);
+    expect(recJournalGate({ runId: "run-2", inRecThread: true, proposals: [{ ...approved, status: "signed_off" }], input }).refuse).toMatch(/signed off/);
+  });
   it("survives a malformed journal", () => {
     expect(recJournalGate({ proposals: [proposal], input: { lines: [null] }, inRecThread: false })).toEqual({});
   });
@@ -474,6 +507,15 @@ describe("H2: one approval, one draft", () => {
     expect(retryState({ runLive: false, post: { outcome: "failed", http_status: 400 } })).toBe("retry");
     for (const post of [{ outcome: "pending" }, { outcome: "failed", http_status: 0 }, { outcome: "failed", http_status: 503 }, { outcome: "failed", http_status: 429 }]) {
       expect(retryState({ runLive: false, post }), JSON.stringify(post)).toBe("unknown");
+    }
+  });
+  it("M2: says nothing was created only after a definite refusal", () => {
+    for (const [s, b] of [[422, {}], [404, {}], [502, { stage: "xero", http_status: 400 }], [200, { ok: false, http_status: 403 }]]) {
+      expect(draftFailure(s, b), `${s}`).toMatch(/Nothing was created/);
+    }
+    for (const [s, b] of [[0, null], [409, { stage: "idempotency" }], [502, { stage: "xero", http_status: 0 }], [502, { stage: "xero", http_status: 503 }], [502, { stage: "xero", http_status: 429 }], [500, {}], [200, { ok: false, http_status: 0 }]]) {
+      expect(draftFailure(s, b), `${s}`).toMatch(/may be in Xero/);
+      expect(draftFailure(s, b)).not.toMatch(/Nothing was created/);
     }
   });
   it("refuses approval on a signed, dropped, or re-check rec", () => {
@@ -503,6 +545,13 @@ describe("the approval goes through the one existing path", () => {
     const lines = [{ account_code: "400", amount: 600 }, { account_code: "620", amount: -600 }];
     expect(checkApprovalText(answer, { entityNames: ["acme-ltd"], date: "2026-10-31", lines })).toEqual([]);
     expect(checkApprovalText("A journal for you.", { entityNames: ["acme-ltd"], date: "2026-10-31", lines }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("M1: the base prompt", () => {
+  it("does not offer a text proposal for reconciliation work", () => {
+    const src = fs.readFileSync(path.join(__dirname, "..", "runner.js"), "utf8");
+    expect(src).toMatch(/Do not follow the steps above for it\. Record it with propose_rec_journal/);
   });
 });
 

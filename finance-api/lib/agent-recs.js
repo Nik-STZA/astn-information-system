@@ -51,7 +51,7 @@ function tools(entityEnum) {
     },
     {
       name: "propose_rec_journal",
-      description: "Record a journal that would fix a difference, for the CFO to approve on the reconciliation. Nothing reaches Xero. Show the same journal in your answer under the heading 'Proposed journal (draft)', with the company, the date as YYYY-MM-DD, the narration, and each code and amount: the approval is checked against your answer. Keep the narration short; the reasoning goes in reason, which stays in os.stza.io. One proposal per company.",
+      description: "Record a journal that would fix a difference, for the CFO to approve on the reconciliation. Nothing reaches Xero. Then show the same journal in your answer under the heading 'Proposed journal (draft)', with the company, the date as YYYY-MM-DD, the narration, and each code and amount: the approval is checked against your answer. Text in an answer without this tool is not a proposal. Keep the narration short; the reasoning goes in reason, which stays in os.stza.io. One proposal per company.",
       input_schema: {
         type: "object",
         properties: {
@@ -65,7 +65,7 @@ function tools(entityEnum) {
             minItems: 2,
             items: {
               type: "object",
-              properties: { account_code: { type: "string" }, description: { type: "string" }, amount: { type: "number", description: "Debit positive, credit negative" } },
+              properties: { account_code: { type: "string" }, description: { type: "string" }, amount: { type: "number", description: "Debit positive, credit negative" }, tax_type: { type: "string", description: "Xero tax type. NONE if left out" } },
               required: ["account_code", "amount"],
             },
           },

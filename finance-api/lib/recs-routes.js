@@ -95,10 +95,11 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
             total_cost, service_start::text, service_end::text, amort_commenced::text, treatment, ended_period, document_ref, note
        FROM finance.rec_schedule_items
       WHERE client_id = $1 AND rec_account_id = ANY($2::uuid[]) AND deleted_at IS NULL
+        AND entity_id IN (SELECT id FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL)
       ORDER BY entity_id, item_no, created_at`, [clientId, recAccountIds])).rows;
 
   const loadRec = async (db, clientId, id, lock = false) => (await db.query(
-    `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key, a.line_key
+    `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key
        FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
       WHERE r.id = $1 AND r.client_id = $2 ${lock ? "FOR UPDATE OF r" : ""}`, [id, clientId])).rows[0];
 
@@ -159,7 +160,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         pool.query("SELECT composed_at, composed_by, entity_errors, notes FROM finance.rec_periods WHERE client_id = $1 AND period = $2", [client.id, period]),
         pool.query(
           `SELECT r.id, r.rec_account_id, r.period, r.status, r.owner, r.challenge, r.class, r.artefact, r.proof, r.recheck_reason,
-                  r.sole_reviewer, r.signed_snapshot, a.account_name, a.line_key,
+                  r.sole_reviewer, r.signed_snapshot, r.line_key, a.account_name,
                   COALESCE(json_agg(json_build_object('entity_id', b.entity_id, 'closing', b.closing, 'code', b.account_code, 'currency', b.currency)) FILTER (WHERE b.rec_id IS NOT NULL), '[]') AS balances
              FROM finance.recs r
              JOIN finance.rec_accounts a ON a.id = r.rec_account_id
@@ -168,7 +169,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
             GROUP BY r.id, a.id ORDER BY a.account_name`, [client.id, period]),
         companies(pool, client.id),
         tolerance(pool, client.id),
-        pool.query("SELECT rec_account_id, status, recheck_reason FROM finance.recs WHERE client_id = $1 AND period = $2 AND dropped_at IS NULL", [client.id, prior]),
+        pool.query("SELECT rec_account_id, status, recheck_reason, dropped_at FROM finance.recs WHERE client_id = $1 AND period = $2", [client.id, prior]),
       ]);
       const items = await itemsOf(pool, client.id, rows.rows.map((r) => r.rec_account_id));
       const priorBy = new Map(priorRecs.rows.map((r) => [r.rec_account_id, r.status]));
@@ -191,7 +192,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const errors = run.rows[0]?.entity_errors ?? [];
       res.json({
         ...base,
-        prior: { ...base.prior, open: priorRecs.rows.some((r) => r.status !== "signed_off" || r.recheck_reason) },
+        prior: { ...base.prior, open: priorRecs.rows.some((r) => r.recheck_reason || (r.status !== "signed_off" && !r.dropped_at)) },
         tolerance: money(tol),
         notes: run.rows[0]?.notes ?? [],
         composed_at: run.rows[0]?.composed_at ?? null,
@@ -210,19 +211,24 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
 
   // One company's trial balances and chart, read from Xero one call at a time.
   async function readEntity(client, slug, period) {
-    const ctx = await xeroEntityContext(client.slug, slug);
-    if (!ctx) return { error: "not connected to Xero" };
-    if (ctx.error) return { error: ctx.error };
-    const tb = async (date) => {
-      const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date });
-      return data?.Reports?.[0] ?? data;
-    };
     try {
+      const ctx = await xeroEntityContext(client.slug, slug);
+      if (!ctx) return { error: "not connected to Xero" };
+      if (ctx.error) return { error: ctx.error };
+      const tb = async (date) => {
+        const data = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date });
+        return data?.Reports?.[0] ?? data;
+      };
       const accounts = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts"))?.Accounts ?? [];
+      if (!accounts.length) return { error: "Xero returned an empty chart of accounts, so this company could not be read" };
       const org = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Organisation"))?.Organisations?.[0];
       const closeTb = await tb(recs.monthEnd(period));
-      const openTb = await tb(recs.monthEnd(recs.priorPeriod(period)));
-      if (!recs.hasRows(closeTb) || !recs.hasRows(openTb)) return { error: "Xero returned a trial balance with no rows, so this company could not be read" };
+      const priorEnd = recs.monthEnd(recs.priorPeriod(period));
+      const openTb = await tb(priorEnd);
+      if (!recs.hasRows(closeTb)) return { error: "Xero returned a trial balance with no rows, so this company could not be read" };
+      if (!recs.hasRows(openTb)) {
+        return { error: `Xero has no trial balance rows at ${priorEnd}. If this company started this month that is expected, and it still holds up group sign-off, because nothing proves it opened at nil. Post its opening position in Xero dated ${priorEnd} or earlier. If it should not be here, retire it from the client's profile. Then refresh.` };
+      }
       return {
         lines: recs.entityLines({ accounts, closeTb, openTb }),
         currency: org?.BaseCurrency ?? null,
@@ -283,10 +289,48 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const names = new Map(entities.map((e) => [e.id, e.name]));
     const readIds = new Set(read.map((e) => e.id));
 
-    await recTx(req, res, async (conn, { actor }) => {
+    await recTx(req, res, async (conn, { actor, actorEmail, role }) => {
       const closings = new Map();
       const seen = new Set();
       let added = 0;
+      // The month's rec for an account. A signed month keeps what the matrix
+      // said when it was signed.
+      const monthRec = async (ra) => {
+        const m = recs.matrixFields(ra.line_key);
+        const rec = (await conn.query(
+          `INSERT INTO finance.recs (client_id, rec_account_id, period, period_end, line_key, owner, challenge, class, artefact, proof)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT (rec_account_id, period) DO UPDATE
+             SET line_key = CASE WHEN recs.status = 'signed_off' THEN recs.line_key ELSE EXCLUDED.line_key END,
+                 owner = CASE WHEN recs.status = 'signed_off' THEN recs.owner ELSE EXCLUDED.owner END,
+                 challenge = CASE WHEN recs.status = 'signed_off' THEN recs.challenge ELSE EXCLUDED.challenge END,
+                 class = CASE WHEN recs.status = 'signed_off' THEN recs.class ELSE EXCLUDED.class END,
+                 artefact = CASE WHEN recs.status = 'signed_off' THEN recs.artefact ELSE EXCLUDED.artefact END,
+                 proof = CASE WHEN recs.status = 'signed_off' THEN recs.proof ELSE EXCLUDED.proof END,
+                 dropped_at = NULL
+           RETURNING id, rec_account_id, period, prepared_snapshot, recheck_reason, (xmax = 0) AS is_new`,
+          [client.id, ra.id, period, recs.monthEnd(period), ra.line_key, m.owner, m.challenge, m.class, m.artefact, ra.proof])).rows[0];
+        seen.add(rec.id);
+        if (rec.is_new) { added += 1; await event(conn, rec.id, client.id, actor, "composed", { from: "trial balance" }); }
+        return rec;
+      };
+      // A company read just now that no longer has this account. A row holding
+      // a person's comment stays, at nil, so the comment is not lost.
+      const clearGone = async (recId, here) => {
+        await conn.query(
+          `UPDATE finance.rec_balances SET opening = 0, closing = 0, movement = 0, read_at = now()
+            WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[]) AND comment IS NOT NULL`,
+          [recId, [...readIds], [...here.keys()]]);
+        await conn.query(
+          "DELETE FROM finance.rec_balances WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[]) AND comment IS NULL",
+          [recId, [...readIds], [...here.keys()]]);
+      };
+      // A retired company is not read, so its rows would otherwise stay for
+      // ever, on every month not yet signed.
+      await conn.query(
+        `DELETE FROM finance.rec_balances b USING finance.recs r, finance.entities e
+          WHERE b.rec_id = r.id AND b.entity_id = e.id AND r.client_id = $1 AND r.period = $2
+            AND r.status <> 'signed_off' AND e.retired_at IS NOT NULL`, [client.id, period]);
       for (const a of accounts) {
         const ra = (await conn.query(
           `INSERT INTO finance.rec_accounts (client_id, account_key, account_name, line_key, proof)
@@ -294,17 +338,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
            ON CONFLICT (client_id, account_key) DO UPDATE SET account_name = EXCLUDED.account_name
            RETURNING id, line_key, proof`,
           [client.id, a.key, a.name, a.line_key, a.proof])).rows[0];
-        const m = recs.matrixFields(ra.line_key);
-        const rec = (await conn.query(
-          `INSERT INTO finance.recs (client_id, rec_account_id, period, period_end, owner, challenge, class, artefact, proof)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           ON CONFLICT (rec_account_id, period) DO UPDATE
-             SET owner = EXCLUDED.owner, challenge = EXCLUDED.challenge, class = EXCLUDED.class,
-                 artefact = EXCLUDED.artefact, dropped_at = NULL
-           RETURNING id, rec_account_id, period, prepared_snapshot, recheck_reason, (xmax = 0) AS is_new`,
-          [client.id, ra.id, period, recs.monthEnd(period), m.owner, m.challenge, m.class, m.artefact, ra.proof])).rows[0];
-        seen.add(rec.id);
-        if (rec.is_new) { added += 1; await event(conn, rec.id, client.id, actor, "composed", { from: "trial balance" }); }
+        const rec = await monthRec(ra);
         const here = new Map();
         for (const b of a.by_entity) {
           here.set(b.entity_id, b.closing);
@@ -316,16 +350,23 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
                    opening = EXCLUDED.opening, closing = EXCLUDED.closing, movement = EXCLUDED.movement, read_at = now()`,
             [rec.id, b.entity_id, b.code, b.name, b.currency, recs.pounds(b.opening), recs.pounds(b.closing), recs.pounds(b.movement)]);
         }
-        // A company read just now that no longer has this account. A row holding
-        // a person's comment stays, at nil, so the comment is not lost.
-        await conn.query(
-          `UPDATE finance.rec_balances SET opening = 0, closing = 0, movement = 0, read_at = now()
-            WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[]) AND comment IS NOT NULL`,
-          [rec.id, [...readIds], [...here.keys()]]);
-        await conn.query(
-          "DELETE FROM finance.rec_balances WHERE rec_id = $1 AND entity_id = ANY($2::uuid[]) AND NOT entity_id = ANY($3::uuid[]) AND comment IS NULL",
-          [rec.id, [...readIds], [...here.keys()]]);
+        await clearGone(rec.id, here);
         closings.set(ra.id, here);
+        await reflag(conn, client, rec, actor, names);
+      }
+      // A schedule still holding a balance with nothing in the ledger is the
+      // variance a rec exists to show. The trial balance alone would hide it.
+      const held = (await conn.query(
+        `SELECT DISTINCT a.id, a.line_key, a.proof FROM finance.rec_accounts a
+           JOIN finance.rec_schedule_items i ON i.rec_account_id = a.id AND i.deleted_at IS NULL
+          WHERE a.client_id = $1`, [client.id])).rows;
+      for (const ra of held) {
+        if (closings.has(ra.id)) continue;
+        const items = await itemsOf(conn, client.id, [ra.id]);
+        if (![...recs.scheduleTotals(items, period).values()].some((p) => p !== 0)) continue;
+        const rec = await monthRec(ra);
+        await clearGone(rec.id, new Map());
+        closings.set(ra.id, new Map());
         await reflag(conn, client, rec, actor, names);
       }
       // Off the trial balance after a correction. Only safe to act on when every
@@ -340,8 +381,20 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
               AND NOT EXISTS (SELECT 1 FROM finance.rec_evidence v WHERE v.rec_id = r.id)
               AND NOT EXISTS (SELECT 1 FROM finance.rec_events e WHERE e.rec_id = r.id AND e.action <> 'composed')`,
           [client.id, period, [...seen]]);
+        // A signed rec is never quietly dropped: someone signed for that figure.
+        const gone = (await conn.query(
+          `SELECT r.id, r.recheck_reason, a.account_name FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+            WHERE r.client_id = $1 AND r.period = $2 AND r.status = 'signed_off' AND NOT r.id = ANY($3::uuid[])`,
+          [client.id, period, [...seen]])).rows;
+        const reason = "This account is no longer on the trial balance for the month, after it was signed off.";
+        for (const g of gone) {
+          if (g.recheck_reason === reason) continue;
+          await conn.query("UPDATE finance.recs SET recheck_reason = $2, recheck_at = now(), updated_at = now() WHERE id = $1", [g.id, reason]);
+          await event(conn, g.id, client.id, actor, "recheck", { reason });
+          await auditRec(conn, req, { client, actorEmail, role, action: "rec_left_trial_balance", id: g.id, payload: { period, account: g.account_name } });
+        }
         await conn.query(
-          "UPDATE finance.recs SET dropped_at = now() WHERE client_id = $1 AND period = $2 AND dropped_at IS NULL AND NOT id = ANY($3::uuid[])",
+          "UPDATE finance.recs SET dropped_at = now() WHERE client_id = $1 AND period = $2 AND dropped_at IS NULL AND status <> 'signed_off' AND NOT id = ANY($3::uuid[])",
           [client.id, period, [...seen]]);
       }
       await conn.query(
@@ -354,14 +407,16 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   }));
 
   // PUT /recs/settings   body: { tolerance }   this client's rounding tolerance
-  app.put(`${BASE}/settings`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, role }) => {
+  app.put(`${BASE}/settings`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, role, actorEmail }) => {
     if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO sets the tolerance" } };
     const t = Number(req.body?.tolerance);
     if (!Number.isFinite(t) || t < 0 || t > 1000 || recs.pence(t) / 100 !== t) {
       return { status: 422, body: { issues: ["tolerance must be between 0.00 and 1,000.00"] } };
     }
+    const was = await tolerance(conn, client.id);
     const r = await conn.query("UPDATE finance.client_finance_config SET rec_tolerance = $2 WHERE client_id = $1 RETURNING rec_tolerance", [client.id, t]);
     if (!r.rows.length) return { status: 404, body: { error: "this client has no finance set-up" } };
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_tolerance_changed", id: client.id, payload: { from: money(was), to: r.rows[0].rec_tolerance } });
     return { status: 200, body: { tolerance: r.rows[0].rec_tolerance } };
   }, { peopleOnly: true })));
 
@@ -410,7 +465,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         prepared_by: rec.prepared_by, prepared_at: rec.prepared_at, reviewed_by: rec.reviewed_by, reviewed_at: rec.reviewed_at,
         signed_off_by: rec.signed_off_by, signed_off_at: rec.signed_off_at, recheck_reason: rec.recheck_reason, recheck_at: rec.recheck_at,
         checks_at: rec.checks_at, workable: recs.workable(rec.line_key, rec.proof),
-        sole_reviewer: rec.sole_reviewer, shown_as_signed: Boolean(signed),
+        sole_reviewer: rec.sole_reviewer, shown_as_signed: Boolean(signed), signed_before: (rec.signed_history ?? []).length,
       },
       tolerance: money(tol),
       cover: {
@@ -495,16 +550,22 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   // POST /recs/:id/place   body: { line_key }   a person places an account on the
   // matrix. Owner, Challenge and Class then come from the matrix, on this rec and
   // from now on.
-  app.post(`${BASE}/:id/place`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail }) => withRec(conn, client, req.params.id, async (rec) => {
+  app.post(`${BASE}/:id/place`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO places an account on the matrix" } };
+    const stop = editable(rec);
+    if (stop) return { status: 409, body: { error: "This is past preparation. Reopen it to place the account." } };
     const line = lineFor(req.body?.line_key);
     if (!line) return { status: 422, body: { issues: ["choose a line of the balance sheet matrix"] } };
     await conn.query(
       "UPDATE finance.rec_accounts SET line_key = $2, proof = $3, placed_by = $4, placed_at = now() WHERE id = $1",
       [rec.rec_account_id, line.key, line.proof, actorEmail]);
+    // Every month still being prepared follows. A month that has reached review
+    // or sign-off keeps the line it was reviewed on.
     const m = recs.matrixFields(line.key);
     await conn.query(
-      "UPDATE finance.recs SET owner = $2, challenge = $3, class = $4, artefact = $5, proof = $6, updated_at = now() WHERE id = $1",
-      [rec.id, m.owner, m.challenge, m.class, m.artefact, line.proof]);
+      `UPDATE finance.recs SET line_key = $2, owner = $3, challenge = $4, class = $5, artefact = $6, proof = $7, updated_at = now()
+        WHERE rec_account_id = $1 AND status IN ('not_started', 'in_progress', 'sent_back')`,
+      [rec.rec_account_id, line.key, m.owner, m.challenge, m.class, m.artefact, line.proof]);
     await event(conn, rec.id, client.id, actor, "placed", { line: line.line });
     return { status: 200, body: { ok: true } };
   }), { peopleOnly: true })));
@@ -610,6 +671,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const rec = await loadRec(pool, client.id, req.params.id);
     if (!rec) return res.status(404).json({ error: "reconciliation not found" });
     if (!recs.workable(rec.line_key, rec.proof)) return res.status(409).json({ error: "Checks work only for Prepayments for now" });
+    if (rec.status === "signed_off") return res.status(409).json({ error: "This is signed off, so its checks stay as they were. Reopen it to run them again." });
     const [balances, items, tol, entities] = await Promise.all([
       balancesOf(pool, rec.id), itemsOf(pool, client.id, [rec.rec_account_id]), tolerance(pool, client.id), companies(pool, client.id),
     ]);
@@ -639,7 +701,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     }
     const checks = { at: new Date().toISOString(), note: recs.INFERRED_NOTE, entities: results };
     await recTx(req, res, async (conn, { actor }) => {
-      await conn.query("UPDATE finance.recs SET checks = $2, checks_at = now(), updated_at = now() WHERE id = $1", [rec.id, JSON.stringify(checks)]);
+      const saved = await conn.query("UPDATE finance.recs SET checks = $2, checks_at = now(), updated_at = now() WHERE id = $1 AND status <> 'signed_off' RETURNING id", [rec.id, JSON.stringify(checks)]);
+      if (!saved.rows.length) return { status: 409, body: { error: "This was signed off while the checks ran." } };
       await started(conn, rec);
       await event(conn, rec.id, client.id, actor, "checks", { missing: results.reduce((a, r) => a + (r.missing ?? 0), 0) });
       return { status: 200, body: checks };
@@ -691,7 +754,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a reconciliation id" });
     const who = await preflight(req, res);
     if (!who) return;
-    let reads = [];
+    let reads = null;
     const first = await loadRec(pool, who.client.id, req.params.id);
     if (first && !req.get("X-Work-Via") && recs.CFO_ROLE.test(who.role) && first.status === "with_cfo") {
       reads = await readIssuesAtSignOff(who.client, first);
@@ -721,17 +784,24 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (run.entity_errors.length) return [`This list is not complete: ${run.entity_errors.map((e) => e.entity).join(", ")} could not be read. Refresh it first`];
     const entities = await companies(pool, client.id);
     const read = [];
+    let unidentified = 0;
     for (const e of entities) {
       const r = await readEntity(client, e.slug, rec.period);
       if (r.error) return [`${e.name} could not be read just now, so this cannot be signed off: ${r.error}`];
       read.push({ ...e, lines: r.lines, currency: r.currency });
+      unidentified += new Set(r.unidentified).size;
     }
+    if (unidentified) return [`${unidentified} trial balance row${unidentified === 1 ? "" : "s"} with no account id could not be placed, so this cannot be signed off. Find ${unidentified === 1 ? "it" : "them"} in Xero first`];
     const now = recs.composeAccounts(read).accounts.find((a) => a.key === rec.account_key);
-    const held = await balancesOf(pool, rec.id);
-    const ledger = new Map((now?.by_entity ?? []).map((b) => [b.entity_id, b.closing]));
+    const active = new Set(entities.map((e) => e.id));
+    const held = (await balancesOf(pool, rec.id)).filter((b) => active.has(b.entity_id));
+    const ledger = new Map((now?.by_entity ?? []).map((b) => [b.entity_id, b]));
     for (const id of new Set([...ledger.keys(), ...held.map((b) => b.entity_id)])) {
-      const b = held.find((x) => x.entity_id === id);
-      if ((ledger.get(id) ?? 0) !== recs.pence(b?.closing)) return ["The ledger has moved since this list was read. Refresh it, then check the reconciliation"];
+      const h = held.find((x) => x.entity_id === id);
+      const l = ledger.get(id);
+      if ((l?.closing ?? 0) !== recs.pence(h?.closing) || (l?.opening ?? 0) !== recs.pence(h?.opening)) {
+        return ["The ledger has moved since this list was read. Refresh it, then check the reconciliation"];
+      }
     }
     return [];
   }
@@ -751,7 +821,11 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const issues = recs.stepIssues("reopen", { rec, via, role, actor });
     if (issues.length) return { status: 422, body: { issues } };
     await conn.query(
-      "UPDATE finance.recs SET status = 'in_progress', signed_off_by = NULL, signed_off_role = NULL, signed_off_at = NULL, updated_at = now() WHERE id = $1", [rec.id]);
+      `UPDATE finance.recs SET status = 'in_progress',
+         signed_history = CASE WHEN signed_snapshot IS NULL THEN signed_history ELSE signed_history || jsonb_build_array(jsonb_build_object(
+           'signed_off_by', signed_off_by, 'signed_off_role', signed_off_role, 'signed_off_at', signed_off_at,
+           'sole_reviewer', sole_reviewer, 'reopened_by', $2::text, 'reopened_at', now(), 'snapshot', signed_snapshot)) END,
+         signed_off_by = NULL, signed_off_role = NULL, signed_off_at = NULL, updated_at = now() WHERE id = $1`, [rec.id, actorEmail]);
     await event(conn, rec.id, client.id, actor, "reopened", { from: rec.status });
     if (rec.status === "signed_off") await auditRec(conn, req, { client, actorEmail, role, action: "rec_reopened", id: rec.id, payload: { period: rec.period, account: rec.account_name, signed_off_by: rec.signed_off_by } });
     return { status: 200, body: { status: "in_progress" } };
@@ -789,6 +863,11 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const live = (await conn.query(
       "SELECT id, state FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved') FOR UPDATE", [rec.id, entity.id])).rows[0];
     if (live?.state === "approved") return { status: 409, body: { error: "A journal for this company is already approved. It must finish or be rejected first." } };
+    const drafted = (await conn.query(
+      "SELECT lines FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state = 'draft_created'", [rec.id, entity.id])).rows;
+    if (drafted.some((d) => recs.amountsKey(d.lines) === recs.amountsKey(req.body.lines))) {
+      return { status: 409, body: { error: "This journal is already a draft in Xero. Post it there, or void it first." } };
+    }
     if (live) {
       await conn.query("UPDATE finance.rec_journals SET state = 'superseded' WHERE id = $1", [live.id]);
       await event(conn, rec.id, client.id, actor, "journal_superseded", { journal_id: live.id });
@@ -797,7 +876,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       `INSERT INTO finance.rec_journals (client_id, rec_id, entity_id, journal_date, narration, lines, reason, proposed_by, proposed_run_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [client.id, rec.id, entity.id, req.body.date, String(req.body.narration).trim(),
-        JSON.stringify(req.body.lines.map((l) => ({ account_code: String(l.account_code), description: l.description ?? "", amount: Number(l.amount) }))),
+        JSON.stringify(req.body.lines.map((l) => ({ account_code: String(l.account_code), description: l.description ?? "", amount: Number(l.amount), tax_type: l.tax_type ?? "NONE" }))),
         String(req.body.reason).trim().slice(0, 2000), actor, via.run_id])).rows[0];
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "journal_proposed", { journal_id: row.id });
@@ -859,14 +938,20 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (!work.isGuid(req.params.jid)) return { status: 400, body: { error: "id must be an id" } };
     const j = (await conn.query("SELECT * FROM finance.rec_journals WHERE id = $1 AND rec_id = $2 FOR UPDATE", [req.params.jid, rec.id])).rows[0];
     if (!j || !["proposed", "approved"].includes(j.state)) return { status: 409, body: { error: "This proposal is not waiting for a decision" } };
+    let unknown = false;
     if (j.state === "approved") {
       const after = await lastAttempt(conn, j);
       if (after.state === "live") return { status: 409, body: { error: "A run is still working on this journal." } };
       if (after.state === "drafted") return { status: 409, body: { error: "This journal is already a draft in Xero. Void it there if it is not wanted." } };
+      unknown = after.state === "unknown";
+      if (unknown && req.body?.confirmed_not_in_xero !== true) {
+        return { status: 409, body: { error: "This draft may be in Xero. Check Xero. Reject it only once you have seen it is not there." } };
+      }
     }
-    await conn.query("UPDATE finance.rec_journals SET state = 'rejected', rejected_by = $2, rejected_at = now() WHERE id = $1", [j.id, actorEmail]);
-    await event(conn, rec.id, client.id, actor, "journal_rejected", { journal_id: req.params.jid });
-    await auditRec(conn, req, { client, actorEmail, role, action: "rec_journal_rejected", id: rec.id, payload: { journal_id: j.id, was: j.state } });
+    // approved_run_id and attempts stay: the record of what was tried.
+    await conn.query("UPDATE finance.rec_journals SET state = 'rejected', rejected_by = $2, rejected_at = now(), rejected_after_check = $3 WHERE id = $1", [j.id, actorEmail, unknown]);
+    await event(conn, rec.id, client.id, actor, "journal_rejected", { journal_id: req.params.jid, checked_xero: unknown });
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_journal_rejected", id: rec.id, payload: { journal_id: j.id, was: j.state, confirmed_not_in_xero: unknown } });
     return { status: 200, body: { ok: true } };
   }), { peopleOnly: true })));
 
@@ -917,9 +1002,13 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         inRecThread = Boolean(t.on_rec);
       }
       const proposals = (await pool.query(
-        `SELECT id, state, attempts, approved_run_id, journal_date::text, narration, lines FROM finance.rec_journals
-          WHERE client_id = $1 AND entity_id = $2 AND state <> 'superseded'
-            AND (to_char(journal_date, 'YYYY-MM') = $3 OR approved_run_id = $4::uuid)`, [clientId, entityId, month, runId || null])).rows;
+        `SELECT j.id, j.state, j.attempts, j.approved_run_id, j.journal_date::text, j.narration, j.lines,
+                r.status, r.recheck_reason, r.dropped_at,
+                (SELECT b.account_code FROM finance.rec_balances b WHERE b.rec_id = j.rec_id AND b.entity_id = j.entity_id) AS rec_code
+           FROM finance.rec_journals j JOIN finance.recs r ON r.id = j.rec_id
+          WHERE j.client_id = $1 AND j.entity_id = $2
+            AND (to_char(j.journal_date, 'YYYY-MM') = $3 OR j.state IN ('proposed', 'approved') OR j.approved_run_id = $4::uuid)`,
+        [clientId, entityId, month, runId || null])).rows;
       return recs.recJournalGate({ runId, inRecThread, proposals, input });
     } catch (e) {
       if (isMissingTable(e)) return {};

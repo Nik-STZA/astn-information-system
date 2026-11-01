@@ -125,7 +125,7 @@ export interface RecDetail {
     line: string | null; line_key: string | null; with: string | null; preparer_note: string | null; review_note: string | null;
     prepared_by: string | null; prepared_at: string | null; reviewed_by: string | null; reviewed_at: string | null;
     signed_off_by: string | null; signed_off_at: string | null; recheck_reason: string | null; recheck_at: string | null;
-    checks_at: string | null; workable: boolean; sole_reviewer: boolean; shown_as_signed: boolean;
+    checks_at: string | null; workable: boolean; sole_reviewer: boolean; shown_as_signed: boolean; signed_before: number;
   };
   tolerance: string;
   cover: { rows: CoverRow[]; group: { gl: string | null; schedule: string | null; variance: string | null }; ties: boolean; mixed_currency: boolean };

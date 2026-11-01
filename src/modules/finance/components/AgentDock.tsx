@@ -92,8 +92,8 @@ export default function AgentDock() {
     const screen = document.querySelector("main")?.textContent ?? "";
     const instruction = withPageContext(text, context, screen.replace(/\s+/g, " "));
     const err = await postRun(slug, latest
-      ? { agent: latest.agent, instruction, parentRunId: latest.id }
-      : { agent: agent || null, instruction });
+      ? { agent: latest.agent, instruction, parentRunId: latest.id, recId: context.rec }
+      : { agent: agent || null, instruction, recId: context.rec });
     if (err) setError(err);
     else {
       setText("");

@@ -61,7 +61,7 @@ function when(iso: string | null): string {
 
 export async function postRun(
   slug: string,
-  body: { agent: string | null; instruction: string; parentRunId?: string }
+  body: { agent: string | null; instruction: string; parentRunId?: string; recId?: string | null }
 ): Promise<string | null> {
   try {
     const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/agent-runs`, {

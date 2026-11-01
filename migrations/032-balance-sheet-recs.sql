@@ -82,7 +82,9 @@ CREATE TABLE IF NOT EXISTS finance.recs (
   period_end         date NOT NULL,
   status             text NOT NULL DEFAULT 'not_started'
                        CHECK (status IN ('not_started', 'in_progress', 'with_fc', 'with_cfo', 'signed_off', 'sent_back')),
-  -- From the matrix, never from an agent.
+  -- From the matrix, never from an agent. Held here as well as on rec_accounts,
+  -- which months share, so that placing an account cannot alter a signed month.
+  line_key           text,
   owner              text,
   challenge          text,
   class              text CHECK (class IN ('M', 'J')),
@@ -109,6 +111,8 @@ CREATE TABLE IF NOT EXISTS finance.recs (
   -- The figures as signed. Screens show these from then on; the ledger read
   -- carries on in rec_balances, which is how a later move is noticed.
   signed_snapshot    jsonb,
+  -- Each earlier signing of this month, kept when it was reopened.
+  signed_history     jsonb NOT NULL DEFAULT '[]'::jsonb,
   -- Set when a figure moved after preparation. Cleared by preparing it again.
   recheck_reason     text,
   recheck_at         timestamptz,
@@ -212,6 +216,9 @@ CREATE TABLE IF NOT EXISTS finance.rec_journals (
   attempts         integer NOT NULL DEFAULT 1,
   rejected_by      text,
   rejected_at      timestamptz,
+  -- The last attempt's outcome was unknown, and the rejecter says they looked
+  -- in Xero and the draft is not there.
+  rejected_after_check boolean NOT NULL DEFAULT false,
   xero_journal_id  text,
   xero_journal_no  text,
   drafted_at       timestamptz,

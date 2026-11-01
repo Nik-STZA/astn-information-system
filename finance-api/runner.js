@@ -417,7 +417,7 @@ async function clientCurrency(slug) {
 // lib/draft-approval.js.
 
 const { approvalFromThread } = require("./lib/draft-approval");
-const { journalMatches, namesRecProposal } = require("./lib/recs");
+const { draftFailure, journalAgrees, namesRecProposal } = require("./lib/recs");
 
 async function createDraftJournal(job, input) {
   const slug = encodeURIComponent(job.client.slug);
@@ -438,11 +438,12 @@ async function createDraftJournal(job, input) {
     return { error: "This run is no longer the one approved to create that journal. Nothing was created." };
   }
 
+  // What was approved goes, as stored, not what the model typed back.
   const body = {
     entity: input.entity,
-    date: input.date,
-    narration: input.narration,
-    lines: input.lines,
+    date: recJournal ? recJournal.journal_date : input.date,
+    narration: recJournal ? recJournal.narration : input.narration,
+    lines: recJournal ? recJournal.lines : input.lines,
     status: "DRAFT", // never POSTED from here: a person posts it in Xero
     approval: a.approval,
   };
@@ -461,10 +462,15 @@ async function createDraftJournal(job, input) {
     };
   }
 
-  const res = await apiRequest("POST", path, { ...body, idempotency_key: recJournal?.key ?? `agent-run-${job.id}` }, headers);
+  let res;
+  try {
+    res = await apiRequest("POST", path, { ...body, idempotency_key: recJournal?.key ?? `agent-run-${job.id}` }, headers);
+  } catch (e) {
+    return { error: draftFailure(0, null), detail: e.message };
+  }
   // A replayed failure comes back as a 200 with ok: false.
   if (!res.ok || res.body?.ok === false) {
-    return { error: "Xero or the platform refused the draft. Nothing was created.", status: res.status, detail: res.body };
+    return { error: draftFailure(res.status, res.body), status: res.status, detail: res.body };
   }
   return {
     created: true,
@@ -486,7 +492,7 @@ async function approvedRecJournal(job) {
 function recJournalRefusal(approved, input) {
   if (approved.state !== "approved") return `That proposal is ${approved.state}, so no draft was created.`;
   if (approved.entity_slug !== input.entity) return "That is not the company the proposal was for. Nothing was created.";
-  if (!journalMatches(approved, input)) {
+  if (!journalAgrees(approved, input)) {
     return "This differs from the journal approved on the reconciliation. Nothing was created. Use exactly the approved date, narration, codes and amounts.";
   }
   return null;
@@ -616,7 +622,7 @@ Journals:
 - First, check the chart of accounts, then reply with a proposal headed "Proposed journal (draft)". It must name the entity, give the date in YYYY-MM-DD form (for example 2026-08-31), give the narration, and list each line with ONE account code, a description and the amount. If you are unsure which account to use, ask; do not list alternatives. End by asking the user to reply "approved" to create it as a draft in Xero.
 - Only when the user's follow-up plainly approves that proposal, call create_draft_journal with exactly the proposed entity, date, narration, codes and amounts (debits positive, credits negative). If they ask for a change, make it and propose again.
 - After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.
-- A journal on a reconciliation is different: the CFO approves it on the reconciliation in os.stza.io, not by a reply here. If someone replies "approved" to one, tell them to approve it there; the platform refuses it otherwise.
+- A journal on a reconciliation is different. Do not follow the steps above for it. Record it with propose_rec_journal, then show it as that tool says, and do not ask for a reply: the CFO approves it on the reconciliation in os.stza.io. If someone replies "approved" to one, tell them to approve it there; the platform refuses it otherwise.
 
 The Bills queue:
 - "Bills" means the Bills tab in os.stza.io, not Xero's bills list. Read it with list_bills_queue and get_bill_item. Draft bills in Xero do not appear in aged payables, so never look for a Bills item there.

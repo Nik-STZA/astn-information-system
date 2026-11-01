@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import { agentFor, askedText, clientSlugOf, pageContext, withPageContext } from "./page-context";
 
 describe("page context", () => {
+  it("names the reconciliation a page is about, and only then", () => {
+    const id = "12345678-1234-1234-1234-123456789012";
+    const on = pageContext(`/finance/clients/acme/reconciliations/${id}`, new URLSearchParams());
+    expect(on).toMatchObject({ section: "Reconciliations", rec: id });
+    expect(withPageContext("Why?", on!, "")).toContain(`Reconciliation: ${id}`);
+    expect(pageContext("/finance/clients/acme/reconciliations", new URLSearchParams())?.rec).toBeNull();
+    expect(pageContext("/finance/clients/acme/work", new URLSearchParams())?.rec).toBeNull();
+  });
   it("finds the client from either kind of client page", () => {
     expect(clientSlugOf("/finance/clients/jo-bloggs-ltd/bills")).toBe("jo-bloggs-ltd");
     expect(clientSlugOf("/clients/all/jo-bloggs-ltd")).toBe("jo-bloggs-ltd");

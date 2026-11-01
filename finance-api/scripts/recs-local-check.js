@@ -25,10 +25,12 @@ Object.assign(process.env, {
 
 const row = (id, name, code, dr, cr, ydr, ycr) => ({ RowType: "Row", Cells: [
   { Value: `${name} (${code})`, Attributes: [{ Id: "account", Value: id }] }, { Value: String(dr) }, { Value: String(cr) }, { Value: String(ydr) }, { Value: String(ycr) }] });
+const row2 = (id) => row(id, "Business Bank", "090", 0, 0, 100, 0);
 const accounts = (rows) => rows.map(([AccountID, Code, Name, Class, Type]) => ({ AccountID, Code, Name, Class, Type, Status: "ACTIVE" }));
 
 const CHART = {
   a: accounts([
+    ["a-pl2", "486", "Insurance two", "EXPENSE", "OVERHEADS"],
     ["a-pre", "620", "Prepayments", "ASSET", "PREPAYMENT"], ["a-acc", "825", "Accruals", "LIABILITY", "CURRLIAB"], ["a-bank", "090", "Business Bank", "ASSET", "BANK"],
     ["a-sus", "850", "Suspense", "ASSET", "CURRENT"], ["a-sun", "610", "Sundry debtors", "ASSET", "CURRENT"], ["a-dep", "611", "Deposits", "ASSET", "CURRENT"],
     ["a-st1", "612", "Staff loan", "ASSET", "CURRENT"], ["a-st2", "613", "Staff Loan!", "ASSET", "CURRENT"],
@@ -63,6 +65,7 @@ global.fetch = async (url, opts = {}) => {
   if (u.hostname !== "api.xero.com") throw new Error(`blocked host ${u.hostname}`);
   if ((opts.method ?? "GET") !== "GET") {
     if (state.xeroFails) return json({ Message: "refused" }, state.xeroFails);
+    state.lastKey = opts.headers?.["Idempotency-Key"];
     state.draftsPosted.push(JSON.parse(opts.body));
     return json({ ManualJournals: [{ ManualJournalID: `mj-new-${state.draftsPosted.length}`, JournalNumber: 98 + state.draftsPosted.length, Status: "DRAFT" }] });
   }
@@ -263,7 +266,7 @@ async function scenario() {
     await pool.query("UPDATE finance.agent_runs SET status = 'failed', finished_at = now() WHERE id = $1", [first]);
     r = await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/approve`, {});
     ok("no retry when a draft may exist", r.status === 409 && /Check Xero/i.test(r.body.error ?? ""), r);
-    r = await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, {});
+    r = await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, { confirmed_not_in_xero: true });
     ok("an approved journal that failed can be rejected", r.status === 200, r);
   });
 
@@ -433,8 +436,8 @@ async function scenario() {
     tbs["a:2026-10-31"] = strip(old.a); tbs["b:2026-10-31"] = strip(old.b); tbs["a:2026-09-30"] = strip(old.c); tbs["b:2026-09-30"] = strip(old.d);
     await api("POST", "recs/compose", { period: "2026-10" });
     Object.assign(tbs, { "a:2026-10-31": old.a, "b:2026-10-31": old.b, "a:2026-09-30": old.c, "b:2026-09-30": old.d });
-    const still = (await pool.query("SELECT dropped_at FROM finance.recs WHERE id = $1", [ctx.id])).rows[0];
-    ok("kept as dropped, with its journal", still && still.dropped_at, still);
+    const still = (await pool.query("SELECT id FROM finance.recs WHERE id = $1", [ctx.id])).rows[0];
+    ok("kept, with its journal", Boolean(still), still);
   });
 
   await section("medium: a rec with only a proposal is started, and kept", async () => {
@@ -472,6 +475,197 @@ async function scenario() {
     await api("POST", "recs/compose", { period: "2026-10" });
     const list = (await api("GET", "recs?period=2026-10")).body;
     ok("nil", list.tolerance === "0.00", list.tolerance);
+  });
+
+  await section("M1: a dock chat on a rec page carries the rec", async () => {
+    const ctx = await prepared();
+    await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, {});
+    const r = await api("POST", "agent-runs", { agent: "fm1", instruction: "What should we do?", recId: ctx.id });
+    ok("the run is saved with the rec", r.status === 201, r);
+    const dock = (await pool.query("SELECT id, rec_id FROM finance.agent_runs WHERE id = $1", [r.body.id])).rows[0];
+    ok("rec_id stored", dock?.rec_id === ctx.id, dock);
+    await pool.query("UPDATE finance.agent_runs SET status = 'succeeded', output = $2, finished_at = now() WHERE id = $1", [r.body.id, ANSWER.replace("600.00", "610.00").replace("600.00", "610.00")]);
+    const child = await openRun(r.body.id, "approved");
+    const a = approvalFromThread({ current: child, parent: { output: ANSWER.replace("600.00", "610.00").replace("600.00", "610.00") } });
+    const j = await journalPost({ ...INPUT, narration: "Typed in chat", lines: [{ account_code: "485", amount: 610 }, { account_code: "620", amount: -610 }], status: "DRAFT", approval: a.approval, idempotency_key: "dock" }, child.id);
+    ok("a text proposal and a typed approved are refused", j.status === 422 && state.draftsPosted.length === 0, j);
+    const bad = await api("POST", "agent-runs", { agent: "fm1", instruction: "x", recId: "00000000-0000-4000-8000-000000000000" });
+    ok("a rec that is not this client's is refused", bad.status === 404, bad);
+  });
+
+  await section("M2: an unknown outcome needs someone to check Xero", async () => {
+    const ctx = await prepared();
+    const first = (await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/approve`, {})).body.run_id;
+    const run = (await pool.query("SELECT * FROM finance.agent_runs WHERE id = $1", [first])).rows[0];
+    const a = approvalFromThread({ current: run, parent: { output: ANSWER } });
+    state.xeroFails = 503;
+    await journalPost({ ...INPUT, status: "DRAFT", approval: a.approval }, first);
+    state.xeroFails = null;
+    await pool.query("UPDATE finance.agent_runs SET status = 'failed', finished_at = now() WHERE id = $1", [first]);
+    let r = await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, {});
+    ok("reject refused until someone confirms", r.status === 409 && /Check Xero/i.test(r.body.error ?? ""), r);
+    r = await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, { confirmed_not_in_xero: true });
+    ok("reject allowed once confirmed", r.status === 200, r);
+    const row = (await pool.query("SELECT approved_run_id, attempts FROM finance.rec_journals WHERE id = $1", [ctx.jid])).rows[0];
+    ok("L5: rejecting keeps the link to the attempt", row.approved_run_id === first, row);
+  });
+
+  await section("M3: other callers on a rec's account", async () => {
+    const ctx = await prepared();
+    const conf = (body) => realFetch(`${base}/api/finance/clients/sample-group/xero/alpha-ltd/write/journals`, { method: "POST", headers: { "X-API-Key": "k", "X-Actor-Email": CFO, "Content-Type": "application/json" }, body: JSON.stringify({ status: "DRAFT", audit_note: "x", narration: "Other", date: "2026-10-30", dry_run: true, ...body }) });
+    const tax = { tax_type: "NONE" };
+    let r = await conf({ lines: [{ account_code: "485", amount: "601", ...tax }, { account_code: "620", amount: "-601", ...tax }] });
+    ok("a penny-changed journal on the account is held", r.status === 422, r.status);
+    r = await conf({ lines: [{ account_code: "485", amount: "300", ...tax }, { account_code: "486", amount: "300", ...tax }, { account_code: "620", amount: "-600", ...tax }] });
+    ok("a split on the account is held", r.status === 422 && /reconciliation/i.test(JSON.stringify(await r.json())), r.status);
+    r = await conf({ date: "2026-11-02", lines: [{ account_code: "485", amount: "600", ...tax }, { account_code: "620", amount: "-600", ...tax }] });
+    ok("the same lines on another date are held", r.status === 422, r.status);
+    r = await conf({ lines: [{ account_code: "485", amount: "50", ...tax }, { account_code: "090", amount: "-50", ...tax }] });
+    ok("a normal journal on other accounts is not held", r.status !== 422 || !/reconciliation/i.test(JSON.stringify(await r.json())), r.status);
+    const second = await api("POST", `recs/${ctx.id}/journals`, { ...PROPOSAL, reason: "Replaced", lines: [{ account_code: "485", amount: 650 }, { account_code: "620", amount: -650 }] }, ctx.via);
+    await api("POST", `recs/${ctx.id}/journals/${second.body.id}/reject`, {});
+    r = await conf({ lines: [{ account_code: "485", amount: "600", ...tax }, { account_code: "620", amount: "-600", ...tax }] });
+    ok("the lines of a superseded proposal are held", r.status === 422, r.status);
+  });
+
+  await section("M4: signed recs stay as signed", async () => {
+    const ctx = await toCfo();
+    await sign(ctx.id, { sole_reviewer: true });
+    const before = (await api("GET", `recs/${ctx.id}`)).body;
+    let r = await api("POST", `recs/${ctx.id}/place`, { line_key: "accruals" });
+    ok("place refused on a signed rec", r.status === 409 || r.status === 422, r);
+    await api("POST", "recs/compose", { period: "2026-10" });
+    await pool.query("UPDATE finance.rec_accounts SET line_key = 'accruals' WHERE id = (SELECT rec_account_id FROM finance.recs WHERE id = $1)", [ctx.id]);
+    await api("POST", "recs/compose", { period: "2026-10" });
+    let d = (await api("GET", `recs/${ctx.id}`)).body;
+    ok("compose leaves the matrix fields on a signed rec", d.rec.class === before.rec.class && d.rec.challenge === before.rec.challenge && d.rec.owner === before.rec.owner, d.rec);
+    ok("a shared row cannot change a signed month", d.cover.group.schedule === before.cover.group.schedule && d.rec.line === before.rec.line, d.cover.group);
+    await pool.query("UPDATE finance.rec_accounts SET line_key = 'prepay' WHERE id = (SELECT rec_account_id FROM finance.recs WHERE id = $1)", [ctx.id]);
+    r = await api("POST", `recs/${ctx.id}/checks`, {});
+    ok("checks do not overwrite a signed rec", r.status === 409, r.status);
+    await api("POST", `recs/${ctx.id}/reopen`, {});
+    await api("POST", `recs/${ctx.id}/prepare`, { note: "Again." });
+    const hist = (await pool.query("SELECT signed_history FROM finance.recs WHERE id = $1", [ctx.id]).catch(() => ({ rows: [{}] }))).rows[0];
+    ok("the first signed snapshot stays in history", hist.signed_history?.length === 1 && hist.signed_history[0].snapshot?.balances?.length === 2, hist);
+    const un = (await api("GET", "recs?period=2026-10")).body.recs.find((x) => x.line === null);
+    r = await api("POST", `recs/${un.id}/place`, { line_key: "ar" }, { "X-Actor-Email": FC });
+    ok("place needs the CFO", r.status === 403, r);
+  });
+
+  await section("M5: compose never silently drops a signed rec", async () => {
+    const ctx = await toCfo();
+    await sign(ctx.id, { sole_reviewer: true });
+    const old = { a: tbs["a:2026-10-31"], b: tbs["b:2026-10-31"], c: tbs["a:2026-09-30"], d: tbs["b:2026-09-30"] };
+    const strip = (f) => () => f().filter((x) => !String(x.Cells[0].Attributes[0].Value).endsWith("-pre"));
+    tbs["a:2026-10-31"] = strip(old.a); tbs["b:2026-10-31"] = strip(old.b); tbs["a:2026-09-30"] = strip(old.c); tbs["b:2026-09-30"] = strip(old.d);
+    await pool.query("UPDATE finance.rec_schedule_items SET deleted_at = now(), deleted_by = 'x' WHERE client_id = $1", [CID]);
+    await api("POST", "recs/compose", { period: "2026-10" });
+    Object.assign(tbs, { "a:2026-10-31": old.a, "b:2026-10-31": old.b, "a:2026-09-30": old.c, "b:2026-09-30": old.d });
+    const row = (await pool.query("SELECT dropped_at, recheck_reason, status FROM finance.recs WHERE id = $1", [ctx.id])).rows[0];
+    ok("flagged, not dropped", !row.dropped_at && /no longer on the trial balance/.test(row.recheck_reason ?? ""), row);
+    const ev = (await pool.query("SELECT action FROM finance.rec_events WHERE rec_id = $1 AND action = 'recheck'", [ctx.id])).rows;
+    ok("with an event", ev.length === 1, ev);
+    const au = (await pool.query("SELECT action FROM finance.audit_log WHERE client_id = $1 AND action = 'rec_left_trial_balance'", [CID])).rows;
+    ok("with an audit row", au.length === 1, au);
+    tbs["a:2026-11-30"] = () => [row2("a-bank")];
+    tbs["b:2026-11-30"] = () => [row2("b-bank")];
+    await api("POST", "recs/compose", { period: "2026-11" });
+    delete tbs["a:2026-11-30"]; delete tbs["b:2026-11-30"];
+    const nov = (await api("GET", "recs?period=2026-11")).body;
+    ok("the next month says this one is still open", nov.prior.open === true, nov.prior);
+  });
+
+  await section("M6: schedule items with a nil, unmoved ledger stay listed", async () => {
+    await seed();
+    await api("POST", "recs/compose", { period: "2026-10" });
+    let list = (await api("GET", "recs?period=2026-10")).body;
+    const id = name(list, "Prepayments")[0].id;
+    await api("POST", `recs/${id}/items`, { entity_id: EA, supplier: "Sample Insurer Ltd", pl_account_code: "485", total_cost: "7200.00", service_start: "2026-01-01", service_end: "2026-12-31" });
+    const old = { a: tbs["a:2026-10-31"], b: tbs["b:2026-10-31"], c: tbs["a:2026-09-30"], d: tbs["b:2026-09-30"] };
+    const strip = (f) => () => f().filter((x) => !String(x.Cells[0].Attributes[0].Value).endsWith("-pre"));
+    tbs["a:2026-10-31"] = strip(old.a); tbs["b:2026-10-31"] = strip(old.b); tbs["a:2026-09-30"] = strip(old.c); tbs["b:2026-09-30"] = strip(old.d);
+    await api("POST", "recs/compose", { period: "2026-10" });
+    Object.assign(tbs, { "a:2026-10-31": old.a, "b:2026-10-31": old.b, "a:2026-09-30": old.c, "b:2026-09-30": old.d });
+    list = (await api("GET", "recs?period=2026-10")).body;
+    const pre = name(list, "Prepayments")[0];
+    ok("still listed, as a variance", pre && pre.support === "1200.00" && pre.difference === "-1200.00" && !pre.ties, pre);
+  });
+
+  await section("M7: the stored journal is what goes", async () => {
+    const ctx = await prepared();
+    const first = (await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/approve`, {})).body.run_id;
+    const run = (await pool.query("SELECT * FROM finance.agent_runs WHERE id = $1", [first])).rows[0];
+    const a = approvalFromThread({ current: run, parent: { output: ANSWER } });
+    const stored = (await api("GET", `recs/journals/by-run/${first}`)).body;
+    ok("the run is given the stored lines with tax", stored.lines?.every((l) => l.tax_type), stored.lines);
+    let r = await journalPost({ ...INPUT, lines: PROPOSAL.lines.map((l, i) => (i ? l : { ...l, description: "Changed" })), status: "DRAFT", approval: a.approval, dry_run: true }, first);
+    ok("a changed description is refused", r.status === 422, r);
+    r = await journalPost({ ...INPUT, lines: PROPOSAL.lines.map((l, i) => (i ? { ...l, tax_type: "NONE" } : { ...l, tax_type: "INPUT2" })), status: "DRAFT", approval: a.approval, dry_run: true }, first);
+    ok("a changed tax type is refused", r.status === 422, r);
+    r = await journalPost({ ...INPUT, lines: stored.lines, status: "DRAFT", approval: a.approval }, first);
+    ok("the stored lines pass", r.status === 201, r);
+    ok("L4: Xero gets the proposal's Idempotency-Key", String(state.lastKey).includes(ctx.jid), state.lastKey);
+  });
+
+  await section("L2 and L9", async () => {
+    const ctx = await prepared();
+    const first = (await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/approve`, {})).body.run_id;
+    const run = (await pool.query("SELECT * FROM finance.agent_runs WHERE id = $1", [first])).rows[0];
+    const a = approvalFromThread({ current: run, parent: { output: ANSWER } });
+    await pool.query("UPDATE finance.recs SET recheck_reason = 'moved' WHERE id = $1", [ctx.id]);
+    let r = await journalPost({ ...INPUT, lines: PROPOSAL.lines.map((l) => ({ ...l, tax_type: "NONE" })), status: "DRAFT", approval: a.approval }, first);
+    ok("L9: rec state is checked again at the post", r.status === 422 && state.draftsPosted.length === 0, r);
+    await pool.query("UPDATE finance.recs SET recheck_reason = NULL WHERE id = $1", [ctx.id]);
+    r = await journalPost({ ...INPUT, lines: PROPOSAL.lines.map((l) => ({ ...l, tax_type: "NONE" })), status: "DRAFT", approval: a.approval }, first);
+    ok("posts once the rec is clear", r.status === 201, r);
+    r = await api("POST", `recs/${ctx.id}/journals`, PROPOSAL, ctx.via);
+    ok("L2: an exact re-proposal of a draft in Xero is refused", r.status === 409, r);
+    await api("PUT", "recs/settings", { tolerance: 3 });
+    const au = (await pool.query("SELECT action FROM finance.audit_log WHERE client_id = $1 AND action = 'rec_tolerance_changed'", [CID])).rows;
+    ok("L9: tolerance changes are audited", au.length === 1, au);
+    await api("PUT", "recs/settings", { tolerance: 0 });
+    const c2 = await toCfo();
+    r = await api("POST", `recs/${c2.id}/reopen`, {}, { "X-Actor-Email": FC });
+    ok("L9: only the CFO reopens a rec with the CFO", r.status === 422, r);
+  });
+
+  await section("L5: a retired company does not block forever", async () => {
+    const ctx = await toCfo();
+    await pool.query("UPDATE finance.entities SET retired_at = now() WHERE id = $1", [EB]);
+    await api("POST", "recs/compose", { period: "2026-10" });
+    const d = (await api("GET", `recs/${ctx.id}`)).body;
+    ok("its rows are gone", d.cover.rows.every((x) => x.entity !== "Beta Ltd"), d.cover.rows);
+    await api("POST", `recs/${ctx.id}/reopen`, {});
+    await api("POST", `recs/${ctx.id}/prepare`, { note: "Beta retired." });
+    await api("POST", `recs/${ctx.id}/review`, { pass: true, note: "ok" }, { "X-Work-Via": `agent:fc:${ctx.runId}`, "X-Actor-Email": FC });
+    const r = await sign(ctx.id, { sole_reviewer: true });
+    ok("it can be signed", r.status === 200, r);
+  });
+
+  await section("L6: sign-off compares opening, and blocks on unidentified rows", async () => {
+    const ctx = await toCfo();
+    state.sepPreA = 10500;
+    let r = await sign(ctx.id, { sole_reviewer: true });
+    ok("a moved opening refuses", r.status === 422 && /moved/.test(r.body.issues?.join() ?? ""), r);
+    state.sepPreA = 10440;
+    state.extraA = [{ RowType: "Row", Cells: [{ Value: "Mystery" }, { Value: "0" }, { Value: "0" }, { Value: "5" }, { Value: "0" }] }];
+    r = await sign(ctx.id, { sole_reviewer: true });
+    ok("a row with no account id refuses, with a count", r.status === 422 && /1 trial balance row/.test(r.body.issues?.join() ?? ""), r);
+    state.extraA = [];
+  });
+
+  await section("L7 and new companies", async () => {
+    await seed();
+    const saved = CHART.b;
+    CHART.b = [];
+    let r = await api("POST", "recs/compose", { period: "2026-10" });
+    CHART.b = saved;
+    ok("L7: an empty chart is a failed read", r.body.complete === false, r.body);
+    const old = tbs["b:2026-09-30"];
+    tbs["b:2026-09-30"] = () => [];
+    r = await api("POST", "recs/compose", { period: "2026-10" });
+    tbs["b:2026-09-30"] = old;
+    ok("a first-month company says why and what to do", /started this month/.test(r.body.entity_errors?.[0]?.error ?? "") && /30 September 2026|2026-09-30/.test(r.body.entity_errors?.[0]?.error ?? ""), r.body.entity_errors);
   });
 
   await section("low and refusals", async () => {
