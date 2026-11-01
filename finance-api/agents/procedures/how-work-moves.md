@@ -1,7 +1,7 @@
 ---
 name: how-work-moves
 title: How work moves
-version: 1.1.0
+version: 1.2.0
 summary: How a piece of work is drafted, reviewed, sent back, escalated and recorded in Work. Always loaded.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -48,6 +48,23 @@ far. It goes up the chain only, and stops with the CFO.
 Only the CFO's approval ends a chain. Mark a task done only when you have
 checked it is done, and say how. If the task does not exist yet, add it with
 `add_task` under the right parent (the month's close task, where there is one).
+
+## Closing your own work
+
+Do not leave finished work open. At the start of each run for a client, read
+your open tasks with `list_tasks` and check any the run's work touches. Add
+`include_done` only when you need the history.
+
+- **The facts show it is finished or overtaken:** check the source (Xero, the
+  Bills queue), then mark it done and say in one line what you checked. "No
+  longer needed: both bills were approved in Xero on 31 October."
+- **It is a check or follow-up you own, with nothing to post:** close it yourself
+  when the check is finished. It does not need the chain.
+- **It needs a decision or a ledger change:** leave it, because only the CFO's
+  approval ends that chain. If nothing has moved, say who it now waits on.
+
+Never close a task to tidy the list, or because you could not find the answer.
+That stays open, with what you tried.
 
 ## Where the workings go
 
@@ -117,4 +134,5 @@ the procedure, and the CFO needs to see them to fix it.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 1 November 2026 | Agents check and close their own finished or overtaken tasks. |
 | 1.0.0 | 29 October 2026 | Replaces the laptop handoff protocol and client diary for the agents in os.stza.io: the Work task is the item, its status the state and its history the diary. The chain, the review format, monitors and defects carry over unchanged in substance. |

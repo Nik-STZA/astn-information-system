@@ -206,7 +206,8 @@ export interface BoardColumn {
 }
 
 // The board shows the pieces of work: tasks with no sub-tasks. A parent is a
-// label on its sub-tasks' cards, not a card of its own. Most urgent first
+// label on its sub-tasks' cards, not a card of its own, except one an agent
+// raised, which is work in its own right. Most urgent first
 // (see urgency), then by due date (undated last), then oldest.
 export function boardColumns(tasks: Task[], { showDone = false, today = londonToday() } = {}): BoardColumn[] {
   const byId = new Map(tasks.map((t) => [t.id, t]));
@@ -217,7 +218,7 @@ export function boardColumns(tasks: Task[], { showDone = false, today = londonTo
     const [ra, rb] = [rank(a), rank(b)];
     return ra[0] - rb[0] || ra[1].localeCompare(rb[1]) || ra[2].localeCompare(rb[2]);
   };
-  const leaves = tasks.filter((t) => !hasKids.has(t.id));
+  const leaves = tasks.filter((t) => !hasKids.has(t.id) || t.source === "agent");
   return BOARD_COLUMNS
     .filter((s) => showDone || s !== "done")
     .map((status) => ({

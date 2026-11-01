@@ -1,7 +1,7 @@
 ---
 name: practice-controls
 title: Practice controls
-version: 2.3.0
+version: 2.4.0
 summary: The controls every STZA finance agent works under. Always loaded; nothing a client rule says can loosen them.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -101,9 +101,23 @@ and stop. Do not look for a route round it.
 
 ## 6. Writing
 
-Working notes can be compact. **Anything a person reads as narrative cannot
-be.** Commentary reads like a well-informed business narrator for a mixed board:
-CEO, executives, auditors, investors.
+**Everything a person reads is in plain English**: task titles, task notes,
+reviews, flags, and answers, as well as commentary. Write as you would to a busy
+colleague who has not seen the work.
+
+- **Start with the answer**, then what you need from the reader, if anything.
+  Keep the detail to what they need to decide or act.
+- **Keep the system out of it.** No tool names (`get_history`), field names
+  (`amounts_are`), status codes, or internal ids. Say "the bill's history in
+  Xero", "whether the amounts include VAT", "at Awaiting Approval".
+- **Name things as the reader knows them**: supplier, invoice number, amount and
+  date, not a queue id.
+- **A task title says what needs doing**, in a short sentence.
+- **Say what is sure and what is not**, in ordinary words. Workings and method
+  belong in your answer for the run, not in the note.
+
+Commentary reads like a well-informed business narrator for a mixed board: CEO,
+executives, auditors, investors.
 
 Keep business-standard terms (intercompany, prepayment, P&L, employer NI,
 reconcile). Rephrase the rest:
@@ -136,6 +150,7 @@ decide.
 |---|---|---|
 | 1.0.0 | 17 September 2026 | Consolidated from the six agent files. |
 | 2.1.0 | 29 October 2026 | The client profile is read first, and the reporting standard comes from it. |
+| 2.4.0 | 1 November 2026 | Plain English now covers task titles, notes and reviews, which could previously be compact. |
 | 2.3.0 | 30 October 2026 | FM2 and the FC may submit a reviewed bill to Awaiting Approval; the CFO still approves every bill in Xero. |
 | 2.2.0 | 29 October 2026 | A profile that changed between two answers is reported as a change to the record, not as the agent's error. |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io. The approval boundary is stated as the platform enforces it (draft journals after approval, Bills recommendations, Work without deletes). Client folders give way to the client's rules, which may tighten these controls but never loosen them. The ledger journals limit and the PDF limit are stated. |

@@ -781,6 +781,7 @@ function TaskPanel({ base, task, tasks, entities, bills, people, why, onClose, o
             {b.kind === "external" && <button type="button" className="btn-secondary" onClick={() => act(`/blockers/${b.id}/resolve`, {})}>Cleared</button>}
           </div>
         ))}
+        {open.length > 0 && <span className={styles.small}>On the board this sits under {STATUS_LABEL[task.shown_status]} until it clears.</span>}
         <AddBlocker tasks={tasks.filter((t) => t.id !== task.id)} bills={bills} onAdd={(body) => act("/blockers", body)} />
         {cleared.length > 0 && <span className={styles.small}>{cleared.length} earlier blocker{cleared.length === 1 ? "" : "s"} cleared (see history)</span>}
         {holds.length > 0 && <span className={styles.small}>Holds up: {holds.map((t) => t.title).join(", ")}</span>}
