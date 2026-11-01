@@ -13,6 +13,14 @@
 //   FINANCE_API_URL, FINANCE_API_KEY
 const MAX_CALLS = 10;
 const LIVE = ["queued", "running"];
+// A run ends within the runner's 30-minute limit, so one still open after two
+// hours is stuck, and must not hold the schedule up for ever.
+const STUCK_AFTER_MS = 2 * 60 * 60 * 1000;
+
+// An agent at work on this client, as the Bills page reads it: a run with no agent
+// named is not one.
+const working = (run, now) => LIVE.includes(run.status) && !!run.agent
+  && now - Date.parse(run.queued_at) < STUCK_AFTER_MS;
 
 // Keep in step with clerkInstruction in src/modules/finance/components/FetchDocuments.tsx.
 const clerkInstruction = (entity) =>
@@ -21,12 +29,12 @@ const clerkInstruction = (entity) =>
 const queuedIn = (results = []) => results.filter((r) => r.state && !r.skipped).length;
 
 // call(method, path, body) answers { ok, status, body }.
-async function fetchClient(slug, call, log) {
+async function fetchClient(slug, call, log, now = Date.now()) {
   const base = `/api/finance/clients/${encodeURIComponent(slug)}`;
   const failures = [];
   const runs = await call("GET", `${base}/agent-runs`);
   if (!runs.ok) return { failures: [`${slug}: agent runs could not be read (${runs.status})`] };
-  if ((runs.body?.data ?? []).some((r) => LIVE.includes(r.status))) {
+  if ((runs.body?.data ?? []).some((r) => working(r, now))) {
     log(`${slug}: agents are working, left until the next run`);
     return { failures, skipped: true };
   }

@@ -18,10 +18,17 @@ const read = (results, remaining = 0) => ({ ok: true, body: { remaining, results
 
 describe("fetchClient", () => {
   it("leaves a client alone while agents are working", async () => {
-    const f = fake({ runs: [{ status: "running" }] });
-    const r = await fetchClient("c", f.call, () => {});
+    const f = fake({ runs: [{ status: "running", agent: "fm2", queued_at: "2026-11-02T06:30:00Z" }] });
+    const r = await fetchClient("c", f.call, () => {}, Date.parse("2026-11-02T07:00:00Z"));
     expect(r.skipped).toBe(true);
     expect(f.calls).toHaveLength(1);
+  });
+  it("is not held up by a run with no agent, or one stuck for hours", async () => {
+    const now = Date.parse("2026-11-02T07:00:00Z");
+    const noAgent = fake({ runs: [{ status: "running", agent: null, queued_at: "2026-11-02T06:59:00Z" }] });
+    expect((await fetchClient("c", noAgent.call, () => {}, now)).skipped).toBeUndefined();
+    const stuck = fake({ runs: [{ status: "running", agent: "fc", queued_at: "2026-11-02T04:59:00Z" }] });
+    expect((await fetchClient("c", stuck.call, () => {}, now)).skipped).toBeUndefined();
   });
   it("reads every company and starts no agent when nothing is queued", async () => {
     const f = fake();
