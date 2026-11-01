@@ -64,7 +64,7 @@ RECONCILIATION = "Supplier reconciliation"
 DEFAULT_SECTIONS = ("cost_of_sales", "overheads")
 NOT_SUPPLIER_COSTS = ("depreciation", "fx")      # posted by Xero, not by a document
 
-POSTED = ("AUTHORISED", "PAID", "SUBMITTED")
+POSTED = ("AUTHORISED", "PAID")
 SPEND_TYPES = ("SPEND", "SPEND-OVERPAYMENT", "SPEND-PREPAYMENT")
 RECEIVE_TYPES = ("RECEIVE", "RECEIVE-OVERPAYMENT", "RECEIVE-PREPAYMENT")
 
@@ -153,7 +153,7 @@ def ledger_from_documents(invoices=(), credit_notes=(), bank_transactions=(), ma
         when = parse_xero_date(doc.get("Date"))
         supplier = str(doc.get("Narration") or "").strip() or "(Manual journal)"
         for li in doc.get("JournalLines") or []:
-            add(li.get("AccountCode"), supplier, when, abs(net_amount(li, doc.get("LineAmountTypes"))))
+            add(li.get("AccountCode"), supplier, when, net_amount(li, doc.get("LineAmountTypes")))
 
     return {k: round(v, 2) for k, v in ledger.items() if abs(round(v, 2)) >= 0.01}
 
@@ -254,8 +254,6 @@ def suppliers_of(code: str, docs: dict, months: list[date], fy_months: list[date
     ranked = []
     for name in {*actual, *py}:
         now, then = actual.get(name, {}), py.get(name, {})
-        if sum(now.values()) <= 0.01 and sum(then.values()) <= 0.01:
-            continue
         if now and then:
             status, rank = "Continuing", 0
         elif now:
