@@ -41,7 +41,8 @@ describe("closePlan", () => {
     expect(keys).toContain("intercompany");
     expect(keys).toContain("vat");
     expect(p.tasks.filter((t) => t.parent_key === "bank").map((t) => [t.title, t.entity_id])).toEqual([["Bank reconciliations: Acme Ltd", A.id], ["Bank reconciliations: Acme Holdings", B.id]]);
-    expect(p.tasks.filter((t) => t.parent_key === "bs-recs")).toHaveLength(2);
+    // A reconciliation is at group level, so this step has no sub-task per company.
+    expect(p.tasks.filter((t) => t.parent_key === "bs-recs")).toHaveLength(0);
     expect(p.blockers).toContainEqual({ task_key: "sign-off", blocking_key: "vat" });
     expect(new Set(p.tasks.map((t) => t.source_ref)).size).toBe(p.tasks.length);
   });

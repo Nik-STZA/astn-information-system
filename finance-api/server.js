@@ -1764,20 +1764,22 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
       agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null,
     ]
   );
-  // Start the agent runner in Google Cloud (lib/agent-job.js). If it cannot be
-  // started, the run stays queued for a polling runner: nothing is lost.
-  let runner = "queued";
-  const cloud = agentJob.agentJobConfig();
-  if (cloud) {
-    try {
-      await agentJob.startAgentJob(cloud);
-      runner = "cloud";
-    } catch (e) {
-      console.error(`agent-runner not started for run ${rows[0].id}: ${e.message}`);
-    }
-  }
-  res.status(201).json({ ...rows[0], runner });
+  res.status(201).json({ ...rows[0], runner: await startAgentRunner(rows[0].id) });
 }));
+
+// Starts the agent runner in Google Cloud (lib/agent-job.js). If it cannot be
+// started, the run stays queued for a polling runner: nothing is lost.
+async function startAgentRunner(runId) {
+  const cloud = agentJob.agentJobConfig();
+  if (!cloud) return "queued";
+  try {
+    await agentJob.startAgentJob(cloud);
+    return "cloud";
+  } catch (e) {
+    console.error(`agent-runner not started for run ${runId}: ${e.message}`);
+    return "queued";
+  }
+}
 
 app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
@@ -6197,6 +6199,10 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
       describe: () => ({ written_to_xero: true, done }),
     };
   }));
+
+// ── Reconciliations ─────────────────────────────────────────────────────────
+
+require("./lib/recs-routes").mountRecs(app, { route, pool, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner });
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

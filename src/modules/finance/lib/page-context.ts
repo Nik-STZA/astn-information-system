@@ -23,7 +23,7 @@ export function clientSlugOf(pathname: string): string | null {
 
 const SECTIONS: Array<[RegExp, string]> = [
   [/\/bills/, "Bills"], [/\/work/, "Work"], [/\/procedures/, "Procedures"], [/\/reports/, "Reports"],
-  [/\/approvals/, "Approvals"], [/\/xero/, "Xero"], [/\/agents/, "Agents"],
+  [/\/approvals/, "Approvals"], [/\/xero/, "Xero"], [/\/agents/, "Agents"], [/\/reconciliations/, "Reconciliations"],
 ];
 
 export function pageContext(pathname: string, query: URLSearchParams): PageContext | null {
@@ -35,7 +35,7 @@ export function pageContext(pathname: string, query: URLSearchParams): PageConte
 
 // The agent most likely to be wanted on a page.
 export function agentFor(section: string): string {
-  return section === "Bills" ? "ap-clerk" : "";
+  return section === "Bills" ? "ap-clerk" : section === "Reconciliations" ? "fm1" : "";
 }
 
 export function withPageContext(instruction: string, c: PageContext, screen: string): string {

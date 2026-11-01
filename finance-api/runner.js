@@ -379,6 +379,7 @@ function buildTools(clientSlug, entities, agent, clientRules) {
       },
     },
     ...work.tools(entityEnum),
+    ...reconciliations.tools(entityEnum),
     ...ledger.tools(entityEnum),
     ...documents.tools(entityEnum),
     procedures.readProcedureTool(agent, clientRules),
@@ -416,6 +417,7 @@ async function clientCurrency(slug) {
 // lib/draft-approval.js.
 
 const { approvalFromThread } = require("./lib/draft-approval");
+const { journalMatches, namesRecProposal } = require("./lib/recs");
 
 async function createDraftJournal(job, input) {
   const slug = encodeURIComponent(job.client.slug);
@@ -425,6 +427,16 @@ async function createDraftJournal(job, input) {
 
   const a = approvalFromThread({ current, parent });
   if (a.error) return { error: a.error };
+
+  // A journal approved on a reconciliation must be that journal, exactly.
+  const recJournal = await approvedRecJournal(job);
+  if (recJournal) {
+    const refused = recJournalRefusal(recJournal, input);
+    if (refused) return { error: refused };
+  } else if (namesRecProposal(job.instruction)) {
+    // Approved again since this run was queued, or the record cannot be read.
+    return { error: "This run is no longer the one approved to create that journal. Nothing was created." };
+  }
 
   const body = {
     entity: input.entity,
@@ -452,6 +464,7 @@ async function createDraftJournal(job, input) {
   if (!res.ok) {
     return { error: "Xero or the platform refused the draft. Nothing was created.", status: res.status, detail: res.body };
   }
+  if (recJournal) await recordRecDraft(job, recJournal, res.body);
   return {
     created: true,
     status: res.body?.status ?? "DRAFT",
@@ -461,6 +474,30 @@ async function createDraftJournal(job, input) {
     warnings: res.body?.warnings,
     note: "Created in Xero as a DRAFT. Nothing is posted to the ledger until a person reviews and posts it in Xero. Tell the user that.",
   };
+}
+
+// The proposal this run was started to create, or null for any other run.
+async function approvedRecJournal(job) {
+  const res = await apiRequest("GET", `/api/finance/clients/${encodeURIComponent(job.client.slug)}/recs/journals/by-run/${job.id}`);
+  return res.ok ? res.body : null;
+}
+
+function recJournalRefusal(approved, input) {
+  if (approved.state !== "approved") return `That proposal is ${approved.state}, so no draft was created.`;
+  if (approved.entity_slug !== input.entity) return "That is not the company the proposal was for. Nothing was created.";
+  if (!journalMatches(approved, input)) {
+    return "This differs from the journal approved on the reconciliation. Nothing was created. Use exactly the approved date, narration, codes and amounts.";
+  }
+  return null;
+}
+
+// The draft is in Xero by now, so a failure here is reported, not retried.
+async function recordRecDraft(job, approved, created) {
+  const slug = encodeURIComponent(job.client.slug);
+  const res = await apiRequest("POST", `/api/finance/clients/${slug}/recs/journals/${approved.id}/drafted`,
+    { journal_id: created?.journal_id, journal_number: created?.journal_number },
+    { "X-Actor-Email": await requesterOf(job), "X-Work-Via": `agent:${job.agent || "general"}:${job.id}` });
+  if (!res.ok) console.error(`  Draft created, but not recorded on the reconciliation (${res.status})`);
 }
 
 // ── The Bills queue ──────────────────────────────────────────────────────────
@@ -546,6 +583,12 @@ async function billsTool(job, name, input) {
 // The client's task list in os.stza.io: lib/agent-work.js.
 
 const work = require("./lib/agent-work").agentWork({ apiCall, apiRequest, requesterOf });
+
+// ── Reconciliations ──────────────────────────────────────────────────────────
+//
+// The month's balance sheet recs in os.stza.io: lib/agent-recs.js.
+
+const reconciliations = require("./lib/agent-recs").agentRecs({ apiCall, apiRequest, requesterOf });
 
 // ── Ledger reads ─────────────────────────────────────────────────────────────
 //
@@ -743,6 +786,8 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           }
         } else if (tu.name === "read_procedure") {
           result = procedures.readProcedure(job.agent, tu.input.name, rules);
+        } else if (reconciliations.names.includes(tu.name)) {
+          result = await reconciliations.call(job, connectedEntities, tu.name, tu.input);
         } else if (ledger.names.includes(tu.name)) {
           result = await ledger.call(job, tu.name, tu.input);
         } else if (documents.names.includes(tu.name)) {
