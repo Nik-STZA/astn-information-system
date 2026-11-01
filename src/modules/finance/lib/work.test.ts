@@ -70,6 +70,11 @@ describe("boardColumns", () => {
     expect(cols.find((c) => c.status === "waiting")!.tasks.map((x) => [x.id, x.parentTitle])).toEqual([["payroll", "close"]]);
   });
 
+  it("keeps a parent an agent raised on the board, with its sub-tasks", () => {
+    const raised = [t("query", null, { source: "agent" }), t("fix", "query")];
+    expect(boardColumns(raised).find((c) => c.status === "todo")!.tasks.map((x) => x.id)).toEqual(["query", "fix"]);
+  });
+
   it("puts urgent first, then the earliest due date", () => {
     const todo = (today: string) => boardColumns(tasks, { today }).find((c) => c.status === "todo")!.tasks.map((x) => x.id);
     expect(todo("2026-10-27")).toEqual(["urgent", "prepay"]);
