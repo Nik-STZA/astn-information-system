@@ -717,7 +717,7 @@ async function scenario() {
     ok("the rec says they are on, and by whom", d.releases.on === true && d.releases.by === CFO, d.releases);
 
     r = await api("POST", `recs/${ctx.id}/checks`, {}, ctx.via);
-    const by = (name) => r.body.releases.find((x) => x.entity === name);
+    const by = (name, item = null) => r.body.releases.find((x) => x.entity === name && x.state !== "withdrawn" && (!item || x.supplier === item));
     ok("a company with a journal waiting on the rec is left for that journal", by("Alpha Ltd")?.state === "skipped", r.body.releases);
     ok("a company whose releases Xero already has gets none", by("Beta Ltd")?.state === "none", r.body.releases);
 
@@ -728,6 +728,7 @@ async function scenario() {
     ok("one release, on the Journals register", rows.length === 1 && rows[0].rec_id === ctx.id && rows[0].period === "2026-10", rows);
     ok("only the item Xero lacks, off prepayments", JSON.stringify(rows[0].lines.map((l) => [l.account_code, l.amount])) === JSON.stringify([["485", 600], ["620", -600]]), rows[0].lines);
     ok("proposed by whoever ran the checks", rows[0].proposed_by === "agent:fm1" && rows[0].state === "proposed", rows[0]);
+    ok("tied to its schedule item, named in the narration", rows[0].schedule_item_id && /^Prepayment release: Sample Insurer Ltd \(item \d+\), October 2026$/.test(rows[0].narration), rows[0]);
 
     r = await api("POST", `recs/${ctx.id}/checks`, {});
     ok("running the checks again makes no second release", by("Alpha Ltd")?.state === "kept"
@@ -755,6 +756,32 @@ async function scenario() {
     r = await api("POST", `recs/${ctx.id}/checks`, {});
     ok("once approved it is left alone", by("Alpha Ltd")?.state === "kept"
       && (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE client_id = $1 AND source = 'schedule' AND state <> 'superseded'", [CID])).rows[0].n === 1, r.body.releases);
+
+    // Xero loses the software release: it gets its own journal, apart from the
+    // insurance one already in Xero.
+    const kept = JOURNALS.a;
+    JOURNALS.a = [];
+    const live2 = async () => (await pool.query(
+      "SELECT j.*, i.supplier FROM finance.journals j JOIN finance.rec_schedule_items i ON i.id = j.schedule_item_id WHERE j.client_id = $1 AND j.source = 'schedule' AND j.state <> 'superseded' ORDER BY i.item_no", [CID])).rows;
+    try {
+      r = await api("POST", `recs/${ctx.id}/checks`, {});
+      let mine = await live2();
+      ok("a second item due gets a journal of its own", mine.length === 2 && by("Alpha Ltd", "Sample Software Inc")?.state === "proposed"
+        && by("Alpha Ltd", "Sample Insurer Ltd")?.state === "kept", r.body.releases);
+      const sw = mine.find((j) => j.supplier === "Sample Software Inc");
+      ok("each journal is that item alone: its P&L and prepayments", JSON.stringify(sw.lines.map((l) => [l.account_code, l.amount])) === JSON.stringify([["463", 1440], ["620", -1440]]), sw.lines);
+      d = (await api("GET", `recs/${ctx.id}`)).body;
+      ok("the rec lists each item's release by supplier", d.releases.journals.map((j) => j.supplier).sort().join() === "Sample Insurer Ltd,Sample Software Inc", d.releases.journals);
+
+      // Xero then has it (a repeating journal there ran): the waiting one is withdrawn.
+      JOURNALS.a = kept;
+      r = await api("POST", `recs/${ctx.id}/checks`, {});
+      mine = await live2();
+      ok("a waiting release Xero now has is withdrawn", mine.length === 1 && mine[0].supplier === "Sample Insurer Ltd"
+        && r.body.releases.some((x) => x.state === "withdrawn" && x.supplier === "Sample Software Inc"), r.body.releases);
+    } finally {
+      JOURNALS.a = kept;
+    }
 
     r = await api("PUT", `recs/${ctx.id}/releases`, { on: false });
     r = await api("POST", `recs/${ctx.id}/checks`, {});

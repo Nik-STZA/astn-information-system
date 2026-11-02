@@ -239,7 +239,7 @@ function Releases({ slug, data, busy, send, preparing }: { slug: string; data: R
       <div className={styles.pad}>
         <p className={styles.small} style={{ marginTop: 0 }}>
           {r.on
-            ? <>On{r.by ? ` since ${dayLabel(r.at)}, by ${r.by}` : ""}. Each time this month&apos;s checks run, os.stza.io proposes the release from the schedule on the Journals page, for each company, leaving out any item Xero already shows as released this month. The CFO approves it there and it goes to Xero as a draft. Items stop releasing when they end.</>
+            ? <>On{r.by ? ` since ${dayLabel(r.at)}, by ${r.by}` : ""}. Each time this month&apos;s checks run, os.stza.io proposes the releases from the schedule on the Journals page, one journal per item so any one can be reversed on its own, leaving out any item Xero already shows as released this month. The CFO approves them there and each goes to Xero as a draft. Items stop releasing when they end.</>
             : <>Off. Switch it on and os.stza.io prepares each month&apos;s release journal from this schedule, so the schedule and Xero stay in step. A release Xero already has, from a repeating journal set up there or one made by hand, is left out. Only the CFO switches it.</>}
         </p>
         {r.journals.length > 0 && (
@@ -247,15 +247,15 @@ function Releases({ slug, data, busy, send, preparing }: { slug: string; data: R
         )}
         {r.journals.map((j) => (
           <div key={j.id} className={styles.event}>
-            <span>{j.entity_name} · {money(j.total)} · {RELEASE_STATE[j.state] ?? j.state}{j.xero_journal_no ? ` (#${j.xero_journal_no})` : ""}{j.last_error ? ` · ${j.last_error}` : ""}</span>
+            <span>{j.entity_name} · {j.item_no != null ? `${j.item_no}. ` : ""}{j.supplier ?? "An item"} · {money(j.total)} · {RELEASE_STATE[j.state] ?? j.state}{j.xero_journal_no ? ` (#${j.xero_journal_no})` : ""}{j.last_error ? ` · ${j.last_error}` : ""}</span>
             <Link href={`/finance/clients/${slug}/journals?period=${data.rec.period}`}>Journals</Link>
           </div>
         ))}
-        {r.on && last.filter((x) => x.state !== "proposed").map((x) => (
-          <div key={x.entity_id} className={styles.small}>{x.entity}: {x.why}</div>
+        {r.on && last.filter((x) => x.state !== "proposed" && x.state !== "kept").map((x) => (
+          <div key={`${x.entity_id}-${x.item_id ?? x.state}`} className={styles.small}>{x.entity}{x.supplier ? `, ${x.supplier}` : ""}: {x.why}</div>
         ))}
         {r.on && r.journals.length === 0 && last.length === 0 && (
-          <span className={styles.sub}>{preparing ? "Run checks to propose this month's release." : "No release was proposed for this month."}</span>
+          <span className={styles.sub}>{preparing ? "Run checks to propose this month's releases." : "No release was proposed for this month."}</span>
         )}
       </div>
     </Fold>

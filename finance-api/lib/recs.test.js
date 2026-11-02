@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   accountKey, approvalInstruction, composeAccounts, cover, entityLines, finishItem, itemAt, journalChecks, journalMatches,
   journalProposalIssues, matrixFields, namesRecProposal, monthEnd, nextPeriod, priorPeriod, recheckReason, releaseIn, releaseProfile, scheduleItemInput,
-  scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction, releaseJournal,
+  scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction, releaseJournals,
   CFO_ROLE, approvalIssues, draftFailure, hasRows, journalAgrees, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows,
 } from "./recs";
 import { approvalFromThread } from "./draft-approval";
@@ -278,45 +278,49 @@ describe("re-check when a figure moves after preparation", () => {
   });
 });
 
-describe("the monthly release, made here from the schedule", () => {
+describe("the monthly releases, made here from the schedule, one journal per item", () => {
   const base = { accountCode: "620", period: "2026-10", tolerancePence: 100 };
-  const rent = item({ id: "i2", supplier: "Landlord Ltd", description: "Office", pl_account_code: "469", total_cost: "1800.00", service_start: "2026-10-01", service_end: "2026-12-31", amort_commenced: "2026-10-01" });
-  const make = (journals, items = [item(), rent]) => releaseJournal({ items, check: journalChecks({ ...base, items, journals }), accountCode: "620", period: "2026-10" });
+  const rent = item({ id: "i2", item_no: 2, supplier: "Landlord Ltd", description: "Office", invoice_ref: "INV-7", pl_account_code: "469", total_cost: "1800.00", service_start: "2026-10-01", service_end: "2026-12-31", amort_commenced: "2026-10-01" });
+  const ins = item({ item_no: 1 });
+  const make = (journals, items = [ins, rent]) => releaseJournals({ items, check: journalChecks({ ...base, items, journals }), accountCode: "620", period: "2026-10" });
 
-  it("releases every item due when Xero has none, dated the month end", () => {
-    const j = make([]);
-    expect(j.date).toBe("2026-10-31");
-    expect(j.narration).toBe("Prepayment releases October 2026");
-    expect(j.lines).toEqual([
-      { account_code: "400", description: "Insurer Ltd, release 10 of 12", amount: 600, tax_type: "NONE" },
+  it("one journal per item due when Xero has none, each balancing, dated the month end", () => {
+    const js = make([]);
+    expect(js.map((j) => j.item_id)).toEqual(["i1", "i2"]);
+    expect(js.every((j) => j.date === "2026-10-31")).toBe(true);
+    expect(js[1].narration).toBe("Prepayment release: Landlord Ltd (item 2), October 2026");
+    expect(js[1].lines).toEqual([
       { account_code: "469", description: "Landlord Ltd Office, release 1 of 3", amount: 600, tax_type: "NONE" },
-      { account_code: "620", description: "Prepayments released, October 2026", amount: -1200, tax_type: "NONE" },
+      { account_code: "620", description: "Landlord Ltd Office, release 1 of 3", amount: -600, tax_type: "NONE" },
     ]);
-    expect(j.total).toBe("1200.00");
-    expect(j.lines.reduce((a, l) => a + Math.round(l.amount * 100), 0)).toBe(0);
+    expect(js[0].lines.map((l) => [l.account_code, l.amount])).toEqual([["400", 600], ["620", -600]]);
+    expect(js[0].total).toBe("600.00");
+    expect(js[1].reason).toMatch(/Landlord Ltd, INV-7.*release 1 of 3/);
   });
   it("leaves out a release Xero already has, from a repeating journal there", () => {
-    const j = make([mj("POSTED", [["469", 600], ["620", -600]])]);
-    expect(j.lines.map((l) => l.account_code)).toEqual(["400", "620"]);
-    expect(j.reason).toMatch(/1 other item's release was already in Xero/);
+    expect(make([mj("POSTED", [["469", 600], ["620", -600]])]).map((j) => j.item_id)).toEqual(["i1"]);
   });
   it("leaves out a release in draft in Xero", () => {
-    const j = make([mj("DRAFT", [["469", 600], ["620", -600]])]);
-    expect(j.lines.map((l) => l.account_code)).toEqual(["400", "620"]);
+    expect(make([mj("DRAFT", [["469", 600], ["620", -600]])]).map((j) => j.item_id)).toEqual(["i1"]);
   });
   it("proposes nothing when Xero has every release", () => {
-    expect(make([mj("POSTED", [["400", 600], ["469", 600], ["620", -1200]])])).toBeNull();
+    expect(make([mj("POSTED", [["400", 600], ["469", 600], ["620", -1200]])])).toEqual([]);
   });
   it("proposes nothing for an item that has ended or is held", () => {
-    expect(make([], [item({ ended_period: "2026-09" }), item({ id: "i4", treatment: "held" })])).toBeNull();
+    expect(make([], [item({ ended_period: "2026-09" }), item({ id: "i4", treatment: "held" })])).toEqual([]);
   });
   it("the last month takes what is left after rounding", () => {
     const odd = item({ id: "i5", total_cost: "1000.00", service_start: "2026-08-01", service_end: "2026-10-31", amort_commenced: "2026-08-01" });
-    const j = make([], [odd]);
-    expect(j.lines[0]).toMatchObject({ amount: 333.34, description: "Insurer Ltd, release 3 of 3" });
+    expect(make([], [odd])[0].lines[0]).toMatchObject({ amount: 333.34, description: "Insurer Ltd, release 3 of 3" });
+  });
+  it("keeps a long supplier's narration within Xero's limit, month kept", () => {
+    const long = item({ id: "i6", item_no: 12, supplier: "A".repeat(200) });
+    const n = make([], [long])[0].narration;
+    expect(n.length).toBeLessThanOrEqual(120);
+    expect(n).toMatch(/\(item 12\), October 2026$/);
   });
   it("proposes nothing when the checks could not read Xero", () => {
-    expect(releaseJournal({ items: [item()], check: { error: "down" }, accountCode: "620", period: "2026-10" })).toBeNull();
+    expect(releaseJournals({ items: [item()], check: { error: "down" }, accountCode: "620", period: "2026-10" })).toEqual([]);
   });
 });
 

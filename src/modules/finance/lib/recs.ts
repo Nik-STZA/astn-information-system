@@ -122,10 +122,12 @@ export interface EntityChecks {
 export interface ReleaseOutcome {
   entity_id: string;
   entity: string;
-  state: "proposed" | "kept" | "none" | "skipped";
+  state: "proposed" | "kept" | "none" | "skipped" | "withdrawn";
   why: string;
   id?: string;
   total?: string;
+  item_id?: string;
+  supplier?: string | null;
 }
 
 export interface RecDetail {
@@ -139,7 +141,7 @@ export interface RecDetail {
   };
   releases?: {
     on: boolean; by: string | null; at: string | null;
-    journals: Array<{ id: string; entity_id: string; entity_name: string; state: "proposed" | "approved" | "draft_created" | "posted" | "rejected"; journal_date: string; total: string; xero_journal_no: string | null; last_error: string | null }>;
+    journals: Array<{ id: string; entity_id: string; entity_name: string; item_id: string | null; supplier: string | null; item_no: number | null; state: "proposed" | "approved" | "draft_created" | "posted" | "rejected"; journal_date: string; total: string; xero_journal_no: string | null; last_error: string | null }>;
   };
   agent_run: {
     id: string; status: string; queued_at: string; started_at: string | null; finished_at: string | null;
@@ -249,6 +251,7 @@ export const EVENT_LABEL: Record<string, string> = {
   releases_on: "Monthly releases switched on",
   releases_off: "Monthly releases switched off",
   release_proposed: "Monthly release proposed on Journals",
+  release_withdrawn: "Monthly release withdrawn: Xero has it",
 };
 
 // agent:fm1 to FM1; a person stays as their address.
