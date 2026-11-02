@@ -457,7 +457,17 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     for (const e of entities) names.set(e.id, e.name);
     const months = rec.proof === "schedule" ? recs.scheduleMonths(items, rec.period) : [];
     const p = prior.rows[0] ?? null;
+    // The latest FM1 run on this rec, so the page can say it is working and
+    // show what it said when it finished.
+    const lastRun = (await pool.query(
+      `SELECT id, status, queued_at, started_at, finished_at, error, output FROM finance.agent_runs
+        WHERE rec_id = $1 ORDER BY queued_at DESC LIMIT 1`, [rec.id])).rows[0] ?? null;
     return {
+      agent_run: lastRun ? {
+        id: lastRun.id, status: lastRun.status, queued_at: lastRun.queued_at, started_at: lastRun.started_at,
+        finished_at: lastRun.finished_at, error: lastRun.error, output: lastRun.output,
+        live: recs.runIsLive({ status: lastRun.status, queued_at: lastRun.queued_at }),
+      } : null,
       rec: {
         id: rec.id, account_name: rec.account_name, period: rec.period, period_end: rec.period_end, label: recs.periodLabel(rec.period),
         status: rec.status, owner: rec.owner, challenge: rec.challenge, class: rec.class, artefact: rec.artefact, proof: rec.proof,
@@ -603,6 +613,19 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const entity = (await conn.query("SELECT id FROM finance.entities WHERE id = $1 AND client_id = $2 AND retired_at IS NULL", [req.body.entity_id, client.id])).rows[0];
     if (!entity) issues.push("choose one of this client's companies");
     if (issues.length) return { status: 422, body: { issues } };
+    // The same invoice twice is refused, whoever adds it: a second run or a
+    // second person reading the same bill would otherwise double the schedule.
+    // Same company, supplier and cost, and the same invoice reference (or,
+    // without one, the same service start).
+    const twin = (await conn.query(
+      `SELECT id, item_no FROM finance.rec_schedule_items
+        WHERE rec_account_id = $1 AND entity_id = $2 AND deleted_at IS NULL
+          AND lower(btrim(supplier)) = lower(btrim($3)) AND total_cost = $4
+          AND (CASE WHEN $5::text IS NOT NULL THEN lower(btrim(invoice_ref)) = lower(btrim($5::text))
+                    ELSE invoice_ref IS NULL AND service_start IS NOT DISTINCT FROM $6::date END)
+        LIMIT 1`,
+      [rec.rec_account_id, entity.id, row.supplier, row.total_cost, row.invoice_ref || null, row.service_start ?? null])).rows[0];
+    if (twin) return { status: 409, body: { error: `This invoice is already on the schedule as item ${twin.item_no}. Change that item instead.`, item_id: twin.id } };
     if (row.item_no === undefined) {
       row.item_no = (await conn.query(
         "SELECT COALESCE(MAX(item_no), 0)::int + 1 AS n FROM finance.rec_schedule_items WHERE rec_account_id = $1 AND entity_id = $2",
@@ -835,6 +858,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   app.post(`${BASE}/:id/agent`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actorEmail, actor, role }) => withRec(conn, client, req.params.id, async (rec) => {
     if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: "Agents work only on Prepayments for now" } };
     if (!["not_started", "in_progress", "sent_back"].includes(rec.status)) return { status: 409, body: { error: "This is already with a reviewer" } };
+    // One run at a time: a second would save the same items again. The rec
+    // row is locked by withRec, so two clicks cannot both get past this.
+    const live = (await conn.query(
+      `SELECT id, status, queued_at FROM finance.agent_runs
+        WHERE rec_id = $1 AND status IN ('queued', 'running') ORDER BY queued_at DESC LIMIT 1`, [rec.id])).rows[0];
+    if (live && recs.runIsLive(live)) return { status: 409, body: { error: "FM1 is already working on this reconciliation. Its answer appears here when it finishes, usually within five minutes.", run_id: live.id } };
     const run = (await conn.query(
       `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, rec_id)
        VALUES ($1,$2,$3,'fm1',$4,'queued',$5) RETURNING id`,

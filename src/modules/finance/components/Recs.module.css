@@ -110,3 +110,34 @@
 
 .event { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 12px; color: var(--sub); border-bottom: 1px solid var(--bd); }
 .event:last-child { border-bottom: 0; }
+
+/* A rec uses the full width beside the menu, open or closed. */
+:global(html):has(.recPage) :global(.page-container) { max-width: none; }
+
+/* Folding sections: the header is the toggle. */
+.fold > summary { list-style: none; cursor: pointer; }
+.fold > summary::-webkit-details-marker { display: none; }
+.foldTitle { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.chev { color: var(--sub); transition: transform 0.15s ease; flex: 0 0 auto; }
+.fold[open] .chev { transform: rotate(90deg); }
+.foundFold { background: var(--accent-bg); border: 1px solid var(--bd); border-radius: 10px; font-size: 13px; color: var(--tx); }
+.foldBody { padding: 0 14px 12px; }
+
+/* FM1 at work. */
+.working { display: flex; align-items: center; gap: 10px; }
+.spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid var(--bd); border-top-color: var(--accent, var(--tx)); border-radius: 50%; animation: recSpin 0.8s linear infinite; margin-right: 6px; vertical-align: -2px; }
+@keyframes recSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+
+/* Check results. */
+.checkResult { display: inline-flex; align-items: center; gap: 6px; }
+.pass { color: var(--success-green, #2e7d32); }
+.fail { color: var(--alert-red); }
+.none { color: var(--sub); }
+
+/* The schedule scrolls inside its card, so the headings stay in view to the last row. */
+@media (min-width: 900px) {
+  .scheduleWide { overflow: auto; max-height: 70vh; }
+  .scheduleWide thead th { position: sticky; top: 0; background: var(--pnl); z-index: 2; }
+  .scheduleWide thead th.sticky { left: 0; z-index: 3; }
+}

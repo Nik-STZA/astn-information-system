@@ -127,6 +127,10 @@ export interface RecDetail {
     signed_off_by: string | null; signed_off_at: string | null; recheck_reason: string | null; recheck_at: string | null;
     checks_at: string | null; workable: boolean; sole_reviewer: boolean; shown_as_signed: boolean; signed_before: number;
   };
+  agent_run: {
+    id: string; status: string; queued_at: string; started_at: string | null; finished_at: string | null;
+    error: string | null; output: string | null; live: boolean;
+  } | null;
   tolerance: string;
   cover: { rows: CoverRow[]; group: { gl: string | null; schedule: string | null; variance: string | null }; ties: boolean; mixed_currency: boolean };
   schedule: { months: string[]; items: ScheduleItem[] };

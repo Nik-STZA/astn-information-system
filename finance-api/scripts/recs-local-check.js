@@ -202,6 +202,10 @@ async function scenario() {
     ok("missing release found", alpha.missing === 1, alpha);
     ok("end warning, labelled inference", alpha.warnings.some((w) => /December 2026/.test(w.text)) && /does not let us read repeating journals/.test(r.body.note));
     ok("another client's company refused", (await api("POST", `recs/${ctx.id}/items`, { entity_id: "00000000-0000-4000-8000-000000000000", supplier: "x", pl_account_code: "1", total_cost: "1", service_start: "2026-01-01", service_end: "2026-02-01" })).status === 422);
+    const again = await api("POST", `recs/${ctx.id}/items`, { entity_id: EA, supplier: " sample insurer ltd ", pl_account_code: "485", invoice_ref: "inv-1", total_cost: "7200.00", service_start: "2026-01-01", service_end: "2026-12-31" });
+    ok("the same invoice twice refused", again.status === 409 && /already on the schedule as item \d+\./.test(again.body.error) && again.body.item_id, again);
+    const other = await api("POST", `recs/${ctx.id}/items`, { entity_id: EA, supplier: "Sample Insurer Ltd", pl_account_code: "485", invoice_ref: "INV-9", total_cost: "7200.00", service_start: "2026-01-01", service_end: "2026-12-31" });
+    ok("a different invoice from the same supplier is kept", other.status === 201, other);
   });
 
   await section("H1: a typed reply cannot get round the rec approval", async () => {

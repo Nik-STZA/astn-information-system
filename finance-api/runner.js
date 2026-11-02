@@ -29,6 +29,13 @@ const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS || "5000", 10);
 const MODEL = process.env.MODEL || "claude-sonnet-5";
 // A queue of twenty bills is about 100 tool calls: three or four rounds a bill.
 const MAX_TURNS = parseInt(process.env.MAX_TURNS || "60", 10);
+// 16,000 output tokens per reply is under the SDK's ceiling for a request that
+// is not streamed. A reply cut off there is told so and continues.
+const MAX_OUTPUT_TOKENS = 16000;
+const MAX_CUT_OFFS = 3;
+const CUT_OFF_NOTE =
+  "Your last reply was cut off at the output limit, and any tool call in it was lost and not run. " +
+  "Carry on from where you were, in smaller steps: at most 10 items in one turn, and keep text short until the final answer.";
 const TOOLS_AT_ONCE = 4;
 const ONCE = process.env.RUNNER_ONCE === "1" || process.argv.includes("--once");
 
@@ -731,11 +738,13 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
   let finalOutput = "";
   let finished = false;
   let handoff = null;
+  let cutOffs = 0;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const resp = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 8192,
+      // Under the SDK's limit for a request that is not streamed.
+      max_tokens: MAX_OUTPUT_TOKENS,
       // Cached: the tools and system prompt once, and the conversation up to
       // the newest message. See lib/agent-cost.js.
       system: agentCost.cachedSystem(`${systemPrompt}\n\n${clientContext}`),
@@ -748,6 +757,20 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
     // Collect any text blocks as the final output
     const textParts = resp.content.filter((b) => b.type === "text").map((b) => b.text);
     if (textParts.length) finalOutput = textParts.join("\n");
+
+    // A reply cut off at the output limit has not finished, and a tool call in
+    // it is incomplete: running it would save a blank row, and treating the
+    // reply as the end would report success with nothing done. Drop the call,
+    // say so, and let the agent carry on in smaller steps.
+    if (resp.stop_reason === "max_tokens") {
+      cutOffs += 1;
+      console.log(`    Cut off at the output limit (${cutOffs} of ${MAX_CUT_OFFS})`);
+      if (cutOffs > MAX_CUT_OFFS) break;
+      const kept = resp.content.filter((b) => b.type === "text" && b.text.trim());
+      messages.push({ role: "assistant", content: kept.length ? kept : [{ type: "text", text: "(My reply was cut off.)" }] });
+      messages.push({ role: "user", content: CUT_OFF_NOTE });
+      continue;
+    }
 
     // If stop_reason is "end_turn" or there are no tool_use blocks, we're done
     if (resp.stop_reason === "end_turn" || !resp.content.some((b) => b.type === "tool_use")) {
@@ -856,7 +879,23 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
 
   // A run that ran out of turns has not finished, whatever it said last.
   if (!finished) {
-    finalOutput = `${finalOutput}\n\n**This run stopped at its limit of ${MAX_TURNS} steps before finishing.** The work above is partial. Ask again to continue.`.trim();
+    const why = cutOffs > MAX_CUT_OFFS
+      ? `was cut off at the output limit ${cutOffs} times`
+      : `stopped at its limit of ${MAX_TURNS} steps`;
+    finalOutput = `${finalOutput}\n\n**This run ${why} before finishing.** The work above is partial. Ask again to continue.`.trim();
+  }
+
+  // A run that ends with nothing to show has not succeeded.
+  if (!finalOutput.trim()) {
+    return {
+      status: "failed",
+      error: "The agent finished without writing an answer. Anything it saved is on the record; ask again to continue.",
+      toolsUsed: Object.entries(toolCounts).map(([name, count]) => ({ name, count })),
+      durationMs: Date.now() - startMs,
+      costUsd: agentCost.runCost(MODEL, usage),
+      processingPath: "anthropic-api",
+      processingPathLabel: `Anthropic Messages API (${MODEL})`,
+    };
   }
 
   // 4. Cost at the model's list price, cached tokens included (null for a model
