@@ -1,7 +1,7 @@
 ---
 name: accruals-and-prepayments
 title: Accruals and prepayments
-version: 1.3.0
+version: 1.3.1
 summary: Reconciling prepayments month by month from the last signed-off rec, checking every release posted, and proving accruals: each with a basis, last month's reversed, and no regular supplier's bill missing.
 roles: fm1,fc
 ---
@@ -102,8 +102,8 @@ journal will stop, so the CFO confirms that in Xero where it matters.
 
 **7a. When monthly releases are on.** The rec says whether monthly releases are
 on for the account. When they are, `run_rec_checks` also proposes that month's
-release journal on the Journals page, one per company, for the items whose release
-is missing from Xero. Items Xero already has, posted or in draft, are left out, so
+release journals on the Journals page, one journal per item, for the items whose
+release is missing from Xero, so one supplier's release can be reversed on its own. Items Xero already has, posted or in draft, are left out, so
 a repeating journal still running in Xero is not doubled. Do not propose the
 monthly release yourself, on the rec or on the Journals page: the platform has. Say
 in your note which releases were proposed this way and which were already in Xero.

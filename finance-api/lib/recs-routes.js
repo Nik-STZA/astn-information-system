@@ -148,7 +148,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     not_started: rec.owner, in_progress: rec.owner, sent_back: rec.owner, with_fc: "FC", with_cfo: "CFO", signed_off: null,
   }[rec.status] ?? null);
 
-  // ── The month's list ────────────────────────────────────────────────────────
+  // â”€â”€ The month's list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // GET /recs?period=2026-10
   app.get(BASE, route(async (req, res) => {
@@ -423,7 +423,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return { status: 200, body: { tolerance: r.rows[0].rec_tolerance } };
   }, { peopleOnly: true })));
 
-  // ── One reconciliation ──────────────────────────────────────────────────────
+  // â”€â”€ One reconciliation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async function recView(client, rec) {
     const [liveBalances, liveTol, liveItems, journals, events, prior] = await Promise.all([
@@ -470,10 +470,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     let releaseRows = [];
     try {
       releaseRows = (await pool.query(
-        `SELECT j.id, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text AS journal_date, j.lines, j.xero_journal_no, j.last_error
+        `SELECT j.id, j.entity_id, e.name AS entity_name, j.schedule_item_id AS item_id, i.supplier, i.item_no,
+                j.state, j.journal_date::text AS journal_date, j.lines, j.xero_journal_no, j.last_error
            FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
+           LEFT JOIN finance.rec_schedule_items i ON i.id = j.schedule_item_id
           WHERE j.rec_account_id = $1 AND j.period = $2 AND j.source = 'schedule' AND j.state <> 'superseded'
-          ORDER BY e.name, j.created_at DESC`, [rec.rec_account_id, rec.period])).rows;
+          ORDER BY e.name, i.item_no, j.created_at DESC`, [rec.rec_account_id, rec.period])).rows;
     } catch (e) {
       if (!isMissingTable(e)) throw e;
     }
@@ -755,50 +757,68 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     });
   }));
 
-  // The monthly release, proposed on the Journals page for each company whose
-  // checks found releases missing from Xero (lib/recs.js releaseJournal). In the
-  // checks' own transaction, so the release and the checks it rests on agree.
-  // A release still waiting is replaced when the schedule has changed since; one
-  // already approved or in Xero is left alone.
+  // The monthly releases, proposed on the Journals page, one journal per item
+  // whose release the checks found missing from Xero (lib/recs.js
+  // releaseJournals), so one supplier's release can be reversed on its own. In
+  // the checks' own transaction, so the releases and the checks they rest on
+  // agree. A release still waiting is replaced when its item has changed since,
+  // and withdrawn when Xero now has that month's release; one already approved
+  // or in Xero is left alone.
   async function proposeReleases(conn, req, { client, rec, results, items, entities, actor, actorEmail, role }) {
     const out = [];
     for (const r of results) {
       const name = entities.find((e) => e.id === r.entity_id)?.name ?? r.entity;
       const say = (state, why, extra = {}) => out.push({ entity_id: r.entity_id, entity: name, state, why, ...extra });
       if (r.error) { say("skipped", `Xero could not be read: ${r.error}`); continue; }
-      const j = recs.releaseJournal({ items: items.filter((i) => i.entity_id === r.entity_id), check: r, accountCode: r.account_code, period: rec.period });
-      if (!j) { say("none", r.in_draft ? "Every release due is already in Xero, some as drafts." : "Every release due is already in Xero."); continue; }
+      const due = recs.releaseJournals({ items: items.filter((i) => i.entity_id === r.entity_id), check: r, accountCode: r.account_code, period: rec.period });
+
+      // A waiting release whose item no longer needs one (Xero has it now, or
+      // the item ended) is withdrawn, so it cannot be approved into a double.
+      const waiting = (await conn.query(
+        `SELECT id, schedule_item_id FROM finance.journals
+          WHERE rec_account_id = $1 AND entity_id = $2 AND period = $3 AND source = 'schedule' AND state = 'proposed' FOR UPDATE`,
+        [rec.rec_account_id, r.entity_id, rec.period])).rows;
+      for (const w of waiting.filter((x) => !due.some((d) => d.item_id === x.schedule_item_id))) {
+        await conn.query("UPDATE finance.journals SET state = 'superseded', updated_at = now() WHERE id = $1", [w.id]);
+        await event(conn, rec.id, client.id, actor, "release_withdrawn", { entity_id: r.entity_id, journal_id: w.id });
+        const it = items.find((i) => i.id === w.schedule_item_id);
+        say("withdrawn", "Xero now has this month's release, or the item no longer releases, so the waiting release was withdrawn.", { item_id: w.schedule_item_id, supplier: it?.supplier ?? null, id: w.id });
+      }
+
+      if (!due.length) { say("none", r.in_draft ? "Every release due is already in Xero, some as drafts." : "Every release due is already in Xero."); continue; }
       const onRec = (await conn.query(
         "SELECT id FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved')", [rec.id, r.entity_id])).rows[0];
       if (onRec) { say("skipped", "A journal proposed on this reconciliation is waiting for this company. Decide that one first, then run the checks again."); continue; }
-      const prior = (await conn.query(
-        `SELECT id, state, lines FROM finance.journals
-          WHERE rec_account_id = $1 AND entity_id = $2 AND period = $3 AND source = 'schedule'
-            AND state IN ('proposed', 'approved', 'draft_created', 'posted') FOR UPDATE`, [rec.rec_account_id, r.entity_id, rec.period])).rows[0];
-      if (prior && (prior.state !== "proposed" || recs.amountsKey(prior.lines) === recs.amountsKey(j.lines))) {
-        say("kept", prior.state === "proposed" ? "This month's release is already waiting on the Journals page." : "This month's release is already approved or in Xero.", { id: prior.id });
-        continue;
+
+      for (const j of due) {
+        const about = { item_id: j.item_id, supplier: j.supplier, total: j.total };
+        const prior = (await conn.query(
+          `SELECT id, state, lines, narration FROM finance.journals
+            WHERE schedule_item_id = $1 AND period = $2 AND source = 'schedule'
+              AND state IN ('proposed', 'approved', 'draft_created', 'posted') FOR UPDATE`, [j.item_id, rec.period])).rows[0];
+        if (prior && (prior.state !== "proposed" || (recs.amountsKey(prior.lines) === recs.amountsKey(j.lines) && prior.narration === j.narration))) {
+          say("kept", prior.state === "proposed" ? "This month's release is already waiting on the Journals page." : "This month's release is already approved or in Xero.", { ...about, id: prior.id });
+          continue;
+        }
+        // The same journal proposed by hand on the Journals page is the same journal.
+        const byHand = (await conn.query(
+          `SELECT id, lines FROM finance.journals WHERE client_id = $1 AND entity_id = $2 AND journal_date = $3
+              AND state IN ('proposed', 'approved', 'draft_created', 'posted') AND source <> 'schedule'`, [client.id, r.entity_id, j.date])).rows
+          .find((x) => recs.amountsKey(x.lines) === recs.amountsKey(j.lines));
+        if (byHand) { say("kept", "The same journal is already on the Journals page.", { ...about, id: byHand.id }); continue; }
+        if (prior) await conn.query("UPDATE finance.journals SET state = 'superseded', updated_at = now() WHERE id = $1", [prior.id]);
+        const row = (await conn.query(
+          `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, rec_account_id, rec_id, schedule_item_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'schedule',$8,$9,$10,$11) RETURNING id`,
+          [client.id, r.entity_id, rec.period, j.date, j.narration, JSON.stringify(j.lines), j.reason, actor, rec.rec_account_id, rec.id, j.item_id])).rows[0];
+        await audit(conn, {
+          actorEmail, actorRole: role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id,
+          ip: req.get("X-Forwarded-For") || req.ip,
+          payload: { from: "schedule", rec: rec.id, entity: r.entity_id, item: j.item_id, date: j.date, narration: j.narration, lines: j.lines, replaces: prior?.id ?? null },
+        });
+        await event(conn, rec.id, client.id, actor, "release_proposed", { entity_id: r.entity_id, item_id: j.item_id, journal_id: row.id, total: j.total });
+        say("proposed", prior ? "The item changed, so its waiting release was replaced." : `Release ${j.release} of ${j.of}.`, { ...about, id: row.id });
       }
-      // The same journal proposed by hand on the Journals page is the same journal.
-      const byHand = (await conn.query(
-        `SELECT id, lines FROM finance.journals WHERE client_id = $1 AND entity_id = $2 AND journal_date = $3
-            AND state IN ('proposed', 'approved', 'draft_created', 'posted') AND source <> 'schedule'`, [client.id, r.entity_id, j.date])).rows
-        .find((x) => recs.amountsKey(x.lines) === recs.amountsKey(j.lines));
-      if (byHand) { say("kept", "The same journal is already on the Journals page.", { id: byHand.id }); continue; }
-      if (prior) {
-        await conn.query("UPDATE finance.journals SET state = 'superseded', updated_at = now() WHERE id = $1", [prior.id]);
-      }
-      const row = (await conn.query(
-        `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, rec_account_id, rec_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'schedule',$8,$9,$10) RETURNING id`,
-        [client.id, r.entity_id, rec.period, j.date, j.narration, JSON.stringify(j.lines), j.reason, actor, rec.rec_account_id, rec.id])).rows[0];
-      await audit(conn, {
-        actorEmail, actorRole: role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id,
-        ip: req.get("X-Forwarded-For") || req.ip,
-        payload: { from: "schedule", rec: rec.id, entity: r.entity_id, date: j.date, narration: j.narration, lines: j.lines, replaces: prior?.id ?? null },
-      });
-      await event(conn, rec.id, client.id, actor, "release_proposed", { entity_id: r.entity_id, journal_id: row.id, total: j.total, items: j.items.length });
-      say("proposed", prior ? "The schedule changed, so the waiting release was replaced." : `${j.items.length} ${j.items.length === 1 ? "item" : "items"} released.`, { id: row.id, total: j.total });
     }
     return out;
   }
@@ -958,7 +978,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return { status: 201, body: { run_id: run.id }, after: async () => ({ runner: await startAgentRunner(run.id) }) };
   }), { peopleOnly: true })));
 
-  // ── Proposed journals ───────────────────────────────────────────────────────
+  // â”€â”€ Proposed journals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // POST /recs/:id/journals   body: { entity, date, narration, lines, reason }
   // An agent's proposal. It reaches Xero only after a person approves it.
