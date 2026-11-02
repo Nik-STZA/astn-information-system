@@ -613,6 +613,19 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const entity = (await conn.query("SELECT id FROM finance.entities WHERE id = $1 AND client_id = $2 AND retired_at IS NULL", [req.body.entity_id, client.id])).rows[0];
     if (!entity) issues.push("choose one of this client's companies");
     if (issues.length) return { status: 422, body: { issues } };
+    // The same invoice twice is refused, whoever adds it: a second run or a
+    // second person reading the same bill would otherwise double the schedule.
+    // Same company, supplier and cost, and the same invoice reference (or,
+    // without one, the same service start).
+    const twin = (await conn.query(
+      `SELECT id, item_no FROM finance.rec_schedule_items
+        WHERE rec_account_id = $1 AND entity_id = $2 AND deleted_at IS NULL
+          AND lower(btrim(supplier)) = lower(btrim($3)) AND total_cost = $4
+          AND (CASE WHEN $5::text IS NOT NULL THEN lower(btrim(invoice_ref)) = lower(btrim($5::text))
+                    ELSE invoice_ref IS NULL AND service_start IS NOT DISTINCT FROM $6::date END)
+        LIMIT 1`,
+      [rec.rec_account_id, entity.id, row.supplier, row.total_cost, row.invoice_ref || null, row.service_start ?? null])).rows[0];
+    if (twin) return { status: 409, body: { error: `This invoice is already on the schedule as item ${twin.item_no}. Change that item instead.`, item_id: twin.id } };
     if (row.item_no === undefined) {
       row.item_no = (await conn.query(
         "SELECT COALESCE(MAX(item_no), 0)::int + 1 AS n FROM finance.rec_schedule_items WHERE rec_account_id = $1 AND entity_id = $2",
