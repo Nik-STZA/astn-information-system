@@ -9,6 +9,14 @@ on:
       - 'server-lib-*.js'
       - '.github/workflows/deploy-cloud-run.yml'
 
+# One deploy at a time per service, newest last. Without this, two merges a few
+# minutes apart race, and an older build that finishes second replaces the
+# newer one (2 Nov 2026: the frontend went live without the later merge). A
+# deploy already running finishes; one still waiting is replaced by a newer one.
+concurrency:
+  group: deploy-africastn-api
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
