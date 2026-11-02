@@ -146,6 +146,7 @@ function registerGate({ proposals, input }) {
 function sourceOf(row) {
   if (row.kind === "rec") return "rec";
   if (row.source === "person") return "person";
+  if (row.source === "schedule") return "schedule";
   const m = /^agent:(.+)$/.exec(String(row.proposed_by ?? ""));
   return m ? m[1] : "agent";
 }

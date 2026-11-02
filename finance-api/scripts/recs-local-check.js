@@ -703,6 +703,64 @@ async function scenario() {
     ok("bad period 400", (await api("GET", "recs?period=2026-13")).status === 400);
   });
 
+  await section("monthly releases, made here from the schedule", async () => {
+    const ctx = await prepared();
+    let r = await api("PUT", `recs/${ctx.id}/releases`, { on: true }, { "X-Actor-Email": BOOK });
+    ok("only the CFO switches them on", r.status === 403, r);
+    r = await api("PUT", `recs/${ctx.id}/releases`, { on: true }, ctx.via);
+    ok("an agent cannot switch them on", r.status === 403, r);
+    r = await api("PUT", `recs/${ctx.id}/releases`, { on: "yes" });
+    ok("on must be true or false", r.status === 400, r);
+    r = await api("PUT", `recs/${ctx.id}/releases`, { on: true });
+    ok("the CFO switches them on", r.status === 200 && r.body.on === true, r);
+    let d = (await api("GET", `recs/${ctx.id}`)).body;
+    ok("the rec says they are on, and by whom", d.releases.on === true && d.releases.by === CFO, d.releases);
+
+    r = await api("POST", `recs/${ctx.id}/checks`, {}, ctx.via);
+    const by = (name) => r.body.releases.find((x) => x.entity === name);
+    ok("a company with a journal waiting on the rec is left for that journal", by("Alpha Ltd")?.state === "skipped", r.body.releases);
+    ok("a company whose releases Xero already has gets none", by("Beta Ltd")?.state === "none", r.body.releases);
+
+    await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, {});
+    r = await api("POST", `recs/${ctx.id}/checks`, {}, ctx.via);
+    ok("the missing release is proposed", by("Alpha Ltd")?.state === "proposed" && by("Alpha Ltd")?.total === "600.00", r.body.releases);
+    const rows = (await pool.query("SELECT * FROM finance.journals WHERE client_id = $1 AND source = 'schedule'", [CID])).rows;
+    ok("one release, on the Journals register", rows.length === 1 && rows[0].rec_id === ctx.id && rows[0].period === "2026-10", rows);
+    ok("only the item Xero lacks, off prepayments", JSON.stringify(rows[0].lines.map((l) => [l.account_code, l.amount])) === JSON.stringify([["485", 600], ["620", -600]]), rows[0].lines);
+    ok("proposed by whoever ran the checks", rows[0].proposed_by === "agent:fm1" && rows[0].state === "proposed", rows[0]);
+
+    r = await api("POST", `recs/${ctx.id}/checks`, {});
+    ok("running the checks again makes no second release", by("Alpha Ltd")?.state === "kept"
+      && (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE client_id = $1 AND source = 'schedule' AND state <> 'superseded'", [CID])).rows[0].n === 1, r.body.releases);
+
+    const list = (await api("GET", "journals?period=2026-10")).body;
+    const row = list.journals.find((j) => j.id === rows[0].id);
+    ok("the Journals page shows it as a monthly release", row?.source === "schedule" && row?.state === "proposed", row);
+    d = (await api("GET", `recs/${ctx.id}`)).body;
+    ok("the rec lists it", d.releases.journals.length === 1 && d.releases.journals[0].total === "600.00" && d.releases.journals[0].state === "proposed", d.releases);
+
+    // A schedule change before approval replaces the waiting release.
+    const ins = d.schedule.items.find((i) => i.pl_account_code === "485");
+    await api("PATCH", `recs/${ctx.id}/items/${ins.id}`, { total_cost: "8400.00" });
+    r = await api("POST", `recs/${ctx.id}/checks`, {});
+    const now = (await pool.query("SELECT state, lines FROM finance.journals WHERE client_id = $1 AND source = 'schedule' ORDER BY created_at", [CID])).rows;
+    ok("a changed schedule replaces the waiting release", now.length === 2 && now[0].state === "superseded" && now[1].state === "proposed" && now[1].lines[0].amount === 700, now);
+
+    const before = state.draftsPosted.length;
+    const live = (await pool.query("SELECT id FROM finance.journals WHERE client_id = $1 AND source = 'schedule' AND state = 'proposed'", [CID])).rows[0];
+    r = await api("POST", `journals/${live.id}/approve`, {});
+    ok("the CFO approves it to a Xero draft", r.status === 200 && r.body.drafted === true && state.draftsPosted.length === before + 1, r);
+    ok("the draft is the release", state.draftsPosted.at(-1)?.ManualJournals?.[0]?.Status === "DRAFT"
+      || state.draftsPosted.at(-1)?.Status === "DRAFT", state.draftsPosted.at(-1));
+    r = await api("POST", `recs/${ctx.id}/checks`, {});
+    ok("once approved it is left alone", by("Alpha Ltd")?.state === "kept"
+      && (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE client_id = $1 AND source = 'schedule' AND state <> 'superseded'", [CID])).rows[0].n === 1, r.body.releases);
+
+    r = await api("PUT", `recs/${ctx.id}/releases`, { on: false });
+    r = await api("POST", `recs/${ctx.id}/checks`, {});
+    ok("switched off, the checks propose nothing", r.status === 200 && r.body.releases === undefined, r.body);
+  });
+
   await section("missing table is tolerated", async () => {
     // Renaming needs the table's owner, which the app role is not.
     const { Pool } = require("pg");

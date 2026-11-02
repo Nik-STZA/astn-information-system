@@ -488,6 +488,52 @@ function journalChecks({ items, journals, accountCode, period, tolerancePence })
   };
 }
 
+// ── The monthly release, made here ──────────────────────────────────────────
+
+// os.stza.io does what a repeating journal in Xero would: from the schedule, it
+// works out one company's release for the month, for the items the checks did
+// not find in Xero (posted or in draft), so a release already made by hand or
+// by an old repeating journal is never made twice.
+//   items        the company's schedule items
+//   check        that company's journalChecks(...) result
+//   accountCode  the prepayments account in this company
+// Returns null when nothing is due and missing. Otherwise the journal: one
+// debit per item to its P&L account, one credit to the prepayments account,
+// dated the month end.
+function releaseJournal({ items, check, accountCode, period }) {
+  if (!check || check.error || !String(accountCode ?? "").trim()) return null;
+  const missing = new Set((check.items ?? []).filter((x) => x.journal === "missing").map((x) => x.item_id));
+  const lines = [];
+  const covered = [];
+  let total = 0;
+  for (const i of items) {
+    if (!missing.has(i.id)) continue;
+    const at = itemAt(i, period);
+    if (at.this_month <= 0) continue;
+    const n = (Number(period.slice(0, 4)) - Number(at.first.slice(0, 4))) * 12 + Number(period.slice(5, 7)) - Number(at.first.slice(5, 7)) + 1;
+    const label = `${i.supplier}${i.description ? ` ${i.description}` : ""}`.trim().slice(0, 400);
+    lines.push({ account_code: String(i.pl_account_code), description: `${label}, release ${n} of ${at.months}`, amount: Number(pounds(at.this_month)), tax_type: "NONE" });
+    covered.push({ item_id: i.id, item_no: i.item_no ?? null, supplier: i.supplier, amount: pounds(at.this_month), release: n, of: at.months });
+    total += at.this_month;
+  }
+  if (!lines.length) return null;
+  lines.push({ account_code: String(accountCode), description: `Prepayments released, ${periodLabel(period)}`, amount: -Number(pounds(total)), tax_type: "NONE" });
+  const already = (check.items ?? []).filter((x) => ["posted", "draft"].includes(x.journal)).length;
+  return {
+    date: monthEnd(period),
+    narration: `Prepayment releases ${periodLabel(period)}`,
+    lines,
+    total: pounds(total),
+    items: covered,
+    reason: [
+      `The monthly release from the prepayments schedule in os.stza.io, for ${covered.length} ${covered.length === 1 ? "item" : "items"}.`,
+      ...covered.map((c) => `${c.supplier}: ${c.amount}, release ${c.release} of ${c.of}.`),
+      already ? `${already} other ${already === 1 ? "item's release was" : "items' releases were"} already in Xero for the month, so ${already === 1 ? "it is" : "they are"} left out.` : null,
+      "Turn off any repeating journal in Xero for these items, or the month is released twice.",
+    ].filter(Boolean).join(" ").slice(0, 4000),
+  };
+}
+
 // ── Moving a rec along ───────────────────────────────────────────────────────
 
 const STATUS = ["not_started", "in_progress", "with_fc", "with_cfo", "signed_off", "sent_back"];
@@ -724,6 +770,6 @@ module.exports = {
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
-  cover, snapshotOf, recheckReason, journalChecks,
+  cover, snapshotOf, recheckReason, journalChecks, releaseJournal,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,
 };

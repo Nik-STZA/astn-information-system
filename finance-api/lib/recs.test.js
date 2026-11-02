@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   accountKey, approvalInstruction, composeAccounts, cover, entityLines, finishItem, itemAt, journalChecks, journalMatches,
   journalProposalIssues, matrixFields, namesRecProposal, monthEnd, nextPeriod, priorPeriod, recheckReason, releaseIn, releaseProfile, scheduleItemInput,
-  scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction,
+  scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction, releaseJournal,
   CFO_ROLE, approvalIssues, draftFailure, hasRows, journalAgrees, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows,
 } from "./recs";
 import { approvalFromThread } from "./draft-approval";
@@ -275,6 +275,48 @@ describe("re-check when a figure moves after preparation", () => {
   });
   it("catches a company new to the account", () => {
     expect(recheckReason(snapshot, [...was, { entity_id: B, opening: "0", closing: "5.00" }], ctx)).toMatch(/A company/);
+  });
+});
+
+describe("the monthly release, made here from the schedule", () => {
+  const base = { accountCode: "620", period: "2026-10", tolerancePence: 100 };
+  const rent = item({ id: "i2", supplier: "Landlord Ltd", description: "Office", pl_account_code: "469", total_cost: "1800.00", service_start: "2026-10-01", service_end: "2026-12-31", amort_commenced: "2026-10-01" });
+  const make = (journals, items = [item(), rent]) => releaseJournal({ items, check: journalChecks({ ...base, items, journals }), accountCode: "620", period: "2026-10" });
+
+  it("releases every item due when Xero has none, dated the month end", () => {
+    const j = make([]);
+    expect(j.date).toBe("2026-10-31");
+    expect(j.narration).toBe("Prepayment releases October 2026");
+    expect(j.lines).toEqual([
+      { account_code: "400", description: "Insurer Ltd, release 10 of 12", amount: 600, tax_type: "NONE" },
+      { account_code: "469", description: "Landlord Ltd Office, release 1 of 3", amount: 600, tax_type: "NONE" },
+      { account_code: "620", description: "Prepayments released, October 2026", amount: -1200, tax_type: "NONE" },
+    ]);
+    expect(j.total).toBe("1200.00");
+    expect(j.lines.reduce((a, l) => a + Math.round(l.amount * 100), 0)).toBe(0);
+  });
+  it("leaves out a release Xero already has, from a repeating journal there", () => {
+    const j = make([mj("POSTED", [["469", 600], ["620", -600]])]);
+    expect(j.lines.map((l) => l.account_code)).toEqual(["400", "620"]);
+    expect(j.reason).toMatch(/1 other item's release was already in Xero/);
+  });
+  it("leaves out a release in draft in Xero", () => {
+    const j = make([mj("DRAFT", [["469", 600], ["620", -600]])]);
+    expect(j.lines.map((l) => l.account_code)).toEqual(["400", "620"]);
+  });
+  it("proposes nothing when Xero has every release", () => {
+    expect(make([mj("POSTED", [["400", 600], ["469", 600], ["620", -1200]])])).toBeNull();
+  });
+  it("proposes nothing for an item that has ended or is held", () => {
+    expect(make([], [item({ ended_period: "2026-09" }), item({ id: "i4", treatment: "held" })])).toBeNull();
+  });
+  it("the last month takes what is left after rounding", () => {
+    const odd = item({ id: "i5", total_cost: "1000.00", service_start: "2026-08-01", service_end: "2026-10-31", amort_commenced: "2026-08-01" });
+    const j = make([], [odd]);
+    expect(j.lines[0]).toMatchObject({ amount: 333.34, description: "Insurer Ltd, release 3 of 3" });
+  });
+  it("proposes nothing when the checks could not read Xero", () => {
+    expect(releaseJournal({ items: [item()], check: { error: "down" }, accountCode: "620", period: "2026-10" })).toBeNull();
   });
 });
 

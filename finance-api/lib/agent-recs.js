@@ -46,7 +46,7 @@ function tools(entityEnum) {
     },
     {
       name: "run_rec_checks",
-      description: "Check Xero's manual journals for the month: was each item's monthly release posted, and which items are near their end. Xero does not let us read repeating journals, so this is worked out from the manual journals. Say that when you report it.",
+      description: "Check Xero's manual journals for the month: was each item's monthly release posted, and which items are near their end. Xero does not let us read repeating journals, so this is worked out from the manual journals. Say that when you report it. When monthly releases are on for the account (releases.on in get_rec), this also proposes the month's release journal on the Journals page for the releases Xero does not have: see releases in the result, and do not propose those releases yourself.",
       input_schema: { type: "object", properties: { rec_id: { type: "string" } }, required: ["rec_id"] },
     },
     {

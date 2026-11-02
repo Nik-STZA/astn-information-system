@@ -99,7 +99,10 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       ORDER BY entity_id, item_no, created_at`, [clientId, recAccountIds])).rows;
 
   const loadRec = async (db, clientId, id, lock = false) => (await db.query(
-    `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key
+    `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key,
+            -- Read through jsonb so a database without migration 034 still answers.
+            COALESCE((to_jsonb(a)->>'releases_on')::boolean, false) AS releases_on,
+            to_jsonb(a)->>'releases_by' AS releases_by, to_jsonb(a)->>'releases_at' AS releases_at
        FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
       WHERE r.id = $1 AND r.client_id = $2 ${lock ? "FOR UPDATE OF r" : ""}`, [id, clientId])).rows[0];
 
@@ -462,7 +465,23 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const lastRun = (await pool.query(
       `SELECT id, status, queued_at, started_at, finished_at, error, output FROM finance.agent_runs
         WHERE rec_id = $1 ORDER BY queued_at DESC LIMIT 1`, [rec.id])).rows[0] ?? null;
+    // This month's releases made from the schedule, on the Journals page. None
+    // before migration 034.
+    let releaseRows = [];
+    try {
+      releaseRows = (await pool.query(
+        `SELECT j.id, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text AS journal_date, j.lines, j.xero_journal_no, j.last_error
+           FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
+          WHERE j.rec_account_id = $1 AND j.period = $2 AND j.source = 'schedule' AND j.state <> 'superseded'
+          ORDER BY e.name, j.created_at DESC`, [rec.rec_account_id, rec.period])).rows;
+    } catch (e) {
+      if (!isMissingTable(e)) throw e;
+    }
     return {
+      releases: {
+        on: Boolean(rec.releases_on), by: rec.releases_by ?? null, at: rec.releases_at ?? null,
+        journals: releaseRows.map(({ lines, ...j }) => ({ ...j, total: money(recs.pence(lines.reduce((a, l) => a + Math.max(Number(l.amount) || 0, 0), 0))) })),
+      },
       agent_run: lastRun ? {
         id: lastRun.id, status: lastRun.status, queued_at: lastRun.queued_at, started_at: lastRun.started_at,
         finished_at: lastRun.finished_at, error: lastRun.error, output: lastRun.output,
@@ -723,14 +742,80 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       }
     }
     const checks = { at: new Date().toISOString(), note: recs.INFERRED_NOTE, entities: results };
-    await recTx(req, res, async (conn, { actor }) => {
+    await recTx(req, res, async (conn, { actor, actorEmail, role }) => {
       const saved = await conn.query("UPDATE finance.recs SET checks = $2, checks_at = now(), updated_at = now() WHERE id = $1 AND status <> 'signed_off' RETURNING id", [rec.id, JSON.stringify(checks)]);
       if (!saved.rows.length) return { status: 409, body: { error: "This was signed off while the checks ran." } };
       await started(conn, rec);
       await event(conn, rec.id, client.id, actor, "checks", { missing: results.reduce((a, r) => a + (r.missing ?? 0), 0) });
+      if (rec.releases_on) {
+        checks.releases = await proposeReleases(conn, req, { client, rec, results, items, entities, actor, actorEmail, role });
+        await conn.query("UPDATE finance.recs SET checks = $2 WHERE id = $1", [rec.id, JSON.stringify(checks)]);
+      }
       return { status: 200, body: checks };
     });
   }));
+
+  // The monthly release, proposed on the Journals page for each company whose
+  // checks found releases missing from Xero (lib/recs.js releaseJournal). In the
+  // checks' own transaction, so the release and the checks it rests on agree.
+  // A release still waiting is replaced when the schedule has changed since; one
+  // already approved or in Xero is left alone.
+  async function proposeReleases(conn, req, { client, rec, results, items, entities, actor, actorEmail, role }) {
+    const out = [];
+    for (const r of results) {
+      const name = entities.find((e) => e.id === r.entity_id)?.name ?? r.entity;
+      const say = (state, why, extra = {}) => out.push({ entity_id: r.entity_id, entity: name, state, why, ...extra });
+      if (r.error) { say("skipped", `Xero could not be read: ${r.error}`); continue; }
+      const j = recs.releaseJournal({ items: items.filter((i) => i.entity_id === r.entity_id), check: r, accountCode: r.account_code, period: rec.period });
+      if (!j) { say("none", r.in_draft ? "Every release due is already in Xero, some as drafts." : "Every release due is already in Xero."); continue; }
+      const onRec = (await conn.query(
+        "SELECT id FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved')", [rec.id, r.entity_id])).rows[0];
+      if (onRec) { say("skipped", "A journal proposed on this reconciliation is waiting for this company. Decide that one first, then run the checks again."); continue; }
+      const prior = (await conn.query(
+        `SELECT id, state, lines FROM finance.journals
+          WHERE rec_account_id = $1 AND entity_id = $2 AND period = $3 AND source = 'schedule'
+            AND state IN ('proposed', 'approved', 'draft_created', 'posted') FOR UPDATE`, [rec.rec_account_id, r.entity_id, rec.period])).rows[0];
+      if (prior && (prior.state !== "proposed" || recs.amountsKey(prior.lines) === recs.amountsKey(j.lines))) {
+        say("kept", prior.state === "proposed" ? "This month's release is already waiting on the Journals page." : "This month's release is already approved or in Xero.", { id: prior.id });
+        continue;
+      }
+      // The same journal proposed by hand on the Journals page is the same journal.
+      const byHand = (await conn.query(
+        `SELECT id, lines FROM finance.journals WHERE client_id = $1 AND entity_id = $2 AND journal_date = $3
+            AND state IN ('proposed', 'approved', 'draft_created', 'posted') AND source <> 'schedule'`, [client.id, r.entity_id, j.date])).rows
+        .find((x) => recs.amountsKey(x.lines) === recs.amountsKey(j.lines));
+      if (byHand) { say("kept", "The same journal is already on the Journals page.", { id: byHand.id }); continue; }
+      if (prior) {
+        await conn.query("UPDATE finance.journals SET state = 'superseded', updated_at = now() WHERE id = $1", [prior.id]);
+      }
+      const row = (await conn.query(
+        `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, rec_account_id, rec_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'schedule',$8,$9,$10) RETURNING id`,
+        [client.id, r.entity_id, rec.period, j.date, j.narration, JSON.stringify(j.lines), j.reason, actor, rec.rec_account_id, rec.id])).rows[0];
+      await audit(conn, {
+        actorEmail, actorRole: role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id,
+        ip: req.get("X-Forwarded-For") || req.ip,
+        payload: { from: "schedule", rec: rec.id, entity: r.entity_id, date: j.date, narration: j.narration, lines: j.lines, replaces: prior?.id ?? null },
+      });
+      await event(conn, rec.id, client.id, actor, "release_proposed", { entity_id: r.entity_id, journal_id: row.id, total: j.total, items: j.items.length });
+      say("proposed", prior ? "The schedule changed, so the waiting release was replaced." : `${j.items.length} ${j.items.length === 1 ? "item" : "items"} released.`, { id: row.id, total: j.total });
+    }
+    return out;
+  }
+
+  // PUT /recs/:id/releases   body: { on }   the CFO switches the monthly release
+  // on or off for this account. It carries to every month: the schedule is the
+  // account's, not the month's.
+  app.put(`${BASE}/:id/releases`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO switches the monthly release on or off" } };
+    if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: "Monthly releases work only for Prepayments for now" } };
+    if (typeof req.body?.on !== "boolean") return { status: 400, body: { error: "on must be true or false" } };
+    const on = req.body.on;
+    await conn.query("UPDATE finance.rec_accounts SET releases_on = $2, releases_by = $3, releases_at = now() WHERE id = $1", [rec.rec_account_id, on, actorEmail]);
+    await event(conn, rec.id, client.id, actor, on ? "releases_on" : "releases_off", {});
+    await auditRec(conn, req, { client, actorEmail, role, action: on ? "rec_releases_on" : "rec_releases_off", id: rec.id, payload: { account: rec.account_name } });
+    return { status: 200, body: { on } };
+  }), { peopleOnly: true })));
 
   // What a preparer saw, kept whatever later happens to the ledger or schedule.
   const snapshotFor = (balances, items, rec) => ({
