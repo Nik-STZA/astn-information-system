@@ -1,7 +1,7 @@
 ---
 name: accruals-and-prepayments
 title: Accruals and prepayments
-version: 1.1.0
+version: 1.2.0
 summary: Reconciling prepayments month by month from the last signed-off rec, checking every release posted, and proving accruals: each with a basis, last month's reversed, and no regular supplier's bill missing.
 roles: fm1,fc
 ---
@@ -40,7 +40,9 @@ stay on the balance sheet until ended, with the purchase order reference in the 
 
 **1. Find where to start.** Start from the last month this account was signed off
 in Reconciliations, found as `balance-sheet-matrix` says, not from last month. It may
-be several months behind. Say which month it was. If there is none, stop (see below).
+be several months behind. Say which month it was. If there is none, build the first
+schedule from where the balance began (step 4), say that no month was signed off, and
+roll forward from there.
 
 **2. Roll forward one month at a time.** Take each month's rec from there to the
 month you are closing, in order, without skipping any. Read it with `get_rec`, and
@@ -53,14 +55,33 @@ previous month's closing to the penny: `get_rec` shows whether it does. If the
 previous month is still open, carry on, and say this rec needs re-checking when that
 month closes. The platform marks it if the figure then moves.
 
-**4. Add the month's new items.** Use `get_invoices` and `get_invoice` for bills
-coded to the prepayment account, plus `get_bank_transactions`,
-`get_credit_notes` and `get_manual_journals`. Each new item goes on the schedule
-with `save_rec_item`, with its service dates taken from the document. Then look the other way: bills
-coded to the P&L whose document covers a later period belong on the schedule. A
+**4. Rebuild the account from its documents.** Run `get_account_activity` on the
+prepayment account. It lists every entry from bills, sales invoices, credit
+notes, spend and receive money, and manual journals, net of VAT, with the trial
+balance the day before the start date and at the end date, the rebuilt closing,
+and what is unexplained. The platform computes the totals: quote them.
+
+- **Where to start it.** When there is no signed-off rec, or the schedule is being
+  built for the first time, find where the balance began. Walk back with
+  `get_trial_balance`, a month at a time and then a year at a time, to the last
+  date the account was nil, or the start of the company's first year in Xero, and
+  start `from_date` there. If the opening it reports is not nil, go back further.
+  When rolling a signed-off rec forward, start at the first day after it.
+- **Unexplained is a finding.** An amount the documents do not explain comes from
+  something the note names (conversion balances, fixed asset depreciation,
+  currency revaluation, a document outside the dates). Say which, with the
+  evidence, or say it is not yet traced. Never call it rounding.
+- **Drafts are not in the ledger.** Lines under not_posted are on draft or
+  submitted documents. Report them; they are not schedule items until posted.
+
+**5. Add the new items.** Each additional entry the rebuild returns is a
+candidate schedule item: open it with `get_invoice` (or the bank line or journal)
+for the service dates, and save it with `save_rec_item`. Releases in the rebuild
+are checked in step 6, not added as items. Then look the other way: bills coded
+to the P&L whose document covers a later period belong on the schedule. A
 twelve-month charge is not one month's cost.
 
-**5. Check every release actually posted.** Use `run_rec_checks` on each month's rec.
+**6. Check every release actually posted.** Use `run_rec_checks` on each month's rec.
 It reads that month's manual journals and says, item by item, whether the release is
 posted, still in draft, or missing. One journal often releases several items, so open
 `get_manual_journals` where the result needs explaining. Report each of these by item
@@ -71,7 +92,7 @@ and month:
 - a release posted twice, or for a different amount
 - a release posted after the item finished, or against the wrong expense account
 
-**6. Say how you know about repeating journals.** Xero does not let us read
+**7. Say how you know about repeating journals.** Xero does not let us read
 repeating journals. Do not claim to have seen one. Infer it from posted manual
 journals: the same narration, accounts, and amount in consecutive months. A missing
 release could mean the repeating journal ended, or it was never set up. **State in
@@ -79,12 +100,12 @@ your note that you inferred it from posted journals
 and did not see the set-up itself.** You cannot tell from this when a repeating
 journal will stop, so the CFO confirms that in Xero where it matters.
 
-**7. Warn about releases near their end.** The checks warn when an item's last
+**8. Warn about releases near their end.** The checks warn when an item's last
 release is within two months, and when a release runs on past its last month. Report
 each warning: name the item, its last release month, and what is needed: stop the repeating journal so it does not over-release, and check
 whether a renewal bill is expected. An item fully released must leave nil.
 
-**8. Look at what is left.** Any balance that has stopped moving, has no document,
+**9. Look at what is left.** Any balance that has stopped moving, has no document,
 or sits on an item whose service has ended is a finding. Check supplier deposits
 against the order: has the goods or service arrived, and should it have moved on?
 
@@ -148,7 +169,8 @@ Propose new accruals and reversals with `propose_rec_journal`.
 
 Stop and ask rather than guess when:
 
-- no month has been signed off for this account, or the start month is unclear
+- no month has been signed off and the trial balances do not show where the balance
+  began, or the start month is otherwise unclear
 - a document for a large item cannot be found or read
 - the service period is not on the document
 - a month's ledger will not agree and the cause cannot be found
@@ -188,3 +210,4 @@ FC challenges each basis, not just the total, and checks the opening itself with
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. |
 | 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |
+| 1.2.0 | 2 November 2026 | Prepayment items are found by rebuilding the account with `get_account_activity`, started from the last date the balance was nil, instead of searching bills and journals over a guessed window. Unexplained amounts are findings. |
