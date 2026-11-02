@@ -11,7 +11,7 @@ const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
 
 // Procedures the month-end close names that are still to be written. Remove a
 // name here when its file lands; the test then requires it to exist.
-const TO_WRITE = ["bank-reconciliation", "accruals-and-prepayments", "revenue-and-deferred-revenue", "fixed-assets"];
+const TO_WRITE = [];
 
 // Every tool the runner can offer, read from runner.js itself so this cannot
 // drift from it, plus the Work, ledger and procedure tools.

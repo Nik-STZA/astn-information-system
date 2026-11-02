@@ -1,8 +1,8 @@
 ---
 name: balance-sheet-matrix
 title: Balance sheet ownership matrix
-version: 2.0.0
-summary: Who owns each balance sheet line, what proves it, how often, and whether it is mechanical or judgement. The FC's master close control.
+version: 2.2.0
+summary: Who owns each balance sheet line, what proves it, how often, and whether it is mechanical or judgement, plus the one standard format for every reconciliation. The FC's master close control.
 roles: fc,fm1,fm2,ar-clerk,ap-clerk,fpa
 ---
 
@@ -161,6 +161,137 @@ At each close FC works the matrix top to bottom:
    small practice; a record that implies otherwise is not.
 4. Rows added or removed this month are noted in the close task with the reason.
 
+## The reconciliation standard
+
+**Every balance sheet account with a balance gets a reconciliation, on one format.**
+This holds for every client. The procedures for each balance say what proves it:
+`bank-reconciliation`, `accruals-and-prepayments`, `revenue-and-deferred-revenue`,
+`fixed-assets`, and `other-balance-sheet-accounts` for everything else.
+
+**The rec is a record in Reconciliations in os.stza.io, not your answer.** Read
+the month's list with `list_recs` and one rec with `get_rec`. Your answer explains
+what you did; the figures, schedule, notes, journals, and history stay on the rec.
+
+**Group level, by GL account.** The list is composed from each company's trial
+balance. Accounts in different companies join into one rec when their names match,
+ignoring case, spaces, and punctuation, and they are in the same class: asset,
+liability, or equity. Codes do not join them, and neither does what you think an
+account holds.
+
+- **Bank accounts never join.** Each is its own rec, named with its company.
+- **A clash stays separate.** If one company has two accounts whose names match,
+  each has its own rec with its code in the name, and the list notes it. Check they
+  are not duplicates.
+- **A misspelt name gives two recs.** Do not treat them as one: say so, so the name
+  can be corrected in Xero.
+- **An account the matrix cannot place** is listed all the same, and a person places
+  it. An agent cannot.
+- **If the list looks out of date,** or an account is missing, ask a person to
+  refresh it from the trial balance.
+
+A single-company client has one row and the same format.
+
+**Who does what.** FM1 prepares, the FC reviews, the CFO signs off. The Owner column
+above says who keeps the register or subledger behind a balance; the rec itself
+follows this chain whatever that column says.
+
+### The format
+
+Every rec has three parts.
+
+1. **Cover.** One row per company: ledger, support, variance, and comment, then a
+   group total. Variance is ledger less support, shown as a figure even when nil.
+   The comment says what the variance is and what clears it. Give comments with
+   `submit_rec`: a company with a difference must have one.
+2. **Full trial balance.** Each company's trial balance at the month end, from
+   `get_trial_balance`, so the account is seen in context.
+3. **Supporting schedule.** The schedule, evidence, or ledger review behind the
+   Support column, with enough detail to retrace it. A schedule item is kept with
+   `save_rec_item`, never in a spreadsheet. You cannot delete one: give it an ended
+   month, or ask a person.
+
+**Companies in different currencies.** The platform holds no closing rates. Where
+the companies on a rec report in different currencies, there is no group total: it
+is refused, and each company ties on its own. Do not work one out yourself.
+
+**Only Prepayments can be prepared on the rec so far.** Every other line is on the
+list, and `submit_rec` refuses it. Until its screen is ready, do the work to the
+procedure, put the three parts in your answer, say that the rec could not be
+prepared, and note it on the close step's task in Work. It is not reconciled until
+it can be prepared and signed off on the rec. A journal for such a line still goes
+through `propose_rec_journal`.
+
+### The three kinds of proof
+
+| Proof | What it is |
+|---|---|
+| Schedule | A list we keep, item by item, rolled forward and tied to the ledger |
+| Outside evidence | A document from someone else, such as a bank, HMRC, a lender, or a payroll report |
+| Ledger review | What is in the balance and how old it is, per `other-balance-sheet-accounts` |
+
+Each procedure names the proof. A ledger agreeing with itself is never evidence.
+
+### Rules for every rec
+
+- **Start from the last signed-off month.** Go back through `list_recs` one month at
+  a time to the last month this account shows as signed off with no re-check. Prepare
+  each month from there in order, without skipping months. If a month has no rec, ask
+  a person to open that month in Reconciliations. If no month is signed off, stop and
+  ask.
+- **Opening equals prior close.** `get_rec` shows the prior month's status and
+  whether the opening agrees to its close. Check it on every rec.
+- **A prior month still open:** carry on, and say the rec needs re-checking when that
+  month closes. The platform marks it to re-check if the figure then moves.
+- **Tolerance.** The rec shows the client's tolerance, which only the CFO sets. With
+  no client rule it is nil, and every variance is reported in full. Never call one
+  small, or round it away.
+- **Plugging is banned.** A variance gets a cause, or stays on the rec as a variance.
+- **Nil balances.** An account that moved in the month and ended at nil still has a
+  rec. Say why it is nil. A nil account you expected to hold a balance is a finding.
+- **Re-check.** If the ledger or a schedule moves after a rec is prepared, the
+  platform marks it **to re-check** and says what moved. A schedule covers many
+  months, so an edit can mark other months too. The rec cannot be approved or signed
+  off until it is prepared again. If it has reached a reviewer, a person reopens it
+  first. `submit_rec` clears the mark.
+- **Framework.** Read it from `get_client_profile`. Where a procedure marks a point
+  **CFO to confirm**, it is not settled: raise it, and do not treat it as a rule.
+
+### Handing on and sign-off
+
+Finish with `submit_rec` and a plain English note, then `hand_off` to the FC. The FC
+checks the figures itself with `get_rec` and records its view with `review_rec`, to
+pass to the CFO or send back. Agents never sign off: the CFO does, on the rec.
+
+**Sign-off reads the ledger again** and is refused if it has moved: the list is then
+refreshed and the rec checked. It is also refused if the rec does not tie or is
+marked to re-check. Anyone who prepared or reviewed the rec, or started the agents
+that did, can sign only by ticking **only reviewer**. The tick is recorded and shown
+on the rec. Never describe such a rec as independently reviewed.
+
+### Journals
+
+An agent proposes, the CFO approves on the rec, a draft goes to Xero, and **the CFO
+posts it there.**
+
+1. While preparing, FM1 calls `propose_rec_journal`, one per company on a rec. The
+   date is in the rec's month, the journal must touch the account being reconciled,
+   the narration is short, and the reasoning goes in the reason, which stays out of
+   Xero. A new proposal replaces one not yet decided.
+2. FM1 shows the same journal in its answer under the heading "Proposed journal
+   (draft)", with the company, the date as YYYY-MM-DD, the narration, and each code
+   and amount. The approval is checked against that answer, so anything left out
+   stops it. FM1 may then submit and hand off in the same run.
+3. The CFO approves on the reconciliation screen, and the platform starts the run
+   that creates that exact journal as a draft in Xero with `create_draft_journal`.
+   In that run, use exactly what was approved. The journal number is kept on the rec
+   automatically.
+4. Posting moves the ledger, so the rec is marked to re-check and is prepared again.
+
+**A reply in a conversation never approves a rec journal, whatever it says, and the
+platform refuses it.** If someone replies to approve one, tell them to approve it on
+the reconciliation. The FC holds no journal tool. A date before the lock date in
+`get_organisation` cannot be used: stop and ask.
+
 ## Related
 
 `how-work-moves` for the review chain this matrix's artefacts flow through,
@@ -173,3 +304,5 @@ in the Artefact column each have their own skill.
 |---|---|---|
 | 1.0.0 | 31 July 2026 | First version. Master reference composed from the round table of 31 July 2026, incorporating the round table's corrections: incurred loss rather than ECL for FRS 102; FM1 owns provisions with FC challenging; provisions post monthly and re-base quarterly; capitalised development rather than "capitalised R&D"; no owner named who does not exist; cash and bank, accruals, equity, share premium and tax restored as lines |
 | 2.0.0 | 29 October 2026 | Cloud version for the agents in os.stza.io: work moves through Work tasks rather than folders and diary files, client specifics come from the client's rules, and client names are removed. Treatment unchanged. |
+| 2.1.0 | 1 November 2026 | Adds the reconciliation standard: every account with a balance, one format, group level by GL account, FM1 prepares, FC reviews, CFO signs off, and how a proposed journal reaches Xero. |
+| 2.2.0 | 1 November 2026 | The standard now matches the reconciliation record: the rec lives in os.stza.io; accounts join by name and class; a rec journal is proposed on the rec and approved there, never in a conversation; no closing rates, so no group total across currencies; sign-off re-reads the ledger, and the only reviewer tick is recorded. |
