@@ -241,6 +241,9 @@ export default function ApprovalsBoard({ slug, items }: { slug: string; items: W
       const next = new URLSearchParams(params.toString());
       if (ref) next.set("item", ref);
       else next.delete("item");
+      // Without an item the bare address now leads to Review, so going back to
+      // the list keeps the board open.
+      if (!ref) next.set("board", "1");
       router.replace(`/finance/clients/${slug}/approvals?${next.toString()}`, { scroll: false });
     },
     [params, router, slug]

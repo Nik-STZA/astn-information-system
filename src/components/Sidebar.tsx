@@ -78,8 +78,10 @@ const ICONS: Record<string, LucideIcon> = {
 // A client's own sections, by service.
 const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = [
   { seg: "work", label: "Work", icon: SquareKanban },
+  // Review replaces Approvals: one inbox of what waits on a person, from Bills,
+  // Reconciliations, Journals and the Approvals folders. /approvals redirects here.
+  { seg: "review", label: "Review", icon: ListChecks },
   { seg: "bills", label: "Bills", icon: Receipt },
-  { seg: "approvals", label: "Approvals", icon: ListChecks },
   { seg: "reconciliations", label: "Reconciliations", icon: Scale },
   { seg: "journals", label: "Journals", icon: ScrollText },
   { seg: "agents", label: "Agents", icon: Bot },
@@ -144,6 +146,21 @@ export default function Sidebar({ userEmail, groups, clients }: {
   useEffect(() => { if (pageClient) setOpen(pageClient); }, [pageClient]);
   // A page change closes the drawer.
   useEffect(() => { setDrawer(false); }, [pathname]);
+
+  // The Review badge for the client that is open: how many items wait on your
+  // own role. One read when a client opens and on each page change, so acting
+  // on an item elsewhere is reflected when you move on. A failed read shows no
+  // badge rather than a wrong one.
+  const [reviewCounts, setReviewCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    fetch(`/api/finance/${encodeURIComponent(open)}/review`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (live && b && typeof b.for_you === "number") setReviewCounts((c) => ({ ...c, [open]: b.for_you })); })
+      .catch(() => { /* no badge */ });
+    return () => { live = false; };
+  }, [open, pathname]);
 
   function toggleCollapsed() {
     const next = !collapsed;
@@ -265,11 +282,15 @@ export default function Sidebar({ userEmail, groups, clients }: {
                             {pages.map((p) => {
                               const on = p.seg ? here && pageSeg === p.seg : pathname === p.href;
                               const Icon = p.icon;
+                              const waiting = s.service === "finance" && p.seg === "review" ? reviewCounts[c.slug] ?? 0 : 0;
                               return (
                                 <Link key={p.href} href={p.href}
                                   className={`${styles.nav} ${styles.sub} ${on ? styles.on : ""}`} aria-current={on ? "page" : undefined}>
                                   <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
                                   <span className={styles.lbl}>{p.label}</span>
+                                  {waiting > 0 && (
+                                    <span className={`${styles.badge} ${styles.lbl}`} aria-label={`${waiting} waiting for you`}>{waiting}</span>
+                                  )}
                                 </Link>
                               );
                             })}
