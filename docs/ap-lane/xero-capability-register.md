@@ -77,6 +77,7 @@ Proven or documented gaps, so nobody plans on them:
 | Published reports list (`/Reports`) | 401; needs broad `accounting.reports.read` | Named report endpoints |
 | Bank reconciliation matching | No API for statement lines or matching | Xero JAX / Nik in Xero (already the rule in `ap-bill-lane`) |
 | Ledger journals (`/Journals`) | Needs Xero's Advanced tier and certification for apps after 2 Mar 2026; declined on cost (Nik, 22 Oct 2026) | Rebuild from invoices, credit notes, bank transactions, payments, manual journals |
+| Repeating manual journals | Not in Xero's Accounting API: its OpenAPI spec (19.1.0, xero_accounting.yaml, Nov 2026) has `/ManualJournals`, `/Journals` and `/RepeatingInvoices` only | Inferred from manual journals dated in the month (finance-api `lib/recs.js`), and labelled as inferred. Set up and ended by a person in Xero |
 | Approve a bill (AUTHORISED) | Possible, but deliberately refused by the write lane | Nik in Xero |
 | Period lock dates | Not writable over the API | Nik in Xero (open item 72) |
 | MTD VAT return submission | Not in the public API | Xero's own HMRC filing |

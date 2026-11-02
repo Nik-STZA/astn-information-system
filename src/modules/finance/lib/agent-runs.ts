@@ -11,6 +11,7 @@ export async function queueAgentRun(opts: {
   agent?: string | null;
   instruction: string;
   parentRunId?: string | null;
+  recId?: string | null;
   ip?: string;
 }): Promise<{ ok: boolean; data?: unknown; error?: string; status: number }> {
   const key = process.env.FINANCE_API_KEY;
@@ -30,6 +31,7 @@ export async function queueAgentRun(opts: {
         agent: opts.agent || null,
         instruction: opts.instruction,
         ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
+        ...(opts.recId ? { recId: opts.recId } : {}),
       }),
       cache: "no-store",
     }

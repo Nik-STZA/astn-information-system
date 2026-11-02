@@ -17,7 +17,7 @@ import { usePathname } from "next/navigation";
 import {
   BadgeCheck, BookOpen, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
-  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
+  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Scale, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -80,6 +80,7 @@ const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = 
   { seg: "work", label: "Work", icon: SquareKanban },
   { seg: "bills", label: "Bills", icon: Receipt },
   { seg: "approvals", label: "Approvals", icon: ListChecks },
+  { seg: "reconciliations", label: "Reconciliations", icon: Scale },
   { seg: "agents", label: "Agents", icon: Bot },
   { seg: "procedures", label: "Procedures", icon: BookOpen },
   { seg: "close", label: "Close", icon: ClipboardList },

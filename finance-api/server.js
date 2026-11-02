@@ -1724,7 +1724,7 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
   if (!client) return res.status(404).json({ error: "client not found" });
 
-  const { agent, instruction, parentRunId } = req.body || {};
+  const { agent, instruction, parentRunId, recId } = req.body || {};
   const actorEmail = (req.get("X-Actor-Email") || "").trim();
 
   if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
@@ -1750,34 +1750,51 @@ app.post("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
     if (!parent.finished_at) return res.status(409).json({ error: "that run has not finished yet" });
   }
 
+  // Asked from a reconciliation's page: the run belongs to that rec, so a journal
+  // in this conversation can be approved only on the rec (lib/recs.js).
+  let onRec = null;
+  if (recId) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(recId))) return res.status(400).json({ error: "recId is not a reconciliation id" });
+    try {
+      const r = await pool.query("SELECT id FROM finance.recs WHERE id = $1 AND client_id = $2", [recId, client.id]);
+      if (!r.rows.length) return res.status(404).json({ error: "that reconciliation was not found for this client" });
+      onRec = r.rows[0].id;
+    } catch (e) {
+      // Before migration 032 there are no recs, so nothing to carry.
+      if (e.code !== "42P01") throw e;
+    }
+  }
+
   const role = await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [
     client.id, actorEmail,
   ]);
 
   const { rows } = await pool.query(
     `INSERT INTO finance.agent_runs
-       (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id)
-     VALUES ($1,$2,$3,$4,$5,'queued',$6)
+       (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id${onRec ? ", rec_id" : ""})
+     VALUES ($1,$2,$3,$4,$5,'queued',$6${onRec ? ",$7" : ""})
      RETURNING id, agent, instruction, status, queued_at, parent_run_id`,
     [
       client.id, actorEmail, role.rows[0].role,
-      agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null,
+      agent || parent?.agent || null, String(instruction).trim(), parent?.id ?? null, ...(onRec ? [onRec] : []),
     ]
   );
-  // Start the agent runner in Google Cloud (lib/agent-job.js). If it cannot be
-  // started, the run stays queued for a polling runner: nothing is lost.
-  let runner = "queued";
-  const cloud = agentJob.agentJobConfig();
-  if (cloud) {
-    try {
-      await agentJob.startAgentJob(cloud);
-      runner = "cloud";
-    } catch (e) {
-      console.error(`agent-runner not started for run ${rows[0].id}: ${e.message}`);
-    }
-  }
-  res.status(201).json({ ...rows[0], runner });
+  res.status(201).json({ ...rows[0], runner: await startAgentRunner(rows[0].id) });
 }));
+
+// Starts the agent runner in Google Cloud (lib/agent-job.js). If it cannot be
+// started, the run stays queued for a polling runner: nothing is lost.
+async function startAgentRunner(runId) {
+  const cloud = agentJob.agentJobConfig();
+  if (!cloud) return "queued";
+  try {
+    await agentJob.startAgentJob(cloud);
+    return "cloud";
+  } catch (e) {
+    console.error(`agent-runner not started for run ${runId}: ${e.message}`);
+    return "queued";
+  }
+}
 
 app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);
@@ -3231,6 +3248,8 @@ app.get("/api/finance/clients/:slug/reports/aged-payables", route(async (req, re
 //     every failure at once.
 
 const JOURNAL_TARGET_TYPE = "xero_journal";
+// Set where the rec routes are mounted, below. The journal routes need its gate.
+let recRoutes;
 
 // Reads the organisation's lock dates. A journal dated into a locked period is
 // rejected here rather than by Xero, so the caller gets a reason rather than a
@@ -3277,6 +3296,23 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
   if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
   if (ctx.error) return erpUnavailable(res, ctx);
 
+  // A journal proposed on a reconciliation reaches Xero only through the CFO's
+  // approval there, and under the proposal's own key (lib/recs.js).
+  const recGate = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId: req.get("X-Agent-Run"), input: body });
+  if (recGate.refuse) {
+    const conn = await pool.connect();
+    try {
+      await audit(conn, {
+        actorEmail, action: "journal_rejected", targetType: JOURNAL_TARGET_TYPE, targetId: `rec-gate:${requestFingerprint(body)}`,
+        clientId: ctx.client.id, ip, payload: { stage: "rec_gate", detail: recGate.refuse, run: req.get("X-Agent-Run") ?? null, entity: ctx.entity.slug },
+      });
+    } finally {
+      conn.release();
+    }
+    return res.status(422).json({ ok: false, stage: "validation", issues: [{ code: "REC_APPROVAL_REQUIRED", detail: recGate.refuse }] });
+  }
+  if (recGate.key) body.idempotency_key = recGate.key;
+
   const { rows: cfgRows } = await pool.query(
     `SELECT COALESCE((cfc.materiality_thresholds->>'journal_materiality_gbp')::numeric, 1) AS journal_materiality_gbp
      FROM finance.client_finance_config cfc WHERE cfc.client_id = $1`,
@@ -3316,6 +3352,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
         });
       }
       // Same key, same journal: replay the original answer verbatim.
+      if (recGate.journal && ["draft", "posted"].includes(prior.outcome)) await recRoutes.markDrafted(pool, recGate.journal.id, prior.response_body);
       return res.json({ ...prior.response_body, idempotent_replay: true });
     }
   }
@@ -3482,6 +3519,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
         "Xero-Tenant-Id": ctx.tenantId,
         Accept: "application/json",
         "Content-Type": "application/json",
+        ...(key ? { "Idempotency-Key": key } : {}),
       },
       body: JSON.stringify({ ManualJournals: [xeroPayload] }),
       signal: AbortSignal.timeout(30_000),
@@ -3568,6 +3606,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
         ]
       );
     }
+    if (ok && recGate.journal) await recRoutes.markDrafted(conn2, recGate.journal.id, responseBody);
     await conn2.query("COMMIT");
   } catch (e) {
     try { await conn2.query("ROLLBACK"); } catch { /* already gone */ }
@@ -4177,6 +4216,12 @@ function journalsPlan(source, origin) {
     if (!["DRAFT", "POSTED"].includes(status)) issues.push("status must be DRAFT or POSTED");
     const parsed = source(q, req);
     issues.push(...parsed.issues);
+    // A journal proposed on a reconciliation goes only through its approval,
+    // which uses the journals endpoint above, never this one.
+    for (const j of parsed.journals) {
+      const g = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId: req.get("X-Agent-Run"), input: { date: j.date, narration: j.narration, status, lines: j.lines } });
+      if (g.refuse || g.journal) issues.push(`Journal "${j.narration}" ${j.date}: ${g.refuse ?? "approved on a reconciliation, so it goes through that approval"}`);
+    }
     if (issues.length) return { issues, operation: "create" };
 
     const [accounts, taxRates, lockDates] = await Promise.all([
@@ -6197,6 +6242,10 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
       describe: () => ({ written_to_xero: true, done }),
     };
   }));
+
+// ── Reconciliations ─────────────────────────────────────────────────────────
+
+recRoutes = require("./lib/recs-routes").mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner });
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

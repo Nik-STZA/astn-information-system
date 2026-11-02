@@ -5,6 +5,7 @@ import { library, proceduresFor, systemPrompt, readProcedure, readProcedureTool,
 import { agentLedger } from "./agent-ledger";
 import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
+import { NAMES as REC_TOOLS } from "./agent-recs";
 
 const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
 
@@ -21,6 +22,7 @@ const ALL_TOOLS = new Set([
   ...agentWork({}).names,
   ...agentLedger({}).names,
   ...DOCUMENT_TOOLS,
+  ...REC_TOOLS,
   "read_procedure",
 ]);
 
