@@ -15,6 +15,10 @@ WHITE = "FFFFFF"
 GREY_TEXT = "71717A"
 ZEBRA = "F2F2F2"
 NEGATIVE_RED = "8B0000"
+ACCOUNT_GREY = "D9D9D9"
+ADVERSE_TEXT = "9C0006"      # supplier tabs: more cost than the comparison
+FAVOURABLE_TEXT = "006100"   # supplier tabs: less cost than the comparison
+FAIL_FILL = "F8D7DA"         # a reconciliation difference
 
 # STZA Brand Guidelines v1.0 - used for tabs when a client has no brand of its own.
 STZA_TAB_COLOURS = {
@@ -39,6 +43,7 @@ DATE_TIME = "d mmm yyyy hh:mm"
 
 NUM = '#,##0;(#,##0);"-"'
 NUM_2DP = '#,##0.00;(#,##0.00);"-"'
+PCT = '0.0%;(0.0%);"-"'
 
 thin = Side(style="thin", color=BLACK)
 medium = Side(style="medium", color=BLACK)
@@ -47,6 +52,11 @@ double = Side(style="double", color=BLACK)
 
 def font(size=9, bold=False, italic=False, color=BLACK):
     return Font(name=FONT, size=size, bold=bold, italic=italic, color=color)
+
+
+def dxf_fill(colour):
+    """Conditional formats take a solid fill as its background colour, unlike cells."""
+    return PatternFill(bgColor=colour)
 
 
 def fill(colour):
@@ -65,6 +75,10 @@ ROW_STYLES = {
     "grand_total":   dict(font=font(9, bold=True), border=Border(top=thin, bottom=double)),
     "check":         dict(font=font(8, italic=True), border=Border(top=thin, bottom=double)),
     "note":          dict(font=font(8, italic=True, color=GREY_TEXT)),
+    # Supplier tabs: the Actual row of each level of the hierarchy.
+    "supplier_category": dict(font=font(11, bold=True, color=WHITE), fill=fill(BLACK)),
+    "supplier_account":  dict(font=font(10, bold=True), fill=fill(ACCOUNT_GREY)),
+    "supplier_vendor":   dict(font=font(10, bold=True), fill=fill(ZEBRA)),
 }
 
 

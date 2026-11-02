@@ -17,8 +17,33 @@ calendar -> ledger -> mapping -> statement model -> workbook -> controls
 | `render.py` | The workbook. The only typed numbers are on "Source - Trial balance"; every statement figure and total is a formula, and rows are found by what they are, never by number |
 | `recs.py` | Balance sheet reconciliations workbook, written next to the pack. Off unless `PACK_RECS_JSON` names an input file. See below |
 | `controls.py` | Checks that fail the build: mapping coverage, trial balances balance, Xero's financial year matches the profile, the balance sheet balances, net profit and balance sheet totals tie to Xero's own reports, totals are formulas |
+| `suppliers.py` | Optional Category > Account > Supplier tabs, with their own controls (see below) |
 
 A failed control still writes the workbook, with `FAILED CONTROLS` in its name.
+
+## Supplier tabs
+
+Off unless the profile has `"supplier_tabs": {}`, or
+`"supplier_tabs": {"categories": ["staff_costs", "establishment"]}` to choose the
+categories. By default every cost of sales and overhead category except
+depreciation and foreign exchange, which Xero posts without a document.
+
+Each category gets a tab of Actual, PY, Var, Var %, Budget, Var vs Bud and Var %,
+by month, YTD and FY, for the category, each account and each supplier. Xero's
+/Journals feed is not available to this app, so suppliers are rebuilt from bills,
+sales invoices, credit notes, bank transactions and manual journals; accounts come
+from the same trial balances as the P&L. Amounts are signed, and only what has
+reached the ledger counts: a bill awaiting approval does not. Budget is Xero's
+overall budget by account. Where there is none the rows stay blank.
+
+Controls, per month: suppliers sum to each account (this year and each month of
+last year), and accounts sum to the P&L. More than 1.00 out on any one account fails
+the build, and the "Supplier reconciliation" tab shows it as live formulas. A cost
+posted outside those documents (Xero Payroll, Xero Expenses) fails this control until
+its cause is dealt with. There is no balancing row.
+
+Document reads and the extra trial balances are paced at about 54 calls a minute
+(`READ_INTERVAL` in `api.py`), because finance-api's limiter caps concurrency only.
 
 ## What Xero's trial balance means
 
