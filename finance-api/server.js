@@ -3248,8 +3248,10 @@ app.get("/api/finance/clients/:slug/reports/aged-payables", route(async (req, re
 //     every failure at once.
 
 const JOURNAL_TARGET_TYPE = "xero_journal";
-// Set where the rec routes are mounted, below. The journal routes need its gate.
+// Set where the rec and journal routes are mounted, below. The journal write
+// needs their gates.
 let recRoutes;
+let journalRoutes;
 
 // Reads the organisation's lock dates. A journal dated into a locked period is
 // rejected here rather than by Xero, so the caller gets a reason rather than a
@@ -3291,27 +3293,66 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
     });
   }
 
+  const out = await postManualJournal({
+    slug: req.params.slug, entitySlug: req.params.entity, body, actorEmail, ip, runId: req.get("X-Agent-Run"),
+  });
+  res.status(out.status).json(out.body);
+}));
+
+// The journal write itself, callable from inside finance-api: the route above,
+// and the Journals register (lib/journals-routes.js), which creates a DRAFT once
+// the CFO approves one in os.stza.io. One copy of the rules, so a journal from
+// the register meets every check a journal from anywhere else does.
+//
+// Returns { status, body, sent }. sent is true once the idempotency key was
+// claimed, that is once Xero may have been asked; while it is false, nothing can
+// have reached Xero. onDrafted(db, responseBody), if given, runs in the
+// transaction that records a draft or posted outcome, and on a replay of one,
+// so a draft in Xero cannot be left looking as if it never happened.
+// register is true only for the Journals register's own approval: every other
+// caller is held by its gate, as by the rec gate.
+async function postManualJournal({ slug, entitySlug, body, actorEmail, ip, runId = null, onDrafted = null, register = false }) {
+  const answer = (status, b, sent = false) => ({ status, body: b, sent });
+
   // ── token first, before any pooled connection ─────────────────────────────
-  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
-  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
-  if (ctx.error) return erpUnavailable(res, ctx);
+  const ctx = await xeroEntityContext(slug, entitySlug);
+  if (!ctx) return answer(404, { error: "entity not found or not connected" });
+  if (ctx.error) return answer(502, { error: ctx.error, ...(ctx.detail ? { detail: ctx.detail } : {}) });
 
   // A journal proposed on a reconciliation reaches Xero only through the CFO's
   // approval there, and under the proposal's own key (lib/recs.js).
-  const recGate = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId: req.get("X-Agent-Run"), input: body });
+  const recGate = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId, input: body });
   if (recGate.refuse) {
     const conn = await pool.connect();
     try {
       await audit(conn, {
         actorEmail, action: "journal_rejected", targetType: JOURNAL_TARGET_TYPE, targetId: `rec-gate:${requestFingerprint(body)}`,
-        clientId: ctx.client.id, ip, payload: { stage: "rec_gate", detail: recGate.refuse, run: req.get("X-Agent-Run") ?? null, entity: ctx.entity.slug },
+        clientId: ctx.client.id, ip, payload: { stage: "rec_gate", detail: recGate.refuse, run: runId ?? null, entity: ctx.entity.slug },
       });
     } finally {
       conn.release();
     }
-    return res.status(422).json({ ok: false, stage: "validation", issues: [{ code: "REC_APPROVAL_REQUIRED", detail: recGate.refuse }] });
+    return answer(422, { ok: false, stage: "validation", issues: [{ code: "REC_APPROVAL_REQUIRED", detail: recGate.refuse }] });
   }
   if (recGate.key) body.idempotency_key = recGate.key;
+
+  // A journal waiting on the Journals page reaches Xero only through the CFO's
+  // approval there (lib/journals.js registerGate).
+  if (!register) {
+    const held = await journalRoutes.registerGate(ctx.client.id, ctx.entity.id, { input: body });
+    if (held.refuse) {
+      const conn = await pool.connect();
+      try {
+        await audit(conn, {
+          actorEmail, action: "journal_rejected", targetType: JOURNAL_TARGET_TYPE, targetId: `journal-gate:${requestFingerprint(body)}`,
+          clientId: ctx.client.id, ip, payload: { stage: "journal_gate", detail: held.refuse, run: runId ?? null, entity: ctx.entity.slug },
+        });
+      } finally {
+        conn.release();
+      }
+      return answer(422, { ok: false, stage: "validation", issues: [{ code: "JOURNAL_APPROVAL_REQUIRED", detail: held.refuse }] });
+    }
+  }
 
   const { rows: cfgRows } = await pool.query(
     `SELECT COALESCE((cfc.materiality_thresholds->>'journal_materiality_gbp')::numeric, 1) AS journal_materiality_gbp
@@ -3335,25 +3376,28 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
     const prior = rows[0];
     if (prior) {
       if (prior.outcome === "pending") {
-        return res.status(409).json({
+        return answer(409, {
           ok: false, stage: "idempotency",
           error: "A journal with this idempotency key is already in flight. If this persists, check Xero before retrying - the earlier attempt may have posted.",
           idempotency_key: key,
-        });
+        }, true);
       }
       if (prior.request_fingerprint !== fingerprint) {
-        return res.status(409).json({
+        return answer(409, {
           ok: false, stage: "idempotency",
           error: "This idempotency key was already used for a different journal.",
           idempotency_key: key,
           original: prior.response_body,
           submitted_fingerprint: fingerprint,
           original_fingerprint: prior.request_fingerprint,
-        });
+        }, true);
       }
       // Same key, same journal: replay the original answer verbatim.
-      if (recGate.journal && ["draft", "posted"].includes(prior.outcome)) await recRoutes.markDrafted(pool, recGate.journal.id, prior.response_body);
-      return res.json({ ...prior.response_body, idempotent_replay: true });
+      if (["draft", "posted"].includes(prior.outcome)) {
+        if (recGate.journal) await recRoutes.markDrafted(pool, recGate.journal.id, prior.response_body);
+        if (onDrafted) await onDrafted(pool, prior.response_body);
+      }
+      return answer(200, { ...prior.response_body, idempotent_replay: true }, true);
     }
   }
 
@@ -3402,7 +3446,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
     clientId: ctx.client.id,
     ip,
   };
-  const requestForAudit = { ...body, client: req.params.slug, entity: req.params.entity };
+  const requestForAudit = { ...body, client: slug, entity: entitySlug };
 
   if (issues.length) {
     // An attempt to write to a client ledger that was refused is worth keeping.
@@ -3420,7 +3464,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
     } finally {
       conn.release();
     }
-    return res.status(422).json({ ok: false, stage: "validation", issues, warnings });
+    return answer(422, { ok: false, stage: "validation", issues, warnings });
   }
 
   const xeroPayload = buildXeroPayload(body);
@@ -3448,7 +3492,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
     } finally {
       conn.release();
     }
-    return res.json({
+    return answer(200, {
       ok: true, action: "DRY RUN — validated, not posted",
       status: xeroPayload.Status, net: Number(fromPence(net)),
       warnings, audit_id: auditId, xero_request: xeroPayload,
@@ -3468,11 +3512,11 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
     );
     if (!claim.rows.length) {
       // Someone claimed it between our lookup and here.
-      return res.status(409).json({
+      return answer(409, {
         ok: false, stage: "idempotency",
         error: "A journal with this idempotency key was claimed concurrently. Check Xero before retrying.",
         idempotency_key: key,
-      });
+      }, true);
     }
   }
 
@@ -3607,6 +3651,7 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
       );
     }
     if (ok && recGate.journal) await recRoutes.markDrafted(conn2, recGate.journal.id, responseBody);
+    if (ok && onDrafted) await onDrafted(conn2, responseBody);
     await conn2.query("COMMIT");
   } catch (e) {
     try { await conn2.query("ROLLBACK"); } catch { /* already gone */ }
@@ -3617,14 +3662,14 @@ app.post("/api/finance/clients/:slug/xero/:entity/journals", route(async (req, r
 
   if (!ok) {
     alertOps("xero_journal_failed", {
-      client: req.params.slug, entity: ctx.entity.slug,
+      client: slug, entity: ctx.entity.slug,
       status: xeroStatus, idempotencyKey: key, auditId,
     });
     // Xero's body, verbatim. The whole point.
-    return res.status(502).json(responseBody);
+    return answer(502, responseBody, true);
   }
-  res.status(201).json(responseBody);
-}));
+  return answer(201, responseBody, true);
+}
 
 // ── Draft-tier writes (parity with the laptop MCP) ──────────────────────────
 //
@@ -4221,6 +4266,9 @@ function journalsPlan(source, origin) {
     for (const j of parsed.journals) {
       const g = await recRoutes.journalGate(ctx.client.id, ctx.entity.id, { runId: req.get("X-Agent-Run"), input: { date: j.date, narration: j.narration, status, lines: j.lines } });
       if (g.refuse || g.journal) issues.push(`Journal "${j.narration}" ${j.date}: ${g.refuse ?? "approved on a reconciliation, so it goes through that approval"}`);
+      // Likewise a journal waiting on the Journals page.
+      const held = await journalRoutes.registerGate(ctx.client.id, ctx.entity.id, { input: { date: j.date, lines: j.lines } });
+      if (held.refuse) issues.push(`Journal "${j.narration}" ${j.date}: ${held.refuse}`);
     }
     if (issues.length) return { issues, operation: "create" };
 
@@ -6246,6 +6294,38 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
 // ── Reconciliations ─────────────────────────────────────────────────────────
 
 recRoutes = require("./lib/recs-routes").mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner });
+
+// ── Journals ────────────────────────────────────────────────────────────────
+
+// The chart and lock dates, so a proposal hears what would stop it before it
+// waits for the CFO. Never throws: a read that fails is reported as such.
+async function journalPreflight(slug, entitySlug) {
+  try {
+    const ctx = await xeroEntityContext(slug, entitySlug);
+    if (!ctx || ctx.error) return { unavailable: ctx?.error ?? "not connected" };
+    const [acc, lockDates] = await Promise.all([xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts", {}), xeroLockDates(ctx)]);
+    return { accounts: acc?.Accounts ?? [], lockDates: lockDates.unavailable ? {} : lockDates };
+  } catch (e) {
+    return { unavailable: e.message };
+  }
+}
+
+// What Xero says one manual journal is now: DRAFT, POSTED, VOIDED or DELETED.
+async function xeroManualJournalStatus(slug, entitySlug, journalId) {
+  try {
+    const ctx = await xeroEntityContext(slug, entitySlug);
+    if (!ctx || ctx.error) return { error: ctx?.error ?? "not connected" };
+    const r = await xeroGet(ctx.accessToken, ctx.tenantId, `/ManualJournals/${encodeURIComponent(journalId)}`, {});
+    const status = r?.ManualJournals?.[0]?.Status;
+    return status ? { status } : { error: "Xero did not return the journal" };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+journalRoutes = require("./lib/journals-routes").mountJournals(app, {
+  route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus,
+});
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

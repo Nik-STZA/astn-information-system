@@ -1,0 +1,98 @@
+/* Journals. Mobile first: a phone gets cards that open, a computer gets a table
+   with rows that open. Neutral greys; gold only as the accent. The same
+   vocabulary as Recs.module.css. */
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.barEnd { margin-left: auto; font-size: 13px; color: var(--sub); }
+.pick { height: 36px; max-width: 100%; border: 1px solid var(--bd); border-radius: 18px; padding: 0 12px; background: var(--pnl); color: var(--tx); font: 400 13px var(--font-sans); }
+.alert { padding: 10px 14px; border: 1px solid var(--bd); border-left: 3px solid var(--warning-amber); background: var(--pnl); border-radius: 10px; font-size: 13px; color: var(--tx); margin-bottom: 12px; }
+.err { color: var(--alert-red); font-size: 13px; margin: 8px 0; }
+.sub { color: var(--sub); font-size: 13px; }
+.small { color: var(--sub); font-size: 12px; margin: 6px 0 0; }
+.warnText { color: var(--warning-amber); font-size: 13px; }
+.ok { color: var(--success-green); }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.strong { font-weight: 500; }
+.link { color: var(--tx); font-weight: 500; text-decoration: underline; text-decoration-color: var(--bd); }
+.link:hover { color: var(--accent-text); }
+
+.card { background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; }
+.pad { padding: 12px 14px; }
+.section { margin-bottom: 16px; }
+.h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--tx); display: flex; align-items: center; gap: 8px; }
+.count { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--cardhover); color: var(--label-text); font-size: 12px; font-weight: 500; }
+.cardHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--bd); }
+.cardHead .h2 { margin: 0; }
+
+/* The list: cards on a phone, a table on a computer. */
+.cards { display: grid; gap: 8px; }
+.fold > summary { list-style: none; cursor: pointer; }
+.fold > summary::-webkit-details-marker { display: none; }
+.cardSummary { display: block; padding: 12px 14px; color: var(--tx); }
+.cardSummary:hover { background: var(--cardhover); border-radius: 12px; }
+.rowTop { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.rowName { font-weight: 500; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+.rowMeta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 12px; color: var(--sub); }
+.foldBody { padding: 0 14px 12px; border-top: 1px solid var(--bd); }
+
+.tableWrap { display: none; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th { text-align: left; font-weight: 500; color: var(--sub); font-size: 12px; padding: 10px 14px; border-bottom: 1px solid var(--bd); white-space: nowrap; }
+.table th.num { text-align: right; }
+.table td { padding: 9px 14px; border-bottom: 1px solid var(--bd); vertical-align: top; }
+.table tbody:last-child tr:last-child td { border-bottom: 0; }
+.mainRow { cursor: pointer; }
+.mainRow:hover td { background: var(--cardhover); }
+.detailRow td { padding-top: 0; background: var(--pnl); }
+.toggleCell { width: 28px; padding-right: 0 !important; }
+.toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; background: none; color: var(--sub); cursor: pointer; border-radius: 6px; }
+.toggle:focus-visible { outline: 2px solid var(--brand-gold); }
+.chev { transition: transform 0.15s ease; }
+.chevOpen { transform: rotate(90deg); transition: transform 0.15s ease; }
+
+@media (min-width: 900px) {
+  .cards { display: none; }
+  .tableWrap { display: block; overflow-x: auto; }
+}
+
+/* One journal opened. */
+.detail { padding-top: 10px; }
+.lines { max-width: 640px; }
+.jLine { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 13px; }
+.jLine + .jLine { border-top: 1px solid var(--bd); }
+.lineText { min-width: 0; overflow-wrap: anywhere; }
+.code { font-variant-numeric: tabular-nums; font-weight: 500; }
+.reason { margin-top: 10px; font-size: 13px; color: var(--tx); max-width: 760px; }
+.label { font-size: 11px; color: var(--sub); margin-bottom: 2px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+/* The new-journal form. A line is a stack on a phone and a row on a computer. */
+.form { display: grid; gap: 10px; padding: 12px 14px; }
+.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.span2 { grid-column: 1 / -1; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--sub); min-width: 0; }
+.input { width: 100%; box-sizing: border-box; height: 40px; border: 1px solid var(--bd); border-radius: 8px; padding: 0 10px; background: var(--pnl); color: var(--tx); font: 400 14px var(--font-sans); }
+.amount { text-align: right; font-variant-numeric: tabular-nums; }
+.area { width: 100%; box-sizing: border-box; min-height: 72px; border: 1px solid var(--bd); border-radius: 8px; padding: 8px 10px; background: var(--pnl); color: var(--tx); font: 400 14px var(--font-sans); }
+.input:focus, .area:focus, .pick:focus { outline: 2px solid var(--brand-gold); outline-offset: -1px; }
+.lineHead { display: none; }
+.lineRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px 0; border-top: 1px solid var(--bd); align-items: end; }
+.lineRow > label:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+.phoneOnly { display: inline; }
+.balance { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 12px; border-radius: 10px; background: var(--cardhover); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--tx); }
+
+@media (min-width: 900px) {
+  .formGrid { grid-template-columns: 1fr 1fr 2fr; }
+  .span2 { grid-column: auto; }
+  .input { height: 36px; font-size: 13px; }
+  .area { font-size: 13px; }
+  .lineHead, .lineRow { display: grid; grid-template-columns: 120px minmax(0, 1fr) 130px 130px 36px; gap: 8px; align-items: center; }
+  .lineHead { font-size: 12px; color: var(--sub); }
+  .lineRow { padding: 0; border-top: 0; }
+  .lineRow > label:nth-child(2) { grid-column: auto; grid-row: auto; }
+  .phoneOnly { display: none; }
+}
+
+/* Journals use the full width beside the menu, open or closed. */
+:global(html):has(.journalsPage) :global(.page-container) { max-width: none; }
