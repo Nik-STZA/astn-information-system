@@ -17,6 +17,7 @@ import {
   balanceOf, blankLine, grouped, needsXeroCheck, sourceLabel, toLines,
   type DraftLine, type JournalList, type JournalRow,
 } from "@/modules/finance/lib/journals";
+import SearchSelect from "./SearchSelect";
 import styles from "./Journals.module.css";
 
 type Send = (path: string, body?: unknown) => Promise<boolean>;
@@ -252,6 +253,33 @@ function NewJournal({ slug, data, onDone }: { slug: string; data: JournalList; o
   const [lines, setLines] = useState<DraftLine[]>([blankLine(), blankLine()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The company's accounts, for the account search: the same list Bills uses
+  // (active, with a code, bank accounts left out as a journal cannot use them).
+  const [accounts, setAccounts] = useState<Array<{ value: string; label: string; name: string }> | null>(null);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!entity) { setAccounts(null); return; }
+    let live = true;
+    setAccounts(null);
+    setAccountsError(null);
+    fetch(`/api/finance/${encodeURIComponent(slug)}/ap/${encodeURIComponent(entity)}/options`)
+      .then((r) => r.json())
+      .then((o: { error?: string; accounts?: Array<{ code: string; name: string }> }) => {
+        if (!live) return;
+        if (o.error || !o.accounts) { setAccountsError(o.error ?? "The accounts could not be loaded"); return; }
+        setAccounts(o.accounts.map((a) => ({ value: a.code, label: `${a.code} ${a.name}`, name: a.name })));
+      })
+      .catch(() => live && setAccountsError("The accounts could not be loaded"));
+    return () => { live = false; };
+  }, [slug, entity]);
+
+  // Choosing an account fills an empty description with its name.
+  const pickAccount = (i: number, code: string) => setLines((ls) => ls.map((l, n) => {
+    if (n !== i) return l;
+    const name = accounts?.find((a) => a.value === code)?.name ?? "";
+    return { ...l, account_code: code, description: l.description.trim() ? l.description : name };
+  }));
 
   const bal = balanceOf(lines);
   const filled = toLines(lines);
@@ -288,13 +316,18 @@ function NewJournal({ slug, data, onDone }: { slug: string; data: JournalList; o
         </div>
 
         <div className={styles.lineHead} aria-hidden="true">
-          <span>Account code</span><span>Description</span><span className={styles.num}>Debit</span><span className={styles.num}>Credit</span><span></span>
+          <span>Account</span><span>Description</span><span className={styles.num}>Debit</span><span className={styles.num}>Credit</span><span></span>
         </div>
         {lines.map((l, i) => (
           <div key={i} className={styles.lineRow}>
-            <label className={styles.field}><span className={styles.phoneOnly}>Account code</span>
-              <input className={styles.input} value={l.account_code} inputMode="numeric" aria-label={`Line ${i + 1} account code`} onChange={(e) => set(i, "account_code", e.target.value)} />
-            </label>
+            <div className={styles.field}><span className={styles.phoneOnly} aria-hidden="true">Account</span>
+              {accounts
+                ? <SearchSelect label={`Line ${i + 1} account`} hideLabel value={l.account_code} options={accounts}
+                    placeholder="Type a code or name" onChange={(v) => pickAccount(i, v)} />
+                : <input className={styles.input} value={l.account_code} inputMode="numeric" aria-label={`Line ${i + 1} account code`}
+                    placeholder={!entity ? "Choose the company first" : accountsError ? "Type the code" : "Loading accounts..."}
+                    onChange={(e) => set(i, "account_code", e.target.value)} />}
+            </div>
             <label className={styles.field}><span className={styles.phoneOnly}>Description</span>
               <input className={styles.input} value={l.description} aria-label={`Line ${i + 1} description`} onChange={(e) => set(i, "description", e.target.value)} />
             </label>
@@ -308,6 +341,7 @@ function NewJournal({ slug, data, onDone }: { slug: string; data: JournalList; o
               onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}><X size={14} aria-hidden="true" /></button>
           </div>
         ))}
+        {accountsError && <p className={styles.small}>{accountsError}. Type the account code instead; it is checked when you save.</p>}
         <div>
           <button type="button" className="btn-text" onClick={() => setLines((ls) => [...ls, blankLine()])}><Plus size={14} aria-hidden="true" />Add line</button>
         </div>

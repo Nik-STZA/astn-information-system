@@ -16,8 +16,13 @@ export interface SearchOption {
 
 const MAX_SHOWN = 50;
 
-export default function SearchSelect({ label, value, options, placeholder, onChange }: {
+const HIDDEN: React.CSSProperties = { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" };
+
+export default function SearchSelect({ label, value, options, placeholder, onChange, hideLabel = false }: {
   label: string;
+  // In a table row the column heading names the field: the label is then for
+  // screen readers only.
+  hideLabel?: boolean;
   value: string;
   options: SearchOption[];
   placeholder: string;
@@ -54,7 +59,7 @@ export default function SearchSelect({ label, value, options, placeholder, onCha
 
   return (
     <div className={styles.field} ref={box}>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id} style={hideLabel ? HIDDEN : undefined}>{label}</label>
       <div className={styles.combo}>
         <input
           id={id}
