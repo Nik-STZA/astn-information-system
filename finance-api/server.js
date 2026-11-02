@@ -2802,6 +2802,37 @@ app.get("/api/finance/clients/:slug/xero/:entity/accounts", route(async (req, re
   res.json({ entity: ctx.entity.name, count: data.Accounts?.length ?? 0, data: data.Accounts ?? [] });
 }));
 
+// GET /api/finance/clients/:slug/xero/:entity/account-activity?code=620&from=YYYY-MM-DD&to=YYYY-MM-DD
+//
+// One account's ledger, rebuilt from the documents that post to it, set
+// against the trial balance the day before `from` and at `to`. Xero's /Journals
+// cannot be granted to this app and /Reports/AccountTransactions does not
+// exist, so this is how an agent sees every entry behind a balance. Read only:
+// GETs through the shared limiter, one at a time. The deciding (statuses,
+// signs, VAT, totals, the unexplained figure) is in lib/account-activity.js.
+const accountActivity = require("./lib/account-activity");
+app.get("/api/finance/clients/:slug/xero/:entity/account-activity", route(async (req, res) => {
+  const code = String(req.query.code ?? "").trim();
+  const { from, to } = req.query;
+  if (!/^[A-Za-z0-9._-]{1,10}$/.test(code)) return res.status(400).json({ error: "code must be a Xero account code" });
+  if (!accountActivity.isDate(from) || !accountActivity.isDate(to)) return res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
+  if (from > to) return res.status(400).json({ error: "from must be on or before to" });
+
+  const ctx = await xeroEntityContext(req.params.slug, req.params.entity);
+  if (!ctx) return res.status(404).json({ error: "entity not found or not connected" });
+  if (ctx.error) return erpUnavailable(res, ctx);
+  const get = (path, params = {}) => xeroGet(ctx.accessToken, ctx.tenantId, path, params);
+
+  const account = ((await get("/Accounts"))?.Accounts ?? []).find((a) => String(a.Code ?? "").toUpperCase() === code.toUpperCase());
+  if (!account) return res.status(404).json({ error: `No account with code ${code} in this company's chart of accounts` });
+
+  const openingTb = (await get("/Reports/TrialBalance", { date: accountActivity.dayBefore(from) }))?.Reports?.[0];
+  const closingTb = (await get("/Reports/TrialBalance", { date: to }))?.Reports?.[0];
+  const { documents, fetch: reading } = await accountActivity.fetchDocuments({ get, from, to });
+
+  res.json({ entity: ctx.entity.name, ...accountActivity.buildActivity({ account, from, to, documents, openingTb, closingTb, fetch: reading }) });
+}));
+
 // GET /api/finance/clients/:slug/entities  — list connected entities for a client
 app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
   const client = await clientIdFromSlug(req.params.slug);

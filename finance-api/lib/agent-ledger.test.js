@@ -44,6 +44,27 @@ describe("agent ledger reads", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("offers account activity to FM1 and the FC only, and calls the platform's rebuild", async () => {
+    const { ledger, calls } = stub(() => ({ account: { code: "620" }, unexplained: 0 }));
+    const names = (agent) => ledger.tools(["acme-ltd"], agent).map((t) => t.name);
+    expect(names("fm1")).toContain("get_account_activity");
+    expect(names("fc")).toContain("get_account_activity");
+    for (const a of ["fm2", "ap-clerk", "ar-clerk", "fpa", undefined]) expect(names(a)).not.toContain("get_account_activity");
+    const def = ledger.tools(["acme-ltd"], "fm1").find((t) => t.name === "get_account_activity");
+    expect(def.description).toMatch(/FIRST/);
+    expect(def.description).toMatch(/quote them/);
+    expect(def.input_schema.required).toEqual(["entity", "account_code", "from_date", "to_date"]);
+
+    const r = await ledger.call(job, "get_account_activity", { entity: "acme-ltd", account_code: "620", from_date: "2026-01-01", to_date: "2026-09-30" });
+    expect(r.unexplained).toBe(0);
+    expect(calls[0]).toBe("/api/finance/clients/acme/xero/acme-ltd/account-activity?code=620&from=2026-01-01&to=2026-09-30");
+
+    expect((await ledger.call({ ...job, agent: "fm2" }, "get_account_activity", { entity: "acme-ltd", account_code: "620", from_date: "2026-01-01", to_date: "2026-09-30" })).error).toMatch(/Only FM1/);
+    expect((await ledger.call(job, "get_account_activity", { entity: "acme-ltd", account_code: "620&x=1", from_date: "2026-01-01", to_date: "2026-09-30" })).error).toMatch(/account code/);
+    expect((await ledger.call(job, "get_account_activity", { entity: "acme-ltd", account_code: "620", from_date: "2026-10-01", to_date: "2026-09-30" })).error).toMatch(/on or before/);
+    expect(calls).toHaveLength(1);
+  });
+
   it("opens a history by record type", async () => {
     const { ledger, calls } = stub(() => ({ data: { HistoryRecords: [{ DateUTCString: "2026-10-01T09:00:00", User: "Jo Bloggs", Changes: "Edited", Details: "Line 1 account changed" }] } }));
     const r = await ledger.call(job, "get_history", { entity: "acme-ltd", record_type: "invoice", record_id: INV });

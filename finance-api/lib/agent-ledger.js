@@ -11,7 +11,13 @@ const NAMES = [
   "get_organisation", "get_invoices", "get_invoice", "get_credit_notes", "get_payments",
   "get_bank_transactions", "get_manual_journals", "get_contacts", "get_history",
   "list_attachments", "get_fixed_assets", "check_bill", "get_budget_summary", "get_client_profile",
+  "get_account_activity",
 ];
+
+// get_account_activity is for the roles that reconcile balance sheet accounts.
+// A general session is not offered it either: the result is a reconciliation
+// input, and reading it well depends on the procedures those roles carry.
+const ACTIVITY_ROLES = ["fm1", "fc"];
 
 // History and attachments, by the record types an agent meets.
 const RECORD_TYPES = {
@@ -152,7 +158,7 @@ function organisationView(o) {
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
-function tools(entityEnum) {
+function tools(entityEnum, agent) {
   const entity = { type: "string", enum: entityEnum, description: "Entity slug" };
   const date = (what) => ({ type: "string", description: `${what} (YYYY-MM-DD)` });
   const id = (what) => ({ type: "string", description: what });
@@ -230,6 +236,20 @@ function tools(entityEnum) {
         periods: { type: "integer", description: "Number of months, 1 to 12" },
         timeframe: { type: "integer", enum: [1, 3, 12], description: "Months per column: 1, 3 or 12" },
       }),
+    ...(ACTIVITY_ROLES.includes(agent) ? [def("get_account_activity",
+      "Every entry on one account between two dates, rebuilt by the platform from the documents that post to it: bills, " +
+      "sales invoices, credit notes, spend and receive money, and manual journals. Each line gives date, source, document " +
+      "number, contact, description and the net (ex VAT) debit or credit. It also gives the trial balance the day before " +
+      "from_date and at to_date, the rebuilt closing, and what is unexplained. Use this FIRST when reconciling a balance " +
+      "sheet account, before searching invoices or journals one by one. Start from_date at the last date the account " +
+      "balance was nil, or the year start, so every item that makes up the balance is in range; if the opening is not nil, " +
+      "move from_date back. Build schedule items from the documents it returns. Drafts are listed under not_posted and are " +
+      "not in the ledger. The totals are computed by the platform: quote them rather than adding lines up. An unexplained " +
+      "amount is a finding to trace, not rounding; the note lists what the rebuild cannot see.",
+      {
+        account_code: { type: "string", description: "The account code, e.g. 620" },
+        from_date: date("First day to include"), to_date: date("Last day to include"),
+      }, ["account_code", "from_date", "to_date"])] : []),
   ];
 }
 
@@ -341,6 +361,14 @@ function agentLedger({ apiCall }) {
         return read(job, e, "reports/budget-summary", { date: input.date, periods: input.periods, timeframe: input.timeframe });
       case "check_bill":
         return apiCall("GET", `${base(job, e)}/checks/bill/${input.invoice_id}`);
+      case "get_account_activity": {
+        // Refused here as well as by the tool's absence from other roles.
+        if (!ACTIVITY_ROLES.includes(job.agent)) return { error: "Only FM1 or the FC reads account activity." };
+        if (!/^[A-Za-z0-9._-]{1,10}$/.test(String(input.account_code ?? ""))) return { error: "account_code must be a Xero account code" };
+        if (!input.from_date || !input.to_date) return { error: "from_date and to_date are both needed" };
+        if (input.from_date > input.to_date) return { error: "from_date must be on or before to_date" };
+        return apiCall("GET", `${base(job, e)}/account-activity${qs({ code: input.account_code, from: input.from_date, to: input.to_date })}`);
+      }
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -349,4 +377,4 @@ function agentLedger({ apiCall }) {
   return { tools, call, names: NAMES };
 }
 
-module.exports = { agentLedger, NAMES, invoiceRow, invoiceView, organisationView, where, dt };
+module.exports = { agentLedger, NAMES, ACTIVITY_ROLES, invoiceRow, invoiceView, organisationView, where, dt };

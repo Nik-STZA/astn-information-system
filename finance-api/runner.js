@@ -389,7 +389,8 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     ...reconciliations.tools(entityEnum),
     // FM1 and the FC only; a general session is not offered it either.
     ...(journalsRegister.roles.includes(agent) ? journalsRegister.tools(entityEnum) : []),
-    ...ledger.tools(entityEnum),
+    // get_account_activity is offered to FM1 and the FC only (lib/agent-ledger.js).
+    ...ledger.tools(entityEnum, agent),
     ...documents.tools(entityEnum),
     procedures.readProcedureTool(agent, clientRules),
   ];
