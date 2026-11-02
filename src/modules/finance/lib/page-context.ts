@@ -27,6 +27,7 @@ export function clientSlugOf(pathname: string): string | null {
 const SECTIONS: Array<[RegExp, string]> = [
   [/\/bills/, "Bills"], [/\/work/, "Work"], [/\/procedures/, "Procedures"], [/\/reports/, "Reports"],
   [/\/approvals/, "Approvals"], [/\/xero/, "Xero"], [/\/agents/, "Agents"], [/\/reconciliations/, "Reconciliations"],
+  [/\/review/, "Review"],
 ];
 
 export function pageContext(pathname: string, query: URLSearchParams): PageContext | null {
