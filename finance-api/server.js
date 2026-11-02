@@ -6327,6 +6327,12 @@ journalRoutes = require("./lib/journals-routes").mountJournals(app, {
   route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus,
 });
 
+// ── Review ──────────────────────────────────────────────────────────────────
+
+// Everything waiting on a person for a client, from Bills, Reconciliations,
+// Journals and the Approvals folders, in one read-only list (lib/review.js).
+require("./lib/review-routes").mountReview(app, { route, pool, clientIdFromSlug });
+
 // ── Start ───────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
