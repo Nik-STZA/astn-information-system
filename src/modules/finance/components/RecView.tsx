@@ -6,8 +6,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Check, ChevronRight, Minus, Plus, X } from "lucide-react";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import { EVENT_LABEL, PROOF_LABEL, actorLabel, dayLabel, money, monthLabel, type CoverRow, type EntityChecks, type RecDetail, type RecJournal, type ScheduleItem } from "@/modules/finance/lib/recs";
 import { StatusPill } from "./RecsList";
@@ -17,8 +17,17 @@ type Send = (path: string, body?: unknown, method?: string) => Promise<boolean>;
 
 export default function RecView({ slug, data }: { slug: string; data: RecDetail }) {
   const router = useRouter();
-  const { rec, cover, schedule, checks, journals, prior } = data;
+  const { rec, cover, schedule, checks, journals, prior, agent_run: run } = data;
+  const working = Boolean(run?.live);
   const [busy, setBusy] = useState(false);
+
+  // While FM1 works, look again every 15 seconds so its items and answer
+  // appear without a reload.
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => router.refresh(), 15_000);
+    return () => clearInterval(t);
+  }, [working, router]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
@@ -46,7 +55,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
   const stepClass = (n: number) => (stage === n ? styles.stepOn : "");
 
   return (
-    <div>
+    <div className={styles.recPage}>
       <div className={styles.top}>
         <div>
           <Link className={styles.crumb} href={`/finance/clients/${slug}/reconciliations?period=${rec.period}`}>Reconciliations / {rec.label}</Link>
@@ -60,7 +69,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         </div>
         <div className={styles.actions}>
           {rec.workable && preparing && (
-            <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("agent")}>Start FM1</button>
+            <button type="button" className="btn-secondary" disabled={busy || working} onClick={() => send("agent")}>{working ? <><span className={styles.spinner} aria-hidden="true" />FM1 is working</> : "Start FM1"}</button>
           )}
           {["with_fc", "with_cfo", "signed_off"].includes(rec.status) && (
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("reopen")}>Reopen</button>
@@ -72,6 +81,22 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
       </div>
 
       {error && <div className={styles.err} role="alert">{error}</div>}
+
+      {working && (
+        <div className={`${styles.note} ${styles.working}`} role="status">
+          <span className={styles.spinner} aria-hidden="true" />
+          <span>FM1 {run?.status === "queued" ? "is starting" : "is working on this"}, since {timeLabel(run?.started_at ?? run?.queued_at)}. It usually takes three to five minutes. Items appear here as it saves them.</span>
+        </div>
+      )}
+      {run && !working && run.status === "failed" && (
+        <div className={styles.alert} role="alert"><strong>FM1&apos;s last run did not finish.</strong> {run.error ?? ""}</div>
+      )}
+      {run && !working && run.status === "succeeded" && run.output && (
+        <details className={styles.found}>
+          <summary className={styles.h2}>FM1&apos;s answer, {timeLabel(run.finished_at)}</summary>
+          <MarkdownOutput text={run.output} />
+        </details>
+      )}
 
       {rec.sole_reviewer && <div className={styles.note}>Sole reviewer: one person acted in more than one seat on this reconciliation.</div>}
       {rec.shown_as_signed && <div className={styles.note}>Shown as signed off on {dayLabel(rec.signed_off_at)}, by {rec.signed_off_by}.</div>}
@@ -90,16 +115,14 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
       </div>
 
       {rec.preparer_note && (
-        <section className={styles.found}>
-          <h2 className={styles.h2}>What the preparer found</h2>
+        <Fold title="What the preparer found" tone="found">
           <MarkdownOutput text={rec.preparer_note} />
-        </section>
+        </Fold>
       )}
       {rec.review_note && (
-        <section className={styles.found}>
-          <h2 className={styles.h2}>Review</h2>
+        <Fold title="Review" tone="found">
           <MarkdownOutput text={rec.review_note} />
-        </section>
+        </Fold>
       )}
 
       {!rec.line_key && <PlaceLine data={data} busy={busy} send={send} />}
@@ -117,16 +140,13 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
       )}
 
       {rec.workable && (
-        <section className={`${styles.card} ${styles.section}`}>
-          <div className={styles.cardHead}>
-            <h2 className={styles.h2}>Schedule</h2>
-            {preparing && <button type="button" className="btn-secondary" onClick={() => setAdding(!adding)}><Plus size={14} aria-hidden="true" />Add item</button>}
-          </div>
+        <Fold title="Schedule" open meta={`${schedule.items.length} ${schedule.items.length === 1 ? "item" : "items"}`}
+          action={preparing && <button type="button" className="btn-secondary" onClick={(e) => { e.preventDefault(); setAdding(!adding); }}><Plus size={14} aria-hidden="true" />Add item</button>}>
           {adding && <ItemForm entities={data.entities} busy={busy} send={send} onDone={() => setAdding(false)} />}
           {schedule.items.length === 0
             ? <div className={styles.pad}><span className={styles.sub}>No items yet.</span></div>
             : <Schedule schedule={schedule} preparing={preparing} busy={busy} send={send} checks={checks?.entities ?? []} />}
-        </section>
+        </Fold>
       )}
 
       {rec.workable && (
@@ -185,16 +205,17 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         </section>
       )}
 
-      <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
-        <h2 className={styles.h2}>History</h2>
-        {data.events.length === 0 && <span className={styles.sub}>Nothing yet.</span>}
-        {data.events.map((e, i) => (
-          <div key={i} className={styles.event}>
-            <span>{EVENT_LABEL[e.action] ?? e.action} · {actorLabel(e.actor)}</span>
-            <span>{dayLabel(e.at)}</span>
-          </div>
-        ))}
-      </section>
+      <Fold title="History" meta={`${data.events.length} ${data.events.length === 1 ? "entry" : "entries"}`}>
+        <div className={styles.pad}>
+          {data.events.length === 0 && <span className={styles.sub}>Nothing yet.</span>}
+          {data.events.map((e, i) => (
+            <div key={i} className={styles.event}>
+              <span>{EVENT_LABEL[e.action] ?? e.action} · {actorLabel(e.actor)}</span>
+              <span>{dayLabel(e.at)}</span>
+            </div>
+          ))}
+        </div>
+      </Fold>
     </div>
   );
 }
@@ -467,13 +488,45 @@ function Checks({ data }: { data: RecDetail }) {
     : prior.opening_agrees ? `Agrees${prior.status === "signed_off" ? "" : `, ${prior.label} not signed off`}` : "Differs";
   return (
     <>
-      <div className={styles.check}><span>Ledger agrees to schedule</span><span className={styles.checkResult}>{cover.ties ? "Pass" : `Out by ${money(cover.group.variance)}`}</span></div>
-      <div className={styles.check}><span>Opening equals {prior.label} close</span><span className={styles.checkResult}>{openingText}</span></div>
-      <div className={styles.check}><span>Every item has a document</span><span className={styles.checkResult}>{undocumented ? `${undocumented} without` : "Pass"}</span></div>
-      <div className={styles.check}><span>Monthly journal posted for each item</span><span className={styles.checkResult}>{!checks ? "Not run" : failed.length ? "Could not read" : missing ? `${missing} missing` : "Pass"}</span></div>
+      <CheckRow label="Ledger agrees to schedule" result={cover.ties ? "pass" : "fail"} text={cover.ties ? "Pass" : `Out by ${money(cover.group.variance)}`} />
+      <CheckRow label={`Opening equals ${prior.label} close`} result={prior.opening_agrees === null ? "none" : prior.opening_agrees ? "pass" : "fail"} text={openingText} />
+      <CheckRow label="Every item has a document" result={undocumented ? "fail" : "pass"} text={undocumented ? `${undocumented} without` : "Pass"} />
+      <CheckRow label="Monthly journal posted for each item" result={!checks ? "none" : failed.length || missing ? "fail" : "pass"} text={!checks ? "Not run" : failed.length ? "Could not read" : missing ? `${missing} missing` : "Pass"} />
       {failed.map((f) => <p key={f.entity_id} className={styles.small}>{f.entity}: {f.error}</p>)}
       {warnings.map((w, i) => <p key={i} className={styles.small}>{w.text}</p>)}
       {checks && <p className={styles.small}>{checks.note}</p>}
     </>
+  );
+}
+
+function timeLabel(at: string | null | undefined): string {
+  if (!at) return "just now";
+  return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
+}
+
+function CheckRow({ label, result, text }: { label: string; result: "pass" | "fail" | "none"; text: string }) {
+  const Icon = result === "pass" ? Check : result === "fail" ? X : Minus;
+  const tone = result === "pass" ? styles.pass : result === "fail" ? styles.fail : styles.none;
+  return (
+    <div className={styles.check}>
+      <span>{label}</span>
+      <span className={`${styles.checkResult} ${tone}`}><Icon size={15} aria-hidden="true" strokeWidth={2.5} />{text}</span>
+    </div>
+  );
+}
+
+// A card that folds. Closed by default unless `open`; the header carries a
+// count and, where there is one, the section's action.
+function Fold({ title, meta, action, open = false, tone, children }: {
+  title: string; meta?: string; action?: ReactNode; open?: boolean; tone?: "found"; children: ReactNode;
+}) {
+  return (
+    <details className={`${tone === "found" ? styles.foundFold : styles.card} ${styles.section} ${styles.fold}`} open={open}>
+      <summary className={styles.cardHead}>
+        <span className={styles.foldTitle}><ChevronRight size={16} className={styles.chev} aria-hidden="true" /><span className={styles.h2}>{title}</span>{meta && <span className={styles.small}>{meta}</span>}</span>
+        {action}
+      </summary>
+      <div className={tone === "found" ? styles.foldBody : undefined}>{children}</div>
+    </details>
   );
 }
