@@ -6,6 +6,7 @@ import { agentLedger } from "./agent-ledger";
 import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
 import { NAMES as REC_TOOLS } from "./agent-recs";
+import { NAMES as JOURNAL_TOOLS, ROLES as JOURNAL_ROLES } from "./agent-journals";
 
 const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
 
@@ -23,6 +24,7 @@ const ALL_TOOLS = new Set([
   ...agentLedger({}).names,
   ...DOCUMENT_TOOLS,
   ...REC_TOOLS,
+  ...JOURNAL_TOOLS,
   "read_procedure",
 ]);
 
@@ -83,6 +85,8 @@ describe("the agents' library", () => {
     expect(names("fc")).not.toContain("create_draft_journal");
     expect(names("ap-clerk")).toContain("recommend_bill_coding");
     expect(names("fm1")).toContain("create_draft_journal");
+    // A journal for the CFO's Journals page is proposed by FM1 or the FC only.
+    for (const r of ROLES) expect(names(r).includes("propose_journal"), r).toBe(JOURNAL_ROLES.includes(r));
     for (const r of ROLES) expect(names(r)).toContain("read_procedure");
     // No role: a general session keeps every tool, as before.
     expect(names(undefined)).toHaveLength(all.length);

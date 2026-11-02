@@ -387,6 +387,8 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     },
     ...work.tools(entityEnum),
     ...reconciliations.tools(entityEnum),
+    // FM1 and the FC only; a general session is not offered it either.
+    ...(journalsRegister.roles.includes(agent) ? journalsRegister.tools(entityEnum) : []),
     ...ledger.tools(entityEnum),
     ...documents.tools(entityEnum),
     procedures.readProcedureTool(agent, clientRules),
@@ -595,6 +597,16 @@ const work = require("./lib/agent-work").agentWork({ apiCall, apiRequest, reques
 
 const reconciliations = require("./lib/agent-recs").agentRecs({ apiCall, apiRequest, requesterOf });
 
+// ── Journals ─────────────────────────────────────────────────────────────────
+//
+// Month-end journals not on a reconciliation, proposed for the CFO on the
+// Journals page: lib/agent-journals.js.
+
+const journalsRegister = {
+  ...require("./lib/agent-journals").agentJournals({ apiRequest, requesterOf }),
+  roles: require("./lib/agent-journals").ROLES,
+};
+
 // ── Ledger reads ─────────────────────────────────────────────────────────────
 //
 // The documents behind a balance: lib/agent-ledger.js.
@@ -630,6 +642,7 @@ Journals:
 - Only when the user's follow-up plainly approves that proposal, call create_draft_journal with exactly the proposed entity, date, narration, codes and amounts (debits positive, credits negative). If they ask for a change, make it and propose again.
 - After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.
 - A journal on a reconciliation is different. Do not follow the steps above for it. Record it with propose_rec_journal, then show it as that tool says, and do not ask for a reply: the CFO approves it on the reconciliation in os.stza.io. If someone replies "approved" to one, tell them to approve it there; the platform refuses it otherwise.
+- A month-end journal you raise yourself during the close (an accrual, a reclass, the payroll journal, a correction) goes on the Journals page: record it with propose_journal if you have it, and do not ask for a reply. The CFO approves it there and the platform creates the draft in Xero.
 
 The Bills queue:
 - "Bills" means the Bills tab in os.stza.io, not Xero's bills list. Read it with list_bills_queue and get_bill_item. Draft bills in Xero do not appear in aged payables, so never look for a Bills item there.
@@ -810,6 +823,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = procedures.readProcedure(job.agent, tu.input.name, rules);
         } else if (reconciliations.names.includes(tu.name)) {
           result = await reconciliations.call(job, connectedEntities, tu.name, tu.input);
+        } else if (journalsRegister.names.includes(tu.name)) {
+          result = await journalsRegister.call(job, tu.name, tu.input);
+          console.log(`    Journal proposal: ${result.saved ? "recorded" : `refused (${result.status ?? result.error})`}`);
         } else if (ledger.names.includes(tu.name)) {
           result = await ledger.call(job, tu.name, tu.input);
         } else if (documents.names.includes(tu.name)) {
