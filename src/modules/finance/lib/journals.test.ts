@@ -61,6 +61,7 @@ describe("the list", () => {
     expect(sourceLabel({ source: "person" })).toBe("Person");
     expect(sourceLabel({ source: "fm1" })).toBe("FM1");
     expect(sourceLabel({ source: "rec" })).toBe("From a reconciliation");
+    expect(sourceLabel({ source: "schedule" })).toBe("Monthly release");
   });
 
   it("checks Xero for drafts not looked at lately, and not for a rec's", () => {

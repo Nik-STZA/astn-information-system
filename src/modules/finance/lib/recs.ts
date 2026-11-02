@@ -118,6 +118,16 @@ export interface EntityChecks {
   warnings?: Array<{ item_id: string; kind: "ending" | "overrun"; text: string }>;
 }
 
+// What the last checks did about the monthly release, per company.
+export interface ReleaseOutcome {
+  entity_id: string;
+  entity: string;
+  state: "proposed" | "kept" | "none" | "skipped";
+  why: string;
+  id?: string;
+  total?: string;
+}
+
 export interface RecDetail {
   rec: {
     id: string; account_name: string; period: string; period_end: string; label: string; status: RecStatus;
@@ -127,6 +137,10 @@ export interface RecDetail {
     signed_off_by: string | null; signed_off_at: string | null; recheck_reason: string | null; recheck_at: string | null;
     checks_at: string | null; workable: boolean; sole_reviewer: boolean; shown_as_signed: boolean; signed_before: number;
   };
+  releases?: {
+    on: boolean; by: string | null; at: string | null;
+    journals: Array<{ id: string; entity_id: string; entity_name: string; state: "proposed" | "approved" | "draft_created" | "posted" | "rejected"; journal_date: string; total: string; xero_journal_no: string | null; last_error: string | null }>;
+  };
   agent_run: {
     id: string; status: string; queued_at: string; started_at: string | null; finished_at: string | null;
     error: string | null; output: string | null; live: boolean;
@@ -134,7 +148,7 @@ export interface RecDetail {
   tolerance: string;
   cover: { rows: CoverRow[]; group: { gl: string | null; schedule: string | null; variance: string | null }; ties: boolean; mixed_currency: boolean };
   schedule: { months: string[]; items: ScheduleItem[] };
-  checks: { at: string; note: string; entities: EntityChecks[] } | null;
+  checks: { at: string; note: string; entities: EntityChecks[]; releases?: ReleaseOutcome[] } | null;
   journals: RecJournal[];
   events: Array<{ at: string; actor: string; action: string; detail: Record<string, unknown> }>;
   prior: { status: RecStatus | null; label: string; recheck: boolean; opening_agrees: boolean | null };
@@ -232,6 +246,9 @@ export const EVENT_LABEL: Record<string, string> = {
   journal_rejected: "Journal rejected",
   journal_drafted: "Draft created in Xero",
   journal_superseded: "Journal replaced by a new proposal",
+  releases_on: "Monthly releases switched on",
+  releases_off: "Monthly releases switched off",
+  release_proposed: "Monthly release proposed on Journals",
 };
 
 // agent:fm1 to FM1; a person stays as their address.
@@ -244,7 +261,7 @@ export function actorLabel(actor: string): string {
 // proposal, the note of a draft) are left out on purpose.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const REC_PATH = new RegExp(
-  `^recs/(compose|settings|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
+  `^recs/(compose|settings|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
 export const isRecPath = (path: string) => REC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

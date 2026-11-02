@@ -149,6 +149,8 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         </Fold>
       )}
 
+      {rec.workable && data.releases && <Releases slug={slug} data={data} busy={busy} send={send} preparing={preparing} />}
+
       {rec.workable && (
         <div className={styles.two}>
           <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
@@ -217,6 +219,46 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         </div>
       </Fold>
     </div>
+  );
+}
+
+const RELEASE_STATE: Record<string, string> = {
+  proposed: "Waiting for the CFO", approved: "Going to Xero", draft_created: "Draft in Xero", posted: "Posted in Xero", rejected: "Rejected",
+};
+
+// The monthly release journal, made here from the schedule because Xero's API
+// cannot set up or read a repeating journal. Switched on once for the account;
+// each time the month's checks run, the release for anything Xero does not
+// already show is proposed on the Journals page.
+function Releases({ slug, data, busy, send, preparing }: { slug: string; data: RecDetail; busy: boolean; send: Send; preparing: boolean }) {
+  const r = data.releases!;
+  const last = data.checks?.releases ?? [];
+  return (
+    <Fold title="Monthly release journal" meta={r.on ? "On" : "Off"}
+      action={<button type="button" className="btn-secondary" disabled={busy} onClick={(e) => { e.preventDefault(); void send("releases", { on: !r.on }, "PUT").then((done) => { if (done && !r.on && preparing) void send("checks"); }); }}>{r.on ? "Switch off" : "Switch on"}</button>}>
+      <div className={styles.pad}>
+        <p className={styles.small} style={{ marginTop: 0 }}>
+          {r.on
+            ? <>On{r.by ? ` since ${dayLabel(r.at)}, by ${r.by}` : ""}. Each time this month&apos;s checks run, os.stza.io proposes the release from the schedule on the Journals page, for each company, leaving out any item Xero already shows as released this month. The CFO approves it there and it goes to Xero as a draft. Items stop releasing when they end.</>
+            : <>Off. Switch it on and os.stza.io prepares each month&apos;s release journal from this schedule, so the schedule and Xero stay in step. A release Xero already has, from a repeating journal set up there or one made by hand, is left out. Only the CFO switches it.</>}
+        </p>
+        {r.journals.length > 0 && (
+          <div className={styles.event} style={{ fontWeight: 600 }}><span>{data.rec.label}</span><span /></div>
+        )}
+        {r.journals.map((j) => (
+          <div key={j.id} className={styles.event}>
+            <span>{j.entity_name} · {money(j.total)} · {RELEASE_STATE[j.state] ?? j.state}{j.xero_journal_no ? ` (#${j.xero_journal_no})` : ""}{j.last_error ? ` · ${j.last_error}` : ""}</span>
+            <Link href={`/finance/clients/${slug}/journals?period=${data.rec.period}`}>Journals</Link>
+          </div>
+        ))}
+        {r.on && last.filter((x) => x.state !== "proposed").map((x) => (
+          <div key={x.entity_id} className={styles.small}>{x.entity}: {x.why}</div>
+        ))}
+        {r.on && r.journals.length === 0 && last.length === 0 && (
+          <span className={styles.sub}>{preparing ? "Run checks to propose this month's release." : "No release was proposed for this month."}</span>
+        )}
+      </div>
+    </Fold>
   );
 }
 
