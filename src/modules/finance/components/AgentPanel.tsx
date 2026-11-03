@@ -59,6 +59,9 @@ function when(iso: string | null): string {
   });
 }
 
+export const BLOCKED_BY_FILTER =
+  "The site's security filter blocked this message, so it was not sent. Try rewording it, for example without brackets.";
+
 export async function postRun(
   slug: string,
   body: { agent: string | null; instruction: string; parentRunId?: string; recId?: string | null }
@@ -71,7 +74,11 @@ export async function postRun(
     });
     if (res.ok) return null;
     const b = (await res.json().catch(() => ({}))) as { error?: string };
-    return b.error ?? "Could not queue the job";
+    if (b.error) return b.error;
+    // A 403 with no message of ours came from the security filter in front of
+    // the site, which can mistake ordinary words for an attack.
+    if (res.status === 403) return BLOCKED_BY_FILTER;
+    return "Could not queue the job";
   } catch {
     return "Could not queue the job";
   }
