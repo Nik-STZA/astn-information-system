@@ -143,6 +143,10 @@ export interface WipItemRow {
   drafterEmail: string | null;
   drafterAgent: string | null;
   reviewIndependence: "independent" | "same-person" | "not-recorded";
+  /** Closed off in os.stza.io by marking its Work task done; status reads "closed". */
+  closedAt?: string | null;
+  closedBy?: string | null;
+  closedNote?: string | null;
   reviews: WipReviewRow[];
 }
 

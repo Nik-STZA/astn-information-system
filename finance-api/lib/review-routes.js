@@ -20,7 +20,7 @@ const SOURCES = {
   approvals: "The Approvals folders are not in this database.",
 };
 
-function mountReview(app, { route, pool, clientIdFromSlug }) {
+function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = null }) {
   const BASE = "/api/finance/clients/:slug/review";
 
   // Reads one source; a missing table is recorded, anything else is a fault.
@@ -50,6 +50,10 @@ function mountReview(app, { route, pool, clientIdFromSlug }) {
         .then((r) => r.rows.map((x) => x.agent))
         .catch((e) => { if (isMissingTable(e)) return []; throw e; }),
     ]);
+
+    // Each live Approvals item has its Work task before the list is read, so
+    // the item can link to it.
+    if (syncApprovalTasks) await syncApprovalTasks(client.id);
 
     const [bills, recRows, recJournals, own, wip] = await Promise.all([
       source("bills", missing, async () => (await pool.query(
@@ -95,9 +99,13 @@ function mountReview(app, { route, pool, clientIdFromSlug }) {
       source("approvals", missing, async () => (await pool.query(
         `SELECT w.id, w.ref, w.type, w.status, w.panel, w.title, w.amount_total, w.blocked_on,
                 w.drafter_role, w.drafter_email, w.drafter_agent, w.drafted_at, w.updated_at, w.created_at,
-                e.name AS entity_name
+                e.name AS entity_name,
+                (SELECT t.id FROM finance.tasks t
+                  WHERE t.client_id = w.client_id AND t.source = 'approval' AND t.source_ref = w.id::text AND t.deleted_at IS NULL
+                  LIMIT 1) AS task_id
            FROM finance.wip_items w LEFT JOIN finance.entities e ON e.id = w.entity_id
-          WHERE w.client_id = $1 AND w.panel IN ('awaiting-decision', 'blocked-external', 'in-progress-upstream')`, [client.id])).rows),
+          WHERE w.client_id = $1 AND w.panel IN ('awaiting-decision', 'blocked-external', 'in-progress-upstream')
+            AND w.closed_at IS NULL`, [client.id])).rows),
     ]);
 
     const ctx = { slug, activeAgents, now };

@@ -220,7 +220,8 @@ function approvalItem(row, { slug }) {
     since: iso(row.updated_at ?? row.drafted_at ?? row.created_at),
     produced_by: producedBy(row.drafter_agent) ?? row.drafter_email ?? row.drafter_role ?? null,
     status: type ? `${type}: ${words}` : words,
-    href: `${clientBase(slug)}/approvals?item=${enc(row.ref)}`,
+    // Answered and closed in Work, like any task; the folder item if it has none yet.
+    href: row.task_id ? `${clientBase(slug)}/work?task=${enc(row.task_id)}` : `${clientBase(slug)}/approvals?item=${enc(row.ref)}`,
   };
 }
 
