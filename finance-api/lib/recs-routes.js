@@ -1058,7 +1058,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const run = (await conn.query(
       `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, parent_run_id, rec_id)
        VALUES ($1,$2,$3,'fm1',$4,'queued',$5,$6) RETURNING id`,
-      [client.id, actorEmail, role, recs.approvalInstruction(j.id), parent.id, rec.id])).rows[0];
+      [client.id, actorEmail, role, recs.approvalInstruction(j.id, j.jnl_no), parent.id, rec.id])).rows[0];
     await conn.query(
       "UPDATE finance.rec_journals SET state = 'approved', approved_by = $2, approved_at = now(), approved_run_id = $3, attempts = $4 WHERE id = $1",
       [j.id, actorEmail, run.id, attempts]);

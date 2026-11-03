@@ -583,6 +583,13 @@ describe("the approval goes through the one existing path", () => {
     expect(a.approval.presented_text).toBe(answer);
     expect(a.approval.approved_by).toBe("cfo@example.com");
   });
+  it("names the journal and still reads as a plain approval", () => {
+    const said = approvalInstruction(id, 1234);
+    expect(said).toMatch(/^Approved: JNL-1234\. Create the draft journal/);
+    const a = approvalFromThread({ current: { instruction: said, requested_by_email: "cfo@example.com", queued_at: "2026-11-01T09:00:00Z" }, parent: { output: answer } });
+    expect(a.error).toBeUndefined();
+    expect(namesRecProposal(said)).toBe(true);
+  });
   it("marks a run started by that approval, and no ordinary run", () => {
     expect(namesRecProposal(approvalInstruction(id))).toBe(true);
     expect(namesRecProposal("Approved")).toBe(false);
@@ -598,6 +605,11 @@ describe("M1: the base prompt", () => {
   it("does not offer a text proposal for reconciliation work", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "runner.js"), "utf8");
     expect(src).toMatch(/Do not follow the steps above for it\. Record it with propose_rec_journal/);
+  });
+  it("tells FM1 the platform's approval message is the approval, so it creates the draft", () => {
+    const src = fs.readFileSync(path.join(__dirname, "..", "runner.js"), "utf8");
+    expect(src).toMatch(/the platform itself sends you "Approved: JNL-n\. Create the draft journal for reconciliation proposal <id>"/);
+    expect(src).toMatch(/call create_draft_journal straight away/);
   });
 });
 
