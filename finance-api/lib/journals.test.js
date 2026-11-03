@@ -162,3 +162,41 @@ describe("the agent tool", () => {
     expect(sent.length).toBe(before);
   });
 });
+
+describe("journal numbers", () => {
+  it("names a journal JNL-n, and nothing when it has no number", async () => {
+    const { jnlRef } = await import("./journals");
+    expect(jnlRef(7)).toBe("JNL-7");
+    expect(jnlRef(null)).toBeNull();
+  });
+
+  it("lists a month's journals for an agent with their numbers", async () => {
+    const calls = [];
+    const tool = agentJournals({
+      apiRequest: async (method, path) => {
+        calls.push({ method, path });
+        return { ok: true, status: 200, body: { period: "2026-10", journals: [
+          { jnl: "JNL-3", entity_name: "Example Ltd", journal_date: "2026-10-31", narration: "Accrual", total: "100.00", state: "proposed", lines: [], rec: null },
+          { jnl: "JNL-4", entity_name: "Example Ltd", journal_date: "2026-10-31", narration: "Release", total: "50.00", state: "draft_created", xero_journal_no: "88", lines: [], rec: { id: "r1", account_name: "Prepayments" } },
+        ] } };
+      },
+      requesterOf: async () => "jo@example.com",
+    });
+    const r = await tool.call({ id: "x", agent: "fc", client: { slug: "sample-group" } }, "list_journals", { period: "2026-10" });
+    expect(calls).toEqual([{ method: "GET", path: "/api/finance/clients/sample-group/journals?period=2026-10" }]);
+    expect(r.journals.map((j) => j.jnl)).toEqual(["JNL-3", "JNL-4"]);
+    expect(r.journals[1]).toMatchObject({ xero_journal_no: "88", on_rec: "Prepayments" });
+    expect((await tool.call({ id: "x", agent: "fc", client: { slug: "s" } }, "list_journals", { period: "Oct" })).error).toMatch(/YYYY-MM/);
+  });
+
+  it("tells the agent the number of the journal it proposed", async () => {
+    const tool = agentJournals({
+      apiRequest: async () => ({ ok: true, status: 201, body: { id: "j1", jnl: "JNL-9" } }),
+      requesterOf: async () => "jo@example.com",
+    });
+    const r = await tool.call({ id: "11111111-1111-1111-1111-111111111111", agent: "fm1", client: { slug: "sample-group" } }, "propose_journal", GOOD);
+    expect(r.jnl).toBe("JNL-9");
+    expect(r.note).toMatch(/JNL-9/);
+  });
+});
+

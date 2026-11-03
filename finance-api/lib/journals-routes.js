@@ -126,7 +126,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
     let fromRecs = [];
     try {
       fromRecs = (await pool.query(
-        `SELECT j.id, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text AS journal_date, j.narration, j.lines, j.reason,
+        `SELECT j.id, j.jnl_no, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text AS journal_date, j.narration, j.lines, j.reason,
                 j.proposed_by, j.approved_by, j.approved_at, j.rejected_by, j.rejected_at, j.xero_journal_no, j.drafted_at, j.created_at,
                 r.id AS rec_id, r.period, a.account_name,
                 ar.status AS run_status, ar.queued_at AS run_queued_at, p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http
@@ -149,7 +149,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
           ? journals.attemptState(j.post_outcome ? { outcome: j.post_outcome, http_status: j.post_http, created_at: j.post_at } : null)
           : null;
         return {
-          kind: "register", id: j.id, entity_id: j.entity_id, entity_name: j.entity_name, period: j.period, journal_date: j.journal_date,
+          kind: "register", id: j.id, jnl: journals.jnlRef(j.jnl_no), entity_id: j.entity_id, entity_name: j.entity_name, period: j.period, journal_date: j.journal_date,
           narration: j.narration, lines: j.lines, total: journals.totalOf(j.lines), reason: j.reason,
           source: journals.sourceOf({ kind: "register", source: j.source, proposed_by: j.proposed_by }), proposed_by: j.proposed_by,
           state: j.state, approved_by: j.approved_by, approved_at: j.approved_at, rejected_by: j.rejected_by, rejected_at: j.rejected_at,
@@ -162,7 +162,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
           ? recs.retryState({ runLive: recs.runIsLive({ status: j.run_status, queued_at: j.run_queued_at }), post: j.post_outcome ? { outcome: j.post_outcome, http_status: j.post_http } : null })
           : null;
         return {
-          kind: "rec", id: j.id, entity_id: j.entity_id, entity_name: j.entity_name, period: j.period, journal_date: j.journal_date,
+          kind: "rec", id: j.id, jnl: journals.jnlRef(j.jnl_no), entity_id: j.entity_id, entity_name: j.entity_name, period: j.period, journal_date: j.journal_date,
           narration: j.narration, lines: j.lines, total: journals.totalOf(j.lines), reason: j.reason,
           source: "rec", proposed_by: j.proposed_by,
           state: j.state, approved_by: j.approved_by, approved_at: j.approved_at, rejected_by: j.rejected_by, rejected_at: j.rejected_at,
@@ -230,24 +230,24 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
       // The same journal twice is one journal: the same company, date and
       // amounts, still waiting or already in Xero. Locked, so two at once cannot both pass.
       const same = (await conn.query(
-        `SELECT id, state, lines FROM finance.journals
+        `SELECT id, jnl_no, state, lines FROM finance.journals
           WHERE client_id = $1 AND entity_id = $2 AND journal_date = $3 AND state IN ('proposed', 'approved', 'draft_created', 'posted')
           FOR UPDATE`, [client.id, entity.id, body.date])).rows
         .find((j) => recs.amountsKey(j.lines) === recs.amountsKey(lines));
       if (same) {
         const where = { proposed: "waiting for the CFO", approved: "approved and going to Xero", draft_created: "a draft in Xero", posted: "posted in Xero" }[same.state];
-        return { status: 409, body: { error: `The same journal is already ${where}.`, id: same.id } };
+        return { status: 409, body: { error: `The same journal is already ${where}, as ${journals.jnlRef(same.jnl_no)}.`, id: same.id, jnl: journals.jnlRef(same.jnl_no) } };
       }
       const row = (await conn.query(
         `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, proposed_run_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, jnl_no`,
         [client.id, entity.id, body.date.slice(0, 7), body.date, String(body.narration).trim(), JSON.stringify(lines),
           String(body.reason ?? "").trim() || null, source, actor, via?.run_id ?? null])).rows[0];
       await auditJournal(conn, req, {
         client, actorEmail, role, action: "journal_proposed", id: row.id,
-        payload: { via: via ? `${via.agent}:${via.run_id}` : null, entity: entity.slug, date: body.date, narration: String(body.narration).trim(), lines },
+        payload: { jnl: journals.jnlRef(row.jnl_no), via: via ? `${via.agent}:${via.run_id}` : null, entity: entity.slug, date: body.date, narration: String(body.narration).trim(), lines },
       });
-      return { status: 201, body: { id: row.id, warnings } };
+      return { status: 201, body: { id: row.id, jnl: journals.jnlRef(row.jnl_no), warnings } };
     });
     res.status(out.status).json(out.body);
   }));

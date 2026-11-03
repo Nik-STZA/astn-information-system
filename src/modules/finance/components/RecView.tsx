@@ -219,7 +219,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           {data.events.length === 0 && <span className={styles.sub}>Nothing yet.</span>}
           {data.events.map((e, i) => (
             <div key={i} className={styles.event}>
-              <span>{EVENT_LABEL[e.action] ?? e.action} · {actorLabel(e.actor)}</span>
+              <span>{EVENT_LABEL[e.action] ?? e.action}{typeof e.detail?.jnl === "string" ? ` ${e.detail.jnl}` : ""} · {actorLabel(e.actor)}</span>
               <span>{dayLabel(e.at)}</span>
             </div>
           ))}
@@ -254,7 +254,7 @@ function Releases({ slug, data, busy, send, preparing }: { slug: string; data: R
         )}
         {r.journals.map((j) => (
           <div key={j.id} className={styles.event}>
-            <span>{j.entity_name} · {j.item_no != null ? `${j.item_no}. ` : ""}{j.supplier ?? "An item"} · {money(j.total)} · {RELEASE_STATE[j.state] ?? j.state}{j.xero_journal_no ? ` (#${j.xero_journal_no})` : ""}{j.last_error ? ` · ${j.last_error}` : ""}</span>
+            <span>{j.jnl ? `${j.jnl} · ` : ""}{j.entity_name} · {j.item_no != null ? `${j.item_no}. ` : ""}{j.supplier ?? "An item"} · {money(j.total)} · {RELEASE_STATE[j.state] ?? j.state}{j.xero_journal_no ? ` (#${j.xero_journal_no})` : ""}{j.last_error ? ` · ${j.last_error}` : ""}</span>
             <Link href={`/finance/clients/${slug}/journals?period=${data.rec.period}`}>Journals</Link>
           </div>
         ))}
@@ -498,7 +498,7 @@ function Journal({ j, busy, send }: { j: RecJournal; busy: boolean; send: Send }
   const state = { proposed: null, approved, draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`, rejected: "Rejected." }[j.state];
   return (
     <div style={{ marginBottom: 12 }}>
-      <div className={styles.small}>{j.entity_name} · {dayLabel(j.journal_date)} · {j.narration}</div>
+      <div className={styles.small}>{j.jnl && <strong>{j.jnl} · </strong>}{j.entity_name} · {dayLabel(j.journal_date)} · {j.narration}</div>
       <div style={{ marginTop: 4 }}>
         {j.lines.map((l, i) => (
           <div key={i} className={styles.jLine}>

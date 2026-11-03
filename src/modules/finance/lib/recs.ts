@@ -93,6 +93,8 @@ export interface ScheduleItem {
 
 export interface RecJournal {
   id: string;
+  /** JNL-7: the number a person and an agent both use. */
+  jnl?: string | null;
   entity_id: string;
   entity_name: string;
   state: "proposed" | "approved" | "draft_created" | "rejected" | "superseded";
@@ -141,7 +143,7 @@ export interface RecDetail {
   };
   releases?: {
     on: boolean; by: string | null; at: string | null;
-    journals: Array<{ id: string; entity_id: string; entity_name: string; item_id: string | null; supplier: string | null; item_no: number | null; state: "proposed" | "approved" | "draft_created" | "posted" | "rejected"; journal_date: string; total: string; xero_journal_no: string | null; last_error: string | null }>;
+    journals: Array<{ id: string; jnl?: string | null; entity_id: string; entity_name: string; item_id: string | null; supplier: string | null; item_no: number | null; state: "proposed" | "approved" | "draft_created" | "posted" | "rejected"; journal_date: string; total: string; xero_journal_no: string | null; last_error: string | null }>;
   };
   agent_run: {
     id: string; status: string; queued_at: string; started_at: string | null; finished_at: string | null;

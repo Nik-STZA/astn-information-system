@@ -10,6 +10,8 @@ export interface JournalLine { account_code: string; description?: string; amoun
 export interface JournalRow {
   kind: "register" | "rec";
   id: string;
+  /** JNL-7: the number a person and an agent both use. Null before migration 036. */
+  jnl?: string | null;
   entity_id: string;
   entity_name: string;
   period: string;

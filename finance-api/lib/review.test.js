@@ -103,6 +103,11 @@ describe("journals", () => {
     expect(i.status).toMatch(/Proposed on Prepayments, October 2026/);
   });
 
+  it("names a journal by its number", () => {
+    expect(recJournalItem(rj({ jnl_no: 12 }), { slug, now: NOW })).toMatchObject({ jnl: "JNL-12", title: "JNL-12 Insurance release October" });
+    expect(recJournalItem(rj(), { slug, now: NOW })).toMatchObject({ jnl: null, title: "Insurance release October" });
+  });
+
   it("an approved rec journal: hidden while its run is live, listed when it needs a decision", () => {
     const live = rj({ state: "approved", approved_at: "2026-11-02T11:58:00Z", run_status: "running", run_queued_at: "2026-11-02T11:58:00Z" });
     expect(recJournalItem(live, { slug, now: NOW })).toBeNull();

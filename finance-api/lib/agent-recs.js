@@ -151,7 +151,7 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
       const { rec_id, ...body } = input;
       const r = await send("POST", `${path}/journals`, body);
       return r.saved
-        ? { ...r, note: "Recorded on the reconciliation for the CFO. Nothing has gone to Xero. Show this journal in your answer under 'Proposed journal (draft)', with the company, date, narration, codes and amounts." }
+        ? { ...r, note: `Recorded on the reconciliation for the CFO as ${r.jnl ?? "a new journal"}${r.replaces ? `, replacing ${r.replaces}` : ""}. Nothing has gone to Xero. Show this journal in your answer under 'Proposed journal (draft)', naming it ${r.jnl ?? "by its number"}, with the company, date, narration, codes and amounts.` }
         : r;
     }
     if (name === "submit_rec") {
