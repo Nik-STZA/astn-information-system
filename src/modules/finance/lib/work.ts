@@ -37,6 +37,9 @@ export interface Task {
   due_on: string | null;
   position: number;
   source: string;
+  // The template's name for a task, e.g. "month-end:2026-10:bank". Null for a
+  // task made by hand.
+  source_ref?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

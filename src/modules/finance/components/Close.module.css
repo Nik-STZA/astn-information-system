@@ -1,0 +1,63 @@
+/* Close. Mobile first: one column of cards on a phone; the step list widens on
+   a computer. Neutral greys; gold only on what is waiting for you. Status
+   colours come from Page.module.css (s-green, s-blue, s-amber, s-red). */
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.barEnd { margin-left: auto; font-size: 13px; color: var(--sub); }
+
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; max-width: 980px; }
+@media (min-width: 900px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.tile { display: block; padding: 12px 14px; background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; color: var(--tx); text-decoration: none; min-width: 0; }
+a.tile:hover { background: var(--cardhover); }
+.tileN { font-size: 20px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.tileLabel { font-size: 12px; color: var(--sub); margin-top: 2px; }
+.tileYou { border-color: var(--brand-gold); }
+
+.progress { height: 6px; border-radius: 999px; background: var(--cardhover); overflow: hidden; margin: 0 0 16px; max-width: 980px; }
+.progressFill { height: 100%; background: var(--tx); border-radius: 999px; }
+
+.section { margin-bottom: 20px; max-width: 980px; }
+.h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--tx); }
+
+.steps { background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; }
+.step { display: grid; grid-template-columns: 20px 1fr; gap: 4px 12px; padding: 12px 14px; border-bottom: 1px solid var(--bd); color: var(--tx); text-decoration: none; }
+.step:last-child { border-bottom: 0; }
+a.step:hover { background: var(--cardhover); }
+.step:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: -2px; }
+.icon { color: var(--sub); padding-top: 1px; }
+.iconDone { color: var(--success-green); }
+.stepTop { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.stepName { font-weight: 500; font-size: 14px; flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+.stepMeta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--sub); }
+.late { color: var(--warning-amber); font-weight: 500; }
+.evidence { grid-column: 2; display: flex; align-items: center; gap: 6px; font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; background: var(--sub); }
+.d-green { background: var(--success-green); }
+.d-amber { background: var(--warning-amber); }
+.d-red { background: var(--alert-red); }
+.d-blue { background: var(--tx); }
+
+.left { list-style: none; margin: 0; padding: 0; background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; }
+.left li { border-bottom: 1px solid var(--bd); }
+.left li:last-child { border-bottom: 0; }
+.leftLink { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 13px; color: var(--tx); text-decoration: none; }
+.leftLink:hover { background: var(--cardhover); }
+
+.signOff { padding: 14px; background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; font-size: 13px; line-height: 1.55; }
+.signOffReady { border-color: var(--brand-gold); }
+.signOffRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+
+.alert { padding: 10px 14px; border: 1px solid var(--bd); border-left: 3px solid var(--warning-amber); background: var(--pnl); border-radius: 10px; font-size: 13px; color: var(--tx); margin-bottom: 12px; max-width: 980px; }
+.alert a { color: var(--tx); font-weight: 500; }
+
+.start { padding: 16px; background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; max-width: 760px; font-size: 13px; line-height: 1.55; }
+.start h2 { font-size: 14px; margin: 0 0 4px; }
+.startRow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.plan { margin: 12px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--bd); }
+.plan li { padding: 8px 0; border-bottom: 1px solid var(--bd); }
+.planSub { padding-left: 16px; }
+.issues { margin-top: 10px; color: var(--alert-red); font-size: 13px; }
+.sub { color: var(--sub); font-size: 12px; }
+.pick { height: 36px; max-width: 100%; border: 1px solid var(--bd); border-radius: 18px; padding: 0 12px; background: var(--pnl); color: var(--tx); font: 400 13px var(--font-sans); }
+.pick:focus { outline: 2px solid var(--brand-gold); outline-offset: -1px; }
