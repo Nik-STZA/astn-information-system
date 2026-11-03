@@ -35,6 +35,7 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   "sent-back": { label: "Sent back", tone: "s-back" },
   posted: { label: "Posted", tone: "s-done" },
   rejected: { label: "Rejected", tone: "s-neutral" },
+  closed: { label: "Closed off", tone: "s-done" },
 };
 
 function Status({ status }: { status: string }) {

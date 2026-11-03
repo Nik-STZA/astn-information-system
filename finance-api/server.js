@@ -201,7 +201,7 @@ app.get("/api/finance/overview", route(async (_req, res) => {
     pool.query(`SELECT client_id, state, written_at FROM finance.ap_items
                  WHERE state IN ('exception', 'clean', 'approved') OR (state = 'written' AND written_at > now() - interval '8 days')`),
     pool.query(`SELECT client_id, title, panel, blocked_on, updated_at FROM finance.wip_items
-                 WHERE panel IN ('awaiting-decision', 'blocked-external')`),
+                 WHERE panel IN ('awaiting-decision', 'blocked-external') AND closed_at IS NULL`),
     pool.query(`SELECT client_id, title, status, is_closed, priority, due_at, owner_role FROM finance.open_items
                  WHERE is_closed = false`),
     pool.query(`SELECT r.client_id, r.id, r.agent, r.status, r.instruction, r.queued_at, r.finished_at, c.name AS client_name, c.slug
@@ -1560,7 +1560,7 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
             w.amount_total, w.folder_path, w.drafter_role, w.tier,
             w.entity_scope, w.due_at, w.blocked_on, w.drafted_at, w.updated_at,
             w.drafter_email, w.drafter_agent,
-            w.routing_class, w.routing_reason,
+            w.routing_class, w.routing_reason, w.closed_at, w.closed_by, w.closed_note,
             e.slug AS entity_slug, e.name AS entity_name,
             -- Three states, not two. "Cannot tell" must not read as "yes".
             CASE
@@ -1611,8 +1611,12 @@ app.get("/api/finance/clients/:slug/wip", route(async (req, res) => {
       id: w.id,
       ref: w.ref,
       type: w.type,
-      status: w.status,
-      panel: w.panel,
+      // Closed off in os.stza.io: finished, whatever its folder says.
+      status: w.closed_at ? "closed" : w.status,
+      panel: w.closed_at ? "activity" : w.panel,
+      closedAt: w.closed_at,
+      closedBy: w.closed_by,
+      closedNote: w.closed_note,
       priority: w.priority,
       title: w.title,
       amountTotal: w.amount_total,
@@ -5803,7 +5807,7 @@ app.post("/api/finance/clients/:slug/tasks", route(async (req, res) => workTx(re
 })));
 
 // PATCH /api/finance/clients/:slug/tasks/:id   body: only the fields to change
-app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, log }) => {
+app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, role, origin, log }) => {
   if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
   const current = (await conn.query(
     "SELECT * FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL FOR UPDATE", [req.params.id, client.id])).rows[0];
@@ -5817,6 +5821,10 @@ app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => work
   if (issues.length) return { status: 422, body: { issues } };
   const diff = work.changes(current, fields);
   if (!Object.keys(diff).length) return { status: 200, body: current };
+  // A task from Approvals stands for that item: closing it closes the item,
+  // which only a person does.
+  const approvalMove = current.source === "approval" && diff.status && (diff.status.to === "done" || diff.status.from === "done");
+  if (approvalMove && origin.via) return { status: 403, body: { error: "Only a person closes or reopens an Approvals item, in os.stza.io" } };
   const cols = Object.keys(diff);
   const sets = cols.map((c, i) => `${c} = $${i + 2}`);
   if (diff.status) sets.push(diff.status.to === "done" ? "closed_at = now()" : "closed_at = NULL");
@@ -5824,12 +5832,15 @@ app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => work
     [current.id, ...cols.map((c) => fields[c])])).rows[0];
   await log(current.id, diff.status ? "status" : "changed", { changes: diff });
   if (diff.status && diff.status.to === "done") await clearBlockers(conn, { taskIds: [current.id], reason: `${current.title} is done` });
+  if (approvalMove) {
+    await closeApprovalItem(conn, { client, task: current, actorEmail, role, open: diff.status.to !== "done", note: "Closed in Work", ip: req.get("X-Forwarded-For") || req.ip });
+  }
   return { status: 200, body: row };
 })));
 
 // DELETE /api/finance/clients/:slug/tasks/:id   hides the task and its
 // sub-tasks; their history is kept. Tasks waiting on them move on.
-app.delete("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail }) => {
+app.delete("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, role }) => {
   if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
   const { rows } = await conn.query(
     `WITH RECURSIVE tree AS (
@@ -5841,6 +5852,12 @@ app.delete("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => wor
     [req.params.id, client.id, actorEmail]);
   if (!rows.length) return { status: 404, body: { error: "task not found" } };
   for (const r of rows) await taskEvent(conn, client.id, r.id, actorEmail, "deleted", { with_parent: r.id !== req.params.id });
+  // A deleted task from Approvals closes its item, or the next read would open a new task for it.
+  const fromApprovals = (await conn.query(
+    "SELECT id, source_ref FROM finance.tasks WHERE id = ANY($1::uuid[]) AND source = 'approval' AND status <> 'done'", [rows.map((r) => r.id)])).rows;
+  for (const t of fromApprovals) {
+    await closeApprovalItem(conn, { client, task: t, actorEmail, role, open: false, note: "Task deleted in Work", ip: req.get("X-Forwarded-For") || req.ip });
+  }
   await clearBlockers(conn, { taskIds: rows.map((r) => r.id), reason: "the task it waited on was deleted" });
   return { status: 200, body: { deleted: rows.length } };
 }, { peopleOnly: true })));
@@ -5994,31 +6011,42 @@ app.post("/api/finance/clients/:slug/tasks/month-end", route(async (req, res) =>
   return { status: 201, body: { label: plan.label, task_id: ids.get("close"), created: plan.tasks.length, waits: plan.blockers.length } };
 }, { peopleOnly: true })));
 
-// Approvals waiting on the CFO appear in Work as tasks that close themselves
-// once decided (Nik, 27 Oct 2026). Run whenever Work is read: a task is opened
-// for each approval in the awaiting-decision panel that has none, and an open
-// approval task whose approval has left that panel is marked done.
+// Every live Approvals item appears in Work as a task (Nik, 27 Oct and 3 Nov
+// 2026), so it is answered and closed the way any task is. Run whenever Work or
+// Review is read: a task is opened for each live item that has none, and an
+// open task whose item is no longer live (decided in its folder, or closed off)
+// is marked done. Marking the task done closes the item: see closeApprovalItem.
+const LIVE_WIP_PANELS = ["awaiting-decision", "in-progress-upstream", "blocked-external"];
+
 async function syncApprovalTasks(clientId) {
   const conn = await pool.connect();
   try {
     await conn.query("BEGIN");
     const added = (await conn.query(
       `INSERT INTO finance.tasks (client_id, created_by, title, notes, status, priority, due_on, entity_id, source, source_ref)
-       SELECT w.client_id, 'automatic', 'Approve: ' || w.title,
-              'Waiting for your decision in Approvals' || COALESCE(' (' || w.type || ')', '') || '.',
-              'review', CASE WHEN w.priority IN ('P1','P2','P3') THEN w.priority END, w.due_at::date, w.entity_id, 'approval', w.id::text
+       SELECT w.client_id, 'automatic',
+              CASE WHEN w.panel = 'awaiting-decision' THEN 'Approve: ' ELSE 'Follow up: ' END || w.title,
+              CASE w.panel
+                WHEN 'awaiting-decision' THEN 'Waiting for your decision in Approvals'
+                WHEN 'blocked-external' THEN 'In Approvals, waiting on ' || COALESCE(w.blocked_on, 'someone outside')
+                ELSE 'In Approvals, with ' || COALESCE(w.drafter_role, 'the preparer')
+              END || COALESCE(' (' || w.type || ')', '') || '. Mark this done to close it off.',
+              CASE WHEN w.panel = 'awaiting-decision' THEN 'review' ELSE 'todo' END,
+              CASE WHEN w.priority IN ('P1','P2','P3') THEN w.priority END, w.due_at::date, w.entity_id, 'approval', w.id::text
          FROM finance.wip_items w
-        WHERE w.client_id = $1 AND w.panel = 'awaiting-decision'
+        WHERE w.client_id = $1 AND w.panel = ANY($2::text[]) AND w.closed_at IS NULL
        ON CONFLICT (client_id, source, source_ref) WHERE source_ref IS NOT NULL DO NOTHING
-       RETURNING id`, [clientId])).rows;
+       RETURNING id`, [clientId, LIVE_WIP_PANELS])).rows;
     for (const r of added) await taskEvent(conn, clientId, r.id, "automatic", "created", { from: "Approvals" });
-    // Decided, sent back or withdrawn: no longer waiting on the CFO either way.
+    // Decided, closed off or withdrawn: nothing left to do either way.
     const closed = (await conn.query(
       `UPDATE finance.tasks t SET status = 'done', closed_at = now()
         WHERE t.client_id = $1 AND t.source = 'approval' AND t.status <> 'done' AND t.deleted_at IS NULL
-          AND NOT EXISTS (SELECT 1 FROM finance.wip_items w WHERE w.id::text = t.source_ref AND w.panel = 'awaiting-decision')
+          AND NOT EXISTS (SELECT 1 FROM finance.wip_items w
+                           WHERE w.id::text = t.source_ref AND w.panel = ANY($2::text[]) AND w.closed_at IS NULL)
        RETURNING t.id,
-         (SELECT w.status FROM finance.wip_items w WHERE w.id::text = t.source_ref) AS approval_status`, [clientId])).rows;
+         (SELECT CASE WHEN w.closed_at IS NOT NULL THEN 'closed off' ELSE w.status END
+            FROM finance.wip_items w WHERE w.id::text = t.source_ref) AS approval_status`, [clientId, LIVE_WIP_PANELS])).rows;
     for (const r of closed) {
       await taskEvent(conn, clientId, r.id, "automatic", "status", {
         changes: { status: { from: "review", to: "done" } },
@@ -6033,6 +6061,23 @@ async function syncApprovalTasks(clientId) {
   } finally {
     conn.release();
   }
+}
+
+// A task from Approvals marked done (or deleted) closes its item; reopened, it
+// opens it again. Recorded in the audit log, since the folder is not moved.
+async function closeApprovalItem(conn, { client, task, actorEmail, role, open, note, ip }) {
+  const row = (await conn.query(
+    open
+      ? `UPDATE finance.wip_items SET closed_at = NULL, closed_by = NULL, closed_note = NULL
+          WHERE client_id = $1 AND id::text = $2 AND closed_at IS NOT NULL RETURNING id, ref, title`
+      : `UPDATE finance.wip_items SET closed_at = now(), closed_by = $3, closed_note = $4
+          WHERE client_id = $1 AND id::text = $2 AND closed_at IS NULL RETURNING id, ref, title`,
+    open ? [client.id, task.source_ref] : [client.id, task.source_ref, actorEmail, note])).rows[0];
+  if (!row) return;
+  await audit(conn, {
+    actorEmail, actorRole: role, action: open ? "wip_item_reopened" : "wip_item_closed", targetType: "wip_item",
+    targetId: row.id, clientId: client.id, payload: { ref: row.ref, title: row.title, task_id: task.id, note }, ip,
+  });
 }
 
 // ── Supplier master: the CFO's decisions ─────────────────────────────────────
@@ -6362,7 +6407,7 @@ journalRoutes = require("./lib/journals-routes").mountJournals(app, {
 
 // Everything waiting on a person for a client, from Bills, Reconciliations,
 // Journals and the Approvals folders, in one read-only list (lib/review.js).
-require("./lib/review-routes").mountReview(app, { route, pool, clientIdFromSlug });
+require("./lib/review-routes").mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks });
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

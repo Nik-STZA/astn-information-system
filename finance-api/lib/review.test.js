@@ -160,6 +160,10 @@ describe("the Approvals folders", () => {
     expect(out.status).toMatch(/the bank/);
   });
 
+  it("opens the item's Work task, where it is answered and closed", () => {
+    expect(approvalItem(w({ task_id: "t1" }), { slug }).href).toBe("/finance/clients/alpha-group/work?task=t1");
+  });
+
   it("finished and upcoming items stay on the board, not in the inbox", () => {
     expect(approvalItem(w({ status: "posted", panel: "activity" }), { slug })).toBeNull();
     expect(approvalItem(w({ panel: "upcoming" }), { slug })).toBeNull();

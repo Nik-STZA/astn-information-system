@@ -147,7 +147,8 @@ export default function ReviewInbox({ slug, data, now }: { slug: string; data: I
 
       <p className={styles.small}>
         Each row opens the screen where it is decided. The Work list holds the tasks; this holds what agents and people
-        have produced for review. Finished and upcoming items from the Approvals folders stay on the{" "}
+        have produced for review. An Approvals folder item opens its Work task: answer it there, and mark it done to close it
+        off. Finished and upcoming folder items stay on the{" "}
         <Link href={`/finance/clients/${encodeURIComponent(slug)}/approvals?board=1`} className={styles.link}>Approvals board</Link>.
       </p>
     </div>
