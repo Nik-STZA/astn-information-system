@@ -43,6 +43,9 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
     setBusy(false);
     if (!res.ok) {
       setError((out.issues as string[] | undefined)?.join(" ") ?? out.error ?? "That did not work");
+      // A refusal often means the page is out of date (an agent moved the rec
+      // on while it was open), so show where it really stands.
+      router.refresh();
       return false;
     }
     router.refresh();
@@ -174,6 +177,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           <label className={styles.field}>What you found
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
+          {error && <div className={styles.err} role="alert">{error}</div>}
           <div className={styles.actions} style={{ marginTop: 8 }}>
             <button type="button" className="btn-primary" disabled={busy} onClick={async () => { if (await send("prepare", { note })) setNote(""); }}>Mark prepared</button>
           </div>
@@ -187,10 +191,12 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
           <SoleTick sole={sole} setSole={setSole} />
+          {error && <div className={styles.err} role="alert">{error}</div>}
           <div className={styles.actions} style={{ marginTop: 8 }}>
             <button type="button" className="btn-primary" disabled={busy} onClick={async () => { if (await send("review", { pass: true, note, sole_reviewer: sole })) setNote(""); }}>Pass to the CFO</button>
-            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => { if (await send("review", { pass: false, note, sole_reviewer: sole })) setNote(""); }}>Send back</button>
+            <button type="button" className="btn-secondary" disabled={busy || !note.trim()} title={note.trim() ? undefined : "Say what needs changing first"} onClick={async () => { if (await send("review", { pass: false, note, sole_reviewer: sole })) setNote(""); }}>Send back</button>
           </div>
+          {!note.trim() && <p className={styles.small}>To send it back, say what needs changing.</p>}
         </section>
       )}
 
@@ -201,8 +207,9 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           <label className={styles.field}>What needs changing
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
+          {error && <div className={styles.err} role="alert">{error}</div>}
           <div className={styles.actions} style={{ marginTop: 8 }}>
-            <button type="button" className="btn-secondary" disabled={busy} onClick={async () => { if (await send("send-back", { note })) setNote(""); }}>Send back</button>
+            <button type="button" className="btn-secondary" disabled={busy || !note.trim()} title={note.trim() ? undefined : "Say what needs changing first"} onClick={async () => { if (await send("send-back", { note })) setNote(""); }}>Send back</button>
           </div>
         </section>
       )}
