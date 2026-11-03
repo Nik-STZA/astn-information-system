@@ -749,7 +749,10 @@ function approvalIssues(rec) {
 
 // The fixed words of a follow-up: they must read as a plain approval to
 // lib/draft-approval.js, so the journal goes through the one approval path.
-const approvalInstruction = (journalId) => `Approved. Create the draft journal for reconciliation proposal ${journalId}`;
+// It names the journal (JNL-n) so FM1 knows which proposal it is, and stays
+// short enough to read as a plain approval.
+const approvalInstruction = (journalId, jnlNo = null) =>
+  `Approved${jnlNo == null ? "" : `: JNL-${jnlNo}`}. Create the draft journal for reconciliation proposal ${journalId}`;
 
 // True for a run started by that approval: it may then create the journal only
 // if finance-api still says it is this run's to create.
