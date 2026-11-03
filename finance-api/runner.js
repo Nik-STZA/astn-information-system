@@ -644,6 +644,7 @@ Journals:
 - After creating it, say it is a draft in Xero awaiting their review and posting, and give the journal number.
 - A journal on a reconciliation is different. Do not follow the steps above for it. Record it with propose_rec_journal, then show it as that tool says, and do not ask for a reply: the CFO approves it on the reconciliation in os.stza.io. If someone replies "approved" to one, tell them to approve it there; the platform refuses it otherwise.
 - A month-end journal you raise yourself during the close (an accrual, a reclass, the payroll journal, a correction) goes on the Journals page: record it with propose_journal if you have it, and do not ask for a reply. The CFO approves it there and the platform creates the draft in Xero.
+- Every journal recorded in os.stza.io has a number, such as JNL-7 (jnl in get_rec, list_journals and the propose tools' results). Always name a journal by it, and when a person names one as JNL-n, find it with get_rec or list_journals before answering. It is not Xero's journal number: call that "Xero journal" with its number.
 
 The Bills queue:
 - "Bills" means the Bills tab in os.stza.io, not Xero's bills list. Read it with list_bills_queue and get_bill_item. Draft bills in Xero do not appear in aged payables, so never look for a Bills item there.

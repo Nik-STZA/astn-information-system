@@ -132,6 +132,8 @@ const AFTER_APPROVAL = {
   drafted: "In Xero as a draft. Open it to bring the record up to date",
 };
 
+const withJnl = (row) => (row.jnl_no == null ? row.narration : `${journals.jnlRef(row.jnl_no)} ${row.narration}`);
+
 function recJournalItem(row, { slug, now = Date.now() }) {
   if (!["proposed", "approved"].includes(row.state)) return null;
   let retry = null;
@@ -145,7 +147,8 @@ function recJournalItem(row, { slug, now = Date.now() }) {
   return {
     kind: "rec_journal",
     id: row.id,
-    title: row.narration,
+    jnl: journals.jnlRef(row.jnl_no),
+    title: withJnl(row),
     company: row.entity_name ?? null,
     amount: journals.totalOf(row.lines),
     currency: null,
@@ -171,7 +174,8 @@ function journalItem(row, { slug, now = Date.now() }) {
   return {
     kind: "journal",
     id: row.id,
-    title: row.narration,
+    jnl: journals.jnlRef(row.jnl_no),
+    title: withJnl(row),
     company: row.entity_name ?? null,
     amount: journals.totalOf(row.lines),
     currency: null,

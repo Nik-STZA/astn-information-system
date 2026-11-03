@@ -114,7 +114,7 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
               <details key={j.id} className={`${styles.card} ${styles.fold}`} open={g.key === "waiting"}>
                 <summary className={styles.cardSummary}>
                   <div className={styles.rowTop}>
-                    <span className={styles.rowName}>{j.narration}</span>
+                    <span className={styles.rowName}>{j.jnl && <span className={styles.sub}>{j.jnl} </span>}{j.narration}</span>
                     <span className={styles.num}>{money(j.total)}</span>
                   </div>
                   <div className={styles.rowMeta}>
@@ -129,7 +129,7 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th aria-label="Open"></th><th>Company</th><th>Date</th><th>Narration</th><th>From</th><th className={styles.num}>Total</th>
+                  <th aria-label="Open"></th><th>No.</th><th>Company</th><th>Date</th><th>Narration</th><th>From</th><th className={styles.num}>Total</th>
                 </tr>
               </thead>
               {g.rows.map((j) => <Row key={j.id} slug={slug} j={j} busy={busy} send={send} startOpen={g.key === "waiting"} />)}
@@ -152,6 +152,7 @@ function Row({ slug, j, busy, send, startOpen }: { slug: string; j: JournalRow; 
             <ChevronRight size={14} className={open ? styles.chevOpen : styles.chev} aria-hidden="true" />
           </button>
         </td>
+        <td className={`${styles.nowrap} ${styles.sub}`}>{j.jnl ?? ""}</td>
         <td>{j.entity_name}</td>
         <td className={styles.nowrap}>{dayLabel(j.journal_date)}</td>
         <td className={styles.strong}>{j.narration}</td>
@@ -161,7 +162,7 @@ function Row({ slug, j, busy, send, startOpen }: { slug: string; j: JournalRow; 
       {open && (
         <tr className={styles.detailRow}>
           <td></td>
-          <td colSpan={5}><Detail slug={slug} j={j} busy={busy} send={send} /></td>
+          <td colSpan={6}><Detail slug={slug} j={j} busy={busy} send={send} /></td>
         </tr>
       )}
     </tbody>

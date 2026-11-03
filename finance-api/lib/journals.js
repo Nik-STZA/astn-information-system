@@ -151,7 +151,14 @@ function sourceOf(row) {
   return m ? m[1] : "agent";
 }
 
+// The number a person and an agent both use for a journal: JNL-7. Per client,
+// shared by a rec's journals and the register's (migration 036).
+function jnlRef(n) {
+  return n == null ? null : `JNL-${n}`;
+}
+
 module.exports = {
+  jnlRef,
   PROPOSERS, MAX_LINES, STATES, AGREED_TEXT, PENDING_LIVE_MINUTES,
   journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, sourceOf, registerGate,
 };

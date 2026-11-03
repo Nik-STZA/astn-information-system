@@ -11,6 +11,7 @@
 
 const recs = require("./recs");
 const { checkApprovalText } = require("./journal");
+const { jnlRef } = require("./journals");
 const { lineFor, LINES } = require("./bs-matrix");
 const work = require("./work");
 
@@ -431,7 +432,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       tolerance(pool, client.id),
       itemsOf(pool, client.id, [rec.rec_account_id]),
       pool.query(
-        `SELECT j.id, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text, j.narration, j.lines, j.reason, j.proposed_by,
+        `SELECT j.id, j.jnl_no, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text, j.narration, j.lines, j.reason, j.proposed_by,
                 j.approved_by, j.approved_at, j.rejected_by, j.xero_journal_no, j.xero_journal_id, j.drafted_at, j.created_at,
                 r.status AS run_status, r.queued_at AS run_queued_at, p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http
            FROM finance.rec_journals j
@@ -470,7 +471,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     let releaseRows = [];
     try {
       releaseRows = (await pool.query(
-        `SELECT j.id, j.entity_id, e.name AS entity_name, j.schedule_item_id AS item_id, i.supplier, i.item_no,
+        `SELECT j.id, j.jnl_no, j.entity_id, e.name AS entity_name, j.schedule_item_id AS item_id, i.supplier, i.item_no,
                 j.state, j.journal_date::text AS journal_date, j.lines, j.xero_journal_no, j.last_error
            FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
            LEFT JOIN finance.rec_schedule_items i ON i.id = j.schedule_item_id
@@ -482,7 +483,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return {
       releases: {
         on: Boolean(rec.releases_on), by: rec.releases_by ?? null, at: rec.releases_at ?? null,
-        journals: releaseRows.map(({ lines, ...j }) => ({ ...j, total: money(recs.pence(lines.reduce((a, l) => a + Math.max(Number(l.amount) || 0, 0), 0))) })),
+        journals: releaseRows.map(({ lines, ...j }) => ({ ...j, jnl: jnlRef(j.jnl_no), total: money(recs.pence(lines.reduce((a, l) => a + Math.max(Number(l.amount) || 0, 0), 0))) })),
       },
       agent_run: lastRun ? {
         id: lastRun.id, status: lastRun.status, queued_at: lastRun.queued_at, started_at: lastRun.started_at,
@@ -528,7 +529,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         const state = j.state === "approved"
           ? recs.retryState({ runLive: recs.runIsLive({ status: run_status, queued_at: run_queued_at }), post: post_outcome ? { outcome: post_outcome, http_status: post_http } : null })
           : null;
-        return { ...j, retry_state: state, can_retry: ["go", "retry"].includes(state) };
+        return { ...j, jnl: jnlRef(j.jnl_no), retry_state: state, can_retry: ["go", "retry"].includes(state) };
       }),
       events: events.rows,
       prior: p ? {
@@ -809,15 +810,15 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         if (prior) await conn.query("UPDATE finance.journals SET state = 'superseded', updated_at = now() WHERE id = $1", [prior.id]);
         const row = (await conn.query(
           `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, rec_account_id, rec_id, schedule_item_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'schedule',$8,$9,$10,$11) RETURNING id`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'schedule',$8,$9,$10,$11) RETURNING id, jnl_no`,
           [client.id, r.entity_id, rec.period, j.date, j.narration, JSON.stringify(j.lines), j.reason, actor, rec.rec_account_id, rec.id, j.item_id])).rows[0];
         await audit(conn, {
           actorEmail, actorRole: role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id,
           ip: req.get("X-Forwarded-For") || req.ip,
-          payload: { from: "schedule", rec: rec.id, entity: r.entity_id, item: j.item_id, date: j.date, narration: j.narration, lines: j.lines, replaces: prior?.id ?? null },
+          payload: { jnl: jnlRef(row.jnl_no), from: "schedule", rec: rec.id, entity: r.entity_id, item: j.item_id, date: j.date, narration: j.narration, lines: j.lines, replaces: prior?.id ?? null },
         });
-        await event(conn, rec.id, client.id, actor, "release_proposed", { entity_id: r.entity_id, item_id: j.item_id, journal_id: row.id, total: j.total });
-        say("proposed", prior ? "The item changed, so its waiting release was replaced." : `Release ${j.release} of ${j.of}.`, { ...about, id: row.id });
+        await event(conn, rec.id, client.id, actor, "release_proposed", { entity_id: r.entity_id, item_id: j.item_id, journal_id: row.id, jnl: jnlRef(row.jnl_no), total: j.total });
+        say("proposed", `${jnlRef(row.jnl_no)}: ${prior ? "the item changed, so its waiting release was replaced." : `release ${j.release} of ${j.of}.`}`, { ...about, id: row.id, jnl: jnlRef(row.jnl_no) });
       }
     }
     return out;
@@ -995,7 +996,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     // One live proposal per rec and company: a new one replaces one not yet
     // decided. One already approved may be on its way to Xero, so it stands.
     const live = (await conn.query(
-      "SELECT id, state FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved') FOR UPDATE", [rec.id, entity.id])).rows[0];
+      "SELECT id, jnl_no, state FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved') FOR UPDATE", [rec.id, entity.id])).rows[0];
     if (live?.state === "approved") return { status: 409, body: { error: "A journal for this company is already approved. It must finish or be rejected first." } };
     const drafted = (await conn.query(
       "SELECT lines FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state = 'draft_created'", [rec.id, entity.id])).rows;
@@ -1004,17 +1005,17 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     }
     if (live) {
       await conn.query("UPDATE finance.rec_journals SET state = 'superseded' WHERE id = $1", [live.id]);
-      await event(conn, rec.id, client.id, actor, "journal_superseded", { journal_id: live.id });
+      await event(conn, rec.id, client.id, actor, "journal_superseded", { journal_id: live.id, jnl: jnlRef(live.jnl_no) });
     }
     const row = (await conn.query(
       `INSERT INTO finance.rec_journals (client_id, rec_id, entity_id, journal_date, narration, lines, reason, proposed_by, proposed_run_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, jnl_no`,
       [client.id, rec.id, entity.id, req.body.date, String(req.body.narration).trim(),
         JSON.stringify(req.body.lines.map((l) => ({ account_code: String(l.account_code), description: l.description ?? "", amount: Number(l.amount), tax_type: l.tax_type ?? "NONE" }))),
         String(req.body.reason).trim().slice(0, 2000), actor, via.run_id])).rows[0];
     await started(conn, rec);
-    await event(conn, rec.id, client.id, actor, "journal_proposed", { journal_id: row.id });
-    return { status: 201, body: { id: row.id } };
+    await event(conn, rec.id, client.id, actor, "journal_proposed", { journal_id: row.id, jnl: jnlRef(row.jnl_no) });
+    return { status: 201, body: { id: row.id, jnl: jnlRef(row.jnl_no), replaces: live ? jnlRef(live.jnl_no) : null } };
   }))));
 
   // POST /recs/:id/journals/:jid/approve   the CFO approves on the screen. Queues

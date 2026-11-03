@@ -71,7 +71,7 @@ function mountReview(app, { route, pool, clientIdFromSlug }) {
           WHERE r.client_id = $1 AND r.dropped_at IS NULL AND r.status IN ('with_fc', 'with_cfo', 'sent_back')`, [client.id])).rows),
       // The same joins as the rec page and the Journals list, for the retry state.
       source("reconciliations", [], async () => (await pool.query(
-        `SELECT j.id, j.state, j.narration, j.lines, j.proposed_by, j.approved_at, j.created_at,
+        `SELECT j.id, j.jnl_no, j.state, j.narration, j.lines, j.proposed_by, j.approved_at, j.created_at,
                 e.name AS entity_name, r.id AS rec_id, r.period, a.account_name,
                 ar.status AS run_status, ar.queued_at AS run_queued_at,
                 p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http
@@ -84,7 +84,7 @@ function mountReview(app, { route, pool, clientIdFromSlug }) {
              AND p.idempotency_key = 'rec-journal-' || j.id || '-' || j.attempts
           WHERE j.client_id = $1 AND j.state IN ('proposed', 'approved')`, [client.id])).rows),
       source("journals", missing, async () => (await pool.query(
-        `SELECT j.id, j.state, j.period, j.narration, j.lines, j.source, j.proposed_by, j.approved_at, j.created_at, j.last_error,
+        `SELECT j.id, j.jnl_no, j.state, j.period, j.narration, j.lines, j.source, j.proposed_by, j.approved_at, j.created_at, j.last_error,
                 e.name AS entity_name,
                 p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http, p.created_at AS post_at
            FROM finance.journals j
