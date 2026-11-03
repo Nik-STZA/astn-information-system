@@ -1,15 +1,14 @@
-import ComingSoon from "@/modules/finance/components/ComingSoon";
+// Route binding. The page lives in the Finance module; the signed-in person is
+// read here, because a module does not import from src/lib.
+import ClosePage from "@/modules/finance/pages/ClosePage";
+import { getIapEmail } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page(props: { params: Promise<{ slug: string }> }) {
-  const params = await props.params;
-  return (
-    <ComingSoon
-      slug={params.slug}
-      tab="close"
-      title="Close status"
-      summary="Month-end close progress: which stage the pipeline has reached, when it was triggered and when each stage completed."
-    />
-  );
+export default async function Page({ params, searchParams }: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ period?: string }>;
+}) {
+  const actorEmail = await getIapEmail();
+  return <ClosePage params={params} searchParams={searchParams} actorEmail={actorEmail} />;
 }
