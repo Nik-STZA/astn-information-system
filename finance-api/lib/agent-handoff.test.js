@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MAX_HOPS, handoffInstruction, handoffRefusal, isHandoff } from "./agent-handoff";
+import { MAX_HOPS, REFUSED_LINE, handoffInstruction, handoffRefusal, isHandoff, recHandoffRefusal } from "./agent-handoff";
 
 describe("handing work up the chain", () => {
   it("lets a clerk hand to the reviewer and the reviewer to the FC", () => {
@@ -21,8 +21,29 @@ describe("handing work up the chain", () => {
 
   it("marks the run it starts", () => {
     const text = handoffInstruction("ap-clerk", " Review the queue ");
-    expect(text).toBe("Hand-off from AP Clerk: Review the queue");
+    expect(text).toBe(`Hand-off from AP Clerk: Review the queue
+
+${REFUSED_LINE}`);
     expect(isHandoff(text)).toBe(true);
     expect(isHandoff("A question")).toBe(false);
+  });
+});
+
+describe("FM1 handing a reconciliation to the FC", () => {
+  it("refuses until the rec is with the FC, and says how to fix it", () => {
+    expect(recHandoffRefusal("fm1", "fc", "sent_back")).toBe("The reconciliation is still sent back. Prepare it first (submit_rec), then hand off.");
+    expect(recHandoffRefusal("fm1", "fc", "in_progress")).toMatch(/still in progress/);
+    expect(recHandoffRefusal("fm1", "fc", "with_fc")).toBeNull();
+  });
+
+  it("leaves other hand-offs and runs not on a rec alone", () => {
+    expect(recHandoffRefusal("fm1", "fm2", "sent_back")).toBeNull();
+    expect(recHandoffRefusal("fm2", "fc", "sent_back")).toBeNull();
+    expect(recHandoffRefusal("fm1", "fc", null)).toBeNull();
+  });
+
+  it("tells the next agent to report a refused step", () => {
+    expect(handoffInstruction("fm1", "Prepared")).toContain(REFUSED_LINE);
+    expect(isHandoff(handoffInstruction("fm1", "Prepared"))).toBe(true);
   });
 });

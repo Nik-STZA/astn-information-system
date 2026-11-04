@@ -445,6 +445,7 @@ describe("moving a rec along", () => {
     expect(text).toMatch(/^CFO sent the Prepayments reconciliation for September 2026 back to you\. Reconciliation id: r1\./);
     expect(text).toContain("What needs changing, in their words: Item 4 ends in August, not September");
     expect(text).toMatch(/submit_rec/);
+    expect(text).toMatch(/If a step is refused, say so plainly/);
   });
   it("keeps send back and reopening a signed rec to the CFO", () => {
     const clerk = { via: null, role: "Bookkeeper", actor: "b", note: "x" };
@@ -673,5 +674,6 @@ describe("the agent's tools", () => {
     const text = prepareInstruction({ id: recId, account_name: "Prepayments", period: "2026-10" });
     expect(text).toMatch(/accruals-and-prepayments/);
     expect(text).toMatch(/Do not create it/);
+    expect(text).toMatch(/If a step is refused, say so plainly in your answer and do not report it as done/);
   });
 });

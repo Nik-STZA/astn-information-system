@@ -103,6 +103,18 @@ function tools(entityEnum) {
 
 const isId = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
 
+// A step the platform refused, put so the model cannot read it as done.
+function refusal(res) {
+  const b = res.body ?? {};
+  const why = Array.isArray(b.issues) && b.issues.length ? b.issues.join("; ") : (b.error ?? b.raw ?? `status ${res.status}`);
+  return {
+    saved: false,
+    status: res.status,
+    error: `Refused, so this did not happen: ${why}. Say so plainly in your answer and do not report this step as done.`,
+    refused: b,
+  };
+}
+
 // The rec as an agent reads it, without the portal's by-month columns.
 function recForAgent(r) {
   return {
@@ -130,7 +142,7 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
     const headers = { "X-Actor-Email": actor, "X-Work-Via": `agent:${job.agent || "general"}:${job.id}` };
     const send = async (method, p, body) => {
       const res = await apiRequest(method, p, body, headers);
-      return res.ok ? { saved: true, ...res.body } : { saved: false, status: res.status, refused: res.body };
+      return res.ok ? { saved: true, ...res.body } : refusal(res);
     };
 
     if (name === "save_rec_item") {
@@ -169,4 +181,4 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
   return { tools, call, names: NAMES };
 }
 
-module.exports = { agentRecs, NAMES };
+module.exports = { agentRecs, NAMES, refusal };

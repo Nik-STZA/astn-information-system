@@ -790,6 +790,7 @@ function prepareInstruction(rec) {
     "Use get_rec, then run_rec_checks. Check every company, and that each item has a document. Add or correct items with save_rec_item.",
     "Find the cause of any difference. If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
     "Then use submit_rec with a note in plain English, and hand off to fc.",
+    "If a step is refused, say so plainly in your answer and do not report it as done.",
   ].join(" ");
 }
 
@@ -804,6 +805,7 @@ function sendBackInstruction(rec, note, by) {
     "Read the accruals-and-prepayments procedure if it is listed for you, and the balance-sheet-matrix procedure.",
     "If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
     "Then use submit_rec with a note in plain English that says what you changed for each point, and hand off to fc.",
+    "If a step is refused, say so plainly in your answer and do not report it as done.",
   ].join(" ");
 }
 

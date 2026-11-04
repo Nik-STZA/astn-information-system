@@ -1837,7 +1837,7 @@ app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
        UPDATE finance.agent_runs r
        SET status = 'running', started_at = now()
        FROM next WHERE r.id = next.id
-       RETURNING r.id, r.agent, r.instruction, r.client_id, r.parent_run_id`
+       RETURNING r.id, r.agent, r.instruction, r.client_id, r.parent_run_id, r.rec_id`
     );
     if (!rows.length) {
       await conn.query("COMMIT");
@@ -1946,11 +1946,13 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
          SELECT r.id, r.parent_run_id, r.instruction, up.depth + 1 FROM finance.agent_runs r JOIN up ON r.id = up.parent_run_id WHERE up.depth < 20
        )
        SELECT a.client_id, a.agent, a.requested_by_email, a.requested_by_role,
-              (SELECT array_agg(instruction ORDER BY depth) FROM up) AS chain
+              (SELECT array_agg(instruction ORDER BY depth) FROM up) AS chain,
+              (SELECT status FROM finance.recs WHERE id = a.rec_id) AS rec_status
          FROM finance.agent_runs a WHERE a.id = $1`, [req.params.id])).rows[0];
     const stop = run.chain.findIndex((i) => !agentHandoff.isHandoff(i));
     const hops = stop === -1 ? run.chain.length : stop;
-    const refusal = agentHandoff.handoffRefusal(run.agent, handoff.to, handoff.note, hops);
+    const refusal = agentHandoff.handoffRefusal(run.agent, handoff.to, handoff.note, hops)
+      ?? agentHandoff.recHandoffRefusal(run.agent, handoff.to, run.rec_status);
     if (refusal) handed = { refused: refusal };
     else {
       handed = (await conn.query(

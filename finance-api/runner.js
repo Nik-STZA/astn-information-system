@@ -48,7 +48,9 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY.trim() });
+// Retried with the SDK's back-off on 429, 5xx and overloaded (529), so a busy
+// spell delays a run instead of failing it. The default is 2.
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY.trim(), maxRetries: 6 });
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -685,7 +687,7 @@ async function clientRules(slug) {
 
 const { threadToMessages } = require("./lib/thread");
 const agentCost = require("./lib/agent-cost");
-const { handoffRefusal } = require("./lib/agent-handoff");
+const { handoffRefusal, recHandoffRefusal } = require("./lib/agent-handoff");
 
 // ── Execute one job ──────────────────────────────────────────────────────────
 
@@ -816,8 +818,12 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = await work.call(job, connectedEntities, tu.name, tu.input);
           if (tu.name !== "list_tasks") console.log(`    Work: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
         } else if (tu.name === "hand_off") {
-          const refused = handoffRefusal(job.agent, tu.input.to, tu.input.note, 0);
-          if (refused) result = { refused };
+          let refused = handoffRefusal(job.agent, tu.input.to, tu.input.note, 0);
+          if (!refused && job.rec_id && job.agent === "fm1" && tu.input.to === "fc") {
+            const rec = await apiCall("GET", `/api/finance/clients/${encodeURIComponent(job.client.slug)}/recs/${job.rec_id}`).catch(() => null);
+            refused = rec?.rec ? recHandoffRefusal(job.agent, tu.input.to, rec.rec.status) : "The reconciliation could not be read, so the hand-off was not made. Try again.";
+          }
+          if (refused) result = { refused, error: `Hand-off refused: ${refused}` };
           else {
             handoff = { to: tu.input.to, note: tu.input.note };
             result = { noted: true, note: `${tu.input.to} starts when you finish. Say so in your answer.` };
