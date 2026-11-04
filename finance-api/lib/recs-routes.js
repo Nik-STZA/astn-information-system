@@ -434,6 +434,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       pool.query(
         `SELECT j.id, j.jnl_no, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text, j.narration, j.lines, j.reason, j.proposed_by,
                 j.approved_by, j.approved_at, j.rejected_by, j.xero_journal_no, j.xero_journal_id, j.drafted_at, j.created_at,
+                to_jsonb(j)->>'xero_status' AS xero_status, to_jsonb(j)->>'xero_checked_at' AS xero_checked_at,
                 r.status AS run_status, r.queued_at AS run_queued_at, p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http
            FROM finance.rec_journals j
            JOIN finance.entities e ON e.id = j.entity_id
@@ -498,6 +499,10 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         signed_off_by: rec.signed_off_by, signed_off_at: rec.signed_off_at, recheck_reason: rec.recheck_reason, recheck_at: rec.recheck_at,
         checks_at: rec.checks_at, workable: recs.workable(rec.line_key, rec.proof),
         sole_reviewer: rec.sole_reviewer, shown_as_signed: Boolean(signed), signed_before: (rec.signed_history ?? []).length,
+        accepted_variance: signed?.accepted ? {
+          reason: signed.accepted.reason, by: signed.accepted.by, group: signed.accepted.group,
+          by_company: (signed.accepted.by_company ?? []).map((x) => ({ ...x, entity: names.get(x.entity_id) ?? "A company" })),
+        } : null,
       },
       tolerance: money(tol),
       cover: {
@@ -873,7 +878,9 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
          sole_reviewer = sole_reviewer OR $6, updated_at = now() WHERE id = $1`,
       [rec.id, status, note || null, actor, actorEmail, sole && recs.needsSoleReviewer(rec, actorEmail)]);
     await event(conn, rec.id, client.id, actor, pass ? "review_passed" : "sent_back", { note });
-    return { status: 200, body: { status } };
+    if (pass) return { status: 200, body: { status } };
+    const again = await restartFm1(conn, { client, rec, actorEmail, role, actor, note, by: "FC", automatic: Boolean(via) });
+    return { status: 200, body: { status, fm1: again.said }, after: again.after };
   }))));
 
   // POST /recs/:id/sign-off   a person, the CFO, and only when it ties
@@ -891,14 +898,29 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
       const { balances, items, tol, tied: c } = await figuresOn(conn, client, rec);
       const sole = req.body?.sole_reviewer === true;
-      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads });
+      const reason = String(req.body?.accept_variance ?? "").trim().slice(0, 2000);
+      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads, accept: reason });
+      // A journal still waiting here is a fix for the same difference: decide
+      // it first, rather than accept the difference beside it.
+      if (!c.ties && reason) {
+        const waiting = (await conn.query(
+          "SELECT jnl_no FROM finance.rec_journals WHERE rec_id = $1 AND state IN ('proposed', 'approved') ORDER BY jnl_no", [rec.id])).rows;
+        if (waiting.length) issues.push(`${waiting.map((w) => jnlRef(w.jnl_no)).join(", ")} is waiting on this reconciliation. Approve or reject it before accepting the difference`);
+      }
       if (issues.length) return { status: 422, body: { issues } };
       const flagged = rec.sole_reviewer || recs.needsSoleReviewer(rec, actorEmail);
+      // A difference signed off stays on the record with its reason and the
+      // amount by company, kept with what was signed.
+      const accepted = c.ties ? null : {
+        reason, by: actorEmail, role, group: money(c.group.variance),
+        by_company: c.rows.filter((r) => !r.ties).map((r) => ({ entity_id: r.entity_id, variance: money(r.variance), currency: r.currency })),
+      };
       await conn.query(
         `UPDATE finance.recs SET status = 'signed_off', signed_off_by = $2, signed_off_role = $3, signed_off_at = now(),
            sole_reviewer = $4, signed_snapshot = $5, updated_at = now() WHERE id = $1`,
-        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, tolerance: tol, at: new Date().toISOString() })]);
-      const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged };
+        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, tolerance: tol, accepted, at: new Date().toISOString() })]);
+      const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged, accepted_variance: accepted };
+      if (accepted) await event(conn, rec.id, client.id, actor, "variance_accepted", { reason, group: accepted.group });
       await event(conn, rec.id, client.id, actor, "signed_off", { role, ...payload });
       await auditRec(conn, req, { client, actorEmail, role, action: "rec_signed_off", id: rec.id, payload });
       return { status: 200, body: { status: "signed_off" } };
@@ -936,14 +958,47 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   }
 
   // POST /recs/:id/send-back   body: { note }   the CFO returns it to the preparer
-  app.post(`${BASE}/:id/send-back`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
+  app.post(`${BASE}/:id/send-back`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
     const note = String(req.body?.note ?? "").trim().slice(0, 4000);
     const issues = recs.stepIssues("send_back", { rec, via, role, actor, note });
     if (issues.length) return { status: 422, body: { issues } };
     await conn.query("UPDATE finance.recs SET status = 'sent_back', review_note = $2, updated_at = now() WHERE id = $1", [rec.id, note]);
     await event(conn, rec.id, client.id, actor, "sent_back", { note, by: "CFO" });
-    return { status: 200, body: { status: "sent_back" } };
+    const again = await restartFm1(conn, { client, rec, actorEmail, role, actor, note, by: "CFO", automatic: false });
+    return { status: 200, body: { status: "sent_back", fm1: again.said }, after: again.after };
   }), { peopleOnly: true })));
+
+  // Sending back is the instruction to rework, so FM1 starts again on it with
+  // the note. Not when FM1 is already working on it, and not more than
+  // recs.AUTO_RESTARTS times in a row when an agent sent it back: then a person
+  // decides. Returns what to tell the sender and, for a run, what starts it
+  // once the transaction commits.
+  async function restartFm1(conn, { client, rec, actorEmail, role, actor, note, by, automatic }) {
+    if (!recs.workable(rec.line_key, rec.proof)) return { said: "FM1 does not work on this line yet, so it was not restarted." };
+    const live = (await conn.query(
+      `SELECT id, status, queued_at FROM finance.agent_runs
+        WHERE rec_id = $1 AND agent = 'fm1' AND status IN ('queued', 'running') ORDER BY queued_at DESC LIMIT 1`, [rec.id])).rows[0];
+    if (live && recs.runIsLive(live)) {
+      await event(conn, rec.id, client.id, actor, "restart_skipped", { run_id: live.id });
+      return { said: "FM1 is already working on this, so no second run was started. Press Start FM1 once it finishes if the note is not dealt with." };
+    }
+    if (automatic) {
+      const recent = (await conn.query(
+        `SELECT action, detail FROM finance.rec_events WHERE rec_id = $1 AND action IN ('agent_started', 'agent_restarted')
+          ORDER BY at DESC, id DESC LIMIT $2`, [rec.id, recs.AUTO_RESTARTS])).rows;
+      const inARow = recs.autoRestartsInARow(recent);
+      if (inARow >= recs.AUTO_RESTARTS) {
+        await event(conn, rec.id, client.id, actor, "restart_held", { times: inARow });
+        return { said: `FM1 was restarted ${inARow} times in a row after agent send-backs, so it waits for a person. Read the notes, then press Start FM1.` };
+      }
+    }
+    const run = (await conn.query(
+      `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, rec_id)
+       VALUES ($1,$2,$3,'fm1',$4,'queued',$5) RETURNING id`,
+      [client.id, actorEmail, role, recs.sendBackInstruction(rec, note, by), rec.id])).rows[0];
+    await event(conn, rec.id, client.id, actor, "agent_restarted", { run_id: run.id, by, automatic });
+    return { said: "FM1 has started again on it, with the note.", after: async () => ({ runner: await startAgentRunner(run.id) }) };
+  }
 
   // POST /recs/:id/reopen   back to the preparer, for a re-check or a late change
   app.post(`${BASE}/:id/reopen`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
@@ -999,9 +1054,9 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       "SELECT id, jnl_no, state FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved') FOR UPDATE", [rec.id, entity.id])).rows[0];
     if (live?.state === "approved") return { status: 409, body: { error: "A journal for this company is already approved. It must finish or be rejected first." } };
     const drafted = (await conn.query(
-      "SELECT lines FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state = 'draft_created'", [rec.id, entity.id])).rows;
+      "SELECT lines FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('draft_created', 'posted')", [rec.id, entity.id])).rows;
     if (drafted.some((d) => recs.amountsKey(d.lines) === recs.amountsKey(req.body.lines))) {
-      return { status: 409, body: { error: "This journal is already a draft in Xero. Post it there, or void it first." } };
+      return { status: 409, body: { error: "This journal is already in Xero. Post it there, or void it first." } };
     }
     if (live) {
       await conn.query("UPDATE finance.rec_journals SET state = 'superseded' WHERE id = $1", [live.id]);

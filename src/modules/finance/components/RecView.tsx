@@ -32,10 +32,26 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
   const [sole, setSole] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [said, setSaid] = useState<string | null>(null);
+
+  // A draft posted in Xero since the last look shows as posted: the Journals
+  // page's Xero check, once on opening, only while one here is a draft.
+  const hasDraft = journals.some((j) => j.state === "draft_created");
+  useEffect(() => {
+    if (!hasDraft) return;
+    void fetch(`/api/finance/${encodeURIComponent(slug)}/journals/refresh`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period: rec.period }),
+    }).then((r) => r.json().catch(() => ({}))).then((b: { posted?: number }) => { if (b.posted) router.refresh(); }).catch(() => {});
+    // Once per rec opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rec.id]);
 
   const send: Send = async (path, body = {}, method = "POST") => {
     setBusy(true);
     setError(null);
+    setSaid(null);
     const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/recs/${rec.id}/${path}`, {
       method, headers: { "Content-Type": "application/json" }, body: method === "DELETE" ? undefined : JSON.stringify(body),
     });
@@ -48,6 +64,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
       router.refresh();
       return false;
     }
+    if (typeof out.fm1 === "string") setSaid(out.fm1);
     router.refresh();
     return true;
   };
@@ -78,12 +95,15 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("reopen")}>Reopen</button>
           )}
           {rec.status === "with_cfo" && (
-            <button type="button" className="btn-primary" disabled={busy || !cover.ties || Boolean(rec.recheck_reason)} onClick={() => send("sign-off", { sole_reviewer: sole })}>Sign off</button>
+            <button type="button" className="btn-primary" disabled={busy || Boolean(rec.recheck_reason) || (!cover.ties && (!accepting || !reason.trim()))}
+              title={!cover.ties && !accepting ? "It does not tie. Accept the difference under Sign off below" : undefined}
+              onClick={() => send("sign-off", cover.ties ? { sole_reviewer: sole } : { sole_reviewer: sole, accept_variance: reason })}>Sign off</button>
           )}
         </div>
       </div>
 
       {error && <div className={styles.err} role="alert">{error}</div>}
+      {said && <div className={styles.note} role="status">{said}</div>}
 
       {working && (
         <div className={`${styles.note} ${styles.working}`} role="status">
@@ -103,6 +123,12 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
 
       {rec.sole_reviewer && <div className={styles.note}>Sole reviewer: one person acted in more than one seat on this reconciliation.</div>}
       {rec.shown_as_signed && <div className={styles.note}>Shown as signed off on {dayLabel(rec.signed_off_at)}, by {rec.signed_off_by}.</div>}
+      {rec.accepted_variance && (
+        <div className={styles.note}>
+          <strong>Difference of {money(rec.accepted_variance.group)} accepted at sign-off</strong> by {rec.accepted_variance.by}
+          {rec.accepted_variance.by_company.length > 0 && ` (${rec.accepted_variance.by_company.map((x) => `${x.entity} ${money(x.variance)}`).join(", ")})`}: {rec.accepted_variance.reason}
+        </div>
+      )}
       {rec.signed_before > 0 && <div className={styles.small}>Signed off before and reopened: {rec.signed_before} earlier {rec.signed_before === 1 ? "signing is" : "signings are"} kept on the record.</div>}
       {cover.mixed_currency && <div className={styles.alert} role="status">These companies report in different currencies and no closing rate is held, so there is no group total. Each company ties on its own.</div>}
 
@@ -196,14 +222,43 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
             <button type="button" className="btn-primary" disabled={busy} onClick={async () => { if (await send("review", { pass: true, note, sole_reviewer: sole })) setNote(""); }}>Pass to the CFO</button>
             <button type="button" className="btn-secondary" disabled={busy || !note.trim()} title={note.trim() ? undefined : "Say what needs changing first"} onClick={async () => { if (await send("review", { pass: false, note, sole_reviewer: sole })) setNote(""); }}>Send back</button>
           </div>
-          {!note.trim() && <p className={styles.small}>To send it back, say what needs changing.</p>}
+          <p className={styles.small}>{note.trim() ? "Sending it back starts FM1 again, with your note." : "To send it back, say what needs changing. FM1 then starts again with your note."}</p>
         </section>
       )}
 
       {rec.status === "with_cfo" && (
         <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
+          <h2 className={styles.h2}>Sign off</h2>
+          {!cover.ties && (
+            <>
+              <p className={styles.small} style={{ marginTop: 0 }}>
+                It is out by {money(difference)}. To sign off without a journal, say why the difference is accepted, for example rounding on the
+                monthly releases that is trued up in the item&apos;s last month. The reason and the amount by company stay on the reconciliation and go in the pack.
+              </p>
+              <label className={styles.small} style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "8px 0" }}>
+                <input type="checkbox" checked={accepting} onChange={(e) => setAccepting(e.target.checked)} />
+                <span>I accept this difference and sign off without a journal.</span>
+              </label>
+              {accepting && (
+                <label className={styles.field}>Why it is accepted
+                  <textarea className={styles.area} value={reason} onChange={(e) => setReason(e.target.value)} />
+                </label>
+              )}
+            </>
+          )}
           <SoleTick sole={sole} setSole={setSole} />
+          {error && <div className={styles.err} role="alert">{error}</div>}
+          <div className={styles.actions} style={{ marginTop: 8 }}>
+            <button type="button" className="btn-primary" disabled={busy || Boolean(rec.recheck_reason) || (!cover.ties && (!accepting || !reason.trim()))}
+              onClick={() => send("sign-off", cover.ties ? { sole_reviewer: sole } : { sole_reviewer: sole, accept_variance: reason })}>Sign off</button>
+          </div>
+        </section>
+      )}
+
+      {rec.status === "with_cfo" && (
+        <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
           <h2 className={styles.h2}>Send back</h2>
+          <p className={styles.small} style={{ marginTop: 0 }}>FM1 starts again on it straight away, with your note.</p>
           <label className={styles.field}>What needs changing
             <textarea className={styles.area} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
@@ -495,7 +550,11 @@ function Journal({ j, busy, send }: { j: RecJournal; busy: boolean; send: Send }
   const approved = j.retry_state === "live" ? "Approved. An agent is creating the draft in Xero."
     : j.retry_state === "unknown" ? "The last attempt did not finish cleanly, so this draft may already be in Xero. Check Xero. If it is not there, reject this and ask FM1 to propose it again."
       : j.retry_state === "drafted" ? "This draft is in Xero." : "Approved, but no draft was created.";
-  const state = { proposed: null, approved, draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`, rejected: "Rejected." }[j.state];
+  const gone = j.state === "draft_created" && j.xero_status && !["DRAFT", "POSTED"].includes(j.xero_status.toUpperCase());
+  const state = gone ? `Xero says this draft is ${String(j.xero_status).toLowerCase()}.` : {
+    proposed: null, approved, draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`,
+    posted: `Posted in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}.`, rejected: "Rejected.",
+  }[j.state];
   return (
     <div style={{ marginBottom: 12 }}>
       <div className={styles.small}>{j.jnl && <strong>{j.jnl} · </strong>}{j.entity_name} · {dayLabel(j.journal_date)} · {j.narration}</div>

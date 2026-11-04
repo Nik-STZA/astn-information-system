@@ -74,7 +74,7 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
   }
 
   const groups = grouped(data.journals);
-  const anyDrafts = data.journals.some((j) => j.kind === "register" && j.state === "draft_created");
+  const anyDrafts = data.journals.some((j) => j.state === "draft_created");
 
   return (
     <div className={styles.journalsPage}>
@@ -195,7 +195,12 @@ function Detail({ slug, j, busy, send }: { slug: string; j: JournalRow; busy: bo
 
 function State({ slug, j }: { slug: string; j: JournalRow }) {
   if (j.kind === "rec" && j.rec) {
-    const where = { proposed: "Waiting for you on the reconciliation.", approved: "Approved on the reconciliation. An agent creates the draft in Xero.", draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`, rejected: "Rejected on the reconciliation." }[j.state as "proposed"] ?? null;
+    const gone = j.state === "draft_created" && j.xero_status && !["DRAFT", "POSTED"].includes(j.xero_status.toUpperCase());
+    const where = gone ? `Xero says this draft is ${String(j.xero_status).toLowerCase()}.` : {
+      proposed: "Waiting for you on the reconciliation.", approved: "Approved on the reconciliation. An agent creates the draft in Xero.",
+      draft_created: `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`,
+      posted: `Posted in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}.`, rejected: "Rejected on the reconciliation.",
+    }[j.state as "proposed"] ?? null;
     return (
       <p className={styles.sub}>
         {where} <Link className={styles.link} href={`/finance/clients/${slug}/reconciliations/${j.rec.id}`}>Open the {j.rec.account_name} reconciliation</Link>

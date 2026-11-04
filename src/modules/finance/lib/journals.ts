@@ -141,7 +141,7 @@ export const isJournalPath = (path: string) => JOURNAL_PATH.test(path);
 export const XERO_CHECK_MINUTES = 10;
 
 export function needsXeroCheck(rows: JournalRow[], now = Date.now()): boolean {
-  return rows.some((r) => r.kind === "register" && r.state === "draft_created"
+  return rows.some((r) => r.state === "draft_created"
     && (!r.xero_checked_at || now - Date.parse(r.xero_checked_at) > XERO_CHECK_MINUTES * 60_000));
 }
 

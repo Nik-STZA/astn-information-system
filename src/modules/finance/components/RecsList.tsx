@@ -147,7 +147,48 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
           </div>
         </>
       )}
-      <p className={styles.small}>{Number(data.tolerance ?? 0) === 0 ? "No rounding tolerance is set, so every variance is reported." : `Rounding tolerance: ${money(data.tolerance)} per company.`}</p>
+      <Tolerance slug={slug} value={data.tolerance ?? "0.00"} />
+    </div>
+  );
+}
+
+// The client's rounding tolerance: a difference this size or smaller, per
+// company, counts as tying. Meant for pence, not for differences that need a
+// reason: those are accepted at sign-off instead. Only the CFO sets it; the
+// server refuses anyone else and logs the change.
+function Tolerance({ slug, value }: { slug: string; value: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/recs/settings`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tolerance: Number(v) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setErr((out.issues as string[] | undefined)?.join(" ") ?? out.error ?? "That did not save"); return; }
+    setOpen(false);
+    router.refresh();
+  };
+  return (
+    <div className={styles.small} style={{ marginTop: 12 }}>
+      {Number(value) === 0 ? "No rounding tolerance is set, so every variance is reported." : `Rounding tolerance: ${money(value)} per company.`}{" "}
+      {!open && <button type="button" className="btn-text" onClick={() => { setV(value); setOpen(true); }}>Change</button>}
+      {open && (
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+          <label>Tolerance per company
+            <input className={styles.pick} style={{ width: 90, marginLeft: 8 }} inputMode="decimal" value={v} onChange={(e) => setV(e.target.value)} aria-label="Rounding tolerance" />
+          </label>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={save}>{busy ? "Saving..." : "Save"}</button>
+          <button type="button" className="btn-text" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+          <span>A larger difference is better accepted at sign-off with a reason. Only the CFO sets this.</span>
+        </span>
+      )}
+      {err && <div className={styles.err} role="alert">{err}</div>}
     </div>
   );
 }

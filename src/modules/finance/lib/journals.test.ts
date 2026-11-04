@@ -64,12 +64,13 @@ describe("the list", () => {
     expect(sourceLabel({ source: "schedule" })).toBe("Monthly release");
   });
 
-  it("checks Xero for drafts not looked at lately, and not for a rec's", () => {
+  it("checks Xero for drafts not looked at lately, a rec's included", () => {
     const now = Date.parse("2026-11-02T12:00:00Z");
     expect(needsXeroCheck([row("draft_created")], now)).toBe(true);
     expect(needsXeroCheck([row("draft_created", { xero_checked_at: "2026-11-02T11:55:00Z" })], now)).toBe(false);
     expect(needsXeroCheck([row("draft_created", { xero_checked_at: "2026-11-02T11:00:00Z" })], now)).toBe(true);
-    expect(needsXeroCheck([row("draft_created", { kind: "rec" })], now)).toBe(false);
+    expect(needsXeroCheck([row("draft_created", { kind: "rec" })], now)).toBe(true);
+    expect(needsXeroCheck([row("draft_created", { kind: "rec", xero_checked_at: "2026-11-02T11:55:00Z" })], now)).toBe(false);
     expect(needsXeroCheck([row("proposed")], now)).toBe(false);
   });
 });
