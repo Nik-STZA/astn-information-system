@@ -97,7 +97,8 @@ export interface RecJournal {
   jnl?: string | null;
   entity_id: string;
   entity_name: string;
-  state: "proposed" | "approved" | "draft_created" | "rejected" | "superseded";
+  state: "proposed" | "approved" | "draft_created" | "posted" | "rejected" | "superseded";
+  xero_status?: string | null;
   journal_date: string;
   narration: string;
   lines: Array<{ account_code: string; description?: string; amount: number }>;
@@ -140,6 +141,8 @@ export interface RecDetail {
     prepared_by: string | null; prepared_at: string | null; reviewed_by: string | null; reviewed_at: string | null;
     signed_off_by: string | null; signed_off_at: string | null; recheck_reason: string | null; recheck_at: string | null;
     checks_at: string | null; workable: boolean; sole_reviewer: boolean; shown_as_signed: boolean; signed_before: number;
+    /** A difference the CFO signed off without a journal, with the reason. */
+    accepted_variance?: { reason: string; by: string; group: string | null; by_company: Array<{ entity_id: string; entity: string; variance: string | null; currency: string | null }> } | null;
   };
   releases?: {
     on: boolean; by: string | null; at: string | null;
@@ -254,6 +257,11 @@ export const EVENT_LABEL: Record<string, string> = {
   releases_off: "Monthly releases switched off",
   release_proposed: "Monthly release proposed on Journals",
   release_withdrawn: "Monthly release withdrawn: Xero has it",
+  journal_posted: "Journal posted in Xero",
+  variance_accepted: "Difference accepted at sign-off",
+  agent_restarted: "FM1 started again after a send back",
+  restart_held: "FM1 not restarted: waiting for a person",
+  restart_skipped: "FM1 already working, not restarted",
 };
 
 // agent:fm1 to FM1; a person stays as their address.

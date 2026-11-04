@@ -128,6 +128,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
       fromRecs = (await pool.query(
         `SELECT j.id, j.jnl_no, j.entity_id, e.name AS entity_name, j.state, j.journal_date::text AS journal_date, j.narration, j.lines, j.reason,
                 j.proposed_by, j.approved_by, j.approved_at, j.rejected_by, j.rejected_at, j.xero_journal_no, j.drafted_at, j.created_at,
+                to_jsonb(j)->>'xero_status' AS xero_status, to_jsonb(j)->>'xero_checked_at' AS xero_checked_at,
                 r.id AS rec_id, r.period, a.account_name,
                 ar.status AS run_status, ar.queued_at AS run_queued_at, p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http
            FROM finance.rec_journals j
@@ -166,7 +167,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
           narration: j.narration, lines: j.lines, total: journals.totalOf(j.lines), reason: j.reason,
           source: "rec", proposed_by: j.proposed_by,
           state: j.state, approved_by: j.approved_by, approved_at: j.approved_at, rejected_by: j.rejected_by, rejected_at: j.rejected_at,
-          xero_journal_no: j.xero_journal_no, xero_status: null, xero_checked_at: null, drafted_at: j.drafted_at,
+          xero_journal_no: j.xero_journal_no, xero_status: j.xero_status ?? null, xero_checked_at: j.xero_checked_at ?? null, drafted_at: j.drafted_at,
           last_error: null, retry_state: retry, can_retry: false, rec: { id: j.rec_id, account_name: j.account_name }, created_at: j.created_at,
         };
       }),
@@ -285,7 +286,40 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
           WHERE id = $1 AND state = 'draft_created' RETURNING state`, [d.id, got.status, next]);
       if (r.rows[0]?.state === "posted") posted += 1;
     }
-    res.json({ checked: drafts.length - errors.length, posted, errors });
+    // A reconciliation's drafts too, by the rec's month: a person posts them in
+    // Xero, and the rec, its chain and this page should then say so. Skipped,
+    // not failed, on a database without migration 038.
+    let recDrafts = [];
+    try {
+      recDrafts = (await pool.query(
+        `SELECT j.id, j.rec_id, j.client_id, j.xero_journal_id, e.slug AS entity_slug, j.xero_checked_at
+           FROM finance.rec_journals j JOIN finance.recs r ON r.id = j.rec_id JOIN finance.entities e ON e.id = j.entity_id
+          WHERE j.client_id = $1 AND r.period = $2 AND j.state = 'draft_created' AND j.xero_journal_id IS NOT NULL
+          ORDER BY j.drafted_at LIMIT 50`, [client.id, period])).rows;
+    } catch (e) {
+      if (!isMissingTable(e)) throw e;
+    }
+    for (const d of recDrafts) {
+      const got = await xeroManualJournalStatus(req.params.slug, d.entity_slug, d.xero_journal_id);
+      if (got.error) { errors.push({ id: d.id, error: got.error }); continue; }
+      const next = journals.stateFromXero(got.status);
+      let r;
+      try {
+        r = await pool.query(
+          `UPDATE finance.rec_journals SET xero_status = $2, xero_checked_at = now(), state = COALESCE($3, state)
+            WHERE id = $1 AND state = 'draft_created' RETURNING state`, [d.id, got.status, next]);
+      } catch (e) {
+        if (!isMissingTable(e)) throw e;
+        break;
+      }
+      if (r.rows[0]?.state === "posted") {
+        posted += 1;
+        await pool.query(
+          "INSERT INTO finance.rec_events (rec_id, client_id, actor, action, detail) VALUES ($1,$2,'automatic','journal_posted',$3)",
+          [d.rec_id, d.client_id, JSON.stringify({ journal_id: d.id })]);
+      }
+    }
+    res.json({ checked: drafts.length + recDrafts.length - errors.length, posted, errors });
   }));
 
   // ── The CFO's decision ──────────────────────────────────────────────────────

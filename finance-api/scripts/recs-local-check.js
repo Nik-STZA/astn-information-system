@@ -79,6 +79,8 @@ global.fetch = async (url, opts = {}) => {
     return json({ Reports: [{ Rows: [{ RowType: "Section", Rows: f ? f() : [] }] }] });
   }
   if (u.pathname.endsWith("/ManualJournals")) return json({ ManualJournals: JOURNALS[t] });
+  const one = /\/ManualJournals\/([^/]+)$/.exec(u.pathname);
+  if (one) return json({ ManualJournals: [{ ManualJournalID: decodeURIComponent(one[1]), Status: state.xeroStatus?.[decodeURIComponent(one[1])] ?? "DRAFT" }] });
   if (u.pathname.endsWith("/TaxRates")) return json({ TaxRates: [{ Name: "No VAT", TaxType: "NONE", Status: "ACTIVE" }] });
   if (u.pathname.endsWith("/Organisation")) return json({ Organisations: [{ PeriodLockDate: null, BaseCurrency: state.currency[t] }] });
   return json({}, 404);
@@ -786,6 +788,137 @@ async function scenario() {
     r = await api("PUT", `recs/${ctx.id}/releases`, { on: false });
     r = await api("POST", `recs/${ctx.id}/checks`, {});
     ok("switched off, the checks propose nothing", r.status === 200 && r.body.releases === undefined, r.body);
+  });
+
+  await section("a difference is signed off only with a reason", async () => {
+    const ctx = await toCfo();
+    state.preA = 8403.82; // 3.82 out on Alpha, as rounding on a monthly release would leave it
+    await api("POST", "recs/compose", { period: "2026-10" });
+    let d = (await api("GET", `recs/${ctx.id}`)).body;
+    // The moved figure marks it to re-check; prepared again it reaches the CFO out by 3.82.
+    if (d.rec.recheck_reason) {
+      await api("POST", `recs/${ctx.id}/reopen`, {});
+      await api("POST", `recs/${ctx.id}/comment`, { entity_id: EA, comment: "Rounding on the monthly releases" });
+      await api("POST", `recs/${ctx.id}/prepare`, { note: "Out by 3.82: rounding on the monthly releases." }, ctx.via);
+      await api("POST", `recs/${ctx.id}/review`, { pass: true, note: "Rounding." }, { "X-Work-Via": `agent:fc:${ctx.runId}`, "X-Actor-Email": FC });
+      d = (await api("GET", `recs/${ctx.id}`)).body;
+    }
+    ok("with the CFO, out by 3.82", d.rec.status === "with_cfo" && d.cover.ties === false && Math.abs(Number(d.cover.group.variance)) === 3.82, { s: d.rec.status, v: d.cover.group.variance, r: d.rec.recheck_reason });
+    let r = await sign(ctx.id, { sole_reviewer: true });
+    ok("refused without a reason", r.status === 422 && /accept the difference with a reason/.test(r.body.issues?.join() ?? ""), r);
+    r = await sign(ctx.id, { sole_reviewer: true, accept_variance: "rounding" });
+    ok("refused with too short a reason", r.status === 422 && /at least 15/.test(r.body.issues?.join() ?? ""), r);
+    r = await sign(ctx.id, { accept_variance: "Rounding on the monthly releases" }, { "X-Actor-Email": BOOK });
+    ok("a reason does not let a non-CFO sign", r.status === 422, r);
+    const why = "Rounding on the monthly releases; trued up in each item's last month";
+    r = await sign(ctx.id, { sole_reviewer: true, accept_variance: why });
+    ok("signed with a reason", r.status === 200, r);
+    d = (await api("GET", `recs/${ctx.id}`)).body;
+    const a = d.rec.accepted_variance;
+    ok("the reason and the amount by company show", a?.reason === why && Math.abs(Number(a.group)) === 3.82 && a.by === CFO
+      && a.by_company.length === 1 && a.by_company[0].entity === "Alpha Ltd" && Math.abs(Number(a.by_company[0].variance)) === 3.82, a);
+    const log = (await pool.query("SELECT payload FROM finance.audit_log WHERE client_id = $1 AND action = 'rec_signed_off' ORDER BY occurred_at DESC LIMIT 1", [CID])).rows[0];
+    ok("in the audit log", log?.payload?.accepted_variance?.reason === why, log);
+    const ev = (await pool.query("SELECT action FROM finance.rec_events WHERE rec_id = $1", [ctx.id])).rows.map((x) => x.action);
+    ok("in the history", ev.includes("variance_accepted"), ev);
+    await api("POST", `recs/${ctx.id}/reopen`, {});
+    d = (await api("GET", `recs/${ctx.id}`)).body;
+    ok("reopened, the acceptance goes with the old signing", d.rec.accepted_variance === null && d.rec.signed_before === 1, d.rec);
+  });
+
+  await section("a difference with its journal still waiting is not accepted", async () => {
+    const ctx = await prepared();
+    await api("POST", `recs/${ctx.id}/comment`, { entity_id: EA, comment: "Journal proposed" });
+    await api("POST", `recs/${ctx.id}/prepare`, { note: "Out by 600: October release missing, journal proposed." }, ctx.via);
+    await api("POST", `recs/${ctx.id}/review`, { pass: true, note: "Agreed." }, { "X-Work-Via": `agent:fc:${ctx.runId}`, "X-Actor-Email": FC });
+    let r = await sign(ctx.id, { sole_reviewer: true, accept_variance: "Accepting rather than journalling" });
+    ok("refused while the journal waits", r.status === 422 && /JNL-\d+ is waiting/.test(r.body.issues?.join() ?? ""), r);
+    await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/reject`, {});
+    r = await sign(ctx.id, { sole_reviewer: true, accept_variance: "Accepting rather than journalling" });
+    ok("accepted once it is rejected", r.status === 200, r);
+  });
+
+  await section("a tied rec takes no reason; the tolerance is the CFO's", async () => {
+    const ctx = await toCfo();
+    let r = await sign(ctx.id, { sole_reviewer: true, accept_variance: "Rounding on the monthly releases" });
+    ok("nothing to accept when it ties", r.status === 422 && /no difference to accept/.test(r.body.issues?.join() ?? ""), r);
+    r = await api("PUT", "recs/settings", { tolerance: 0.05 }, { "X-Actor-Email": BOOK });
+    ok("a bookkeeper cannot set the tolerance", r.status === 403, r);
+    r = await api("PUT", "recs/settings", { tolerance: 0.05 });
+    ok("the CFO sets it", r.status === 200 && r.body.tolerance === "0.05", r);
+    const list = (await api("GET", "recs?period=2026-10")).body;
+    ok("the list shows it", list.tolerance === "0.05", list.tolerance);
+  });
+
+  await section("send back starts FM1 again, with the note", async () => {
+    const ctx = await toCfo();
+    const note = "Item 2 ends in March, not April: check the release";
+    let r = await api("POST", `recs/${ctx.id}/send-back`, { note });
+    ok("sent back, and says FM1 started", r.status === 200 && r.body.status === "sent_back" && /started again/.test(r.body.fm1 ?? ""), r);
+    let runs = (await pool.query("SELECT id, agent, status, instruction, requested_by_email FROM finance.agent_runs WHERE rec_id = $1 ORDER BY queued_at DESC", [ctx.id])).rows;
+    ok("one FM1 run queued, the note first", runs.length === 1 && runs[0].agent === "fm1" && runs[0].status === "queued"
+      && runs[0].instruction.startsWith("CFO sent the Prepayments reconciliation") && runs[0].instruction.includes(note) && runs[0].requested_by_email === CFO, runs);
+    // A second send back while FM1 is on it starts nothing more.
+    await pool.query("UPDATE finance.recs SET status = 'with_cfo' WHERE id = $1", [ctx.id]);
+    r = await api("POST", `recs/${ctx.id}/send-back`, { note: "again" });
+    runs = (await pool.query("SELECT id FROM finance.agent_runs WHERE rec_id = $1", [ctx.id])).rows;
+    ok("not a second run while one is live", r.status === 200 && /already working/.test(r.body.fm1 ?? "") && runs.length === 1, { r, n: runs.length });
+  });
+
+  await section("the FC agent's send back restarts FM1, twice in a row at most", async () => {
+    const ctx = await toCfo();
+    const fcVia = { "X-Work-Via": `agent:fc:${ctx.runId}`, "X-Actor-Email": FC };
+    const backToFc = async () => {
+      await pool.query("UPDATE finance.agent_runs SET status = 'succeeded', finished_at = now() WHERE rec_id = $1 AND status = 'queued'", [ctx.id]);
+      await pool.query("UPDATE finance.recs SET status = 'with_fc' WHERE id = $1", [ctx.id]);
+    };
+    const results = [];
+    for (let i = 0; i < 3; i += 1) {
+      await backToFc();
+      const r = await api("POST", `recs/${ctx.id}/review`, { pass: false, note: `Round ${i + 1}: item 2's end date` }, fcVia);
+      results.push(r.body.fm1 ?? JSON.stringify(r.body));
+    }
+    const runs = (await pool.query("SELECT instruction FROM finance.agent_runs WHERE rec_id = $1 ORDER BY queued_at", [ctx.id])).rows;
+    ok("two restarts, then it waits for a person", runs.length === 2 && /started again/.test(results[0]) && /started again/.test(results[1]) && /waits for a person/.test(results[2]), { results, n: runs.length });
+    ok("FC's restart names the FC and its note", runs[0]?.instruction.startsWith("FC sent the") && runs[0].instruction.includes("Round 1"), runs[0]);
+    // A person's send back always restarts, and resets the count.
+    await backToFc();
+    let r = await api("POST", `recs/${ctx.id}/review`, { pass: false, note: "From me: check item 2" }, { "X-Actor-Email": FC });
+    ok("a person's send back restarts it", /started again/.test(r.body.fm1 ?? ""), r);
+    await backToFc();
+    r = await api("POST", `recs/${ctx.id}/review`, { pass: false, note: "Agent again" }, fcVia);
+    ok("after a person's restart the agent may restart it again", /started again/.test(r.body.fm1 ?? ""), r);
+    const ev = (await pool.query("SELECT action FROM finance.rec_events WHERE rec_id = $1", [ctx.id])).rows.map((x) => x.action);
+    ok("held is in the history", ev.includes("restart_held"), ev);
+  });
+
+  await section("a rec journal posted in Xero shows as posted", async () => {
+    const ctx = await prepared();
+    const r0 = await api("POST", `recs/${ctx.id}/journals/${ctx.jid}/approve`, {});
+    const childId = r0.body.run_id;
+    const child = (await pool.query("SELECT * FROM finance.agent_runs WHERE id = $1", [childId])).rows[0];
+    const a = approvalFromThread({ current: child, parent: { output: ANSWER } });
+    await journalPost({ ...INPUT, status: "DRAFT", approval: a.approval, idempotency_key: `agent-run-${childId}` }, childId);
+    let d = (await api("GET", `recs/${ctx.id}`)).body;
+    const xeroId = d.journals.find((j) => j.id === ctx.jid)?.xero_journal_id;
+    ok("a draft in Xero", d.journals.find((j) => j.id === ctx.jid)?.state === "draft_created" && xeroId, d.journals);
+    state.xeroStatus = { [xeroId]: "DRAFT" };
+    let r = await api("POST", "journals/refresh", { period: "2026-10" });
+    d = (await api("GET", `recs/${ctx.id}`)).body;
+    ok("still a draft while Xero says so", r.status === 200 && r.body.posted === 0 && d.journals.find((j) => j.id === ctx.jid).state === "draft_created", r);
+    state.xeroStatus = { [xeroId]: "POSTED" };
+    r = await api("POST", "journals/refresh", { period: "2026-10" });
+    d = (await api("GET", `recs/${ctx.id}`)).body;
+    const j = d.journals.find((x) => x.id === ctx.jid);
+    ok("posted once Xero says so", r.body.posted === 1 && j.state === "posted" && j.xero_status === "POSTED", { r: r.body, j });
+    const page = (await api("GET", "journals?period=2026-10")).body;
+    const row = page.journals.find((x) => x.id === ctx.jid);
+    ok("the Journals page shows it posted", row?.kind === "rec" && row.state === "posted" && row.xero_status === "POSTED", row);
+    const ev = (await pool.query("SELECT action FROM finance.rec_events WHERE rec_id = $1", [ctx.id])).rows.map((x) => x.action);
+    ok("in the rec's history", ev.includes("journal_posted"), ev);
+    r = await api("POST", `recs/${ctx.id}/journals`, PROPOSAL, ctx.via);
+    ok("the same journal cannot be proposed again once posted", r.status === 409, r);
+    state.xeroStatus = undefined;
   });
 
   await section("missing table is tolerated", async () => {

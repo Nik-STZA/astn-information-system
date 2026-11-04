@@ -5,7 +5,7 @@ import {
   accountKey, approvalInstruction, composeAccounts, cover, entityLines, finishItem, itemAt, journalChecks, journalMatches,
   journalProposalIssues, matrixFields, namesRecProposal, monthEnd, nextPeriod, priorPeriod, recheckReason, releaseIn, releaseProfile, scheduleItemInput,
   scheduleMonths, scheduleTotals, snapshotOf, stepIssues, workable, prepareInstruction, releaseJournals,
-  CFO_ROLE, approvalIssues, draftFailure, hasRows, journalAgrees, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows,
+  CFO_ROLE, approvalIssues, draftFailure, hasRows, journalAgrees, recJournalGate, recJournalKey, retryState, runIsLive, unidentifiedRows, autoRestartsInARow, sendBackInstruction,
 } from "./recs";
 import { approvalFromThread } from "./draft-approval";
 import { checkApprovalText } from "./journal";
@@ -422,6 +422,29 @@ describe("moving a rec along", () => {
   });
   it("H4: will not sign off on a read that cannot be relied on", () => {
     expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo" }), tied: true, ...person, reads: ["Not complete"] })).toEqual(["Not complete"]);
+  });
+  it("signs off a difference only with the CFO's reason", () => {
+    const r = rec({ status: "with_cfo" });
+    expect(stepIssues("sign_off", { rec: r, tied: false, ...person, accept: "Rounding on the monthly releases, trued up in the last month" })).toEqual([]);
+    expect(stepIssues("sign_off", { rec: r, tied: false, ...person, accept: "ok" }).join()).toMatch(/at least 15 characters/);
+    expect(stepIssues("sign_off", { rec: r, tied: false, ...person, accept: "   " }).join()).toMatch(/accept the difference with a reason/);
+    expect(stepIssues("sign_off", { rec: r, tied: true, ...person, accept: "Rounding on the monthly releases" }).join()).toMatch(/no difference to accept/);
+    // The reason does not get round the other rules.
+    expect(stepIssues("sign_off", { rec: r, tied: false, via: null, role: "Bookkeeper", reads: [], accept: "Rounding on the monthly releases" })).toContain("Only the CFO signs off");
+    expect(stepIssues("sign_off", { rec: rec({ status: "with_cfo", recheck_reason: "moved" }), tied: false, ...person, accept: "Rounding on the monthly releases" }).join()).toMatch(/needs preparing again/);
+  });
+  it("counts FM1's automatic restarts in a row, newest first", () => {
+    const auto = { action: "agent_restarted", detail: { automatic: true } };
+    expect(autoRestartsInARow([])).toBe(0);
+    expect(autoRestartsInARow([auto, auto])).toBe(2);
+    expect(autoRestartsInARow([auto, { action: "agent_started", detail: {} }, auto])).toBe(1);
+    expect(autoRestartsInARow([{ action: "agent_restarted", detail: { automatic: false } }, auto])).toBe(0);
+  });
+  it("leads FM1's send-back instruction with the note", () => {
+    const text = sendBackInstruction({ id: "r1", account_name: "Prepayments", period: "2026-09" }, "Item 4 ends in August, not September", "CFO");
+    expect(text).toMatch(/^CFO sent the Prepayments reconciliation for September 2026 back to you\. Reconciliation id: r1\./);
+    expect(text).toContain("What needs changing, in their words: Item 4 ends in August, not September");
+    expect(text).toMatch(/submit_rec/);
   });
   it("keeps send back and reopening a signed rec to the CFO", () => {
     const clerk = { via: null, role: "Bookkeeper", actor: "b", note: "x" };

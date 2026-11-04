@@ -535,6 +535,26 @@ function releaseJournals({ items, check, accountCode, period }) {
   return out;
 }
 
+// A difference the CFO signs off without a journal: the reason is the record,
+// so it must say something.
+const ACCEPT_MIN = 15;
+
+// FM1 starts again on its own when an agent sends a rec back, but only this
+// many times in a row: after that a person decides, so two agents cannot loop.
+const AUTO_RESTARTS = 2;
+
+// How many of a rec's latest FM1 starts, newest first, were automatic restarts
+// after an agent sent it back. A person's start or send-back ends the run.
+//   events  rec_events rows, action agent_started or agent_restarted, newest first
+function autoRestartsInARow(events) {
+  let n = 0;
+  for (const e of events ?? []) {
+    if (e.action !== "agent_restarted" || e.detail?.automatic !== true) break;
+    n += 1;
+  }
+  return n;
+}
+
 // ── Moving a rec along ───────────────────────────────────────────────────────
 
 const STATUS = ["not_started", "in_progress", "with_fc", "with_cfo", "signed_off", "sent_back"];
@@ -563,7 +583,8 @@ const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent
 //   sole     the CFO says, on the screen, they are the only reviewer
 //   note     the note given
 //   reads    why the figures cannot be relied on at sign-off
-function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null }) {
+//   accept   the CFO's reason for signing off a difference that does not tie
+function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "" }) {
   const issues = [];
   const say = (s) => issues.push(s);
   const worked = workable(rec.line_key, rec.proof);
@@ -586,7 +607,10 @@ function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, com
     if (!CFO_ROLE.test(String(role ?? ""))) say("Only the CFO signs off");
     if (rec.status !== "with_cfo") say("This has not passed FC review");
     if (rec.recheck_reason) say("A figure moved after this was prepared, so it needs preparing again");
-    if (!tied) say("It does not tie. Post the journal in Xero and refresh, or correct the schedule");
+    const why = String(accept ?? "").trim();
+    if (!tied && !why) say("It does not tie. Post the journal in Xero and refresh, correct the schedule, or accept the difference with a reason");
+    if (!tied && why && why.length < ACCEPT_MIN) say(`Say why the difference is accepted, in at least ${ACCEPT_MIN} characters`);
+    if (tied && why) say("It ties, so there is no difference to accept");
     if (!via && needsSoleReviewer(rec, person) && !sole) {
       say("You prepared or reviewed this, or started the agents that did. Tick sole reviewer to sign off: it is recorded and shown on the reconciliation");
     }
@@ -769,7 +793,22 @@ function prepareInstruction(rec) {
   ].join(" ");
 }
 
+// What FM1 is asked when a rec comes back to it. The note leads: it is the
+// reason for the run.
+//   by   who sent it back: "CFO" or "FC"
+function sendBackInstruction(rec, note, by) {
+  return [
+    `${by} sent the ${rec.account_name} reconciliation for ${periodLabel(rec.period)} back to you. Reconciliation id: ${rec.id}.`,
+    `What needs changing, in their words: ${String(note ?? "").trim()}`,
+    "Deal with that first. Use get_rec to see the reconciliation as it stands, and run_rec_checks again if the ledger or the schedule may have moved.",
+    "Read the accruals-and-prepayments procedure if it is listed for you, and the balance-sheet-matrix procedure.",
+    "If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
+    "Then use submit_rec with a note in plain English that says what you changed for each point, and hand off to fc.",
+  ].join(" ");
+}
+
 module.exports = {
+  ACCEPT_MIN, AUTO_RESTARTS, autoRestartsInARow, sendBackInstruction,
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
