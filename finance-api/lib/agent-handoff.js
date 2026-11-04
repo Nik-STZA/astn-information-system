@@ -18,8 +18,12 @@ const PREFIX = "Hand-off from ";
 
 const isHandoff = (instruction) => String(instruction || "").startsWith(PREFIX);
 
+const REFUSED_LINE = "If a step is refused, say so plainly in your answer and do not report it as done.";
+
 function handoffInstruction(from, note) {
-  return `${PREFIX}${TITLES[from] ?? from}: ${String(note).trim().slice(0, 2000)}`;
+  return `${PREFIX}${TITLES[from] ?? from}: ${String(note).trim().slice(0, 2000)}
+
+${REFUSED_LINE}`;
 }
 
 // What stops a hand-off, or null. hops: hand-offs already in a row before this run.
@@ -31,4 +35,13 @@ function handoffRefusal(from, to, note, hops) {
   return null;
 }
 
-module.exports = { CHAIN, MAX_HOPS, isHandoff, handoffInstruction, handoffRefusal };
+// FM1 hands a reconciliation to the FC only once it is with the FC: submit_rec
+// moves it there. A hand-off before that leaves the FC reviewing a rec the
+// platform will not let it review. recStatus: the run's rec status, or null
+// when the run is not on a rec.
+function recHandoffRefusal(from, to, recStatus) {
+  if (from !== "fm1" || to !== "fc" || !recStatus || recStatus === "with_fc") return null;
+  return `The reconciliation is still ${String(recStatus).replace(/_/g, " ")}. Prepare it first (submit_rec), then hand off.`;
+}
+
+module.exports = { CHAIN, MAX_HOPS, REFUSED_LINE, isHandoff, handoffInstruction, handoffRefusal, recHandoffRefusal };
