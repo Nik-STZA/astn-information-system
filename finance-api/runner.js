@@ -393,6 +393,7 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     ...(journalsRegister.roles.includes(agent) ? journalsRegister.tools(entityEnum) : []),
     // get_account_activity is offered to FM1 and the FC only (lib/agent-ledger.js).
     ...ledger.tools(entityEnum, agent),
+    ...xeroReads.tools(entityEnum),
     ...documents.tools(entityEnum),
     procedures.readProcedureTool(agent, clientRules),
   ];
@@ -616,6 +617,10 @@ const journalsRegister = {
 
 const ledger = require("./lib/agent-ledger").agentLedger({ apiCall });
 
+// The rest of Cowork's Xero reads (lib/agent-xero-reads.js); lib/agent-parity.js
+// maps every Cowork tool to the agent tool that does its job.
+const xeroReads = require("./lib/agent-xero-reads").agentXeroReads({ apiCall });
+
 // ── Documents ────────────────────────────────────────────────────────────────
 //
 // The real file, opened by the agent: lib/agent-documents.js.
@@ -837,6 +842,8 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           console.log(`    Journal proposal: ${result.saved ? "recorded" : `refused (${result.status ?? result.error})`}`);
         } else if (ledger.names.includes(tu.name)) {
           result = await ledger.call(job, tu.name, tu.input);
+        } else if (xeroReads.names.includes(tu.name)) {
+          result = await xeroReads.call(job, tu.name, tu.input);
         } else if (documents.names.includes(tu.name)) {
           result = await documents.call(job, tu.name, tu.input);
         } else if (tu.name === "create_draft_journal") {

@@ -139,9 +139,26 @@ function assetRow(a) {
   return {
     id: a.assetId, number: a.assetNumber, name: a.assetName, status: a.assetStatus, type_id: a.assetTypeId ?? null,
     purchase_date: day(a.purchaseDate), purchase_price: money(a.purchasePrice), disposal_date: day(a.disposalDate),
-    book_value: money(a.bookValue), depreciation_method: s.depreciationMethod ?? null, averaging: s.averagingMethod ?? null,
-    rate: s.depreciationRate ?? null, effective_life_years: s.effectiveLifeYears ?? null,
-    depreciation_start: day(d.depreciationStartDate), accumulated_depreciation: money(d.currentAccumDepreciationAmount),
+    // Xero's field is accountingBookValue: bookValue does not exist, so until
+    // 5 Nov 2026 every asset showed a book value of null.
+    book_value: money(a.accountingBookValue ?? a.bookValue), depreciation_method: s.depreciationMethod ?? null,
+    averaging: s.averagingMethod ?? null, rate: s.depreciationRate ?? null, effective_life_years: s.effectiveLifeYears ?? null,
+    residual_value: money(s.residualValue), depreciation_start: day(d.depreciationStartDate),
+    prior_accumulated_depreciation: money(d.priorAccumDepreciationAmount),
+    accumulated_depreciation: money(d.currentAccumDepreciationAmount),
+    disposal_price: money(a.disposalPrice), gain_loss: money(d.currentGainLoss),
+  };
+}
+
+// Asset types carry the three accounts each asset posts to, as Xero AccountIDs
+// (match them to get_chart_of_accounts), and the default depreciation.
+function assetTypeRow(t) {
+  const s = t.bookDepreciationSetting || {};
+  return {
+    id: t.assetTypeId, name: t.assetTypeName, cost_account_id: t.fixedAssetAccountId ?? null,
+    accumulated_depreciation_account_id: t.accumulatedDepreciationAccountId ?? null,
+    expense_account_id: t.depreciationExpenseAccountId ?? null, depreciation_method: s.depreciationMethod ?? null,
+    averaging: s.averagingMethod ?? null, rate: s.depreciationRate ?? null, effective_life_years: s.effectiveLifeYears ?? null,
   };
 }
 
@@ -220,9 +237,17 @@ function tools(entityEnum, agent) {
     def("list_attachments",
       "The files attached to a record (name, type, size). Open one with read_attachment.",
       { record_type: { type: "string", enum: ATTACHABLE }, record_id: id("The record's id") }, ["record_type", "record_id"]),
-    def("get_fixed_assets", "The fixed asset register in Xero: each asset's cost, purchase date, depreciation method and rate, book value and status.", {
-      status: { type: "string", enum: ["REGISTERED", "DRAFT", "DISPOSED"], description: "Default REGISTERED" },
-    }),
+    def("get_fixed_assets",
+      "The fixed asset register in Xero. what=assets (default): each asset's cost, purchase date, depreciation method, " +
+      "life and residual, accumulated depreciation, book value and status, filtered by status. what=asset: one asset, " +
+      "with asset_id. what=types: each asset type and the cost, accumulated depreciation and expense accounts it posts to. " +
+      "what=settings: the register's settings, including lastDepreciationDate, the last month depreciation was run. " +
+      "Xero's API cannot run depreciation or dispose of an asset; a person does that in Xero.",
+      {
+        what: { type: "string", enum: ["assets", "asset", "types", "settings"], description: "Default assets" },
+        status: { type: "string", enum: ["REGISTERED", "DRAFT", "DISPOSED"], description: "With what=assets. Default REGISTERED" },
+        asset_id: { type: "string", description: "With what=asset" },
+      }),
     def("check_bill",
       "The platform's computed checks on one bill: duplicates against the ledger, VAT against the entity's registration, " +
       "dates, totals, attachment present and whether anything changed it after entry. A reviewer runs this itself rather " +
@@ -352,6 +377,15 @@ function agentLedger({ apiCall }) {
         return { attachments: (r?.data?.Attachments || []).map((a) => ({ name: a.FileName, type: a.MimeType, bytes: a.ContentLength })) };
       }
       case "get_fixed_assets": {
+        const what = input.what || "assets";
+        if (what === "types") return { items: ((await read(job, e, "asset-types"))?.data || []).map(assetTypeRow) };
+        if (what === "settings") return (await read(job, e, "asset-settings"))?.data ?? null;
+        if (what === "asset") {
+          if (!isGuid(input.asset_id)) return { error: "asset_id must be an id from an earlier tool result" };
+          const a = (await read(job, e, `assets/${input.asset_id}`))?.data;
+          return a ? assetRow(a) : { error: "No such asset" };
+        }
+        if (what !== "assets") return { error: "what must be assets, asset, types or settings" };
         const r = await read(job, e, "assets", { status: input.status || "REGISTERED", page: 1, pageSize: 200 });
         const items = r?.data?.items || [];
         return { count: items.length, complete: items.length < 200, items: items.map(assetRow) };
@@ -377,4 +411,4 @@ function agentLedger({ apiCall }) {
   return { tools, call, names: NAMES };
 }
 
-module.exports = { agentLedger, NAMES, ACTIVITY_ROLES, invoiceRow, invoiceView, organisationView, where, dt };
+module.exports = { agentLedger, NAMES, ACTIVITY_ROLES, assetRow, assetTypeRow, invoiceRow, invoiceView, organisationView, where, dt };
