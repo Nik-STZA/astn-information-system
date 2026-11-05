@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { library, proceduresFor, systemPrompt, readProcedure, readProcedureTool, toolsFor, PRELOADED } from "./agent-procedures";
 import { agentLedger } from "./agent-ledger";
+import { agentXeroReads } from "./agent-xero-reads";
 import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
 import { NAMES as REC_TOOLS } from "./agent-recs";
@@ -22,6 +23,7 @@ const ALL_TOOLS = new Set([
   ...[...buildTools.matchAll(/^\s+name: "([a-z_]+)"/gm)].map((m) => m[1]),
   ...agentWork({}).names,
   ...agentLedger({}).names,
+  ...agentXeroReads({}).names,
   ...DOCUMENT_TOOLS,
   ...REC_TOOLS,
   ...JOURNAL_TOOLS,
