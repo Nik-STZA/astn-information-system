@@ -6,6 +6,7 @@ import { LAPTOP_PARITY, LAPTOP_TOOLS } from "./laptop-parity";
 import { library } from "./agent-procedures";
 import { agentLedger } from "./agent-ledger";
 import { agentXeroReads } from "./agent-xero-reads";
+import { NAMES as CHANGE_TOOLS } from "./agent-xero-changes";
 import { agentWork } from "./agent-work";
 import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { NAMES as REC_TOOLS } from "./agent-recs";
@@ -17,7 +18,7 @@ const buildTools = runnerSrc.slice(runnerSrc.indexOf("function buildTools"), run
 const ALL_TOOLS = new Set([
   ...[...buildTools.matchAll(/^\s+name: "([a-z_]+)"/gm)].map((m) => m[1]),
   ...agentWork({}).names, ...agentLedger({}).names, ...agentXeroReads({}).names,
-  ...DOCUMENT_TOOLS, ...REC_TOOLS, ...JOURNAL_TOOLS,
+  ...DOCUMENT_TOOLS, ...REC_TOOLS, ...JOURNAL_TOOLS, ...CHANGE_TOOLS,
 ]);
 const ROLE_TOOLS = new Set(Object.values(library().roles).flatMap((r) => r.tools || []));
 const isWrite = (tool) => (LAPTOP_PARITY[tool]?.serves || []).some((s) => s.write || /^POST /.test(s.route || ""));

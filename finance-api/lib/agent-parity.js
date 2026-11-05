@@ -79,9 +79,9 @@ const AGENT_PARITY = {
   // Writes the agents already have, behind the CFO's approval
   post_journal: { agent: ["propose_journal", "propose_rec_journal", "create_draft_journal"], note: "proposed, approved by the CFO, created in Xero as a draft; a person posts it" },
   post_journal_from_csv: { agent: ["propose_journal"], note: "one proposal per journal" },
+  create_fixed_asset: { agent: ["propose_fixed_asset"], note: "proposed from the purchase, approved by the CFO on the Xero changes screen, made through the same write route; a draft asset a person registers. Asset types stay with people" },
 
   // Writes still to build (Nik decides each proposal)
-  create_fixed_asset: { to_build: "agent proposes the asset from the purchase; CFO approves in os.stza.io; created in Xero" },
   upsert_invoice: { to_build: "bills already reach Xero through the AP lane (recommend_bill_coding, submit_bill); sales invoices: AR Clerk proposes, CFO approves" },
   upsert_credit_note: { to_build: "agent proposes, CFO approves" },
   upsert_contact: { to_build: "agent proposes a new or changed contact, CFO approves; bank details never set by an agent" },

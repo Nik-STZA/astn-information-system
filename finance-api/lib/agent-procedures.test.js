@@ -4,6 +4,7 @@ import path from "node:path";
 import { library, proceduresFor, systemPrompt, readProcedure, readProcedureTool, toolsFor, PRELOADED } from "./agent-procedures";
 import { agentLedger } from "./agent-ledger";
 import { agentXeroReads } from "./agent-xero-reads";
+import { NAMES as CHANGE_TOOLS } from "./agent-xero-changes";
 import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
 import { NAMES as REC_TOOLS } from "./agent-recs";
@@ -24,6 +25,7 @@ const ALL_TOOLS = new Set([
   ...agentWork({}).names,
   ...agentLedger({}).names,
   ...agentXeroReads({}).names,
+  ...CHANGE_TOOLS,
   ...DOCUMENT_TOOLS,
   ...REC_TOOLS,
   ...JOURNAL_TOOLS,

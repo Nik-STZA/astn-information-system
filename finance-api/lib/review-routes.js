@@ -18,6 +18,7 @@ const SOURCES = {
   reconciliations: "Reconciliations are waiting for migration 032 to be applied.",
   journals: "Journals are waiting for migration 033 to be applied.",
   approvals: "The Approvals folders are not in this database.",
+  xero_changes: "Xero changes are waiting for migration 039 to be applied.",
 };
 
 function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = null }) {
@@ -55,7 +56,7 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
     // the item can link to it.
     if (syncApprovalTasks) await syncApprovalTasks(client.id);
 
-    const [bills, recRows, recJournals, own, wip] = await Promise.all([
+    const [bills, recRows, recJournals, own, wip, xeroChanges] = await Promise.all([
       source("bills", missing, async () => (await pool.query(
         `SELECT i.id, i.state, i.file_name, i.source, i.created_at, i.decided_at,
                 e.slug AS entity_slug, e.name AS entity_name,
@@ -106,6 +107,11 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
            FROM finance.wip_items w LEFT JOIN finance.entities e ON e.id = w.entity_id
           WHERE w.client_id = $1 AND w.panel IN ('awaiting-decision', 'blocked-external', 'in-progress-upstream')
             AND w.closed_at IS NULL`, [client.id])).rows),
+      source("xero_changes", missing, async () => (await pool.query(
+        `SELECT c.id, c.kind, c.state, c.summary, c.source, c.proposed_by, c.attempt_outcome, c.last_error, c.created_at, c.updated_at,
+                c.input->'record'->>'purchasePrice' AS amount, e.name AS entity_name
+           FROM finance.xero_changes c JOIN finance.entities e ON e.id = c.entity_id
+          WHERE c.client_id = $1 AND c.state IN ('proposed', 'approved')`, [client.id])).rows),
     ]);
 
     const ctx = { slug, activeAgents, now };
@@ -116,6 +122,7 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
       ...recJournals.map((r) => review.recJournalItem(r, ctx)),
       ...own.map((r) => review.journalItem(r, ctx)),
       ...wip.map((r) => review.approvalItem(r, ctx)),
+      ...xeroChanges.map((r) => review.xeroChangeItem(r, ctx)),
     ], waitsAs);
     return { viewer: { email: actorEmail || null, role, waits_as: waitsAs }, items, counts: review.counts(items), missing };
   }

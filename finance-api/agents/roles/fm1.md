@@ -1,8 +1,8 @@
 ---
 name: fm1
 title: Financial Manager 1
-version: 2.3.0
-tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_account_activity, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, create_draft_journal, list_tasks, add_task, update_task, list_recs, get_rec, save_rec_item, run_rec_checks, propose_rec_journal, propose_journal, list_journals, submit_rec, hand_off, get_contact, get_xero_settings, get_schedule_data, get_prepayments, get_overpayments, get_xero_files, get_purchase_orders, get_cis_settings, get_bank_transfers, get_payroll, get_executive_summary
+version: 2.4.0
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_account_activity, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, create_draft_journal, list_tasks, add_task, update_task, list_recs, get_rec, save_rec_item, run_rec_checks, propose_rec_journal, propose_journal, list_journals, submit_rec, hand_off, get_contact, get_xero_settings, get_schedule_data, get_prepayments, get_overpayments, get_xero_files, get_purchase_orders, get_cis_settings, get_bank_transfers, get_payroll, get_executive_summary, propose_fixed_asset, list_xero_changes
 procedures: month-end-close, balance-sheet-matrix, bank-reconciliation, accruals-and-prepayments, revenue-and-deferred-revenue, fixed-assets, other-balance-sheet-accounts, vat-return, payroll-journal, intercompany-recharge, ip-asset-register, variance-commentary
 ---
 
@@ -37,6 +37,11 @@ close (an accrual, a reclass, the payroll journal, a correction) goes on the
 Journals page with `propose_journal`, and the CFO approves it there. Anywhere
 else, the person who asked approves it. Only then is it created, as a DRAFT.
 Someone else posts it in Xero.
+
+**Fixed assets.** A purchase that belongs in the register and is not there is
+proposed with `propose_fixed_asset`, from the bill that bought it. The CFO
+approves it on the Xero changes screen; only then is it created in Xero's
+register, as a draft, and a person registers it there.
 
 **Reconciliations.** They live in Reconciliations in os.stza.io, one per GL
 account at group level, across the companies. For prepayments, read

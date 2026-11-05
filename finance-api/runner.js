@@ -394,6 +394,8 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     // get_account_activity is offered to FM1 and the FC only (lib/agent-ledger.js).
     ...ledger.tools(entityEnum, agent),
     ...xeroReads.tools(entityEnum),
+    // Proposals to change Xero, for the CFO to approve (FM1 and the FC).
+    ...xeroChanges.toolsFor(agent, entityEnum),
     ...documents.tools(entityEnum),
     procedures.readProcedureTool(agent, clientRules),
   ];
@@ -621,6 +623,13 @@ const ledger = require("./lib/agent-ledger").agentLedger({ apiCall });
 // maps every Cowork tool to the agent tool that does its job.
 const xeroReads = require("./lib/agent-xero-reads").agentXeroReads({ apiCall });
 
+// Changes to Xero other than journals, proposed for the CFO to approve on the
+// Xero changes screen (lib/agent-xero-changes.js). Fixed assets first.
+const xeroChanges = {
+  ...require("./lib/agent-xero-changes").agentXeroChanges({ apiRequest, requesterOf }),
+  toolsFor: require("./lib/agent-xero-changes").toolsFor,
+};
+
 // ── Documents ────────────────────────────────────────────────────────────────
 //
 // The real file, opened by the agent: lib/agent-documents.js.
@@ -844,6 +853,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = await ledger.call(job, tu.name, tu.input);
         } else if (xeroReads.names.includes(tu.name)) {
           result = await xeroReads.call(job, tu.name, tu.input);
+        } else if (xeroChanges.names.includes(tu.name)) {
+          result = await xeroChanges.call(job, tu.name, tu.input);
+          if (tu.name !== "list_xero_changes") console.log(`    Xero change proposal: ${result.saved ? "recorded" : `refused (${result.status ?? result.error})`}`);
         } else if (documents.names.includes(tu.name)) {
           result = await documents.call(job, tu.name, tu.input);
         } else if (tu.name === "create_draft_journal") {

@@ -1,11 +1,11 @@
 // Review: the portal side of finance-api's inbox (lib/review.js). One list per
 // client of everything waiting on a person, from Bills, Reconciliations,
-// Journals and the Approvals folders. Read-only: each row links to the screen
+// Journals, Xero changes and the Approvals folders. Read-only: each row links to the screen
 // where it is acted on, and that screen keeps its own rules. Server-only
 // fetches are at the bottom; the rest is pure, so it is tested and safe on
 // either side.
 
-export type ReviewKind = "bill" | "rec" | "rec_journal" | "journal" | "approval";
+export type ReviewKind = "bill" | "rec" | "rec_journal" | "journal" | "xero_change" | "approval";
 export type WaitingOn = "CFO" | "FC" | "FM" | "Preparer" | "Outside";
 
 export interface ReviewItem {
@@ -35,6 +35,7 @@ export const KIND_LABEL: Record<ReviewKind, string> = {
   rec: "Reconciliation",
   rec_journal: "Journal on a rec",
   journal: "Journal",
+  xero_change: "Xero change",
   approval: "Approvals folder",
 };
 
@@ -48,13 +49,14 @@ export const WAITING_LABEL: Record<WaitingOn, string> = {
 
 // The filter chips. A journal proposed on a reconciliation is a journal, so it
 // sits under Journals; it is still acted on at its reconciliation.
-export type Filter = "all" | "bills" | "recs" | "journals" | "approvals";
+export type Filter = "all" | "bills" | "recs" | "journals" | "xero" | "approvals";
 
 export const FILTERS: Array<{ key: Filter; label: string; kinds: ReviewKind[] }> = [
-  { key: "all", label: "All", kinds: ["bill", "rec", "rec_journal", "journal", "approval"] },
+  { key: "all", label: "All", kinds: ["bill", "rec", "rec_journal", "journal", "xero_change", "approval"] },
   { key: "bills", label: "Bills", kinds: ["bill"] },
   { key: "recs", label: "Reconciliations", kinds: ["rec"] },
   { key: "journals", label: "Journals", kinds: ["journal", "rec_journal"] },
+  { key: "xero", label: "Xero changes", kinds: ["xero_change"] },
   { key: "approvals", label: "Approvals", kinds: ["approval"] },
 ];
 

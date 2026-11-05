@@ -1,7 +1,7 @@
 ---
 name: fixed-assets
 title: Fixed assets
-version: 1.1.0
+version: 1.2.0
 summary: Proving tangible and intangible assets and lease balances to a register: additions, disposals and depreciation rolled forward and tied to the ledger.
 roles: fm1,fc
 ---
@@ -45,6 +45,11 @@ depreciation by manual journal, say so and check those too.
 3. **Additions.** Look at bills and bank lines coded to the asset accounts with
    `get_invoices`, `get_invoice` and `get_bank_transactions`. Each should be in the
    register, with a date in service, and fit the client's capitalisation rule.
+   One that is missing is proposed with `propose_fixed_asset`, from the bill:
+   the type whose cost account the bill was coded to (`get_fixed_assets`
+   what=types), the bill's date, and the cost net of recoverable VAT. The CFO
+   approves it on the Xero changes screen and it reaches Xero's register as a
+   draft. Until a person registers it there it is not depreciating; say so.
 4. **Draft assets.** An asset at DRAFT is not depreciating. Say how long it has been
    there and what is needed to register it. Registering is for a person.
 5. **Look the other way.** Search repairs, software, equipment and professional fee

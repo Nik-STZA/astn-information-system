@@ -187,6 +187,32 @@ function journalItem(row, { slug, now = Date.now() }) {
   };
 }
 
+// ── Xero changes ─────────────────────────────────────────────────────────────
+
+// A proposed change to Xero other than a journal (lib/xero-changes.js). One
+// being made right now is left out, as a journal being drafted is.
+function xeroChangeItem(row, { slug, now = Date.now(), inFlightMinutes = 5 }) {
+  if (!["proposed", "approved"].includes(row.state)) return null;
+  if (row.state === "approved" && !row.attempt_outcome && now - new Date(row.updated_at).getTime() < inFlightMinutes * 60000) return null;
+  const label = { create_fixed_asset: "Fixed asset" }[row.kind] ?? "Xero change";
+  const status = row.state === "approved"
+    ? "The last attempt did not finish cleanly, so it may be in Xero. Check Xero first"
+    : row.last_error ? `Xero refused the last attempt: ${String(row.last_error).slice(0, 140)}` : `${label} proposed for Xero`;
+  return {
+    kind: "xero_change",
+    id: row.id,
+    title: row.summary,
+    company: row.entity_name ?? null,
+    amount: row.amount ?? null,
+    currency: null,
+    waiting_on: "CFO",
+    since: iso(row.created_at),
+    produced_by: row.source === "person" ? row.proposed_by : producedBy(row.proposed_by),
+    status,
+    href: `${clientBase(slug)}/xero-changes?item=${enc(row.id)}`,
+  };
+}
+
 // ── The Approvals folders ────────────────────────────────────────────────────
 
 // A WIP item's state is the folder it sits in. Each live folder maps to who has
@@ -245,5 +271,5 @@ function counts(items) {
 }
 
 module.exports = {
-  WAITS, FC_ROLE, waitsAs, producedBy, billAgent, billItem, recItem, recJournalItem, journalItem, approvalItem, combine, counts,
+  WAITS, FC_ROLE, waitsAs, producedBy, billAgent, billItem, recItem, recJournalItem, journalItem, xeroChangeItem, approvalItem, combine, counts,
 };
