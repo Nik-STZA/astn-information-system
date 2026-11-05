@@ -3857,8 +3857,12 @@ async function redeemConfirmation(ctx, tool, digest, presented, actorEmail) {
 //
 // The access token is acquired (xeroEntityContext) before any pooled
 // connection is taken, for the reason given above the journal endpoint.
+// Each route's handler by tool name, so an approved Xero change
+// (lib/xero-changes-routes.js) is made by the very route Cowork calls.
+const GATED_WRITES = {};
+
 function gatedWrite(tool, tierOf, plan) {
-  return route(async (req, res) => {
+  const handler = async (req, res) => {
     const actorEmail = (req.get("X-Actor-Email") || "").trim();
     if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
     const input = Buffer.isBuffer(req.body) ? { ...req.query } : { ...(req.body || {}) };
@@ -3955,7 +3959,36 @@ function gatedWrite(tool, tierOf, plan) {
     }
     result.audit_id = await auditWrite(ctx, req, { tool, tier, result, payload: p.payload });
     res.status(201).json(result);
-  });
+  };
+  GATED_WRITES[tool] = handler;
+  return route(handler);
+}
+
+// Runs one gated write route in-process, as the named person, and returns its
+// answer as { status, body }. A thrown error is an unclear outcome (status 500
+// or the error's own), never a success.
+async function runGatedWrite(tool, { slug, entitySlug, actorEmail, ip, input }) {
+  const handler = GATED_WRITES[tool];
+  if (!handler) return { status: 404, body: { error: `no write route for ${tool}` } };
+  const headers = { "x-actor-email": actorEmail };
+  const req = {
+    params: { slug, entity: entitySlug }, body: { ...input }, query: {}, ip,
+    get: (h) => headers[String(h).toLowerCase()] ?? (String(h).toLowerCase() === "x-forwarded-for" ? ip : undefined),
+  };
+  let status = 200;
+  let body = null;
+  const res = {
+    status(s) { status = s; return this; },
+    json(b) { body = b; return this; },
+    set() { return this; },
+    send(b) { body = b; return this; },
+  };
+  try {
+    await handler(req, res);
+  } catch (e) {
+    return { status: e.httpStatus || 500, body: { error: e.message } };
+  }
+  return { status, body };
 }
 
 async function xeroRef(ctx, what) {
@@ -6403,6 +6436,44 @@ async function xeroManualJournalStatus(slug, entitySlug, journalId) {
 
 journalRoutes = require("./lib/journals-routes").mountJournals(app, {
   route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus,
+});
+
+// ── Xero changes ────────────────────────────────────────────────────────────
+
+// Changes to Xero other than journals, proposed by an agent or a person and
+// approved by the CFO in os.stza.io (lib/xero-changes-routes.js). Fixed assets
+// first.
+
+// The register as Xero holds it, for checking a proposed asset: the types, and
+// every asset at every status (for duplicates and the next number). Paged, at
+// most 1,000 a status, which is far beyond any client's register.
+async function readAssetRegister(slug, entitySlug) {
+  const ctx = await xeroEntityContext(slug, entitySlug);
+  if (!ctx) return { unavailable: true, error: "the company is not connected to Xero" };
+  if (ctx.error) return { unavailable: true, error: ctx.error };
+  try {
+    const types = await xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/AssetTypes`, {});
+    const assets = [];
+    for (const status of ["DRAFT", "REGISTERED", "DISPOSED"]) {
+      for (let page = 1; page <= 5; page++) {
+        const got = await xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/Assets`, { status, page, pageSize: 200 });
+        const items = got?.items ?? [];
+        assets.push(...items);
+        if (items.length < 200) break;
+      }
+    }
+    return {
+      types: Array.isArray(types) ? types : [],
+      assets,
+      numbers: assets.map((a) => a.assetNumber).filter(Boolean),
+    };
+  } catch (e) {
+    return { unavailable: true, error: e.message };
+  }
+}
+
+require("./lib/xero-changes-routes").mountXeroChanges(app, {
+  route, pool, audit, clientIdFromSlug, readAssetRegister, runGatedWrite, writePolicy: writeRules.writePolicy,
 });
 
 // ── Review ──────────────────────────────────────────────────────────────────

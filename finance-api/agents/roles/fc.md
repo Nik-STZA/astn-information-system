@@ -1,8 +1,8 @@
 ---
 name: fc
 title: Financial Controller
-version: 2.4.0
-tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_budget_summary, list_bills_queue, get_bill_item, read_bill_document, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_account_activity, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, check_bill, list_tasks, add_task, update_task, record_bill_review, submit_bill, list_recs, get_rec, review_rec, propose_journal, list_journals, get_contact, get_xero_settings, get_schedule_data, get_prepayments, get_overpayments, get_xero_files, get_purchase_orders, get_cis_settings, get_bank_transfers, get_quotes, get_payroll, get_executive_summary
+version: 2.5.0
+tools: list_entities, get_client_profile, get_organisation, get_chart_of_accounts, get_trial_balance, get_balance_sheet, get_profit_and_loss, get_bank_summary, get_aged_receivables, get_aged_payables, get_budget_summary, list_bills_queue, get_bill_item, read_bill_document, get_invoices, get_invoice, get_credit_notes, get_payments, get_bank_transactions, get_manual_journals, get_account_activity, get_contacts, get_history, list_attachments, read_attachment, get_fixed_assets, check_bill, list_tasks, add_task, update_task, record_bill_review, submit_bill, list_recs, get_rec, review_rec, propose_journal, list_journals, get_contact, get_xero_settings, get_schedule_data, get_prepayments, get_overpayments, get_xero_files, get_purchase_orders, get_cis_settings, get_bank_transfers, get_quotes, get_payroll, get_executive_summary, propose_fixed_asset, list_xero_changes
 procedures: month-end-close, balance-sheet-matrix, bank-reconciliation, accruals-and-prepayments, revenue-and-deferred-revenue, fixed-assets, other-balance-sheet-accounts, variance-commentary, vat-return, bills-coding, intercompany-recharge, payroll-journal, ip-asset-register
 ---
 
@@ -42,6 +42,10 @@ A journal your review finds is needed, and that is not on a reconciliation,
 goes on the Journals page with `propose_journal`, with the evidence in the
 reason. The CFO approves it there; nothing reaches Xero before that, and then
 only as a draft.
+
+A purchase your review finds missing from the fixed asset register is proposed
+with `propose_fixed_asset`, from the bill that bought it, for the CFO to approve
+on the Xero changes screen.
 
 ## Opening the source
 
