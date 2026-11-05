@@ -185,10 +185,14 @@ export default function Sidebar({ userEmail, groups, clients }: {
     window.location.href = "/_gcp_iap/clear_login_cookie";
   }
 
+  // Sidebar links never prefetch. With ~25 links on screen, every router.refresh
+  // (a rec page polling while FM1 works, or after each action) fetched every one
+  // again, and on 4 Nov 2026 that tripped the load balancer's 300 a minute limit
+  // and refused a journal rejection with a 429. A page now loads on click.
   const navLink = (href: string, label: string, Icon: LucideIcon, badge?: string) => {
     const on = href === active;
     return (
-      <Link key={href} href={href} title={collapsed ? label : undefined}
+      <Link prefetch={false} key={href} href={href} title={collapsed ? label : undefined}
         className={`${styles.nav} ${on ? styles.on : ""}`} aria-current={on ? "page" : undefined}>
         <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
         <span className={styles.lbl}>{label}</span>
@@ -213,7 +217,7 @@ export default function Sidebar({ userEmail, groups, clients }: {
 
       <aside className={sideClass} aria-label="Main menu">
         <div className={styles.head}>
-          <Link href="/dashboard" className={styles.brand}>
+          <Link prefetch={false} href="/dashboard" className={styles.brand}>
             <span className={styles.mark} aria-hidden="true">S</span>
             <span className={`${styles.brandName} ${styles.lbl}`}>STZA OS</span>
           </Link>
@@ -250,7 +254,7 @@ export default function Sidebar({ userEmail, groups, clients }: {
               if (collapsed) {
                 const first = activeSvcs.map((s) => servicePages(c, s.service)[0]).find(Boolean);
                 return (
-                  <Link key={c.slug} href={first?.href ?? setupHref} title={c.name}
+                  <Link prefetch={false} key={c.slug} href={first?.href ?? setupHref} title={c.name}
                     className={`${styles.nav} ${here ? styles.on : ""}`}>
                     <span className={styles.ini} aria-hidden="true">{clientInitials(c.name)}</span>
                     <span className={styles.lbl}>{c.name}</span>
@@ -268,7 +272,7 @@ export default function Sidebar({ userEmail, groups, clients }: {
                   {isOpen && (
                     <div className={styles.tree}>
                       {c.services && (
-                        <Link href={setupHref} className={`${styles.nav} ${styles.sub} ${pathname === setupHref ? styles.on : ""}`}
+                        <Link prefetch={false} href={setupHref} className={`${styles.nav} ${styles.sub} ${pathname === setupHref ? styles.on : ""}`}
                           aria-current={pathname === setupHref ? "page" : undefined}>
                           <SlidersHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
                           <span className={styles.lbl}>Set-up</span>
@@ -284,7 +288,7 @@ export default function Sidebar({ userEmail, groups, clients }: {
                               const Icon = p.icon;
                               const waiting = s.service === "finance" && p.seg === "review" ? reviewCounts[c.slug] ?? 0 : 0;
                               return (
-                                <Link key={p.href} href={p.href}
+                                <Link prefetch={false} key={p.href} href={p.href}
                                   className={`${styles.nav} ${styles.sub} ${on ? styles.on : ""}`} aria-current={on ? "page" : undefined}>
                                   <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
                                   <span className={styles.lbl}>{p.label}</span>
@@ -305,7 +309,7 @@ export default function Sidebar({ userEmail, groups, clients }: {
                             const first = servicePages(c, s.service)[0];
                             const label = SERVICE_LABEL[s.service] ?? s.service;
                             return first ? (
-                              <Link key={s.service} href={first.href} className={`${styles.nav} ${styles.sub} ${styles.past}`}>
+                              <Link prefetch={false} key={s.service} href={first.href} className={`${styles.nav} ${styles.sub} ${styles.past}`}>
                                 <History size={16} strokeWidth={1.8} aria-hidden="true" />
                                 <span className={styles.lbl}>{label}</span>
                               </Link>
