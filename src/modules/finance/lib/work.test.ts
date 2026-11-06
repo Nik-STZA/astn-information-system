@@ -201,3 +201,19 @@ describe("urgency", () => {
     expect(dropRefusal(held, "done")).toBeNull();
   });
 });
+
+import { decidedAt } from "./work";
+
+describe("decidedAt", () => {
+  it("sends a task from Xero changes to its change, worded by whether it is decided", () => {
+    expect(decidedAt(t("a", null, { source: "xero_change", source_ref: "c-1", status: "review" }), "feldspar sport")).toEqual({
+      href: "/finance/clients/feldspar%20sport/xero-changes?item=c-1", label: "Approve or reject in Xero changes",
+    });
+    expect(decidedAt(t("a", null, { source: "xero_change", source_ref: "c-1", status: "done" }), "s")?.label).toBe("See it in Xero changes");
+  });
+
+  it("is null for any other task", () => {
+    expect(decidedAt(t("a", null, { source: "approval", source_ref: "w-1" }), "s")).toBeNull();
+    expect(decidedAt(t("a", null, { source: "xero_change", source_ref: null }), "s")).toBeNull();
+  });
+});

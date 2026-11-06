@@ -5860,6 +5860,13 @@ app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => work
   // which only a person does.
   const approvalMove = current.source === "approval" && diff.status && (diff.status.to === "done" || diff.status.from === "done");
   if (approvalMove && origin.via) return { status: 403, body: { error: "Only a person closes or reopens an Approvals item, in os.stza.io" } };
+  // A task from Xero changes follows the change: it is decided there, not here.
+  if (current.source === "xero_change" && diff.status && (diff.status.to === "done" || diff.status.from === "done")) {
+    const waiting = await xeroChangeOpen(conn, client.id, current.source_ref);
+    return { status: 409, body: { issues: [waiting
+      ? "Approve or reject this change in Xero changes. The task closes itself when you decide."
+      : "This change has been decided in Xero changes, so the task stays done."] } };
+  }
   const cols = Object.keys(diff);
   const sets = cols.map((c, i) => `${c} = $${i + 2}`);
   if (diff.status) sets.push(diff.status.to === "done" ? "closed_at = now()" : "closed_at = NULL");
@@ -5877,6 +5884,19 @@ app.patch("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => work
 // sub-tasks; their history is kept. Tasks waiting on them move on.
 app.delete("/api/finance/clients/:slug/tasks/:id", route(async (req, res) => workTx(req, res, async (conn, { client, actorEmail, role }) => {
   if (!work.isGuid(req.params.id)) return { status: 400, body: { error: "id must be a task id" } };
+  // Deleting would hide a change still waiting on the CFO (it would not come back).
+  const waiting = (await conn.query(
+    `WITH RECURSIVE tree AS (
+       SELECT id, source, source_ref, status FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
+       UNION ALL
+       SELECT t.id, t.source, t.source_ref, t.status FROM finance.tasks t JOIN tree ON t.parent_id = tree.id WHERE t.deleted_at IS NULL
+     )
+     SELECT source_ref FROM tree WHERE source = 'xero_change' AND status <> 'done'`, [req.params.id, client.id])).rows;
+  for (const w of waiting) {
+    if (await xeroChangeOpen(conn, client.id, w.source_ref)) {
+      return { status: 409, body: { issues: ["A change to Xero is still waiting on this task. Approve or reject it in Xero changes first."] } };
+    }
+  }
   const { rows } = await conn.query(
     `WITH RECURSIVE tree AS (
        SELECT id FROM finance.tasks WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
@@ -6089,6 +6109,7 @@ async function syncApprovalTasks(clientId) {
       });
       await clearBlockers(conn, { taskIds: [r.id], reason: "the approval was decided" });
     }
+    await syncXeroChangeTasks(conn, clientId);
     await conn.query("COMMIT");
   } catch (e) {
     await conn.query("ROLLBACK").catch(() => {});
@@ -6096,6 +6117,50 @@ async function syncApprovalTasks(clientId) {
   } finally {
     conn.release();
   }
+}
+
+// Every change to Xero waiting on the CFO (finance.xero_changes, migration 039)
+// appears in Work as a task too (Nik, 6 Nov 2026), so nothing waits on a page
+// he has to remember to visit. Unlike an Approvals item, the task does not
+// decide anything: the change is approved or rejected in Xero changes, and the
+// task closes itself then. Open while the change is proposed, or approved but
+// not yet made (a write that did not finish cleanly still needs a person).
+const XERO_CHANGE_OPEN = ["proposed", "approved"];
+
+async function syncXeroChangeTasks(conn, clientId) {
+  if (!(await conn.query("SELECT to_regclass('finance.xero_changes') AS t")).rows[0].t) return;
+  const added = (await conn.query(
+    `INSERT INTO finance.tasks (client_id, created_by, title, notes, status, entity_id, source, source_ref)
+     SELECT c.client_id, 'automatic', 'Approve in Xero: ' || c.summary,
+            'Proposed by ' || c.proposed_by || '. Approve or reject it in Xero changes (the link above).'
+              || ' This task closes itself when you decide.',
+            'review', c.entity_id, 'xero_change', c.id::text
+       FROM finance.xero_changes c
+      WHERE c.client_id = $1 AND c.state = ANY($2::text[])
+     ON CONFLICT (client_id, source, source_ref) WHERE source_ref IS NOT NULL DO NOTHING
+     RETURNING id`, [clientId, XERO_CHANGE_OPEN])).rows;
+  for (const r of added) await taskEvent(conn, clientId, r.id, "automatic", "created", { from: "Xero changes" });
+  const closed = (await conn.query(
+    `UPDATE finance.tasks t SET status = 'done', closed_at = now()
+       FROM finance.xero_changes c
+      WHERE t.client_id = $1 AND t.source = 'xero_change' AND t.status <> 'done' AND t.deleted_at IS NULL
+        AND c.id::text = t.source_ref AND NOT (c.state = ANY($2::text[]))
+     RETURNING t.id, c.state, c.approved_by, c.rejected_by`, [clientId, XERO_CHANGE_OPEN])).rows;
+  for (const r of closed) {
+    await taskEvent(conn, clientId, r.id, "automatic", "status", {
+      changes: { status: { from: "review", to: "done" } },
+      reason: r.state === "written" ? `made in Xero after ${r.approved_by ?? "the CFO"} approved it` : `rejected by ${r.rejected_by ?? "the CFO"}`,
+    });
+    await clearBlockers(conn, { taskIds: [r.id], reason: "the Xero change was decided" });
+  }
+}
+
+// Is the change behind a task from Xero changes still waiting for a decision?
+async function xeroChangeOpen(conn, clientId, changeId) {
+  if (!(await conn.query("SELECT to_regclass('finance.xero_changes') AS t")).rows[0].t) return false;
+  const c = (await conn.query(
+    "SELECT state FROM finance.xero_changes WHERE client_id = $1 AND id::text = $2", [clientId, changeId])).rows[0];
+  return !!c && XERO_CHANGE_OPEN.includes(c.state);
 }
 
 // A task from Approvals marked done (or deleted) closes its item; reopened, it

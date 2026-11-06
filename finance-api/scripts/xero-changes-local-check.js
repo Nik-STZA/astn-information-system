@@ -235,6 +235,38 @@ async function scenario() {
     const fresh2 = await agentPropose();
     ok("the same asset can be proposed again after a rejection", fresh2.status === 201, fresh2);
   });
+
+  await section("each waiting change is a Work task that follows the decision", async () => {
+    await seed({ setup: true });
+    const { body: { id } } = await agentPropose();
+    const tasksFor = async (cid) => (await api("GET", "tasks")).body.tasks.filter((t) => t.source === "xero_change" && t.source_ref === cid);
+    let ts = await tasksFor(id);
+    ok("one task, for review, on the company", ts.length === 1 && ts[0].status === "review" && /^Approve in Xero: /.test(ts[0].title) && ts[0].entity_id === EA, ts);
+    ok("read again: still one", (await tasksFor(id)).length === 1);
+    const task = ts[0];
+    let r = await api("PATCH", `tasks/${task.id}`, { status: "done" });
+    ok("marking it done is refused while it waits", r.status === 409 && /Approve or reject this change in Xero changes/.test(r.body.issues?.[0]), r);
+    r = await api("DELETE", `tasks/${task.id}`);
+    ok("deleting it is refused while it waits", r.status === 409, r);
+    r = await api("PATCH", `tasks/${task.id}`, { priority: "P1" });
+    ok("other fields still change", r.status === 200 && r.body.priority === "P1", r);
+    await api("POST", `xero-changes/${id}/approve`, {});
+    ts = await tasksFor(id);
+    ok("approved and made: the task is done", ts.length === 1 && ts[0].status === "done" && ts[0].closed_at, ts);
+    const ev = (await pool.query("SELECT detail FROM finance.task_events WHERE task_id = $1 AND action = 'status'", [task.id])).rows;
+    ok("its history says why", ev.some((e) => /made in Xero after cfo@example.com approved it/.test(e.detail?.reason)), ev);
+    r = await api("PATCH", `tasks/${task.id}`, { status: "todo" });
+    ok("reopening a decided one is refused", r.status === 409 && /stays done/.test(r.body.issues?.[0]), r);
+    r = await api("DELETE", `tasks/${task.id}`);
+    ok("once decided it can be deleted", r.status === 200, r);
+
+    const other = await agentPropose("fm1", { ...ASSET, asset_name: "Monitor", purchase_price: 300 });
+    ok("a second proposal gets its own task", (await tasksFor(other.body.id)).length === 1, other);
+    await api("POST", `xero-changes/${other.body.id}/reject`, {});
+    ts = await tasksFor(other.body.id);
+    ok("rejected: the task is done", ts.length === 1 && ts[0].status === "done", ts);
+    ok("approving it did not open a new task for the first", (await tasksFor(id)).length === 0);
+  });
 }
 
 const server = app.listen(0, "127.0.0.1", async () => {

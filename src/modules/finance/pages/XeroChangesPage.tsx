@@ -1,5 +1,8 @@
 // Changes to Xero other than journals, proposed by an agent or a person, for
-// the CFO to approve. Fixed assets first.
+// the CFO to approve. Fixed assets first. Off the menu since 6 Nov 2026: a
+// change waiting on the CFO reaches him as a Work task and in Review, so this
+// page is where it is decided and the record of what happened to each one.
+// Reached from those, and from the client's Xero page.
 
 import PageHeader from "@/shared/ui/PageHeader";
 import XeroChangesView from "@/modules/finance/components/XeroChangesView";
@@ -18,7 +21,7 @@ export default async function XeroChangesPage({ params: paramsPromise, searchPar
 
   return (
     <div>
-      <PageHeader title="Xero changes" sub="Changes to Xero proposed by the agents or a person, other than journals. The CFO approves here, and finance-api makes the change in Xero." />
+      <PageHeader title="Xero changes" sub="Every change to Xero proposed by the agents or a person, other than journals, and what became of it. Waiting ones also show in Work and Review; the CFO approves or rejects here." />
       {!r.ok ? (
         <div className={styles.error} role="alert">
           <div className={styles.errorTitle}>Could not load the Xero changes</div>
