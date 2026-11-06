@@ -376,3 +376,13 @@ export function timelineLayout(rows: TreeRow[], allTasks: Task[], today: string,
   const days = Array.from({ length: hi - lo + 1 }, (_, i) => ymdOf(lo + i));
   return { first: days[0], days, todayIndex: t0 >= lo && t0 <= hi ? t0 - lo : null, bars, links };
 }
+
+// Where a task that stands for something elsewhere is decided, or null. A task
+// from Xero changes is approved or rejected on that page, never from Work.
+export function decidedAt(task: Pick<Task, "source" | "source_ref" | "status">, slug: string): { href: string; label: string } | null {
+  if (task.source !== "xero_change" || !task.source_ref) return null;
+  return {
+    href: `/finance/clients/${encodeURIComponent(slug)}/xero-changes?item=${encodeURIComponent(task.source_ref)}`,
+    label: task.status === "done" ? "See it in Xero changes" : "Approve or reject in Xero changes",
+  };
+}

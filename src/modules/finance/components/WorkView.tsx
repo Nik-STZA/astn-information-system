@@ -5,12 +5,13 @@
 // in the task's history; the page then refreshes from the server.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarCheck, ChevronRight, Plus, Search, X } from "lucide-react";
 import styles from "./Work.module.css";
 import {
   AGENTS, DROPPABLE, SETTABLE, STATUS_LABEL, URGENT_WHY, blockerText, boardColumns, dropRefusal, eventText, londonToday, ownerInitials,
-  ownerLabel, taskTree, timelineLayout, urgency, viaText,
+  decidedAt, ownerLabel, taskTree, timelineLayout, urgency, viaText,
   type ShownStatus, type Task, type TaskEvent, type TreeRow, type UrgentWhy,
 } from "@/modules/finance/lib/work";
 
@@ -232,7 +233,7 @@ export default function WorkView({ slug, tasks, entities, bills, error, initialT
             onClose={() => setCreating(null)} onCreated={(id) => { setCreating(null); setSelected(id); router.refresh(); }} />
         )}
         {!creating && !closing && task && (
-          <TaskPanel key={task.id} base={base} task={task} tasks={tasks} entities={entities} bills={bills} people={people} why={urgent.get(task.id)}
+          <TaskPanel key={task.id} slug={slug} base={base} task={task} tasks={tasks} entities={entities} bills={bills} people={people} why={urgent.get(task.id)}
             onClose={() => setSelected(null)} onAddSub={() => setCreating({ parent_id: task.id })}
             onDeleted={() => { setSelected(null); router.refresh(); }} />
         )}
@@ -689,8 +690,8 @@ function NewTask({ base, entities, tasks, people, parentId, onClose, onCreated }
 
 // ── The task panel ────────────────────────────────────────────────────────────
 
-function TaskPanel({ base, task, tasks, entities, bills, people, why, onClose, onAddSub, onDeleted }: {
-  base: string; task: Task; tasks: Task[]; entities: Entity[]; bills: BillOption[]; people: string[]; why: UrgentWhy | undefined;
+function TaskPanel({ slug, base, task, tasks, entities, bills, people, why, onClose, onAddSub, onDeleted }: {
+  slug: string; base: string; task: Task; tasks: Task[]; entities: Entity[]; bills: BillOption[]; people: string[]; why: UrgentWhy | undefined;
   onClose: () => void; onAddSub: () => void; onDeleted: () => void;
 }) {
   const router = useRouter();
@@ -724,6 +725,7 @@ function TaskPanel({ base, task, tasks, entities, bills, people, why, onClose, o
   const holds = tasks.filter((t) => task.holds_up.includes(t.id));
   const open = task.blockers.filter((b) => b.open);
   const cleared = task.blockers.filter((b) => !b.open);
+  const decide = decidedAt(task, slug);
 
   return (
     <aside className={styles.panel} aria-label="Task">
@@ -739,6 +741,13 @@ function TaskPanel({ base, task, tasks, entities, bills, people, why, onClose, o
           onBlur={() => title.trim() !== task.title && save({ title })}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }} />
       </label>
+
+      {decide && (
+        <div>
+          <Link prefetch={false} className={task.status === "done" ? "btn-secondary" : "btn-primary"} href={decide.href}>{decide.label}</Link>
+          {task.status !== "done" && <div className={styles.small}>Decided there, not here: this task closes itself when you approve or reject it.</div>}
+        </div>
+      )}
 
       <div className={styles.grid}>
         <label className={styles.label} htmlFor="tp-status">Status</label>

@@ -4,6 +4,7 @@
 // pattern in brief section 8.3. Status is derived from whether a secret exists,
 // never by reading its value.
 
+import Link from "next/link";
 import { Link2 } from "lucide-react";
 import PageHeader from "@/shared/ui/PageHeader";
 import SensitiveField from "@/modules/finance/components/SensitiveField";
@@ -106,7 +107,8 @@ export default async function XeroPage({ params: paramsPromise, searchParams: se
 
   return (
     <div>
-      <PageHeader title="Xero connections" sub="Which Xero organisation each company uses, and whether the connection is live." />
+      <PageHeader title="Xero connections" sub="Which Xero organisation each company uses, and whether the connection is live."
+        actions={<Link prefetch={false} className="btn-secondary" href={`/finance/clients/${encodeURIComponent(params.slug)}/xero-changes`}>Xero changes history</Link>} />
 
       {searchParams?.connected && (
         <div className={styles.ok} role="status" style={{ marginBottom: 16 }}>
