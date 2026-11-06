@@ -39,6 +39,7 @@ const {
   maskBankDetails,
   allowed: readAllowed,
 } = require("./lib/xero-read");
+const fixedAssets = require("./lib/fixed-assets");
 const {
   balancesForCodes,
   buildXeroPayload,
@@ -6536,6 +6537,43 @@ async function readAssetRegister(slug, entitySlug) {
     return { unavailable: true, error: e.message };
   }
 }
+
+// GET /api/finance/clients/:slug/fixed-assets   each Xero-connected company's
+// register as Xero holds it (lib/fixed-assets.js), with the asset changes
+// waiting on the CFO. Read only. A company Xero cannot be read for comes back
+// with its error, not a failure of the whole page.
+app.get("/api/finance/clients/:slug/fixed-assets", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const entities = (await pool.query(
+    `SELECT id, slug, name FROM finance.entities
+      WHERE client_id = $1 AND retired_at IS NULL AND accounting_system_config->>'tenant_id' IS NOT NULL ORDER BY name`, [client.id])).rows;
+  const hasChanges = (await pool.query("SELECT to_regclass('finance.xero_changes') AS t")).rows[0].t;
+  const proposals = hasChanges ? (await pool.query(
+    `SELECT id, entity_id, summary, state, proposed_by, created_at FROM finance.xero_changes
+      WHERE client_id = $1 AND kind = 'create_fixed_asset' AND state IN ('proposed', 'approved') ORDER BY created_at`, [client.id])).rows : [];
+  const today = fixedAssets.londonToday();
+  const companies = await Promise.all(entities.map(async (e) => {
+    const head = { slug: e.slug, name: e.name };
+    const reg = await readAssetRegister(req.params.slug, e.slug);
+    if (reg.unavailable) return { ...head, error: `Xero could not be read: ${reg.error}` };
+    try {
+      const ctx = await xeroEntityContext(req.params.slug, e.slug);
+      const [settings, accounts] = await Promise.all([
+        xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/Settings`, {}),
+        xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_API}/Accounts`, {}),
+      ]);
+      return {
+        ...head,
+        ...fixedAssets.companyRegister({ ...reg, settings, accounts: accounts?.Accounts ?? [] },
+          { today, proposals: proposals.filter((p) => p.entity_id === e.id) }),
+      };
+    } catch (err) {
+      return { ...head, error: `Xero could not be read: ${err.message}` };
+    }
+  }));
+  res.json({ as_of: new Date().toISOString(), companies });
+}));
 
 require("./lib/xero-changes-routes").mountXeroChanges(app, {
   route, pool, audit, clientIdFromSlug, readAssetRegister, runGatedWrite, writePolicy: writeRules.writePolicy,

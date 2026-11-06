@@ -23,8 +23,8 @@ Object.assign(process.env, {
 
 const TYPE = "11111111-2222-3333-4444-555555555555";
 const BILL = "99999999-8888-7777-6666-555555555555";
-const TYPES = [{ assetTypeId: TYPE, assetTypeName: "Computer equipment", bookDepreciationSetting: { depreciationMethod: "StraightLine", averagingMethod: "ActualDays", effectiveLifeYears: 3 } }];
-const REGISTERED = [{ assetId: "a-9", assetNumber: "FA-0009", assetName: "Old laptop", purchaseDate: "2025-04-01T00:00:00", purchasePrice: 900, assetStatus: "Registered" }];
+const TYPES = [{ assetTypeId: TYPE, assetTypeName: "Computer equipment", fixedAssetAccountId: "acc-cost", bookDepreciationSetting: { depreciationMethod: "StraightLine", averagingMethod: "ActualDays", effectiveLifeYears: 3 } }];
+const REGISTERED = [{ assetId: "a-9", assetNumber: "FA-0009", assetName: "Old laptop", assetTypeId: TYPE, purchaseDate: "2025-04-01T00:00:00", purchasePrice: 900, accountingBookValue: 600, assetStatus: "Registered" }];
 
 const fresh = () => ({ posts: [], keys: [], postFails: null, readsFail: false });
 let state = fresh();
@@ -46,6 +46,8 @@ global.fetch = async (url, opts = {}) => {
   if (method !== "GET") return json({}, 404);
   if (state.readsFail) return json({ Message: "down" }, 400);
   if (u.pathname === "/assets.xro/1.0/AssetTypes") return json(TYPES);
+  if (u.pathname === "/assets.xro/1.0/Settings") return json({ lastDepreciationDate: "2026-08-31T00:00:00" });
+  if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: [{ AccountID: "acc-cost", Code: "710", Name: "Computer equipment" }] });
   if (u.pathname === "/assets.xro/1.0/Assets") {
     const status = u.searchParams.get("status");
     const items = status === "REGISTERED" ? REGISTERED : status === "DRAFT" ? state.posts.map((p, i) => ({ ...p, assetId: `new-${i + 1}` })) : [];
@@ -266,6 +268,28 @@ async function scenario() {
     ts = await tasksFor(other.body.id);
     ok("rejected: the task is done", ts.length === 1 && ts[0].status === "done", ts);
     ok("approving it did not open a new task for the first", (await tasksFor(id)).length === 0);
+  });
+
+  await section("Fixed assets page: the register, depreciation and what waits", async () => {
+    await seed({ setup: true });
+    const { body: { id } } = await agentPropose();
+    let r = await api("GET", "fixed-assets");
+    ok("200, one company", r.status === 200 && r.body.companies.length === 1, r);
+    const c = r.body.companies[0];
+    ok("totals from the registered assets", c.totals?.count === 1 && c.totals.cost === 900 && c.totals.accumulated === 300 && c.totals.book_value === 600, c.totals);
+    ok("by type, with the cost account", c.by_type?.[0]?.type === "Computer equipment" && c.by_type[0].cost_account === "710 Computer equipment", c.by_type);
+    ok("depreciation behind, months named", c.depreciation?.state === "behind" && c.months_not_run.includes("Sep 2026"), c.depreciation);
+    ok("the waiting proposal, without its input", c.proposals?.length === 1 && c.proposals[0].id === id && !("input" in c.proposals[0]), c.proposals);
+    await api("POST", `xero-changes/${id}/approve`, {});
+    r = await api("GET", "fixed-assets");
+    const c2 = r.body.companies[0];
+    ok("once made: no longer waiting, now a draft", c2.proposals.length === 0 && c2.drafts.length === 1 && c2.totals.count === 1, c2);
+    state.readsFail = true;
+    r = await api("GET", "fixed-assets");
+    state.readsFail = false;
+    ok("Xero unreadable: the company says so, the page still answers", r.status === 200 && /Xero could not be read/.test(r.body.companies[0].error), r.body);
+    r = await realFetch(`${base}/api/finance/clients/no-such-client/fixed-assets`, { headers: { "X-API-Key": "k" } });
+    ok("unknown client 404", r.status === 404);
   });
 }
 

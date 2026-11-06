@@ -1,0 +1,37 @@
+/* Fixed assets page. Phone first: every list is stacked rows that wrap, so
+   nothing scrolls sideways; wider screens just get more on a line. */
+
+.companies { margin-bottom: 16px; flex-wrap: wrap; }
+.section { margin-bottom: 16px; }
+.h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--tx); display: flex; align-items: center; gap: 8px; }
+.count { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--cardhover); color: var(--label-text); font-size: 12px; font-weight: 500; }
+.card { background: var(--pnl); border: 1px solid var(--bd); border-radius: 12px; }
+.pad { padding: 12px 14px; }
+.sub { color: var(--sub); font-size: 13px; line-height: 1.55; }
+.small { color: var(--sub); font-size: 12px; line-height: 1.5; }
+.error { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--bd); border-left: 3px solid var(--alert-red); background: var(--pnl); font-size: 13px; color: var(--tx); }
+
+.state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
+@media (min-width: 720px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.tile { padding: 12px 14px; }
+.tileLabel { font-size: 12px; color: var(--sub); }
+.tileValue { font-size: 16px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.row { padding: 10px 14px; border-bottom: 1px solid var(--bd); font-size: 13px; line-height: 1.5; }
+.row:last-child { border-bottom: 0; }
+.rowTop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.name { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.ref { color: var(--sub); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; font-size: 12px; color: var(--sub); }
+.figs { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: 4px; font-size: 12px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.figs b { color: var(--tx); font-weight: 500; }
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.fold > summary { list-style: none; cursor: pointer; padding: 12px 14px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary:hover { background: var(--cardhover); border-radius: 12px; }
+.foldBody { border-top: 1px solid var(--bd); }
+.link { color: var(--tx); font-weight: 500; text-decoration: underline; text-decoration-color: var(--bd); }
+.link:hover { color: var(--accent-text); }
