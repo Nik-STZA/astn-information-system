@@ -73,3 +73,52 @@ describe("companyRegister", () => {
     expect(o.by_type[0]).toMatchObject({ type: null, count: 1, cost: 1228.26 });
   });
 });
+
+// A trial balance as Xero's report returns it: ytd columns are the balance.
+const tbRow = (id, name, dr, cr) => ({ RowType: "Row", Cells: [{ Value: name, Attributes: [{ Id: "account", Value: id }] }, { Value: "0" }, { Value: "0" }, { Value: String(dr) }, { Value: String(cr) }] });
+const trialBalance = { Rows: [{ RowType: "Section", Rows: [
+  tbRow("a1", "Computer equipment (710)", "4,195.37", 0),
+  tbRow("a2", "Computer equipment depreciation (711)", 0, "1201.41"),
+  tbRow("a9", "Track (WIP) (780)", "50000", 0),
+  tbRow("a8", "Empty (790)", 0, 0),
+] }] };
+const withTb = {
+  ...register,
+  accounts: [...register.accounts,
+    { AccountID: "a1", Code: "710", Name: "Computer equipment", Type: "FIXED" },
+    { AccountID: "a9", Code: "780", Name: "Track (WIP)", Type: "FIXED" },
+    { AccountID: "a8", Code: "790", Name: "Empty", Type: "FIXED" },
+    { AccountID: "a7", Code: "200", Name: "Sales", Type: "REVENUE" }],
+  trialBalance, trialBalanceDate: "2026-11-08",
+};
+
+describe("ledger tie", () => {
+  const tie = companyRegister(withTb, { today: "2026-11-08" }).tie;
+
+  it("one row per account: cost and accumulated against the ledger", () => {
+    const cost = tie.rows.find((r) => r.kind === "cost" && r.account === "710 Computer equipment");
+    expect(cost).toMatchObject({ register: 3854.27, ledger: 4195.37, difference: 341.1, ties: false, types: ["Computer equipment"] });
+    const acc = tie.rows.find((r) => r.kind === "accumulated");
+    expect(acc).toMatchObject({ account: "711 Computer equipment depreciation", register: 1201.41, ledger: 1201.41, difference: 0, ties: true });
+    expect(tie.as_at).toBe("2026-11-08");
+  });
+
+  it("names a draft whose cost is the difference to the penny", () => {
+    const cost = tie.rows.find((r) => r.account === "710 Computer equipment");
+    expect(cost.drafts_matching).toEqual([{ number: "FA-0058", name: "HP laptop", cost: 341.1 }]);
+  });
+
+  it("an asset type with no registered assets still ties its account", () => {
+    const surf = tie.rows.find((r) => r.types.includes("Performance surface"));
+    expect(surf).toMatchObject({ kind: "cost", register: 0, ledger: 0, ties: true, account: "Account not in the chart of accounts" });
+  });
+
+  it("counts the differences and lists fixed asset accounts outside the register", () => {
+    expect(tie.differences).toBe(1);
+    expect(tie.outside_register).toEqual([{ account: "780 Track (WIP)", balance: 50000 }]);
+  });
+
+  it("no trial balance, no tie", () => {
+    expect(companyRegister(register, { today: "2026-11-08" }).tie).toBeUndefined();
+  });
+});

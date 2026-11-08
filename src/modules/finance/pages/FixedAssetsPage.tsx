@@ -1,15 +1,15 @@
 // Fixed assets, client scoped (Nik, 6 Nov 2026): each company's register as
 // Xero holds it. Read only. Shows where depreciation stands, totals by asset
 // type with the accounts each type posts to, the drafts waiting in Xero, and
-// any asset an agent has proposed that waits on the CFO. Tying cost and
-// accumulated depreciation to the ledger comes with the fixed asset
-// reconciliation, on this page.
+// any asset an agent has proposed that waits on the CFO, and the tie to the
+// ledger: each cost and accumulated depreciation account against today's
+// trial balance, differences shown as found (Nik, 8 Nov 2026).
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
 import {
-  DEPRECIATION_LABEL, DEPRECIATION_TONE, dateText, fetchFixedAssets, methodText, money, pickCompany,
-  type AssetRow, type CompanyRegister,
+  DEPRECIATION_LABEL, DEPRECIATION_TONE, dateText, fetchFixedAssets, methodText, money, pickCompany, tieSummary,
+  type AssetRow, type CompanyRegister, type LedgerTie,
 } from "@/modules/finance/lib/fixed-assets";
 import { proposerLabel } from "@/modules/finance/lib/xero-changes";
 import page from "@/modules/finance/components/Page.module.css";
@@ -29,7 +29,7 @@ export default async function FixedAssetsPage({ params: paramsPromise, searchPar
   return (
     <div>
       <PageHeader title="Fixed assets"
-        sub="Each company's asset register as Xero holds it. Read only: the ties to the ledger come with the fixed asset reconciliation." />
+        sub="Each company's asset register as Xero holds it, tied to the ledger. Read only: changes are made in Xero." />
       {!r.ok ? (
         <div className={styles.error} role="alert">Could not load the fixed assets: {/Cannot GET/i.test(r.error) ? "the endpoint is not deployed on finance-api yet." : r.error}</div>
       ) : !r.data.companies.length ? (
@@ -97,6 +97,8 @@ function Company({ base, c }: { base: string; c: CompanyRegister }) {
         <Tile label="Book value" value={money(t.book_value)} />
       </div>
 
+      {c.tie ? <Tie t={c.tie} /> : c.tie_error ? <div className={`${styles.error} ${styles.section}`} role="alert">{c.tie_error}</div> : null}
+
       {(c.by_type ?? []).length > 0 && (
         <section className={styles.section} aria-labelledby="fa-types">
           <h2 id="fa-types" className={styles.h2}>By asset type</h2>
@@ -123,6 +125,56 @@ function Company({ base, c }: { base: string; c: CompanyRegister }) {
       <Fold title="Registered" count={registered.length} open={false} rows={registered} />
       {(c.disposed_count ?? 0) > 0 && <p className={styles.small}>{c.disposed_count} disposed asset{c.disposed_count === 1 ? "" : "s"} not shown.</p>}
     </div>
+  );
+}
+
+function Tie({ t }: { t: LedgerTie }) {
+  const s = tieSummary(t);
+  return (
+    <section className={styles.section} aria-labelledby="fa-tie">
+      <h2 id="fa-tie" className={styles.h2}>Tie to the ledger</h2>
+      <div className={styles.card}>
+        <div className={styles.row}>
+          <div className={styles.state}>
+            <span className={`${page.status} ${page[s.tone]}`}><span className={page.dot} />{s.label}</span>
+            <span className={styles.sub}>Registered assets against the trial balance at {dateText(t.as_at)}. Drafts are not in the register, so a draft already on the books shows here as a difference.</span>
+          </div>
+        </div>
+        {t.rows.map((r) => (
+          <div key={`${r.kind}:${r.account}`} className={styles.row}>
+            <div className={styles.rowTop}>
+              <span className={styles.name}>{r.account} <span className={styles.small}>{r.kind === "cost" ? "Cost" : "Accumulated depreciation"}</span></span>
+              <span className={`${page.status} ${page[r.ties ? "s-green" : "s-amber"]}`}><span className={page.dot} />{r.ties ? "Ties" : "Differs"}</span>
+            </div>
+            <div className={styles.figs}>
+              <span>Register <b>{money(r.register)}</b></span>
+              <span>Ledger <b>{money(r.ledger)}</b></span>
+              <span>Difference <b>{money(r.difference)}</b></span>
+            </div>
+            {r.types.length > 0 && <div className={styles.meta}><span>{r.types.join(", ")}</span></div>}
+            {r.drafts_matching?.map((d) => (
+              <div key={d.number ?? d.name} className={styles.meta}><span>The difference is exactly the cost of draft {d.number ?? ""} {d.name}: registering it in Xero would tie this.</span></div>
+            ))}
+          </div>
+        ))}
+        {t.untyped_count > 0 && (
+          <div className={`${styles.row} ${styles.small}`}>{t.untyped_count} registered asset{t.untyped_count === 1 ? " has" : "s have"} no asset type, so {t.untyped_count === 1 ? "it is" : "they are"} not in any row above.</div>
+        )}
+      </div>
+      {t.outside_register.length > 0 && (
+        <details className={`${styles.card} ${styles.fold}`} style={{ marginTop: 8 }}>
+          <summary><span className={styles.h2} style={{ margin: 0 }}>Fixed asset accounts outside the register <span className={styles.count}>{t.outside_register.length}</span></span>
+            <div className={styles.small} style={{ marginTop: 4 }}>No asset type posts to these, so the register cannot prove them. They need their own schedule.</div></summary>
+          <div className={styles.foldBody}>
+            {t.outside_register.map((a) => (
+              <div key={a.account} className={styles.row}>
+                <div className={styles.rowTop}><span className={styles.name}>{a.account}</span><span className={styles.num}>{money(a.balance)}</span></div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
   );
 }
 

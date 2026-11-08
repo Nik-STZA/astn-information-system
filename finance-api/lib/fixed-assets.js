@@ -6,8 +6,19 @@
 // accounts, each asset's cost, book value and depreciation settings, and
 // settings.lastDepreciationDate. It has no depreciation run, disposal or
 // period schedule, so "has this month's depreciation run" comes from that one
-// date, and the ties to the ledger (cost and accumulated depreciation against
-// the trial balance) come later with the fixed asset reconciliation.
+// date.
+//
+// The tie to the ledger (Nik, 8 Nov 2026): each asset type's cost and
+// accumulated depreciation accounts against the trial balance, one row per
+// account, with the difference as found. A difference is never explained away
+// here: the register's book value is not always as at the last run (seen on
+// one company after a rollback, 8 Nov), so the page shows both numbers and a
+// person explains the gap. The one hint given is exact: a draft whose cost is
+// the cost difference to the penny. Fixed asset accounts in the ledger that no
+// asset type uses are listed with their balances, so nothing on the balance
+// sheet sits outside the rec unseen.
+
+const { trialBalanceByAccountId } = require("./journal");
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const day = (d) => (d && /^\d{4}-\d{2}-\d{2}/.test(String(d)) ? String(d).slice(0, 10) : null);
@@ -117,6 +128,7 @@ function companyRegister(register, { today = londonToday(), proposals = [] } = {
   else depreciation = { state: "up_to_date", text: `Run to ${dayLabel(last)}. Up to date.` };
 
   return {
+    ...(register.trialBalance ? { tie: ledgerTie({ types, registered, drafts, accounts, accountList: register.accounts || [], trialBalance: register.trialBalance, asAt: register.trialBalanceDate ?? today }) } : {}),
     last_depreciation_date: last,
     months_not_run: notRun ?? [],
     depreciation,
@@ -129,4 +141,57 @@ function companyRegister(register, { today = londonToday(), proposals = [] } = {
   };
 }
 
-module.exports = { monthsNotRun, assetRow, companyRegister, londonToday };
+// The register against the ledger, one row per account an asset type posts
+// cost or accumulated depreciation to. Ledger figures are balances as at
+// asAt: cost as a debit balance, accumulated depreciation as a credit balance,
+// so both compare with the register's positive numbers. difference is ledger
+// less register. accounts is the chart as a Map by id, accountList as Xero
+// returned it.
+function ledgerTie({ types, registered, drafts = [], accounts, accountList = [], trialBalance, asAt }) {
+  const tb = trialBalanceByAccountId(trialBalance);
+  const balance = (id) => {
+    const b = tb[id];
+    return b ? r2(b.ytdDebit - b.ytdCredit) : 0;
+  };
+  const typeOf = new Map(types.map((t) => [t.assetTypeName, t]));
+  const rows = [];
+  const used = new Set();
+  const add = (kind, accountId) => {
+    if (!accountId || used.has(`${kind}:${accountId}`)) return;
+    used.add(`${kind}:${accountId}`);
+    const field = kind === "cost" ? "fixedAssetAccountId" : "accumulatedDepreciationAccountId";
+    const mine = registered.filter((a) => typeOf.get(a.type)?.[field] === accountId);
+    const register = r2(mine.reduce((s, a) => s + (kind === "cost" ? a.cost : (a.accumulated ?? 0)), 0));
+    const ledger = kind === "cost" ? balance(accountId) : r2(-balance(accountId));
+    const difference = r2(ledger - register);
+    const row = {
+      kind, account: accountLabel(accounts, accountId) ?? "Account not in the chart of accounts",
+      types: types.filter((t) => t[field] === accountId).map((t) => t.assetTypeName),
+      register, ledger, difference, ties: Math.abs(difference) < 0.005,
+    };
+    if (kind === "cost" && difference > 0) {
+      const match = drafts.filter((d) => r2(d.cost) === difference);
+      if (match.length) row.drafts_matching = match.map((d) => ({ number: d.number, name: d.name, cost: d.cost }));
+    }
+    rows.push(row);
+  };
+  for (const t of types) add("cost", t.fixedAssetAccountId);
+  for (const t of types) add("accumulated", t.accumulatedDepreciationAccountId);
+
+  const inRec = new Set(types.flatMap((t) => [t.fixedAssetAccountId, t.accumulatedDepreciationAccountId]).filter(Boolean));
+  const outside = accountList
+    .filter((a) => a.Type === "FIXED" && !inRec.has(a.AccountID))
+    .map((a) => ({ account: accountLabel(accounts, a.AccountID), balance: balance(a.AccountID) }))
+    .filter((a) => a.balance !== 0);
+  const untyped = registered.filter((a) => !a.type);
+
+  return {
+    as_at: asAt,
+    rows,
+    differences: rows.filter((r) => !r.ties).length,
+    outside_register: outside,
+    untyped_count: untyped.length,
+  };
+}
+
+module.exports = { monthsNotRun, assetRow, companyRegister, ledgerTie, londonToday };

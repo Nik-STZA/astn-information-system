@@ -28,6 +28,27 @@ export interface TypeTotal {
   book_value: number;
 }
 
+// One account in the tie to the ledger: the register against the trial
+// balance. difference is ledger less register.
+export interface TieRow {
+  kind: "cost" | "accumulated";
+  account: string;
+  types: string[];
+  register: number;
+  ledger: number;
+  difference: number;
+  ties: boolean;
+  drafts_matching?: Array<{ number: string | null; name: string; cost: number }>;
+}
+
+export interface LedgerTie {
+  as_at: string;
+  rows: TieRow[];
+  differences: number;
+  outside_register: Array<{ account: string; balance: number }>;
+  untyped_count: number;
+}
+
 export type DepreciationState = "behind" | "never_run" | "up_to_date" | "nothing_registered";
 
 export interface CompanyRegister {
@@ -42,6 +63,8 @@ export interface CompanyRegister {
   registered?: AssetRow[];
   drafts?: AssetRow[];
   disposed_count?: number;
+  tie?: LedgerTie;
+  tie_error?: string;
   proposals?: Array<{ id: string; summary: string; state: string; proposed_by: string; created_at: string }>;
 }
 
@@ -73,6 +96,12 @@ export function methodText(a: Pick<AssetRow, "method" | "life_years" | "rate">):
   if (!a.method) return null;
   const span = a.life_years ? `${a.life_years} year${a.life_years === 1 ? "" : "s"}` : a.rate ? `${a.rate}% a year` : null;
   return [METHOD[a.method] ?? a.method, span].filter(Boolean).join(", ");
+}
+
+// What the tie says at a glance.
+export function tieSummary(t: LedgerTie): { tone: "s-green" | "s-amber"; label: string } {
+  if (!t.differences) return { tone: "s-green", label: "Ties to the ledger" };
+  return { tone: "s-amber", label: `${t.differences} difference${t.differences === 1 ? "" : "s"} to explain` };
 }
 
 // The company the page shows: the one asked for, else the first.

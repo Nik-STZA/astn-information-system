@@ -23,10 +23,13 @@ Object.assign(process.env, {
 
 const TYPE = "11111111-2222-3333-4444-555555555555";
 const BILL = "99999999-8888-7777-6666-555555555555";
-const TYPES = [{ assetTypeId: TYPE, assetTypeName: "Computer equipment", fixedAssetAccountId: "acc-cost", bookDepreciationSetting: { depreciationMethod: "StraightLine", averagingMethod: "ActualDays", effectiveLifeYears: 3 } }];
+const TYPES = [{ assetTypeId: TYPE, assetTypeName: "Computer equipment", fixedAssetAccountId: "acc-cost", accumulatedDepreciationAccountId: "acc-dep", bookDepreciationSetting: { depreciationMethod: "StraightLine", averagingMethod: "ActualDays", effectiveLifeYears: 3 } }];
 const REGISTERED = [{ assetId: "a-9", assetNumber: "FA-0009", assetName: "Old laptop", assetTypeId: TYPE, purchaseDate: "2025-04-01T00:00:00", purchasePrice: 900, accountingBookValue: 600, assetStatus: "Registered" }];
 
-const fresh = () => ({ posts: [], keys: [], postFails: null, readsFail: false });
+const fresh = () => ({ posts: [], keys: [], postFails: null, readsFail: false, tbFails: false });
+// Trial balance: cost 900 + 250 not in the register, accumulated as the register.
+const tbRow = (id, name, dr, cr) => ({ RowType: "Row", Cells: [{ Value: name, Attributes: [{ Id: "account", Value: id }] }, { Value: "0" }, { Value: "0" }, { Value: String(dr) }, { Value: String(cr) }] });
+const TB = { Reports: [{ Rows: [{ RowType: "Section", Rows: [tbRow("acc-cost", "Computer equipment (710)", "1150.00", 0), tbRow("acc-dep", "Depreciation (711)", 0, "300.00"), tbRow("acc-wip", "Track WIP (780)", "5000.00", 0)] }] }] };
 let state = fresh();
 const realFetch = global.fetch;
 const json = (b, status = 200, headers = {}) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json", ...headers } });
@@ -47,7 +50,8 @@ global.fetch = async (url, opts = {}) => {
   if (state.readsFail) return json({ Message: "down" }, 400);
   if (u.pathname === "/assets.xro/1.0/AssetTypes") return json(TYPES);
   if (u.pathname === "/assets.xro/1.0/Settings") return json({ lastDepreciationDate: "2026-08-31T00:00:00" });
-  if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: [{ AccountID: "acc-cost", Code: "710", Name: "Computer equipment" }] });
+  if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: [{ AccountID: "acc-cost", Code: "710", Name: "Computer equipment", Type: "FIXED" }, { AccountID: "acc-dep", Code: "711", Name: "Depreciation", Type: "FIXED" }, { AccountID: "acc-wip", Code: "780", Name: "Track WIP", Type: "FIXED" }] });
+  if (u.pathname === "/api.xro/2.0/Reports/TrialBalance") { state.tbDates = [...(state.tbDates ?? []), u.searchParams.get("date")]; return state.tbFails ? json({ Message: "down" }, 400) : json(TB); }
   if (u.pathname === "/assets.xro/1.0/Assets") {
     const status = u.searchParams.get("status");
     const items = status === "REGISTERED" ? REGISTERED : status === "DRAFT" ? state.posts.map((p, i) => ({ ...p, assetId: `new-${i + 1}` })) : [];
@@ -270,7 +274,7 @@ async function scenario() {
     ok("approving it did not open a new task for the first", (await tasksFor(id)).length === 0);
   });
 
-  await section("Fixed assets page: the register, depreciation and what waits", async () => {
+  await section("Fixed assets page: the register, depreciation, the ledger tie and what waits", async () => {
     await seed({ setup: true });
     const { body: { id } } = await agentPropose();
     let r = await api("GET", "fixed-assets");
@@ -284,6 +288,16 @@ async function scenario() {
     r = await api("GET", "fixed-assets");
     const c2 = r.body.companies[0];
     ok("once made: no longer waiting, now a draft", c2.proposals.length === 0 && c2.drafts.length === 1 && c2.totals.count === 1, c2);
+    const tie = c.tie;
+    ok("tie: cost differs by what the ledger holds beyond the register", tie?.rows?.find((x) => x.kind === "cost")?.difference === 250 && tie.differences === 1, tie);
+    ok("tie: accumulated ties", tie?.rows?.find((x) => x.kind === "accumulated")?.ties === true, tie);
+    ok("tie: a fixed asset account no type uses is listed", tie?.outside_register?.length === 1 && tie.outside_register[0].account === "780 Track WIP" && tie.outside_register[0].balance === 5000, tie);
+    ok("tie: trial balance read as at today", /^\d{4}-\d{2}-\d{2}$/.test(state.tbDates?.[0] ?? "") && tie.as_at === state.tbDates[0], state.tbDates);
+    state.tbFails = true;
+    r = await api("GET", "fixed-assets");
+    state.tbFails = false;
+    const c3 = r.body.companies[0];
+    ok("no trial balance: the register still shows, the tie says it is missing", !c3.error && !c3.tie && /trial balance could not be read/.test(c3.tie_error ?? "") && c3.totals.count === 1, c3);
     state.readsFail = true;
     r = await api("GET", "fixed-assets");
     state.readsFail = false;

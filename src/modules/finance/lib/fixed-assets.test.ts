@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateText, methodText, money, pickCompany } from "./fixed-assets";
+import { dateText, methodText, money, pickCompany, tieSummary } from "./fixed-assets";
 
 describe("fixed assets helpers", () => {
   it("formats money and dates the house way", () => {
@@ -20,5 +20,12 @@ describe("fixed assets helpers", () => {
     expect(pickCompany(cs, "b")?.slug).toBe("b");
     expect(pickCompany(cs, "zzz")?.slug).toBe("a");
     expect(pickCompany([], undefined)).toBeNull();
+  });
+
+  it("sums up the tie", () => {
+    const t = { as_at: "2026-11-08", rows: [], outside_register: [], untyped_count: 0 };
+    expect(tieSummary({ ...t, differences: 0 })).toEqual({ tone: "s-green", label: "Ties to the ledger" });
+    expect(tieSummary({ ...t, differences: 1 }).label).toBe("1 difference to explain");
+    expect(tieSummary({ ...t, differences: 2 }).label).toBe("2 differences to explain");
   });
 });
