@@ -6539,7 +6539,8 @@ async function readAssetRegister(slug, entitySlug) {
 }
 
 // GET /api/finance/clients/:slug/fixed-assets   each Xero-connected company's
-// register as Xero holds it (lib/fixed-assets.js), with the asset changes
+// register as Xero holds it and tied to today's trial balance
+// (lib/fixed-assets.js), with the asset changes
 // waiting on the CFO. Read only. A company Xero cannot be read for comes back
 // with its error, not a failure of the whole page.
 app.get("/api/finance/clients/:slug/fixed-assets", route(async (req, res) => {
@@ -6559,13 +6560,21 @@ app.get("/api/finance/clients/:slug/fixed-assets", route(async (req, res) => {
     if (reg.unavailable) return { ...head, error: `Xero could not be read: ${reg.error}` };
     try {
       const ctx = await xeroEntityContext(req.params.slug, e.slug);
-      const [settings, accounts] = await Promise.all([
+      const [settings, accounts, tb] = await Promise.all([
         xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/Settings`, {}),
         xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_API}/Accounts`, {}),
+        // The tie to the ledger: balances today. A failed read loses the tie,
+        // not the register.
+        xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date: today }).catch((err) => {
+          console.warn(`fixed assets: no trial balance for ${e.slug}: ${err.message}`);
+          return null;
+        }),
       ]);
+      const trialBalance = tb ? (tb.Reports?.[0] ?? tb) : null;
       return {
         ...head,
-        ...fixedAssets.companyRegister({ ...reg, settings, accounts: accounts?.Accounts ?? [] },
+        ...(tb ? {} : { tie_error: "The trial balance could not be read from Xero, so the tie to the ledger is missing." }),
+        ...fixedAssets.companyRegister({ ...reg, settings, accounts: accounts?.Accounts ?? [], trialBalance, trialBalanceDate: today },
           { today, proposals: proposals.filter((p) => p.entity_id === e.id) }),
       };
     } catch (err) {
