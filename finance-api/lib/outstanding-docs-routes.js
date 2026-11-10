@@ -16,9 +16,10 @@
 const crypto = require("crypto");
 const docs = require("./outstanding-docs");
 const sheets = require("./sheet-read");
+const xlsx = require("./xlsx-write");
 const work = require("./work");
 
-const MISSING = "Outstanding documents are waiting for migration 040 to be applied.";
+const MISSING = "Outstanding documents are waiting for a migration (040 or 041) to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 // A read still marked reading after this long did not finish; it may be tried again.
 const STALE_READ_MINUTES = 10;
@@ -89,7 +90,7 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
   const itemView = (d, threshold) => {
     const base = {
       id: d.id, state: d.state, entity_slug: d.entity_slug, entity_name: d.entity_name,
-      bank_account: d.bank_account, txn_date: day(d.txn_date), payee: d.payee, reference: d.reference,
+      bank_account: d.bank_account, txn_date: day(d.txn_date), payee: d.payee, reference: d.reference, card_holder: d.card_holder ?? null,
       direction: d.direction, amount: num(d.amount), currency: d.currency, amount_gbp: num(d.amount_gbp),
       concern: d.concern, note: d.note, source: d.source, upload_id: d.upload_id, upload_name: d.upload_name,
       source_line: d.source_line, duplicate_of: d.duplicate_of, xero_type: d.xero_type, xero_id: d.xero_id,
@@ -168,13 +169,70 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
       const r = await conn.query(
         `INSERT INTO finance.outstanding_documents
            (client_id, entity_id, bank_account, txn_date, payee, reference, direction, amount, currency, amount_gbp, concern, note,
-            state, source, created_by, opened_at, opened_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open','person',$13, now(), $13) RETURNING id`,
+            state, source, created_by, opened_at, opened_by, card_holder)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open','person',$13, now(), $13, $14) RETURNING id`,
         [client.id, line.entity_id, line.bank_account, line.txn_date, line.payee, line.reference, line.direction, line.amount,
-          line.currency, line.amount_gbp, line.concern, line.note, w.actorEmail]);
+          line.currency, line.amount_gbp, line.concern, line.note, w.actorEmail, line.card_holder]);
       const id = r.rows[0].id;
       await log(conn, req, { client, ...w, action: "outstanding_doc_added", id, payload: { ...line } });
       return { status: 201, body: { id } };
+    }));
+  }));
+
+  // GET /outstanding-documents/export.xlsx?scope=open|all
+  // The register as an Excel workbook: a summary, every item, and a tab per
+  // card holder or processor. open (the default): items still waiting for
+  // their document; all: every accepted item, open and closed.
+  app.get(`${BASE}/export.xlsx`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const scope = req.query.scope === "all" ? "all" : "open";
+    const threshold = await thresholdOf(pool, client.id);
+    const rows = (await pool.query(
+      `${ITEM_SELECT} WHERE d.client_id = $1 AND d.state IN (${scope === "all" ? "'open', 'received', 'accepted'" : "'open'"})
+        ORDER BY d.txn_date, d.payee`, [client.id])).rows;
+    const items = rows.map((r) => itemView(r, threshold));
+    const today = new Date().toISOString().slice(0, 10);
+    const asAt = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
+    const book = xlsx.writeWorkbook(docs.exportSheets(items, { clientName: client.name, asAt, threshold, scope }), { title: `Outstanding documents - ${client.name}` });
+    const name = `Outstanding documents - ${client.name} - ${today}.xlsx`.replace(/[\\/:*?"<>|]+/g, " ");
+    res.set("Content-Type", xlsx.XLSX_TYPE);
+    res.set("Content-Disposition", `attachment; filename="${name.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.set("Cache-Control", "private, no-store");
+    res.send(book);
+  }));
+
+  // POST /outstanding-documents/card-holders
+  // Finds the card holder or processor of items that have none, from their own
+  // payee and reference (Gemini, text only). Never overwrites one a person set.
+  app.post(`${BASE}/card-holders`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, who.actorEmail])).rows[0].role;
+    if (!role) return res.status(403).json({ error: `${who.actorEmail} holds no engagement role for this client` });
+    const todo = (await pool.query(
+      `SELECT id, payee, reference FROM finance.outstanding_documents
+        WHERE client_id = $1 AND card_holder IS NULL AND state IN ('candidate', 'open', 'received', 'accepted')
+        ORDER BY txn_date LIMIT 400`, [client.id])).rows;
+    if (!todo.length) return res.json({ asked: 0, found: 0 });
+    let found;
+    try {
+      const answer = await generate(docs.buildHoldersRequest(todo));
+      found = docs.parseHolders(answer.text, todo.map((t) => t.id));
+    } catch (e) {
+      return res.status(e.httpStatus === 502 ? 502 : 422).json({ error: `Card holders could not be found: ${String(e.message || e).slice(0, 300)}` });
+    }
+    send(res, await tx(client, who, async (conn, w) => {
+      let n = 0;
+      for (const [id, name] of Object.entries(found)) {
+        if (!name) continue;
+        const r = await conn.query("UPDATE finance.outstanding_documents SET card_holder = $3, updated_at = now() WHERE id = $1 AND client_id = $2 AND card_holder IS NULL", [id, client.id, name]);
+        n += r.rowCount;
+      }
+      await log(conn, req, { client, ...w, action: "outstanding_docs_card_holders", targetType: "client", id: client.id, payload: { asked: todo.length, found: n } });
+      return { status: 200, body: { asked: todo.length, found: n } };
     }));
   }));
 
@@ -266,10 +324,10 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
         const r = await conn.query(
           `INSERT INTO finance.outstanding_documents
              (client_id, entity_id, bank_account, txn_date, payee, reference, direction, amount, currency, amount_gbp, concern, note,
-              state, source, upload_id, source_line, duplicate_of, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'candidate','upload',$13,$14,$15,$16) RETURNING id`,
+              state, source, upload_id, source_line, duplicate_of, created_by, card_holder)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'candidate','upload',$13,$14,$15,$16,$17) RETURNING id`,
           [client.id, l.entity_id, l.bank_account, l.txn_date, l.payee, l.reference, l.direction, l.amount, l.currency, l.amount_gbp,
-            l.concern, l.note, claimed.id, l.source_line, /^[0-9a-f-]{36}$/i.test(String(l.duplicate_of)) ? l.duplicate_of : null, w.actorEmail]);
+            l.concern, l.note, claimed.id, l.source_line, /^[0-9a-f-]{36}$/i.test(String(l.duplicate_of)) ? l.duplicate_of : null, w.actorEmail, l.card_holder]);
         ids.push(r.rows[0].id);
       }
       const u = (await conn.query(

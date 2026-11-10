@@ -5,11 +5,11 @@
 //
 // An upload is the file itself as the request body, its name in X-File-Name.
 // finance-api deletes the file's contents once it has been read; nothing here
-// serves a file back.
+// serves a file back. The one download is the register as an Excel workbook.
 
 import { NextResponse } from "next/server";
 import { getIapEmail } from "@/lib/auth";
-import { docsCall, isDocsPath, MAX_FILE_BYTES } from "@/modules/finance/lib/outstanding-docs";
+import { docsCall, fetchExport, isDocsPath, MAX_FILE_BYTES } from "@/modules/finance/lib/outstanding-docs";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +20,24 @@ async function target(ctx: Ctx) {
   const rest = (params.path ?? []).map(encodeURIComponent).join("/");
   const path = rest ? `outstanding-documents/${rest}` : "outstanding-documents";
   return { slug: params.slug, path, ok: isDocsPath(path) };
+}
+
+// GET .../outstanding-documents/export.xlsx?scope=open|all
+export async function GET(req: Request, ctx: Ctx) {
+  if (!await getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
+  const t = await target(ctx);
+  if (t.path !== "outstanding-documents/export.xlsx") return NextResponse.json({ error: "not found" }, { status: 404 });
+  const scope = new URL(req.url).searchParams.get("scope") === "all" ? "all" : "open";
+  const upstream = await fetchExport(t.slug, scope);
+  if (!upstream.ok) return NextResponse.json({ error: `the workbook could not be made (${upstream.status})` }, { status: upstream.status });
+  return new NextResponse(upstream.body, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": upstream.headers.get("content-disposition") ?? 'attachment; filename="Outstanding documents.xlsx"',
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 export async function POST(req: Request, ctx: Ctx) {

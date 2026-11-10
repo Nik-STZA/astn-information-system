@@ -37,6 +37,10 @@ const requests = [];
 vertex.generate = async (body) => {
   requests.push(body);
   if (readingFails) { const e = new Error(readingFails); e.httpStatus = 502; throw e; }
+  if (body.generationConfig?.responseSchema?.properties?.holders) {
+    const ids = [...body.contents[0].parts[0].text.matchAll(/^([0-9a-f-]{36})\t/gm)].map((m) => m[1]);
+    return { text: JSON.stringify({ holders: ids.map((id, i) => ({ id, card_holder: i % 2 ? "Sam Smith" : null })) }), model: "gemini-test", location: "europe-west2" };
+  }
   return { text: JSON.stringify(reading), model: "gemini-test", location: "europe-west2" };
 };
 
@@ -233,6 +237,43 @@ async function scenario() {
     ok("closed with who and why", it.closed_by === BOOK && /Invoice attached/.test(it.close_reason), it);
     r = await api("PATCH", `/${id}`, { note: "x" });
     ok("a closed item is not edited", r.status === 422, r);
+  });
+
+  await section("card holders and the Excel export", async () => {
+    await seed();
+    const id = (await upload("cards.csv", Buffer.from("a,b\n1,2\n"))).body.upload.id;
+    reading = { report: { organisation: "Alpha Trading Limited" }, lines: [
+      LINE({ date: "2026-09-30", payee: "Supplier A", amount: 690, card_holder: "Jo Bloggs", reference: "Supplier A - Jo Bloggs", source_line: "R31" }),
+      LINE({ date: "2026-09-30", payee: "Supplier A", amount: 690, card_holder: "jo bloggs", reference: "Supplier A - Jo Bloggs", source_line: "R32" }),
+      LINE({ date: "2026-10-01", payee: "=cmd|calc", amount: 100, card_holder: null, reference: "x" }),
+      LINE({ date: "2026-10-02", payee: "Cafe", amount: 12, card_holder: null, reference: "Cafe - Sam Smith" }),
+    ] };
+    let r = await api("POST", `/uploads/${id}/read`, {});
+    const cands = (await items()).items.filter((x) => x.state === "candidate");
+    ok("card holder saved on read", cands.filter((x) => /jo bloggs/i.test(x.card_holder ?? "")).length === 2, cands.map((x) => x.card_holder));
+    r = await api("POST", "/bulk", { step: "accept", ids: cands.map((x) => x.id) });
+    ok("all four accepted", r.body.done.length === 4, r.body);
+    r = await api("POST", "/card-holders", {});
+    ok("finds holders for the two with none, keeps the ones set", r.status === 200 && r.body.asked === 2 && r.body.found === 1, r.body);
+    const after = (await items()).items;
+    ok("a person can set one by hand", (await api("PATCH", `/${after.find((x) => !x.card_holder).id}`, { card_holder: "Ann Lee" })).status === 200);
+    r = await api("POST", "/card-holders", {}, { "X-Work-Via": "claude" });
+    ok("agents cannot fill them", r.status === 403, r);
+
+    const res = await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/export.xlsx`, { headers: { "X-API-Key": "k" } });
+    const book = Buffer.from(await res.arrayBuffer());
+    ok("an .xlsx download", res.status === 200 && /spreadsheetml/.test(res.headers.get("content-type")) && /attachment; filename=.*Outstanding documents - Sample Ltd/.test(res.headers.get("content-disposition")), res.headers.get("content-disposition"));
+    const { readXlsx } = require("../lib/sheet-read");
+    const tabs = readXlsx(book);
+    ok("summary, all items, a tab per card holder", tabs.map((t) => t.name).join("|") === "Summary|All items|Jo Bloggs|Ann Lee|Sam Smith", tabs.map((t) => t.name));
+    ok("all four on All items plus header and total", tabs[1].rows.length === 6, tabs[1].rows.length);
+    ok("both identical Jo Bloggs charges on Jo's tab", tabs[2].rows.filter((r) => r.cells[3] === "Supplier A").length === 2, tabs[2].rows);
+    ok("formula-looking text stays text", tabs.some((t) => t.rows.some((r) => r.cells.includes("=cmd|calc"))));
+    const closedOne = after.find((x) => x.payee === "Cafe").id;
+    await api("POST", `/${closedOne}/received`, {});
+    const open = readXlsx(Buffer.from(await (await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/export.xlsx`, { headers: { "X-API-Key": "k" } })).arrayBuffer()));
+    const all = readXlsx(Buffer.from(await (await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/export.xlsx?scope=all`, { headers: { "X-API-Key": "k" } })).arrayBuffer()));
+    ok("open leaves the received item out, all keeps it", open[1].rows.length === 5 && all[1].rows.length === 6, [open[1].rows.length, all[1].rows.length]);
   });
 
   await section("settings and refusals", async () => {
