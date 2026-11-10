@@ -9,6 +9,7 @@ import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
 import { NAMES as REC_TOOLS } from "./agent-recs";
 import { NAMES as JOURNAL_TOOLS, ROLES as JOURNAL_ROLES } from "./agent-journals";
+import { NAMES as OUTSTANDING_TOOLS } from "./agent-outstanding-docs";
 
 const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
 
@@ -29,6 +30,7 @@ const ALL_TOOLS = new Set([
   ...DOCUMENT_TOOLS,
   ...REC_TOOLS,
   ...JOURNAL_TOOLS,
+  ...OUTSTANDING_TOOLS,
   "read_procedure",
 ]);
 

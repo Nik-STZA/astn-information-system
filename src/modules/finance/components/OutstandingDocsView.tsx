@@ -9,9 +9,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { Download, FileUp, RefreshCw, UserSearch } from "lucide-react";
+import { Download, FileUp, RefreshCw, SearchCheck, UserSearch } from "lucide-react";
 import {
-  ACCEPT, CONCERN_ORDER, NO_HOLDER, amountText, byMonth, byUpload, dateText, fileProblem, filtered, holders, inBatches, monthLabel, pounds,
+  ACCEPT, CONCERN_ORDER, NO_HOLDER, amountText, byMonth, byUpload, checkMonths, dateText, fileProblem, filtered, holders, inBatches, monthLabel, pounds, xeroLabel,
   type Concern, type DocItem, type DocList, type DocUpload, type Filters,
 } from "@/modules/finance/lib/outstanding-docs";
 import page from "./Page.module.css";
@@ -83,12 +83,31 @@ export default function OutstandingDocsView({ slug, data, companies, view }: {
 
 function Toolbar({ slug, data, act, busy }: { slug: string; data: DocList; act: (m: "POST", p: string, b?: unknown) => Promise<Reply>; busy: boolean }) {
   const [result, setResult] = useState<string | null>(null);
+  const months = checkMonths();
+  const [month, setMonth] = useState(months[0].value);
   const missing = data.items.filter((i) => (i.state === "open" || i.state === "candidate") && !i.card_holder).length;
+  const check = async () => {
+    setResult("Checking Xero...");
+    const r = await act("POST", "/xero-check", { month });
+    if (!r.ok) { setResult(null); return; }
+    const parts = ((r.body.companies as Array<{ name: string; cleared: unknown[]; added: number; matched: number; error: string | null }>) ?? [])
+      .map((c) => c.error ? `${c.name}: Xero could not be read (${c.error})` : `${c.name}: ${c.cleared.length} cleared, ${c.added} added for you to accept`);
+    setResult(`${monthLabel(month)}. ${parts.join("; ")}.`);
+  };
   const href = (scope: string) => `/api/finance/${encodeURIComponent(slug)}/outstanding-documents/export.xlsx?scope=${scope}`;
   return (
     <div className={page.controls} style={{ marginTop: 12 }}>
       <a className="btn-secondary" href={href("open")} download><Download size={14} style={{ marginRight: 6 }} />Excel: open items</a>
       <a className="btn-text" href={href("all")} download>Excel with closed items</a>
+      <span className={page.controls} style={{ gap: 6 }}>
+        <select className={page.select} value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Month to check">
+          {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
+        <button type="button" className="btn-secondary" disabled={busy} onClick={() => void check()}
+          title="Clears open items whose document is now attached in Xero, and adds the month's spend money and bills with no attachment for you to accept">
+          <SearchCheck size={14} style={{ marginRight: 6 }} />Check Xero
+        </button>
+      </span>
       {missing > 0 && (
         <button type="button" className="btn-text" disabled={busy}
           title="Reads each line's payee and reference for the person who made the payment. Never changes one already set."
@@ -462,6 +481,7 @@ function Register({ items, companies, data, act, busy }: {
                   <VatPill item={it} />
                   {companies.length > 1 && <span className={page.small}>{it.entity_name}</span>}
                   {it.chase_count > 0 && <span className={page.small}>Chased {it.chase_count}x, last {dateText(it.last_chased_at)}</span>}
+                  {xeroLabel(it) && <span className={page.small}>{xeroLabel(it)}</span>}
                 </div>
                 {it.note && <div className={page.small} style={{ marginTop: 4 }}>{it.note}</div>}
               </div>

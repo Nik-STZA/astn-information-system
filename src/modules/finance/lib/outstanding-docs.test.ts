@@ -104,3 +104,22 @@ describe("card holders", () => {
     expect(isDocsPath("outstanding-documents/exportxxlsx")).toBe(false);
   });
 });
+
+describe("Xero check", () => {
+  it("offers the last twelve months, last month first, across a year end", async () => {
+    const { checkMonths } = await import("./outstanding-docs");
+    const m = checkMonths(new Date("2026-01-15T12:00:00Z"));
+    expect(m[0]).toEqual({ value: "2025-12", label: "December 2025" });
+    expect(m).toHaveLength(12);
+    expect(m[11].value).toBe("2025-01");
+    expect(checkMonths(new Date("2026-11-10T12:00:00Z"))[0].value).toBe("2026-10");
+  });
+
+  it("labels an open item matched in Xero without its document", async () => {
+    const { xeroLabel } = await import("./outstanding-docs");
+    expect(xeroLabel({ state: "open", xero_type: "bill", xero_id: "x" })).toBe("In Xero as a bill, no attachment yet");
+    expect(xeroLabel({ state: "received", xero_type: "bill", xero_id: "x" })).toBe(null);
+    expect(xeroLabel({ state: "open", xero_type: null, xero_id: null })).toBe(null);
+    expect(isDocsPath("outstanding-documents/xero-check")).toBe(true);
+  });
+});

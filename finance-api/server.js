@@ -6594,7 +6594,7 @@ require("./lib/xero-changes-routes").mountXeroChanges(app, {
 // items in the close (lib/outstanding-docs-routes.js, migration 040). Reports
 // are read by Gemini in London, as bills are.
 require("./lib/outstanding-docs-routes").mountOutstandingDocs(app, {
-  route, pool, audit, clientIdFromSlug, express, generate: (body) => vertex.generate(body),
+  route, pool, audit, clientIdFromSlug, express, xeroEntityContext, xeroGet, generate: (body) => vertex.generate(body),
 });
 
 // ── Review ──────────────────────────────────────────────────────────────────

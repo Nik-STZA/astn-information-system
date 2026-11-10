@@ -29,6 +29,8 @@ export interface DocItem {
   upload_name: string | null;
   source_line: string | null;
   duplicate_of: string | null;
+  xero_type?: string | null;
+  xero_id?: string | null;
   created_by: string;
   created_at: string;
   opened_at: string | null;
@@ -192,8 +194,30 @@ export function carriedAt(items: DocItem[], period: string): { count: number; va
   };
 }
 
+// What the Xero check left on an item: matched to a record that has no
+// attachment yet, so the document is still wanted.
+export function xeroLabel(item: Pick<DocItem, "state" | "xero_type" | "xero_id">): string | null {
+  if (!item.xero_id || item.state !== "open") return null;
+  const what = { bank_transaction: "spend or receive money", bill: "a bill", invoice: "an invoice" }[item.xero_type ?? ""] ?? "a record";
+  return `In Xero as ${what}, no attachment yet`;
+}
+
+// The month choices for the Xero check: the last twelve months, last month first.
+export function checkMonths(today = new Date()): Array<{ value: string; label: string }> {
+  const out: Array<{ value: string; label: string }> = [];
+  // getUTCMonth is 0-based, so as a 1-based month it is already last month.
+  let y = today.getUTCFullYear(), m = today.getUTCMonth();
+  for (let i = 0; i < 12; i++) {
+    if (m === 0) { y -= 1; m = 12; }
+    const value = `${y}-${String(m).padStart(2, "0")}`;
+    out.push({ value, label: monthLabel(value) });
+    m -= 1;
+  }
+  return out;
+}
+
 // The paths the browser may reach through the portal's route.
-const DOC_PATH = /^outstanding-documents(?:\/(?:settings|bulk|uploads|card-holders|export\.xlsx|uploads\/[0-9a-f-]{36}\/read|[0-9a-f-]{36}(?:\/(?:accept|dismiss|received|accept-without|reopen|chased))?))?$/i;
+const DOC_PATH = /^outstanding-documents(?:\/(?:settings|bulk|uploads|card-holders|xero-check|export\.xlsx|uploads\/[0-9a-f-]{36}\/read|[0-9a-f-]{36}(?:\/(?:accept|dismiss|received|accept-without|reopen|chased))?))?$/i;
 export const isDocsPath = (path: string) => DOC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

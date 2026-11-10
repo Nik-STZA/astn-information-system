@@ -17,14 +17,23 @@ const crypto = require("crypto");
 const docs = require("./outstanding-docs");
 const sheets = require("./sheet-read");
 const xlsx = require("./xlsx-write");
+const docsXero = require("./outstanding-docs-xero");
 const work = require("./work");
 
 const MISSING = "Outstanding documents are waiting for a migration (040 or 041) to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 // A read still marked reading after this long did not finish; it may be tried again.
 const STALE_READ_MINUTES = 10;
+// The agents that may check Xero and note what they find (month-end close).
+const AGENTS = ["fm1", "fc"];
 
-function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, generate, express, viaInput = work.viaInput }) {
+// Last month as YYYY-MM, in London.
+function lastMonth(now = new Date()) {
+  const [y, m] = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" }).split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+}
+
+function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, generate, express, xeroEntityContext, xeroGet, viaInput = work.viaInput }) {
   const BASE = "/api/finance/clients/:slug/outstanding-documents";
   const rawBody = express.raw({ type: () => true, limit: docs.MAX_UPLOAD_BYTES + 1024 });
 
@@ -236,6 +245,171 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
     }));
   }));
 
+  // ── Xero ──────────────────────────────────────────────────────────────────
+
+  // A person, or FM1 or the FC from a live run of theirs. { actorEmail, via, actor } or null.
+  async function personOrAgent(req, res, client) {
+    const actorEmail = (req.get("X-Actor-Email") || "").trim();
+    if (!actorEmail) { res.status(400).json({ error: "X-Actor-Email is required" }); return null; }
+    const origin = viaInput(req.get("X-Work-Via"), req.get("X-Work-Ref"));
+    if (origin.issues.length) { res.status(400).json({ issues: origin.issues }); return null; }
+    const via = origin.via;
+    if (via && !(via.kind === "agent" && AGENTS.includes(via.agent))) {
+      res.status(403).json({ error: `Only a person, or ${AGENTS.map((a) => a.toUpperCase()).join(" or ")} from a run, does this` });
+      return null;
+    }
+    if (via) {
+      const run = (await pool.query("SELECT agent, status FROM finance.agent_runs WHERE id = $1 AND client_id = $2", [via.run_id, client.id])).rows[0];
+      if (!run || run.agent !== via.agent || !["queued", "running"].includes(run.status)) {
+        res.status(403).json({ error: "That run is not a live run of this agent for this client" });
+        return null;
+      }
+    }
+    return { actorEmail, via, actor: via ? `agent:${via.agent}` : actorEmail };
+  }
+
+  // All pages of a Xero list, up to a cap.
+  async function xeroAll(ctx, path, resource, params) {
+    const out = [];
+    for (let page = 1; page <= 20; page++) {
+      const data = await xeroGet(ctx.accessToken, ctx.tenantId, path, { ...params, page: String(page) });
+      const rows = data?.[resource] ?? [];
+      out.push(...rows);
+      if (rows.length < 100) break;
+    }
+    return out;
+  }
+
+  // POST /outstanding-documents/xero-check   body: { month?: YYYY-MM, entity? }
+  // Matches every open item to Xero (clears it when Xero holds the document)
+  // and adds the month's spend money and bills with no attachment as lines to
+  // accept. month defaults to last month.
+  app.post(`${BASE}/xero-check`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const who = await personOrAgent(req, res, client);
+    if (!who) return;
+    const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, who.actorEmail])).rows[0].role;
+    if (!role) return res.status(403).json({ error: `${who.actorEmail} holds no engagement role for this client` });
+    const month = req.body?.month ?? lastMonth();
+    const range = docsXero.monthRange(month);
+    if (!range) return res.status(422).json({ issues: ["month must be YYYY-MM"] });
+    const threshold = await thresholdOf(pool, client.id);
+    const companies = (await pool.query(
+      `SELECT id, slug, name FROM finance.entities
+        WHERE client_id = $1 AND retired_at IS NULL AND accounting_system_config->>'tenant_id' IS NOT NULL
+          AND ($2::text IS NULL OR slug = $2) ORDER BY name`, [client.id, req.body?.entity ?? null])).rows;
+    if (!companies.length) return res.status(422).json({ issues: [req.body?.entity ? `no Xero-connected company ${req.body.entity}` : "no company of this client is connected to Xero"] });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const results = [];
+    for (const e of companies) {
+      const r = { entity: e.slug, name: e.name, open_checked: 0, matched: 0, cleared: [], added: 0, repeats: 0, error: null, plan: null };
+      try {
+        const ctx = await xeroEntityContext(req.params.slug, e.slug);
+        if (!ctx || ctx.error) throw new Error(ctx?.error ?? "not connected to Xero");
+        const open = (await pool.query(
+          "SELECT id, txn_date, direction, amount, currency, bank_account, payee, xero_id FROM finance.outstanding_documents WHERE client_id = $1 AND entity_id = $2 AND state = 'open'",
+          [client.id, e.id])).rows.map((x) => ({ ...x, txn_date: day(x.txn_date) }));
+        r.open_checked = open.length;
+        const w = docsXero.checkWindow(open, today);
+        const from = w && w.from < range.from ? w.from : range.from;
+        const to = w && w.to > range.to ? w.to : range.to;
+        const where = docsXero.dateWhere(from, to);
+        const [txns, payments, bills] = [
+          await xeroAll(ctx, "/BankTransactions", "BankTransactions", { where }),
+          await xeroAll(ctx, "/Payments", "Payments", { where }),
+          await xeroAll(ctx, "/Invoices", "Invoices", { where: `Type=="ACCPAY" AND ${docsXero.dateWhere(range.from, range.to)}` }),
+        ];
+        const records = [...txns.map(docsXero.fromBankTransaction), ...payments.map(docsXero.fromPayment)].filter(Boolean);
+        const matches = docsXero.matchItems(open, records);
+        // A payment says nothing of its bill's attachment: read the bill.
+        let reads = 0;
+        for (const m of matches) {
+          if (m.record.kind !== "payment" || m.record.has_attachments || reads >= 60) continue;
+          reads += 1;
+          const inv = (await xeroGet(ctx.accessToken, ctx.tenantId, `/Invoices/${m.record.invoice_id}`, {}))?.Invoices?.[0];
+          m.record = { ...m.record, has_attachments: inv?.HasAttachments === true };
+        }
+        const matchedIds = new Set(matches.map((m) => m.record.kind === "payment" ? m.record.invoice_id : m.record.id));
+        const held = (await pool.query(
+          "SELECT id, state, txn_date, direction, amount, currency, payee, xero_id FROM finance.outstanding_documents WHERE client_id = $1 AND state <> 'dismissed'",
+          [client.id])).rows.map((x) => ({ ...x, txn_date: day(x.txn_date) }));
+        const lines = docsXero.scanMonth({
+          bankTransactions: txns.filter((t) => !matchedIds.has(t.BankTransactionID)), bills: bills.filter((b) => !matchedIds.has(b.InvoiceID)),
+          range, threshold, held, entity: e,
+        });
+        r.plan = { matches, lines };
+      } catch (err) {
+        r.error = String(err.message || err).slice(0, 300);
+      }
+      results.push(r);
+    }
+
+    send(res, await tx(client, who, async (conn, w) => {
+      for (const r of results) {
+        if (!r.plan) continue;
+        for (const m of r.plan.matches) {
+          const xeroId = m.record.kind === "payment" ? m.record.invoice_id : m.record.id;
+          const xeroType = m.record.kind === "payment" ? (m.record.direction === "spent" ? "bill" : "invoice") : "bank_transaction";
+          const out = docsXero.matchOutcome(m.record);
+          const upd = await conn.query(
+            `UPDATE finance.outstanding_documents
+                SET xero_type = $3, xero_id = $4, updated_at = now()
+                    ${out.clear ? ", state = 'received', closed_at = now(), closed_by = $5, close_reason = $6" : ""}
+              WHERE id = $1 AND client_id = $2 AND state = 'open' RETURNING payee, amount, currency`,
+            out.clear ? [m.item_id, client.id, xeroType, xeroId, who.actor, out.reason] : [m.item_id, client.id, xeroType, xeroId]);
+          if (!upd.rowCount) continue;
+          r.matched += 1;
+          if (out.clear) {
+            r.cleared.push({ id: m.item_id, payee: upd.rows[0].payee, amount: Number(upd.rows[0].amount), currency: upd.rows[0].currency, where: out.reason });
+            await log(conn, req, { client, ...w, actorEmail: w.actorEmail, action: "outstanding_doc_received", id: m.item_id, payload: { from: "open", to: "received", reason: out.reason, xero_type: xeroType, xero_id: xeroId, by: who.actor } });
+          }
+        }
+        for (const l of r.plan.lines) {
+          await conn.query(
+            `INSERT INTO finance.outstanding_documents
+               (client_id, entity_id, bank_account, txn_date, payee, reference, direction, amount, currency, amount_gbp, concern, note,
+                state, source, duplicate_of, created_by, xero_type, xero_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'candidate',$13,$14,$15,$16,$17)`,
+            [client.id, l.entity_id, l.bank_account, l.txn_date, l.payee, l.reference, l.direction, l.amount, l.currency, l.amount_gbp,
+              l.concern, l.note, who.via ? "agent" : "person", /^[0-9a-f-]{36}$/i.test(String(l.duplicate_of)) ? l.duplicate_of : null,
+              who.actor, l.xero_type, l.xero_id]);
+          r.added += 1;
+          if (l.duplicate_of) r.repeats += 1;
+        }
+        delete r.plan;
+      }
+      for (const r of results) delete r.plan;
+      await log(conn, req, { client, ...w, action: "outstanding_docs_xero_check", targetType: "client", id: client.id, payload: { month, by: who.actor, results } });
+      return { status: 200, body: { month, companies: results } };
+    }));
+  }));
+
+  // POST /outstanding-documents/:id/note   body: { text }
+  // Adds a dated line to the item's note, keeping what is there. A person or
+  // FM1 or the FC from a live run: how an agent records what it found.
+  app.post(`${BASE}/:id/note`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const who = await personOrAgent(req, res, client);
+    if (!who) return;
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(404).json({ error: "no such item" });
+    const text = String(req.body?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 500);
+    if (text.length < 3) return res.status(422).json({ issues: ["text is required"] });
+    send(res, await tx(client, who, async (conn, w) => {
+      const item = (await conn.query("SELECT id, note, state FROM finance.outstanding_documents WHERE id = $1 AND client_id = $2 FOR UPDATE", [req.params.id, client.id])).rows[0];
+      if (!item) return { status: 404, body: { error: "no such item" } };
+      if (!["candidate", "open"].includes(item.state)) return { status: 422, body: { issues: [`this item is ${item.state}; notes go on candidate or open items`] } };
+      const stamp = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" });
+      const line = `${stamp}, ${who.via ? who.via.agent.toUpperCase() : who.actorEmail}: ${text}`;
+      const note = (item.note ? `${item.note}\n${line}` : line).slice(-docs.MAX_NOTE);
+      await conn.query("UPDATE finance.outstanding_documents SET note = $3, updated_at = now() WHERE id = $1 AND client_id = $2", [item.id, client.id, note]);
+      await log(conn, req, { client, ...w, action: "outstanding_doc_noted", id: item.id, payload: { text, by: who.actor } });
+      return { status: 200, body: { id: item.id, note } };
+    }));
+  }));
+
   // ── Uploads ───────────────────────────────────────────────────────────────
 
   // POST /outstanding-documents/uploads   raw body, X-File-Name header
@@ -442,4 +616,4 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
   }));
 }
 
-module.exports = { mountOutstandingDocs };
+module.exports = { mountOutstandingDocs, lastMonth, AGENTS };

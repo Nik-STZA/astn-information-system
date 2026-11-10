@@ -397,6 +397,8 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     // Proposals to change Xero, for the CFO to approve (FM1 and the FC).
     ...xeroChanges.toolsFor(agent, entityEnum),
     ...documents.tools(entityEnum),
+    // The outstanding documents register (FM1 and the FC).
+    ...outstandingDocs.tools(entityEnum, agent),
     procedures.readProcedureTool(agent, clientRules),
   ];
 }
@@ -636,6 +638,13 @@ const xeroChanges = {
 
 const documents = require("./lib/agent-documents").agentDocuments({ apiBytes });
 
+// ── Outstanding documents ────────────────────────────────────────────────────
+//
+// Transactions without their document, checked against Xero at month end:
+// lib/agent-outstanding-docs.js.
+
+const outstandingDocs = require("./lib/agent-outstanding-docs").agentOutstandingDocs({ apiCall, apiRequest, requesterOf });
+
 // ── System prompts per agent role ────────────────────────────────────────────
 
 const PAGE_MARK = "What I have open in os.stza.io";
@@ -858,6 +867,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           if (tu.name !== "list_xero_changes") console.log(`    Xero change proposal: ${result.saved ? "recorded" : `refused (${result.status ?? result.error})`}`);
         } else if (documents.names.includes(tu.name)) {
           result = await documents.call(job, tu.name, tu.input);
+        } else if (outstandingDocs.names.includes(tu.name)) {
+          result = await outstandingDocs.call(job, tu.name, tu.input);
+          if (tu.name === "check_outstanding_documents_in_xero") console.log(`    Outstanding documents check: ${result.done ? (result.companies || []).map((c) => `${c.entity} cleared ${c.cleared?.length ?? 0} added ${c.added}${c.error ? ` error ${c.error}` : ""}`).join("; ") : `refused (${result.status ?? result.error})`}`);
         } else if (tu.name === "create_draft_journal") {
           result = await createDraftJournal(job, tu.input);
           console.log(`    Draft journal: ${result.created ? `created ${result.journal_number ?? ""}` : `refused (${result.status ?? "no approval"})`}`);
