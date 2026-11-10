@@ -163,9 +163,133 @@ function matrixFields(lineKey) {
   return { owner: line.owner, challenge: line.challenge === "-" ? null : line.challenge, class: line.cls, artefact: line.artefact };
 }
 
-// Only Prepayments works end to end for now: the rest are on the list, with
-// their status, and their screens say what is still to come.
-const workable = (lineKey, proof) => lineKey === "prepay" && proof === "schedule";
+// What works end to end. Prepayments by its schedule. Every placed account
+// proved by outside evidence or a ledger review, by evidence held on the rec:
+// an amount per company with its source and document (10 Nov 2026). Asset
+// schedules other than Prepayments are not built yet.
+const EVIDENCE_PROOFS = new Set(["outside_evidence", "ledger_review"]);
+const usesEvidence = (lineKey, proof) => Boolean(lineKey) && EVIDENCE_PROOFS.has(proof);
+const workable = (lineKey, proof) => (lineKey === "prepay" && proof === "schedule") || usesEvidence(lineKey, proof);
+
+// Why a rec cannot be worked yet, in a person's words, or null.
+function notWorkableReason(lineKey, proof) {
+  if (workable(lineKey, proof)) return null;
+  if (!lineKey) return "Place this account on the balance sheet matrix first, so it is known how it is proved.";
+  return "This is proved by a schedule, which is not built here yet: only the Prepayments schedule is.";
+}
+
+// ── Evidence ─────────────────────────────────────────────────────────────────
+
+// The support for an evidence rec: each company's evidence summed, in pence.
+// A company with no evidence has none, so it does not tie.
+function evidenceTotals(rows) {
+  const out = new Map();
+  for (const r of rows || []) out.set(r.entity_id, (out.get(r.entity_id) ?? 0) + pence(r.amount));
+  return out;
+}
+
+// How evidence can be fetched for a rec without a person keying it, or null.
+//   ageing_ar / ageing_ap  the control account against Xero's invoices outstanding at the month end
+//   counterpart            an intercompany account against the paired account in the other company
+//   carry_forward          an account that did not move: last month's signed evidence, carried
+function autoMethod(rec) {
+  if (rec.line_key === "ar") return "ageing_ar";
+  if (rec.line_key === "ap") return "ageing_ap";
+  if (rec.line_key === "ic_asset" || (rec.line_key === "loans" && /intercompany|inter.company/i.test(rec.account_name ?? ""))) return "counterpart";
+  if (["sharecap", "premium", "reserves"].includes(rec.line_key)) return "carry_forward";
+  return null;
+}
+
+const METHOD_LABEL = {
+  ageing_ar: "Xero sales invoices outstanding at the month end",
+  ageing_ap: "Xero supplier bills outstanding at the month end",
+  counterpart: "The paired account in the other company, reversed",
+  carry_forward: "Last month's signed evidence, carried where the account did not move",
+};
+
+// An invoice's amount still outstanding at a date, in pence, from its own
+// payments, credit notes, prepayments and overpayments dated on or before it.
+// Null when it was not raised by then, or was voided or deleted.
+function outstandingAt(inv, date) {
+  const day = (s) => { const m = /(\d{4}-\d{2}-\d{2})/.exec(String(s ?? "")); return m ? m[1] : null; };
+  const raised = day(inv.DateString ?? inv.Date);
+  if (!raised || raised > date || ["VOIDED", "DELETED", "DRAFT", "SUBMITTED"].includes(inv.Status)) return null;
+  let left = pence(inv.Total);
+  for (const p of inv.Payments || []) if ((day(p.DateString ?? p.Date) ?? "9999") <= date) left -= pence(p.Amount);
+  for (const k of ["CreditNotes", "Prepayments", "Overpayments"]) {
+    for (const c of inv[k] || []) if ((day(c.DateString ?? c.Date) ?? "9999") <= date) left -= pence(c.AppliedAmount ?? c.Total);
+  }
+  return left;
+}
+
+// Evidence from Xero's invoices for one company: { amount (pounds, signed as
+// the ledger), count, unknown_currency, note }. Receivables are a debit,
+// payables a credit. Foreign invoices are converted at the rate Xero recorded.
+// A credit note's credit still unallocated at a date, in pence, or null.
+function creditLeftAt(cn, date) {
+  const day = (s) => { const m = /(\d{4}-\d{2}-\d{2})/.exec(String(s ?? "")); return m ? m[1] : null; };
+  const raised = day(cn.DateString ?? cn.Date);
+  if (!raised || raised > date || ["VOIDED", "DELETED", "DRAFT", "SUBMITTED"].includes(cn.Status)) return null;
+  let left = pence(cn.Total);
+  for (const a of cn.Allocations || []) if ((day(a.DateString ?? a.Date) ?? "9999") <= date) left -= pence(a.Amount);
+  for (const p of cn.Payments || []) if ((day(p.DateString ?? p.Date) ?? "9999") <= date) left -= pence(p.Amount);
+  return left;
+}
+
+function ageingEvidence(invoices, { date, kind, creditNotes = [] }) {
+  let total = 0, count = 0, foreign = 0, credits = 0, creditTotal = 0;
+  const base = (left, rate) => Math.round(left / (rate && Number(rate) > 0 ? Number(rate) : 1));
+  for (const inv of invoices || []) {
+    const left = outstandingAt(inv, date);
+    if (left === null || left === 0) continue;
+    if (inv.CurrencyRate && Number(inv.CurrencyRate) !== 1) foreign += 1;
+    total += base(left, inv.CurrencyRate);
+    count += 1;
+  }
+  for (const cn of creditNotes || []) {
+    const left = creditLeftAt(cn, date);
+    if (left === null || left === 0) continue;
+    creditTotal += base(left, cn.CurrencyRate);
+    credits += 1;
+  }
+  const net = total - creditTotal;
+  const signed = kind === "ap" ? -net : net;
+  const what = kind === "ap" ? "supplier bill" : "sales invoice";
+  return {
+    amount: pounds(signed), count,
+    note: `${count} ${what}${count === 1 ? "" : "s"} outstanding at ${date}${credits ? `, less ${credits} credit note${credits === 1 ? "" : "s"} not yet allocated` : ""}, from their own payments and allocations${foreign ? `; ${foreign} in another currency converted at Xero's rate on the invoice` : ""}. Unallocated prepayments and overpayments are not included: a difference may be one.`,
+  };
+}
+
+// Counterparts an intercompany rec could pair with: another rec in the month,
+// in a different single company, that is intercompany or unplaced and names
+// this rec's company (or whose balance is closest to the reverse of this one).
+//   rec        { id, rec_account_id, account_name, entity_id, closing (pence) }
+//   others     the same shape, for the month's other recs
+//   names      Map entity id -> company name
+// Returns candidates best first: [{ rec_account_id, account_name, entity_id, difference }]
+function counterpartCandidates(rec, others, names) {
+  const words = (s) => String(s ?? "").toLowerCase().replace(/\b(limited|ltd|plc|group|holdings?)\b/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  const mine = new Set(words(names.get(rec.entity_id)));
+  return others
+    .filter((o) => o.rec_account_id !== rec.rec_account_id && o.entity_id && o.entity_id !== rec.entity_id
+      && (o.line_key === null || o.line_key === "ic_asset" || o.line_key === "loans"))
+    .map((o) => {
+      const names_me = words(o.account_name).some((w) => mine.has(w));
+      const names_them = words(rec.account_name).some((w) => new Set(words(names.get(o.entity_id))).has(w));
+      return { ...o, score: (names_me ? 0 : 2) + (names_them ? 0 : 1), difference: rec.closing + o.closing };
+    })
+    .filter((o) => o.score < 3)
+    .sort((a, b) => a.score - b.score || Math.abs(a.difference) - Math.abs(b.difference))
+    .map(({ rec_account_id, account_name, entity_id, difference }) => ({ rec_account_id, account_name, entity_id, difference: pounds(difference) }));
+}
+
+// Evidence carried from the prior month: each company's signed evidence rows,
+// for a company whose ledger did not move. A company that moved gets none.
+function carryForward(priorEvidence, balances) {
+  const moved = new Set(balances.filter((b) => pence(b.movement) !== 0).map((b) => b.entity_id));
+  return (priorEvidence || []).filter((e) => !moved.has(e.entity_id));
+}
 
 // ── The schedule ─────────────────────────────────────────────────────────────
 
@@ -584,12 +708,15 @@ const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent
 //   note     the note given
 //   reads    why the figures cannot be relied on at sign-off
 //   accept   the CFO's reason for signing off a difference that does not tie
-function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "" }) {
+function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "", missingEvidence = null }) {
   const issues = [];
   const say = (s) => issues.push(s);
   const worked = workable(rec.line_key, rec.proof);
   if (step === "prepare") {
-    if (!worked) say("This line cannot be prepared here yet: only Prepayments works end to end.");
+    if (!worked) say(notWorkableReason(rec.line_key, rec.proof));
+    if (worked && usesEvidence(rec.line_key, rec.proof) && missingEvidence?.length) {
+      say(`Add the evidence for ${missingEvidence.join(", ")}: an amount with its source and document, or fetch it from Xero`);
+    }
     if (!["not_started", "in_progress", "sent_back"].includes(rec.status)) say("This is already with a reviewer");
     if (via && via.agent !== "fm1") say("Only FM1 or a person prepares a reconciliation");
     if (!tied && !String(note ?? "").trim()) say("It does not tie, so say why in the note");
@@ -784,6 +911,21 @@ const namesRecProposal = (instruction) => /reconciliation proposal [0-9a-f-]{36}
 
 // What FM1 is asked when a person starts it on a rec.
 function prepareInstruction(rec) {
+  if (usesEvidence(rec.line_key, rec.proof)) {
+    const method = autoMethod(rec);
+    return [
+      `Prepare the ${rec.account_name} reconciliation for ${periodLabel(rec.period)}. Reconciliation id: ${rec.id}.`,
+      "Read the balance-sheet-matrix procedure, and any procedure listed for you that covers this account.",
+      "Use get_rec to see each company's ledger balance and any evidence already held.",
+      method
+        ? `Use fetch_rec_evidence first: it takes the evidence from Xero (${METHOD_LABEL[method]}). Check what it found against the ledger and the documents behind it.`
+        : "There is no automatic source for this account. Find outside evidence for each company (a statement, a return, a register, a confirmation) with get_account_activity and list_attachments, and record it with add_rec_evidence: the amount, where it comes from, and the document.",
+      "Every company on the rec needs evidence. Where evidence and ledger differ, find the cause: name the transactions. If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
+      "Where you cannot find outside evidence, say so plainly; never record the ledger figure itself as its own evidence.",
+      "Then use submit_rec with a note in plain English, and hand off to fc.",
+      "If a step is refused, say so plainly in your answer and do not report it as done.",
+    ].join(" ");
+  }
   return [
     `Prepare the ${rec.account_name} reconciliation for ${periodLabel(rec.period)}. Reconciliation id: ${rec.id}.`,
     "Read the accruals-and-prepayments procedure if it is listed for you, and the balance-sheet-matrix procedure.",
@@ -814,6 +956,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
+  EVIDENCE_PROOFS, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,

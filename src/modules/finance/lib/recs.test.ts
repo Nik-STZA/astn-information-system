@@ -5,12 +5,13 @@ const ID = "12345678-1234-1234-1234-123456789012";
 
 describe("rec paths", () => {
   it("lets through what the screens use", () => {
-    for (const p of ["recs/compose", "recs/settings", `recs/${ID}/prepare`, `recs/${ID}/sign-off`, `recs/${ID}/items`, `recs/${ID}/items/${ID}`, `recs/${ID}/journals/${ID}/approve`]) {
+    for (const p of ["recs/compose", "recs/settings", `recs/${ID}/prepare`, `recs/${ID}/sign-off`, `recs/${ID}/items`, `recs/${ID}/items/${ID}`, `recs/${ID}/journals/${ID}/approve`,
+      `recs/${ID}/evidence`, `recs/${ID}/evidence/fetch`, `recs/${ID}/evidence/${ID}`, `recs/${ID}/counterpart`]) {
       expect(isRecPath(p), p).toBe(true);
     }
   });
   it("keeps the agents' routes and anything else out", () => {
-    for (const p of [`recs/${ID}/journals`, `recs/journals/${ID}/drafted`, "recs/journals/by-run/" + ID, "tasks", "recs/../xero", `recs/${ID}`]) {
+    for (const p of [`recs/${ID}/journals`, `recs/journals/${ID}/drafted`, "recs/journals/by-run/" + ID, "tasks", "recs/../xero", `recs/${ID}`, `recs/${ID}/evidence/x`, `recs/${ID}/evidence/fetch/more`]) {
       expect(isRecPath(p), p).toBe(false);
     }
   });

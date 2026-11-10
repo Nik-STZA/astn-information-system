@@ -141,3 +141,9 @@
   .scheduleWide thead th { position: sticky; top: 0; background: var(--pnl); z-index: 2; }
   .scheduleWide thead th.sticky { left: 0; z-index: 3; }
 }
+
+/* Evidence on a rec proved by outside evidence or a ledger review (10 Nov 2026) */
+.evRow { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--bd); font-size: 13px; line-height: 1.5; }
+.evRow:last-of-type { border-bottom: 0; }
+.evMain { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.evForm { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 10px; }

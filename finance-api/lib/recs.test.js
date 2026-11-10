@@ -388,7 +388,7 @@ describe("moving a rec along", () => {
     expect(stepIssues("prepare", { rec: rec(), tied: true, via: { agent: "fc" } })).toContain("Only FM1 or a person prepares a reconciliation");
   });
   it("refuses a line that is not built yet", () => {
-    expect(stepIssues("prepare", { rec: rec({ line_key: "accruals" }), tied: true, via: null })[0]).toMatch(/only Prepayments/);
+    expect(stepIssues("prepare", { rec: rec({ line_key: "accruals" }), tied: true, via: null })[0]).toMatch(/only the Prepayments schedule/);
   });
   it("keeps review to the FC, and the preparer off their own work", () => {
     const r = rec({ status: "with_fc" });

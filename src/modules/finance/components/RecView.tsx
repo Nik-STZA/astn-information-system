@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Minus, Plus, X } from "lucide-react";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
-import { EVENT_LABEL, PROOF_LABEL, actorLabel, dayLabel, money, monthLabel, type CoverRow, type EntityChecks, type RecDetail, type RecJournal, type ScheduleItem } from "@/modules/finance/lib/recs";
+import { EVENT_LABEL, PROOF_LABEL, actorLabel, dayLabel, money, monthLabel, type CoverRow, type EntityChecks, type RecDetail, type RecEvidence, type RecJournal, type ScheduleItem } from "@/modules/finance/lib/recs";
 import { StatusPill } from "./RecsList";
 import styles from "./Recs.module.css";
 
@@ -161,14 +161,16 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           <h2 className={styles.h2}>By company</h2>
           <span className={styles.small}>{PROOF_LABEL[rec.proof]}{rec.class ? ` · Class ${rec.class}` : ""}{rec.owner ? ` · Owner ${rec.owner}` : ""}{rec.challenge ? ` · Challenge ${rec.challenge}` : ""}</span>
         </div>
-        <Cover rows={cover.rows} group={cover.group} canComment={preparing} busy={busy} send={send} />
+        <Cover rows={cover.rows} group={cover.group} canComment={preparing} busy={busy} send={send} label={rec.proof === "schedule" ? "Schedule" : "Evidence"} />
       </section>
 
       {!rec.workable && rec.line_key && (
-        <div className={styles.note}>This line is on the list so it cannot be missed. Its {PROOF_LABEL[rec.proof].toLowerCase()} screen comes in a later release; only Prepayments works end to end for now.</div>
+        <div className={styles.note}>This line is on the list so it cannot be missed. It is proved by a schedule that is not built here yet; only the Prepayments schedule is.</div>
       )}
 
-      {rec.workable && (
+      {data.evidence && <Evidence data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />}
+
+      {rec.workable && rec.proof === "schedule" && (
         <Fold title="Schedule" open meta={`${schedule.items.length} ${schedule.items.length === 1 ? "item" : "items"}`}
           action={preparing && <button type="button" className="btn-secondary" onClick={(e) => { e.preventDefault(); setAdding(!adding); }}><Plus size={14} aria-hidden="true" />Add item</button>}>
           {adding && <ItemForm entities={data.entities} busy={busy} send={send} onDone={() => setAdding(false)} />}
@@ -178,7 +180,7 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
         </Fold>
       )}
 
-      {rec.workable && data.releases && <Releases slug={slug} data={data} busy={busy} send={send} preparing={preparing} />}
+      {rec.workable && rec.proof === "schedule" && data.releases && <Releases slug={slug} data={data} busy={busy} send={send} preparing={preparing} />}
 
       {rec.workable && (
         <div className={styles.two}>
@@ -190,9 +192,9 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           <section className={`${styles.card} ${styles.pad} ${styles.section}`}>
             <div className={styles.cardHead} style={{ padding: "0 0 8px" }}>
               <h2 className={styles.h2}>Checks</h2>
-              {preparing && <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("checks")}>Run checks</button>}
+              {preparing && rec.proof === "schedule" && <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("checks")}>Run checks</button>}
             </div>
-            <Checks data={data} />
+            {rec.proof === "schedule" ? <Checks data={data} /> : <span className={styles.sub}>Checks for this account are its evidence, above.</span>}
           </section>
         </div>
       )}
@@ -324,6 +326,83 @@ function Releases({ slug, data, busy, send, preparing }: { slug: string; data: R
   );
 }
 
+// The evidence behind a rec proved by outside evidence or a ledger review:
+// what is held per company, how more can be fetched from Xero, the pair for
+// an intercompany account, and a form to key evidence with its document.
+function Evidence({ data, ev, preparing, busy, send }: { data: RecDetail; ev: RecEvidence; preparing: boolean; busy: boolean; send: Send }) {
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ entity_id: data.cover.rows[0]?.entity_id ?? "", amount: "", source: "", document_ref: "", note: "" });
+  const [pick, setPick] = useState(ev.candidates[0]?.rec_account_id ?? "");
+  return (
+    <section className={`${styles.card} ${styles.section}`}>
+      <div className={styles.cardHead}>
+        <h2 className={styles.h2}>Evidence</h2>
+        <span className={styles.small}>
+          {ev.method_label ? `Fetched from: ${ev.method_label}` : "Outside evidence for each company: a statement, a return, a register or a confirmation, with its document"}
+        </span>
+      </div>
+      {ev.method === "counterpart" && (
+        <div className={styles.pad} style={{ borderBottom: "1px solid var(--bd)" }}>
+          {ev.counterpart && !ev.counterpart.missing
+            ? <span className={styles.small}>Paired with <strong>{ev.counterpart.account_name}</strong> in {ev.counterpart.entity} ({money(ev.counterpart.closing ?? null)}). Its balance, reversed, is the evidence.</span>
+            : <span className={styles.small}>Choose the matching account in the other company. It is kept for every month.</span>}
+          {preparing && ev.candidates.length > 0 && (
+            <div className={styles.actions} style={{ marginTop: 8 }}>
+              <select className={styles.pick} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Paired account">
+                {ev.candidates.map((c) => <option key={c.rec_account_id} value={c.rec_account_id}>{c.account_name} ({c.entity}), difference {c.difference}</option>)}
+              </select>
+              <button type="button" className="btn-secondary" disabled={busy || !pick} onClick={() => send("counterpart", { rec_account_id: pick })}>
+                {ev.counterpart ? "Change the pair" : "Pair"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {ev.rows.length === 0
+        ? <div className={styles.pad}><span className={styles.sub}>No evidence yet{ev.missing.length ? ` for ${ev.missing.join(", ")}` : ""}.</span></div>
+        : (
+          <div className={styles.pad}>
+            {ev.rows.map((r, i) => (
+              <div key={r.id ?? i} className={styles.evRow}>
+                <div className={styles.evMain}>
+                  <div><strong>{r.entity}</strong> · {money(r.amount)}</div>
+                  <div className={styles.small}>{r.source}{r.document_ref ? ` · ${r.document_ref}` : ""}{r.method ? " · fetched" : r.added_by ? ` · ${r.added_by.startsWith("agent:") ? r.added_by.slice(6).toUpperCase() : r.added_by}` : ""}</div>
+                  {r.note && <div className={styles.small}>{r.note}</div>}
+                </div>
+                {preparing && r.id && !r.method && (
+                  <button type="button" className="btn-text" disabled={busy} onClick={() => send(`evidence/${r.id}`, {}, "DELETE")} aria-label="Remove this evidence">Remove</button>
+                )}
+              </div>
+            ))}
+            {ev.missing.length > 0 && <div className={styles.small} style={{ marginTop: 6 }}>Still needed for {ev.missing.join(", ")}.</div>}
+          </div>
+        )}
+      {preparing && (
+        <div className={styles.pad} style={{ borderTop: "1px solid var(--bd)" }}>
+          <div className={styles.actions}>
+            {ev.method && (
+              <button type="button" className="btn-secondary" disabled={busy || (ev.method === "counterpart" && !ev.counterpart)} onClick={() => void send("evidence/fetch")}>Fetch from Xero</button>
+            )}
+            <button type="button" className="btn-text" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Add evidence"}</button>
+          </div>
+          {adding && (
+            <div className={styles.evForm}>
+              <select className={styles.pick} value={form.entity_id} onChange={(e) => setForm({ ...form, entity_id: e.target.value })} aria-label="Company">
+                {data.cover.rows.map((r) => <option key={r.entity_id} value={r.entity_id}>{r.entity}</option>)}
+              </select>
+              <input className={styles.input} inputMode="decimal" placeholder="Amount, signed as the ledger" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} aria-label="Amount" />
+              <input className={styles.input} placeholder="Where it comes from, with its date" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} aria-label="Source" />
+              <input className={styles.input} placeholder="Document (file or Xero attachment)" value={form.document_ref} onChange={(e) => setForm({ ...form, document_ref: e.target.value })} aria-label="Document" />
+              <button type="button" className="btn-primary" disabled={busy || !form.amount || form.source.trim().length < 5}
+                onClick={async () => { if (await send("evidence", { ...form, amount: Number(form.amount.replace(/,/g, "")) })) { setAdding(false); setForm({ ...form, amount: "", source: "", document_ref: "" }); } }}>Save evidence</button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SoleTick({ sole, setSole }: { sole: boolean; setSole: (v: boolean) => void }) {
   return (
     <label className={styles.small} style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "8px 0 12px" }}>
@@ -342,8 +421,8 @@ function Tile({ label, value, off = false }: { label: string; value: string; off
   );
 }
 
-function Cover({ rows, group, canComment, busy, send }: {
-  rows: CoverRow[]; group: RecDetail["cover"]["group"]; canComment: boolean; busy: boolean; send: Send;
+function Cover({ rows, group, canComment, busy, send, label = "Schedule" }: {
+  rows: CoverRow[]; group: RecDetail["cover"]["group"]; canComment: boolean; busy: boolean; send: Send; label?: string;
 }) {
   return (
     <>
@@ -353,7 +432,7 @@ function Cover({ rows, group, canComment, busy, send }: {
             <div className={styles.rowTop}><span className={styles.rowName}>{r.entity}</span><span className={styles.small}>{r.no_ledger ? "Nothing in the ledger" : `${r.code ?? ""}${r.currency ? ` ${r.currency}` : ""}`}</span></div>
             <div className={styles.rowFigs}>
               <div className={styles.fig}><div className={styles.figLabel}>Ledger</div><div className={styles.figValue}>{money(r.gl)}</div></div>
-              <div className={styles.fig}><div className={styles.figLabel}>Schedule</div><div className={styles.figValue}>{money(r.schedule)}</div></div>
+              <div className={styles.fig}><div className={styles.figLabel}>{label}</div><div className={styles.figValue}>{money(r.schedule)}</div></div>
               <div className={styles.fig}><div className={styles.figLabel}>Variance</div><div className={styles.figValue}>{money(r.variance)}</div></div>
             </div>
             <Comment row={r} canComment={canComment} busy={busy} send={send} />
@@ -363,14 +442,14 @@ function Cover({ rows, group, canComment, busy, send }: {
           <div className={styles.rowTop}><span className={styles.rowName}>Group total</span></div>
           <div className={styles.rowFigs}>
             <div className={styles.fig}><div className={styles.figLabel}>Ledger</div><div className={styles.figValue}>{money(group.gl)}</div></div>
-            <div className={styles.fig}><div className={styles.figLabel}>Schedule</div><div className={styles.figValue}>{money(group.schedule)}</div></div>
+            <div className={styles.fig}><div className={styles.figLabel}>{label}</div><div className={styles.figValue}>{money(group.schedule)}</div></div>
             <div className={styles.fig}><div className={styles.figLabel}>Variance</div><div className={styles.figValue}>{money(group.variance)}</div></div>
           </div>
         </div>
       </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
-          <thead><tr><th>Company</th><th>GL account</th><th className={styles.num}>GL per TB</th><th className={styles.num}>Schedule</th><th className={styles.num}>Variance</th><th>Comment</th></tr></thead>
+          <thead><tr><th>Company</th><th>GL account</th><th className={styles.num}>GL per TB</th><th className={styles.num}>{label}</th><th className={styles.num}>Variance</th><th>Comment</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.entity_id}>
