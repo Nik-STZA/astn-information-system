@@ -5,7 +5,7 @@
 // There is no tool to sign off, approve a journal, or set a line's class: those
 // routes refuse an agent, and the class comes from the balance sheet matrix.
 
-const NAMES = ["list_recs", "get_rec", "save_rec_item", "run_rec_checks", "propose_rec_journal", "submit_rec", "review_rec"];
+const NAMES = ["list_recs", "get_rec", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "propose_rec_journal", "submit_rec", "review_rec"];
 
 const ITEM = {
   supplier: { type: "string" },
@@ -48,6 +48,27 @@ function tools(entityEnum) {
       name: "run_rec_checks",
       description: "Check Xero's manual journals for the month: was each item's monthly release posted, and which items are near their end. Xero does not let us read repeating journals, so this is worked out from the manual journals. Say that when you report it. When monthly releases are on for the account (releases.on in get_rec), this also proposes the month's release journals on the Journals page, one per item, for the releases Xero does not have: see releases in the result, and do not propose those releases yourself.",
       input_schema: { type: "object", properties: { rec_id: { type: "string" } }, required: ["rec_id"] },
+    },
+    {
+      name: "fetch_rec_evidence",
+      description: "For a reconciliation proved by evidence (not a schedule): take the evidence the platform can find in Xero for it, replacing what was fetched before. The method is in get_rec under evidence.method: invoices and credit notes outstanding at the month end for receivables and payables; the paired account in the other company, reversed, for intercompany (a person chooses the pair once); last month's signed evidence where the account did not move, for share capital and reserves. Read what it says and check it; it is evidence, not a conclusion.",
+      input_schema: { type: "object", properties: { rec_id: { type: "string" } }, required: ["rec_id"] },
+    },
+    {
+      name: "add_rec_evidence",
+      description: "Record outside evidence for one company on a reconciliation proved by evidence: the amount the evidence shows, signed as the ledger (debit positive, credit negative), where it comes from (a statement, a return, a register, a confirmation, with its date) and the document (a Xero attachment or file name). Never record the ledger's own balance as its evidence; if you cannot find outside evidence, say so instead.",
+      input_schema: {
+        type: "object",
+        properties: {
+          rec_id: { type: "string" },
+          entity: { type: "string", enum: entityEnum },
+          amount: { type: "number" },
+          source: { type: "string", description: "What the figure is and where it comes from, with its date" },
+          document_ref: { type: "string", description: "The document: a Xero attachment, file or report name" },
+          note: { type: "string" },
+        },
+        required: ["rec_id", "entity", "amount", "source"],
+      },
     },
     {
       name: "propose_rec_journal",
@@ -158,6 +179,15 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
     if (name === "run_rec_checks") {
       const res = await apiRequest("POST", `${path}/checks`, {}, headers);
       return res.ok ? res.body : { error: "The checks did not run.", status: res.status, detail: res.body };
+    }
+    if (name === "fetch_rec_evidence") {
+      const res = await apiRequest("POST", `${path}/evidence/fetch`, {}, headers);
+      return res.ok ? { saved: true, ...res.body, note: "Fetched evidence is on the reconciliation. Check it against the ledger with get_rec and explain any difference." } : refusal(res);
+    }
+    if (name === "add_rec_evidence") {
+      const e = entities.find((x) => x.slug === input.entity);
+      if (!e) return { saved: false, error: `No connected entity ${input.entity}` };
+      return send("POST", `${path}/evidence`, { entity_id: e.id, amount: input.amount, source: input.source, document_ref: input.document_ref, note: input.note });
     }
     if (name === "propose_rec_journal") {
       const { rec_id, ...body } = input;

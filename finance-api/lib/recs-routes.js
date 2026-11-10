@@ -103,7 +103,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key,
             -- Read through jsonb so a database without migration 034 still answers.
             COALESCE((to_jsonb(a)->>'releases_on')::boolean, false) AS releases_on,
-            to_jsonb(a)->>'releases_by' AS releases_by, to_jsonb(a)->>'releases_at' AS releases_at
+            to_jsonb(a)->>'releases_by' AS releases_by, to_jsonb(a)->>'releases_at' AS releases_at,
+            to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id
        FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
       WHERE r.id = $1 AND r.client_id = $2 ${lock ? "FOR UPDATE OF r" : ""}`, [id, clientId])).rows[0];
 
@@ -112,15 +113,33 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
        FROM finance.rec_balances b JOIN finance.entities e ON e.id = b.entity_id
       WHERE b.rec_id = $1 ORDER BY e.name`, [recId])).rows;
 
-  const supportFor = (rec, items) => (rec.proof === "schedule" && recs.workable(rec.line_key, rec.proof)
-    ? recs.scheduleTotals(items, rec.period) : null);
+  // Evidence held on recs: an amount per company with its source and document.
+  const evidenceOf = async (db, recIds) => (recIds.length ? (await db.query(
+    `SELECT v.id, v.rec_id, v.entity_id, e.name AS entity_name, v.kind, v.amount, v.source, v.document_ref, v.note, v.added_by, v.added_at,
+            to_jsonb(v)->>'method' AS method
+       FROM finance.rec_evidence v JOIN finance.entities e ON e.id = v.entity_id
+      WHERE v.rec_id = ANY($1::uuid[]) ORDER BY e.name, v.added_at`, [recIds])).rows : []);
+
+  // What supports the ledger: the schedule for Prepayments, the evidence for
+  // an evidence rec (none held is none, so it does not tie), else nothing.
+  const supportFor = (rec, items, evidence = []) => {
+    if (rec.proof === "schedule" && recs.workable(rec.line_key, rec.proof)) return recs.scheduleTotals(items, rec.period);
+    if (recs.usesEvidence(rec.line_key, rec.proof)) return recs.evidenceTotals(evidence);
+    return null;
+  };
+
+  // The companies on an evidence rec with no evidence yet.
+  const missingEvidenceFor = (rec, balances, evidence) => (recs.usesEvidence(rec.line_key, rec.proof)
+    ? balances.filter((b) => !evidence.some((v) => v.entity_id === b.entity_id)).map((b) => b.entity_name ?? "a company")
+    : []);
 
   // One after another: a transaction's connection runs one query at a time.
   const figuresOn = async (conn, client, rec) => {
     const balances = await balancesOf(conn, rec.id);
     const items = await itemsOf(conn, client.id, [rec.rec_account_id]);
     const tol = await tolerance(conn, client.id);
-    return { balances, items, tol, tied: recs.cover(balances, supportFor(rec, items), tol) };
+    const evidence = await evidenceOf(conn, [rec.id]);
+    return { balances, items, evidence, tol, tied: recs.cover(balances, supportFor(rec, items, evidence), tol) };
   };
 
   // Re-works a rec's flag against the ledger and schedule as they are now.
@@ -176,12 +195,13 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         pool.query("SELECT rec_account_id, status, recheck_reason, dropped_at FROM finance.recs WHERE client_id = $1 AND period = $2", [client.id, prior]),
       ]);
       const items = await itemsOf(pool, client.id, rows.rows.map((r) => r.rec_account_id));
+      const evidence = await evidenceOf(pool, rows.rows.map((r) => r.id));
       const priorBy = new Map(priorRecs.rows.map((r) => [r.rec_account_id, r.status]));
       const list = rows.rows.map((r) => {
         // A signed rec shows what was signed, not the ledger since.
         const signed = r.status === "signed_off" ? r.signed_snapshot : null;
         const mine = signed ? signed.items : items.filter((i) => i.rec_account_id === r.rec_account_id);
-        const support = supportFor(r, mine);
+        const support = supportFor(r, mine, signed?.evidence ?? evidence.filter((v) => v.rec_id === r.id));
         const balances = signed ? signed.balances.map((b) => ({ ...b, code: b.account_code })) : r.balances;
         const c = recs.cover(balances, support, signed ? signed.tolerance : tol);
         return {
@@ -455,11 +475,16 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const balances = signed?.balances ?? liveBalances;
     const items = signed?.items ?? liveItems;
     const tol = signed?.tolerance ?? liveTol;
-    const support = supportFor(rec, items);
+    const liveEvidence = await evidenceOf(pool, [rec.id]);
+    const evidence = signed?.evidence ?? liveEvidence;
+    const support = supportFor(rec, items, evidence);
     const c = recs.cover(balances, support, tol);
     const names = new Map(balances.map((b) => [b.entity_id, b.entity_name]));
     const entities = await companies(pool, client.id);
     for (const e of entities) names.set(e.id, e.name);
+    const evidenceBlock = recs.usesEvidence(rec.line_key, rec.proof)
+      ? await evidenceView(client, rec, balances, signed ? evidence.map((v) => ({ ...v, entity_name: names.get(v.entity_id) })) : liveEvidence, names)
+      : null;
     const months = rec.proof === "schedule" ? recs.scheduleMonths(items, rec.period) : [];
     const p = prior.rows[0] ?? null;
     // The latest FM1 run on this rec, so the page can say it is working and
@@ -505,6 +530,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         } : null,
       },
       tolerance: money(tol),
+      evidence: evidenceBlock,
       cover: {
         rows: c.rows.map((r) => {
           const b = balances.find((x) => x.entity_id === r.entity_id);
@@ -844,23 +870,24 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   }), { peopleOnly: true })));
 
   // What a preparer saw, kept whatever later happens to the ledger or schedule.
-  const snapshotFor = (balances, items, rec) => ({
+  const snapshotFor = (balances, items, rec, evidence = []) => ({
     balances: recs.snapshotOf(balances),
+    evidence: evidence.map((v) => ({ entity_id: v.entity_id, amount: v.amount, source: v.source, document_ref: v.document_ref, method: v.method })),
     schedule: items.map((i) => ({ ...i, ...(({ released, balance, this_month }) => ({ released, balance, this_month }))(recs.itemAt(i, rec.period)) })),
   });
 
   // POST /recs/:id/prepare   body: { note }   hands to the FC. Clears any re-check.
   app.post(`${BASE}/:id/prepare`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
-    const { balances, items, tied: c } = await figuresOn(conn, client, rec);
+    const { balances, items, evidence, tied: c } = await figuresOn(conn, client, rec);
     const note = String(req.body?.note ?? "").trim().slice(0, 4000);
     const comments = c.rows.every((r) => r.ties || balances.find((b) => b.entity_id === r.entity_id)?.comment);
-    const issues = recs.stepIssues("prepare", { rec, tied: c.ties, via, role, actor, note, comments });
+    const issues = recs.stepIssues("prepare", { rec, tied: c.ties, via, role, actor, note, comments, missingEvidence: missingEvidenceFor(rec, balances, evidence) });
     if (issues.length) return { status: 422, body: { issues } };
     await conn.query(
       `UPDATE finance.recs SET status = 'with_fc', preparer_note = $2, prepared_snapshot = $3, prepared_by = $4, prepared_by_person = $5, prepared_at = now(),
          recheck_reason = NULL, recheck_at = NULL, review_note = NULL, reviewed_by = NULL, reviewed_by_person = NULL, reviewed_at = NULL,
          sole_reviewer = false, signed_snapshot = NULL, updated_at = now() WHERE id = $1`,
-      [rec.id, note || null, JSON.stringify(snapshotFor(balances, items, rec)), actor, actorEmail]);
+      [rec.id, note || null, JSON.stringify(snapshotFor(balances, items, rec, evidence)), actor, actorEmail]);
     await event(conn, rec.id, client.id, actor, "prepared", { ties: c.ties, difference: money(c.group.variance) });
     return { status: 200, body: { status: "with_fc" } };
   }))));
@@ -896,7 +923,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       reads = await readIssuesAtSignOff(who.client, first);
     }
     return recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
-      const { balances, items, tol, tied: c } = await figuresOn(conn, client, rec);
+      const { balances, items, evidence, tol, tied: c } = await figuresOn(conn, client, rec);
       const sole = req.body?.sole_reviewer === true;
       const reason = String(req.body?.accept_variance ?? "").trim().slice(0, 2000);
       const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads, accept: reason });
@@ -918,7 +945,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       await conn.query(
         `UPDATE finance.recs SET status = 'signed_off', signed_off_by = $2, signed_off_role = $3, signed_off_at = now(),
            sole_reviewer = $4, signed_snapshot = $5, updated_at = now() WHERE id = $1`,
-        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, tolerance: tol, accepted, at: new Date().toISOString() })]);
+        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, evidence, tolerance: tol, accepted, at: new Date().toISOString() })]);
       const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged, accepted_variance: accepted };
       if (accepted) await event(conn, rec.id, client.id, actor, "variance_accepted", { reason, group: accepted.group });
       await event(conn, rec.id, client.id, actor, "signed_off", { role, ...payload });
@@ -1015,9 +1042,195 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return { status: 200, body: { status: "in_progress" } };
   }), { peopleOnly: true })));
 
+  // ── Evidence ──────────────────────────────────────────────────────────────
+
+  // The evidence part of a rec's page: what is held, how more can be fetched,
+  // and, for an intercompany rec, its pair.
+  async function evidenceView(client, rec, balances, evidence, names) {
+    const method = recs.autoMethod(rec);
+    const out = {
+      method, method_label: method ? recs.METHOD_LABEL[method] : null,
+      missing: missingEvidenceFor(rec, balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), evidence),
+      rows: evidence.map((v) => ({
+        id: v.id ?? null, entity_id: v.entity_id, entity: v.entity_name ?? names.get(v.entity_id) ?? "A company", kind: v.kind ?? null,
+        amount: v.amount === null || v.amount === undefined ? null : money(recs.pence(v.amount)), source: v.source, document_ref: v.document_ref,
+        note: v.note ?? null, method: v.method ?? null, added_by: v.added_by ?? null, added_at: v.added_at ?? null,
+      })),
+      counterpart: null, candidates: [],
+    };
+    if (method === "counterpart") {
+      const month = await monthRecs(client, rec.period);
+      const me = month.find((m) => m.id === rec.id);
+      if (rec.counterpart_account_id) out.counterpart = month.find((m) => m.rec_account_id === rec.counterpart_account_id) ?? { rec_account_id: rec.counterpart_account_id, missing: true };
+      if (me && me.entity_id) out.candidates = recs.counterpartCandidates(me, month, names).slice(0, 5).map((c) => ({ ...c, entity: names.get(c.entity_id) ?? "A company" }));
+      if (out.counterpart && !out.counterpart.missing) out.counterpart = { ...out.counterpart, entity: names.get(out.counterpart.entity_id), closing: money(out.counterpart.closing) };
+    }
+    return out;
+  }
+
+  // The month's recs held by exactly one company, with that company's closing
+  // in pence: what intercompany pairs are chosen from.
+  async function monthRecs(client, period) {
+    const rows = (await pool.query(
+      `SELECT r.id, r.rec_account_id, r.line_key, a.account_name, count(b.entity_id) AS companies,
+              min(b.entity_id::text) AS entity_id, sum(b.closing) AS closing
+         FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+         LEFT JOIN finance.rec_balances b ON b.rec_id = r.id
+        WHERE r.client_id = $1 AND r.period = $2 AND r.dropped_at IS NULL
+        GROUP BY r.id, a.id`, [client.id, period])).rows;
+    return rows.filter((r) => Number(r.companies) === 1).map((r) => ({
+      id: r.id, rec_account_id: r.rec_account_id, line_key: r.line_key, account_name: r.account_name, entity_id: r.entity_id, closing: recs.pence(r.closing),
+    }));
+  }
+
+  // FM1 from a live run, or a person, while the rec is being prepared.
+  const mayEvidence = (via) => !via || (via.kind === "agent" && via.agent === "fm1");
+
+  // POST /recs/:id/evidence   body: { entity_id, amount, source, document_ref?, note? }
+  app.post(`${BASE}/:id/evidence`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!mayEvidence(via)) return { status: 403, body: { error: "FM1 or a person records evidence" } };
+    if (!recs.usesEvidence(rec.line_key, rec.proof)) return { status: 409, body: { error: recs.notWorkableReason(rec.line_key, rec.proof) ?? "This reconciliation is proved by its schedule, not by evidence" } };
+    const stop = editable(rec);
+    if (stop) return stop;
+    const b = req.body || {};
+    const issues = [];
+    const bal = (await balancesOf(conn, rec.id)).find((x) => x.entity_id === b.entity_id);
+    if (!bal) issues.push("entity_id must be one of the companies on this reconciliation");
+    const amount = Number(b.amount);
+    if (!Number.isFinite(amount) || Math.abs(amount) > 1e12) issues.push("amount must be a number, signed as the ledger (debit positive, credit negative)");
+    const source = String(b.source ?? "").trim();
+    if (source.length < 5) issues.push("source must say where the figure comes from (a statement, a return, a register, a confirmation)");
+    if (issues.length) return { status: 422, body: { issues } };
+    const row = (await conn.query(
+      `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [rec.id, b.entity_id, rec.proof, recs.pounds(recs.pence(amount)), source.slice(0, 300), String(b.document_ref ?? "").trim().slice(0, 300) || null,
+        String(b.note ?? "").trim().slice(0, 2000) || null, actor])).rows[0];
+    await started(conn, rec);
+    await event(conn, rec.id, client.id, actor, "evidence_added", { entity_id: b.entity_id, amount: recs.pounds(recs.pence(amount)), source });
+    return { status: 201, body: { id: row.id } };
+  }))));
+
+  // DELETE /recs/:id/evidence/:eid
+  app.delete(`${BASE}/:id/evidence/:eid`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!mayEvidence(via)) return { status: 403, body: { error: "FM1 or a person removes evidence" } };
+    if (!work.isGuid(req.params.eid)) return { status: 400, body: { error: "eid must be an evidence id" } };
+    const stop = editable(rec);
+    if (stop) return stop;
+    const gone = (await conn.query("DELETE FROM finance.rec_evidence WHERE id = $1 AND rec_id = $2 RETURNING entity_id, amount, source", [req.params.eid, rec.id])).rows[0];
+    if (!gone) return { status: 404, body: { error: "no such evidence on this reconciliation" } };
+    await event(conn, rec.id, client.id, actor, "evidence_removed", gone);
+    return { status: 200, body: { removed: req.params.eid } };
+  }))));
+
+  // POST /recs/:id/counterpart   body: { rec_account_id | null }   a person pairs
+  // an intercompany account with its twin in the other company. Kept for every
+  // month, like the placing of an account.
+  app.post(`${BASE}/:id/counterpart`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (recs.autoMethod(rec) !== "counterpart") return { status: 409, body: { error: "Only an intercompany reconciliation has a counterpart" } };
+    const to = req.body?.rec_account_id ?? null;
+    if (to !== null) {
+      if (!work.isGuid(to) || to === rec.rec_account_id) return { status: 422, body: { issues: ["rec_account_id must be another account's id from the candidates"] } };
+      const ok = (await conn.query("SELECT 1 FROM finance.rec_accounts WHERE id = $1 AND client_id = $2", [to, client.id])).rowCount;
+      if (!ok) return { status: 422, body: { issues: ["no such account for this client"] } };
+    }
+    await conn.query("UPDATE finance.rec_accounts SET counterpart_account_id = $2 WHERE id = $1", [rec.rec_account_id, to]);
+    await event(conn, rec.id, client.id, actor, "counterpart_set", { counterpart_account_id: to });
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_counterpart_set", id: rec.id, payload: { account: rec.account_name, counterpart_account_id: to } });
+    return { status: 200, body: { counterpart_account_id: to } };
+  }), { peopleOnly: true })));
+
+  // POST /recs/:id/evidence/fetch   FM1 or a person: takes the evidence the
+  // rec's method can find, replacing evidence fetched before. Evidence a person
+  // keyed is kept. Xero is read before the transaction.
+  app.post(`${BASE}/:id/evidence/fetch`, tolerant(async (req, res) => {
+    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a reconciliation id" });
+    const who = await preflight(req, res);
+    if (!who) return;
+    const origin = viaInput(req.get("X-Work-Via"), req.get("X-Work-Ref"));
+    if (!mayEvidence(origin.via)) return res.status(403).json({ error: "FM1 or a person fetches evidence" });
+    const rec = await loadRec(pool, who.client.id, req.params.id);
+    if (!rec) return res.status(404).json({ error: "reconciliation not found" });
+    const method = recs.autoMethod(rec);
+    if (!method) return res.status(409).json({ error: "There is no automatic source for this account. Record the outside evidence with its document." });
+    if (editable(rec)) return res.status(409).json(editable(rec).body);
+    const balances = await balancesOf(pool, rec.id);
+    const entities = await companies(pool, who.client.id);
+    const names = new Map(entities.map((e) => [e.id, e.name]));
+    const rows = [], said = [];
+    const date = rec.period_end;
+    if (method === "ageing_ar" || method === "ageing_ap") {
+      const kind = method === "ageing_ap" ? "ap" : "ar";
+      for (const b of balances) {
+        const e = entities.find((x) => x.id === b.entity_id);
+        try {
+          const ctx = await xeroEntityContext(who.client.slug, e.slug);
+          if (!ctx || ctx.error) throw new Error(ctx?.error ?? "not connected to Xero");
+          const type = kind === "ap" ? "ACCPAY" : "ACCREC";
+          const dt = date.split("-").map(Number);
+          const where = `Type=="${type}" AND Date <= DateTime(${dt[0]},${dt[1]},${dt[2]}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
+          const invoices = await xeroPages(ctx, "/Invoices", "Invoices", { where });
+          const cnWhere = `Type=="${kind === "ap" ? "ACCPAYCREDIT" : "ACCRECCREDIT"}" AND Date <= DateTime(${dt[0]},${dt[1]},${dt[2]}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
+          const creditNotes = await xeroPages(ctx, "/CreditNotes", "CreditNotes", { where: cnWhere });
+          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes });
+          rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "supplier bills" : "sales invoices"} outstanding at ${date}`, note: ev.note });
+          said.push(`${e.name}: ${ev.note}`);
+        } catch (err) {
+          said.push(`${e?.name ?? "A company"}: Xero could not be read (${String(err.message || err).slice(0, 200)}). Nothing was taken for it.`);
+        }
+      }
+    } else if (method === "counterpart") {
+      if (!rec.counterpart_account_id) return res.status(409).json({ error: "Choose the paired account in the other company first", needs: "counterpart" });
+      const twin = (await pool.query(
+        `SELECT r.id, a.account_name, b.entity_id, b.closing FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+           JOIN finance.rec_balances b ON b.rec_id = r.id
+          WHERE r.client_id = $1 AND r.rec_account_id = $2 AND r.period = $3 AND r.dropped_at IS NULL`, [who.client.id, rec.counterpart_account_id, rec.period])).rows;
+      if (balances.length !== 1 || twin.length !== 1) return res.status(409).json({ error: "Pairing works for an account held by one company against one held by one other company" });
+      const t = twin[0];
+      const amount = recs.pounds(-recs.pence(t.closing));
+      rows.push({ entity_id: balances[0].entity_id, amount, source: `${names.get(t.entity_id) ?? "The other company"}: ${t.account_name} at ${date}, reversed`, note: `The paired account read from the same trial balances as this one.` });
+      said.push(`${names.get(t.entity_id)} holds ${t.account_name} at ${money(recs.pence(t.closing))}; reversed, that is ${amount}.`);
+    } else if (method === "carry_forward") {
+      const prior = (await pool.query(
+        "SELECT id, status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2", [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
+      if (!prior || prior.status !== "signed_off" || !(prior.signed_snapshot?.evidence ?? []).length) {
+        return res.status(409).json({ error: `${recs.periodLabel(recs.priorPeriod(rec.period))} has no signed evidence to carry. Record the outside evidence this month (a confirmation statement, the signed accounts).` });
+      }
+      const carried = recs.carryForward(prior.signed_snapshot.evidence, balances);
+      for (const v of carried) rows.push({ entity_id: v.entity_id, amount: v.amount, source: `${v.source} (carried from ${recs.periodLabel(recs.priorPeriod(rec.period))}, no movement)`, document_ref: v.document_ref ?? null });
+      for (const b of balances) if (!carried.some((v) => v.entity_id === b.entity_id)) said.push(`${names.get(b.entity_id)}: the account moved this month, so last month's evidence was not carried. Record what explains the movement.`);
+    }
+    return recTx(req, res, (conn, { client, actor }) => withRec(conn, client, req.params.id, async (r2) => {
+      const stop = editable(r2);
+      if (stop) return stop;
+      await conn.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND method IS NOT NULL", [r2.id]);
+      for (const v of rows) {
+        await conn.query(
+          `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [r2.id, v.entity_id, r2.proof, v.amount, String(v.source).slice(0, 300), v.document_ref ?? null, v.note ?? null, actor, method]);
+      }
+      await started(conn, r2);
+      await event(conn, r2.id, client.id, actor, "evidence_fetched", { method, rows: rows.length });
+      return { status: 200, body: { method, method_label: recs.METHOD_LABEL[method], fetched: rows.length, said } };
+    }));
+  }));
+
+  // All pages of a Xero list, up to a cap.
+  async function xeroPages(ctx, path, resource, params) {
+    const out = [];
+    for (let page = 1; page <= 30; page++) {
+      const data = await xeroGet(ctx.accessToken, ctx.tenantId, path, { ...params, page: String(page) });
+      const got = data?.[resource] ?? [];
+      out.push(...got);
+      if (got.length < 100) break;
+    }
+    return out;
+  }
+
   // POST /recs/:id/agent   a person starts FM1 on an open rec
   app.post(`${BASE}/:id/agent`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actorEmail, actor, role }) => withRec(conn, client, req.params.id, async (rec) => {
-    if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: "Agents work only on Prepayments for now" } };
+    if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: recs.notWorkableReason(rec.line_key, rec.proof) } };
     if (!["not_started", "in_progress", "sent_back"].includes(rec.status)) return { status: 409, body: { error: "This is already with a reviewer" } };
     // One run at a time: a second would save the same items again. The rec
     // row is locked by withRec, so two clicks cannot both get past this.

@@ -51,7 +51,9 @@ const BY_SYSTEM_ACCOUNT = {
 
 const BY_NAME = [
   [/^bank|current account|savings|deposit account|paypal|stripe balance/i, "cash"],
-  [/vat|gst\b/i, "vat"],
+  // Whole words: "Innovation" holds the letters v-a-t, and a bank account so
+  // named was filed as VAT (Nov 2026).
+  [/\bvat\b|\bgst\b/i, "vat"],
   [/prepay/i, "prepay"],
   [/accrual/i, "accruals"],
   [/deferred (income|revenue)/i, "deferred"],
@@ -81,6 +83,8 @@ function classify(account) {
   if (account.SystemAccount && BY_SYSTEM_ACCOUNT[account.SystemAccount]) {
     return { key: BY_SYSTEM_ACCOUNT[account.SystemAccount], how: `system account ${account.SystemAccount}` };
   }
+  // A bank account is cash whatever it is called.
+  if (account.Type === "BANK") return { key: "cash", how: "type BANK" };
   for (const [re, key] of BY_NAME) {
     if (re.test(account.Name || "")) return { key, how: `name matched ${re}` };
   }

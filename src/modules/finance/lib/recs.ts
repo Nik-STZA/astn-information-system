@@ -133,6 +133,20 @@ export interface ReleaseOutcome {
   supplier?: string | null;
 }
 
+// Evidence on a rec proved by outside evidence or a ledger review (10 Nov 2026).
+export interface RecEvidenceRow {
+  id: string | null; entity_id: string; entity: string; kind: string | null; amount: string | null; source: string;
+  document_ref: string | null; note: string | null; method: string | null; added_by: string | null; added_at: string | null;
+}
+export interface RecEvidence {
+  method: "ageing_ar" | "ageing_ap" | "counterpart" | "carry_forward" | null;
+  method_label: string | null;
+  missing: string[];
+  rows: RecEvidenceRow[];
+  counterpart: { rec_account_id: string; account_name?: string; entity?: string; closing?: string | null; missing?: boolean } | null;
+  candidates: Array<{ rec_account_id: string; account_name: string; entity_id: string; entity: string; difference: string }>;
+}
+
 export interface RecDetail {
   rec: {
     id: string; account_name: string; period: string; period_end: string; label: string; status: RecStatus;
@@ -153,6 +167,7 @@ export interface RecDetail {
     error: string | null; output: string | null; live: boolean;
   } | null;
   tolerance: string;
+  evidence?: RecEvidence | null;
   cover: { rows: CoverRow[]; group: { gl: string | null; schedule: string | null; variance: string | null }; ties: boolean; mixed_currency: boolean };
   schedule: { months: string[]; items: ScheduleItem[] };
   checks: { at: string; note: string; entities: EntityChecks[]; releases?: ReleaseOutcome[] } | null;
@@ -274,7 +289,7 @@ export function actorLabel(actor: string): string {
 // proposal, the note of a draft) are left out on purpose.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const REC_PATH = new RegExp(
-  `^recs/(compose|settings|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
+  `^recs/(compose|settings|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
 export const isRecPath = (path: string) => REC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────
