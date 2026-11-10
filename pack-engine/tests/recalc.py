@@ -75,6 +75,9 @@ class Sheetbook:
             return total
 
         def sumif(keys, wanted, values):
+            # An exact-match criterion "=text" with ~ escapes, as outstanding.py writes.
+            if isinstance(wanted, str) and wanted.startswith("="):
+                wanted = re.sub(r"~([~*?])", lambda m: m.group(1), wanted[1:])
             return sum(self.number(*v) for k, v in zip(keys, values) if self.value(*k) == wanted)
 
         expr = re.sub(r"__R(\d+)__", lambda m: f"R({m.group(1)})", expr)

@@ -65,6 +65,11 @@ class FinanceApi:
         that predates migration 017."""
         return self.get(f"/api/finance/clients/{client}/entities/{entity}/account-mapping", missing_ok=True)
 
+    def outstanding_documents(self, client: str) -> dict | None:
+        """The outstanding documents register, every state, or None from a
+        finance-api that predates it."""
+        return self.get(f"/api/finance/clients/{client}/outstanding-documents", {"state": "all"}, missing_ok=True)
+
     # --- Xero reads, per entity -------------------------------------------------
     def _x(self, client: str, entity: str, what: str) -> str:
         return f"/api/finance/clients/{client}/xero/{entity}/{what}"
