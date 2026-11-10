@@ -38,6 +38,13 @@ const CUT_OFF_NOTE =
   "Carry on from where you were, in smaller steps: at most 10 items in one turn, and keep text short until the final answer.";
 const TOOLS_AT_ONCE = 4;
 const ONCE = process.env.RUNNER_ONCE === "1" || process.argv.includes("--once");
+// A once runner is a Cloud Run Job execution with a 30-minute limit. A month's
+// reconciliations queued together run longer than that, so a runner stops
+// taking new jobs after this long and asks finance-api to start a fresh
+// execution for what is left (10 Nov 2026). One job can take up to about ten
+// minutes, so this leaves room for the last one.
+const RUNNER_BUDGET_MS = Number(process.env.RUNNER_BUDGET_MS || 18 * 60 * 1000);
+const STARTED_AT = Date.now();
 
 if (!API_KEY) {
   console.error("FINANCE_API_KEY is required");
@@ -982,6 +989,16 @@ let running = true;
 async function poll() {
   let claimFailures = 0;
   while (running) {
+    if (ONCE && Date.now() - STARTED_AT > RUNNER_BUDGET_MS) {
+      // Out of time for another job: hand the rest of the queue to a fresh run.
+      try {
+        const r = await apiCall("POST", "/api/finance/agent-runs/relay");
+        console.log(`Time budget reached; ${r?.queued ?? 0} queued, relay ${r?.runner ?? "not started"}`);
+      } catch (e) {
+        console.error("Relay failed; queued jobs wait for the next start:", e.message);
+      }
+      return;
+    }
     try {
       const job = await claimJob();
       claimFailures = 0;

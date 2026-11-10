@@ -215,6 +215,25 @@ async function scenario() {
     ok("November: October's signed evidence carried where nothing moved, and it ties", r.status === 200 && v.cover.ties && v.evidence.rows.every((x) => /carried from October 2026/.test(x.source)), { r: r.body, ev: v.evidence.rows });
   });
 
+  await section("start FM1 on every rec the month can work, in one go", async () => {
+    await pool.query("UPDATE finance.agent_runs SET status = 'succeeded' WHERE client_id = $1 AND status IN ('queued', 'running')", [CID]);
+    let r = await api("POST", "recs/agent-all", { period: "2026-10" }, fm1);
+    ok("an agent cannot start the batch", r.status === 403, r);
+    r = await api("POST", "recs/agent-all", { period: "October" });
+    ok("a bad month refused", r.status === 422, r);
+    r = await api("POST", "recs/agent-all", { period: "2026-10" });
+    const q = (r.body.queued || []).map((x) => x.account).sort();
+    ok("queues the workable recs not with a reviewer", r.status === 200 && q.includes("Accounts Payable") && q.includes("Directors' Loan Account") && !q.includes("Accounts Receivable") && !q.includes("Capital - Ordinary Shares"), r.body);
+    ok("an unpaired intercompany rec waits for its pair, with why", (r.body.skipped || []).some((x) => x.account === "Alpha intercompany" && /paired account/.test(x.why)), r.body.skipped);
+    const runs = (await pool.query("SELECT agent, status, rec_id, instruction FROM finance.agent_runs WHERE client_id = $1 AND status = 'queued'", [CID])).rows;
+    ok("one queued FM1 run per rec, each with its instruction", runs.length === q.length && runs.every((x) => x.agent === "fm1" && x.rec_id && /Reconciliation id/.test(x.instruction)), runs.length);
+    r = await api("POST", "recs/agent-all", { period: "2026-10" });
+    ok("pressing again starts nothing twice", r.status === 200 && r.body.queued.length === 0 && r.body.skipped.some((x) => /already working/.test(x.why)), r.body);
+    const relay = await realFetch(`${base}/api/finance/agent-runs/relay`, { method: "POST", headers: { "X-API-Key": "k" } });
+    const rb = await relay.json();
+    ok("the relay sees the queue (no cloud runner here, so it stays queued)", relay.status === 200 && rb.queued >= q.length && rb.runner === "queued", rb);
+  });
+
   await section("an account with no automatic source", async () => {
     const id = byName(list, "Directors' Loan").id;
     const r = await api("POST", `recs/${id}/evidence/fetch`, {}, fm1);

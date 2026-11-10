@@ -289,7 +289,7 @@ export function actorLabel(actor: string): string {
 // proposal, the note of a draft) are left out on purpose.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const REC_PATH = new RegExp(
-  `^recs/(compose|settings|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
+  `^recs/(compose|settings|agent-all|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
 export const isRecPath = (path: string) => REC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────
