@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BadgeCheck, BookOpen, Package, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
+  BadgeCheck, BookOpen, FileQuestionMark, Package, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
   PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon,
@@ -86,6 +86,8 @@ const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = 
   { seg: "journals", label: "Journals", icon: ScrollText },
   // Each company's asset register as Xero holds it (6 Nov 2026).
   { seg: "fixed-assets", label: "Fixed assets", icon: Package },
+  // Transactions without their supporting document, carried in the close (10 Nov 2026).
+  { seg: "outstanding-documents", label: "Outstanding documents", icon: FileQuestionMark },
   { seg: "agents", label: "Agents", icon: Bot },
   { seg: "procedures", label: "Procedures", icon: BookOpen },
   { seg: "close", label: "Close", icon: ClipboardList },

@@ -6588,6 +6588,15 @@ require("./lib/xero-changes-routes").mountXeroChanges(app, {
   route, pool, audit, clientIdFromSlug, readAssetRegister, runGatedWrite, writePolicy: writeRules.writePolicy,
 });
 
+// ── Outstanding documents ───────────────────────────────────────────────────
+
+// Transactions the client has not supported with a document, carried as open
+// items in the close (lib/outstanding-docs-routes.js, migration 040). Reports
+// are read by Gemini in London, as bills are.
+require("./lib/outstanding-docs-routes").mountOutstandingDocs(app, {
+  route, pool, audit, clientIdFromSlug, express, generate: (body) => vertex.generate(body),
+});
+
 // ── Review ──────────────────────────────────────────────────────────────────
 
 // Everything waiting on a person for a client, from Bills, Reconciliations,
