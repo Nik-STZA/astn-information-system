@@ -18,6 +18,7 @@ calendar -> ledger -> mapping -> statement model -> workbook -> controls
 | `recs.py` | Balance sheet reconciliations workbook, written next to the pack. Off unless `PACK_RECS_JSON` names an input file. See below |
 | `controls.py` | Checks that fail the build: mapping coverage, trial balances balance, Xero's financial year matches the profile, the balance sheet balances, net profit and balance sheet totals tie to Xero's own reports, totals are formulas |
 | `suppliers.py` | Optional Category > Account > Supplier tabs, with their own controls (see below) |
+| `outstanding.py` | Optional outstanding documents summary and list, as at month end (see below) |
 
 A failed control still writes the workbook, with `FAILED CONTROLS` in its name.
 
@@ -86,6 +87,25 @@ nothing saved fall back to the rules, and the "Account mapping approved" control
 warns until every account with activity is approved. finance-api ports the rules
 for the portal's suggestions; `tests/mapping_rule_cases.json` is shared by both test
 suites so they cannot drift.
+
+## Outstanding documents
+
+Off unless the profile has `"outstanding_documents": {}` (a summary page and the
+full list after it) or `{"format": "full_list"}` (the list only). Read from
+os.stza.io's register through finance-api
+(`GET /api/finance/clients/:slug/outstanding-documents?state=all`, migrations 040
+and 041).
+
+As at the pack's month end: items dated on or before it that were still
+outstanding that day. One cleared afterwards is listed with its status since; one
+cleared on or before the month end is not; candidates and dismissed lines never
+are. The list is the only place values are typed. The summary (items, spent,
+received and VAT at risk by card holder, concern, company and month) is SUMIFs
+over it with exact-match criteria, so a name holding `*` or `?` matches only
+itself. Card holders group ignoring case, under the spelling used most.
+
+Items never block a sign-off, so the section cannot fail the build: a failed read,
+or a finance-api without the register, leaves it out with a warning on Controls.
 
 ## Balance sheet recs
 

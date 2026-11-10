@@ -19,7 +19,7 @@ from pathlib import Path
 
 from openpyxl.styles import Alignment, Font
 
-from . import ENGINE_VERSION, controls as ctl, recs, style, suppliers
+from . import ENGINE_VERSION, controls as ctl, outstanding, recs, style, suppliers
 from .api import FinanceApi
 from .fiscal import FiscalCalendar, date_label, month_end, parse_period
 from .ledger import fetch_ledger
@@ -33,7 +33,8 @@ PROFILES = Path(__file__).resolve().parent.parent / "profiles"
 LOCAL_TZ = ZoneInfo("Europe/London")
 
 TAB_ROLES = {"Contents": "summary", PNL: "summary", BS: "summary", CF: "summary",
-             "Controls": "control", "Mapping": "control", SRC: "detail"}
+             "Controls": "control", "Mapping": "control", SRC: "detail",
+             outstanding.SUMMARY: "summary"}
 
 
 def load_profile(client: str) -> dict:
@@ -169,12 +170,15 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     model = build_model(ledger, mapping, categories)
     rendered = render_statements(model, ledger, client_label=profile["legal_name"], period_month=month_end(y, m))
     supplier_controls = suppliers.add_to_pack(rendered, api, client, profile, ledger, model)
+    outstanding_controls = (outstanding.add_to_pack(rendered, api, client, profile, month_end(y, m))
+                            if hasattr(api, "outstanding_documents") else [])
 
     controls = [*ctl.mapping_controls(ledger, model, mapping, saved_available=saved is not None),
                 *ctl.ledger_controls(ledger),
                 *ctl.balance_controls(model),
                 *ctl.xero_tie_controls(api, client, profile["entity"], cal, period, model),
                 *supplier_controls,
+                *outstanding_controls,
                 *ctl.formula_controls(rendered)]
 
     wb = rendered.workbook
