@@ -1,6 +1,11 @@
 // Outstanding documents routes: lib/outstanding-docs.js decides, this applies,
 // in finance.document_uploads and finance.outstanding_documents (migration 040).
 //
+// A file is held only until it has been read; its contents are then deleted
+// in the same transaction that saves the lines (Nik, 10 Nov 2026: a cleaned
+// list is what is wanted, and the original lives on the client's drive). A
+// failed read keeps the file so it can be tried again.
+//
 // People only for now: upload a report, have it read, accept or dismiss the
 // lines, then work the register (received, chased, closed without the
 // document by the CFO with a reason). Agents join in a later change.
@@ -97,9 +102,9 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
   const uploadView = (u) => ({
     id: u.id, file_name: u.file_name, content_type: u.content_type, size_bytes: u.size_bytes,
     uploaded_by: u.uploaded_by, uploaded_at: u.uploaded_at, read_state: u.read_state, read_error: u.read_error,
-    read_at: u.read_at, read_with: u.read_with, line_count: u.line_count,
+    read_at: u.read_at, read_with: u.read_with, line_count: u.line_count, file_deleted_at: u.bytes_cleared_at,
   });
-  const UPLOAD_COLUMNS = "id, file_name, content_type, size_bytes, uploaded_by, uploaded_at, read_state, read_error, read_at, read_with, line_count";
+  const UPLOAD_COLUMNS = "id, file_name, content_type, size_bytes, uploaded_by, uploaded_at, read_state, read_error, read_at, read_with, line_count, bytes_cleared_at";
 
   // ── The register ──────────────────────────────────────────────────────────
 
@@ -204,20 +209,7 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
     }));
   }));
 
-  // GET /outstanding-documents/uploads/:id/file   the file as uploaded
-  app.get(`${BASE}/uploads/:id/file`, tolerant(async (req, res) => {
-    const client = await clientIdFromSlug(req.params.slug);
-    if (!client) return res.status(404).json({ error: "client not found" });
-    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(404).json({ error: "no such upload" });
-    const u = (await pool.query("SELECT file_name, content_type, bytes FROM finance.document_uploads WHERE id = $1 AND client_id = $2", [req.params.id, client.id])).rows[0];
-    if (!u) return res.status(404).json({ error: "no such upload" });
-    res.set("Content-Type", u.content_type);
-    res.set("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(u.file_name)}`);
-    res.set("Cache-Control", "private, no-store");
-    res.send(u.bytes);
-  }));
-
-  // POST /outstanding-documents/uploads/:id/read   body: { again? }
+  // POST /outstanding-documents/uploads/:id/read
   // Reads the file into candidate lines. Runs while the caller waits (a minute
   // or so); the page reads files one or two at a time.
   app.post(`${BASE}/uploads/:id/read`, tolerant(async (req, res) => {
@@ -226,22 +218,21 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
     const client = await clientIdFromSlug(req.params.slug);
     if (!client) return res.status(404).json({ error: "client not found" });
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(404).json({ error: "no such upload" });
-    const again = req.body?.again === true;
     const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, who.actorEmail])).rows[0].role;
     if (!role) return res.status(403).json({ error: `${who.actorEmail} holds no engagement role for this client` });
 
     // Claim it: one read at a time per file.
     const claimed = (await pool.query(
       `UPDATE finance.document_uploads SET read_state = 'reading', read_error = NULL, read_by = $3, read_at = now()
-        WHERE id = $1 AND client_id = $2
-          AND (read_state IN ('waiting', 'failed') OR (read_state = 'read' AND $4)
-               OR (read_state = 'reading' AND read_at < now() - make_interval(mins => $5)))
+        WHERE id = $1 AND client_id = $2 AND bytes IS NOT NULL
+          AND (read_state IN ('waiting', 'failed')
+               OR (read_state = 'reading' AND read_at < now() - make_interval(mins => $4)))
         RETURNING id, file_name, content_type, bytes`,
-      [req.params.id, client.id, who.actorEmail, again, STALE_READ_MINUTES])).rows[0];
+      [req.params.id, client.id, who.actorEmail, STALE_READ_MINUTES])).rows[0];
     if (!claimed) {
       const u = (await pool.query(`SELECT ${UPLOAD_COLUMNS} FROM finance.document_uploads WHERE id = $1 AND client_id = $2`, [req.params.id, client.id])).rows[0];
       if (!u) return res.status(404).json({ error: "no such upload" });
-      return res.status(409).json({ error: u.read_state === "reading" ? "This file is being read now" : "This file has been read; read it again to replace its unaccepted lines", upload: uploadView(u) });
+      return res.status(409).json({ error: u.read_state === "reading" ? "This file is being read now" : "This file has been read and its contents deleted; its lines are on the page", upload: uploadView(u) });
     }
 
     const entities = await entitiesOf(pool, client.id);
@@ -265,11 +256,6 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
     }
 
     const out = await tx(client, who, async (conn, w) => {
-      if (again) {
-        await conn.query(
-          `UPDATE finance.outstanding_documents SET state = 'dismissed', closed_at = now(), closed_by = $3, close_reason = 'Replaced by a new reading of the file', updated_at = now()
-            WHERE client_id = $1 AND upload_id = $2 AND state = 'candidate'`, [client.id, claimed.id, w.actorEmail]);
-      }
       const existing = (await conn.query(
         `SELECT id, state, txn_date, direction, amount, currency, payee FROM finance.outstanding_documents
           WHERE client_id = $1 AND state IN ('candidate', 'open', 'received', 'accepted')`, [client.id])).rows
@@ -287,11 +273,12 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
         ids.push(r.rows[0].id);
       }
       const u = (await conn.query(
-        `UPDATE finance.document_uploads SET read_state = 'read', read_error = NULL, read_with = $2, line_count = $3, read_at = now()
+        `UPDATE finance.document_uploads SET read_state = 'read', read_error = NULL, read_with = $2, line_count = $3, read_at = now(),
+                bytes = NULL, bytes_cleared_at = now()
           WHERE id = $1 RETURNING ${UPLOAD_COLUMNS}`, [claimed.id, readWith, lines.length])).rows[0];
       await log(conn, req, {
         client, ...w, action: "outstanding_docs_read", targetType: "document_upload", id: claimed.id,
-        payload: { lines: lines.length, duplicates: lines.filter((l) => l.duplicate_of).length, skipped: parsed.skipped.length, report: parsed.report, read_with: readWith, again },
+        payload: { lines: lines.length, duplicates: lines.filter((l) => l.duplicate_of).length, skipped: parsed.skipped.length, report: parsed.report, read_with: readWith, file_deleted: true },
       });
       return {
         status: 200,

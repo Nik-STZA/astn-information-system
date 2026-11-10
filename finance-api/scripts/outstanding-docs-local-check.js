@@ -163,12 +163,15 @@ async function scenario() {
     const audit = (await pool.query("SELECT action FROM finance.audit_log WHERE client_id = $1 ORDER BY id", [CID])).rows.map((x) => x.action);
     ok("every step logged", ["outstanding_docs_uploaded", "outstanding_docs_read", "outstanding_doc_accept", "outstanding_doc_dismiss"].every((a) => audit.includes(a)), audit);
 
-    const file = await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/uploads/${id}/file`, { headers: { "X-API-Key": "k" } });
-    const bytes = Buffer.from(await file.arrayBuffer());
-    ok("the file comes back as uploaded, as a download", file.status === 200 && bytes.equals(wb) && /attachment/.test(file.headers.get("content-disposition")), file.status);
+    const held = (await pool.query("SELECT bytes, bytes_cleared_at, sha256 FROM finance.document_uploads WHERE id = $1", [id])).rows[0];
+    ok("the file's contents deleted once read, name and fingerprint kept", held.bytes === null && held.bytes_cleared_at && held.sha256, held);
+    r = await upload("copy again.xlsx", wb);
+    ok("uploading it after it was read is still caught", r.status === 200 && r.body.already === true && r.body.upload.read_state === "read" && r.body.upload.file_deleted_at, r.body);
+    r = await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/uploads/${id}/file`, { headers: { "X-API-Key": "k" } });
+    ok("no route serves a file back", r.status === 404, r.status);
   });
 
-  await section("reading again replaces unaccepted lines; a second report meets the first", async () => {
+  await section("placing a line, and a second report meets the first", async () => {
     await seed();
     const a = (await upload("a.csv", Buffer.from("Date,Payee,Amount\n2025-02-07,Airline,850.32\n"))).body.upload.id;
     reading = { lines: [LINE({ date: "2025-02-07", payee: "Airline", amount: 850.32, source_line: "R2" })] };
@@ -179,12 +182,8 @@ async function scenario() {
     ok("cannot accept without a company", r.status === 422 && /choose the company/.test(r.body.issues[0]), r.body);
     r = await api("PATCH", `/${cand.id}`, { entity: "beta-ltd", concern: "business_purpose", note: "Flight, who travelled?" });
     ok("company and concern set", r.status === 200, r);
-    r = await api("POST", `/uploads/${a}/read`, { again: true });
-    ok("read again", r.status === 200 && r.body.lines === 1, r.body);
-    const all = (await items("all")).items;
-    ok("the old candidate replaced, the edit lost with it", all.filter((x) => x.state === "dismissed").length === 1 && all.filter((x) => x.state === "candidate").length === 1, all.map((x) => x.state));
-    cand = all.find((x) => x.state === "candidate");
-    await api("PATCH", `/${cand.id}`, { entity: "beta-ltd" });
+    cand = (await items()).items.find((x) => x.id === cand.id);
+    ok("the edit saved", cand.entity_slug === "beta-ltd" && cand.concern === "business_purpose" && /who travelled/.test(cand.note), cand);
     r = await api("POST", `/${cand.id}/accept`, {});
     ok("accepted", r.status === 200 && r.body.state === "open", r);
 
@@ -250,6 +249,7 @@ async function scenario() {
     readingFails = "Vertex 429: quota";
     r = await api("POST", `/uploads/${id}/read`, {});
     ok("a failed read says why and can be tried again", r.status === 502 && /quota/.test(r.body.error), r.body);
+    ok("and keeps the file for it", (await pool.query("SELECT bytes IS NOT NULL AS held FROM finance.document_uploads WHERE id = $1", [id])).rows[0].held);
     readingFails = null;
     reading = { lines: [] };
     r = await api("POST", `/uploads/${id}/read`, {});

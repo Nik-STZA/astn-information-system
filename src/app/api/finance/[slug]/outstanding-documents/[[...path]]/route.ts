@@ -4,10 +4,12 @@
 // person's and checks their role there.
 //
 // An upload is the file itself as the request body, its name in X-File-Name.
+// finance-api deletes the file's contents once it has been read; nothing here
+// serves a file back.
 
 import { NextResponse } from "next/server";
 import { getIapEmail } from "@/lib/auth";
-import { docsCall, fetchUploadFile, isDocsPath, MAX_FILE_BYTES } from "@/modules/finance/lib/outstanding-docs";
+import { docsCall, isDocsPath, MAX_FILE_BYTES } from "@/modules/finance/lib/outstanding-docs";
 
 export const dynamic = "force-dynamic";
 
@@ -18,24 +20,6 @@ async function target(ctx: Ctx) {
   const rest = (params.path ?? []).map(encodeURIComponent).join("/");
   const path = rest ? `outstanding-documents/${rest}` : "outstanding-documents";
   return { slug: params.slug, path, ok: isDocsPath(path) };
-}
-
-// The file as uploaded, always as a download: it came from outside.
-export async function GET(_req: Request, ctx: Ctx) {
-  if (!await getIapEmail()) return NextResponse.json({ error: "unauthenticated" }, { status: 403 });
-  const t = await target(ctx);
-  const m = /^outstanding-documents\/uploads\/([0-9a-f-]{36})\/file$/i.exec(t.path);
-  if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
-  const upstream = await fetchUploadFile(t.slug, m[1]);
-  if (!upstream.ok) return NextResponse.json({ error: `the file could not be fetched (${upstream.status})` }, { status: upstream.status });
-  return new NextResponse(upstream.body, {
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "Content-Disposition": upstream.headers.get("content-disposition") ?? "attachment",
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
 }
 
 export async function POST(req: Request, ctx: Ctx) {

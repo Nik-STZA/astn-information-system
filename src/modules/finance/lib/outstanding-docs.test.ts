@@ -80,10 +80,10 @@ describe("isDocsPath", () => {
   const id = "11111111-2222-3333-4444-555555555555";
   it("lets through only the routes the page uses", () => {
     for (const p of ["outstanding-documents", "outstanding-documents/settings", "outstanding-documents/bulk", "outstanding-documents/uploads",
-      `outstanding-documents/uploads/${id}/read`, `outstanding-documents/uploads/${id}/file`, `outstanding-documents/${id}`, `outstanding-documents/${id}/accept-without`]) {
+      `outstanding-documents/uploads/${id}/read`, `outstanding-documents/${id}`, `outstanding-documents/${id}/accept-without`]) {
       expect(isDocsPath(p)).toBe(true);
     }
-    for (const p of ["outstanding-documents/../tasks", `outstanding-documents/${id}/delete`, "outstanding-documents/uploads/x/read", "tasks"]) {
+    for (const p of ["outstanding-documents/../tasks", `outstanding-documents/uploads/${id}/file`, `outstanding-documents/${id}/delete`, "outstanding-documents/uploads/x/read", "tasks"]) {
       expect(isDocsPath(p)).toBe(false);
     }
   });

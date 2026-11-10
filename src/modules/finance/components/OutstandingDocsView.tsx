@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { Download, FileUp, RefreshCw } from "lucide-react";
+import { FileUp, RefreshCw } from "lucide-react";
 import {
   ACCEPT, CONCERN_ORDER, amountText, byMonth, byUpload, dateText, fileProblem, filtered, inBatches, monthLabel, pounds,
   type Concern, type DocItem, type DocList, type DocUpload, type Filters,
@@ -62,7 +62,7 @@ export default function OutstandingDocsView({ slug, data, companies, view }: {
     <div>
       <Tiles data={data} act={act} />
       <Uploader slug={slug} onDone={() => router.refresh()} />
-      <Files slug={slug} uploads={data.uploads} act={act} busy={busy} />
+      <Files uploads={data.uploads} act={act} busy={busy} />
 
       <div className={`seg ${styles.section}`} role="group" aria-label="Show" style={{ display: "inline-flex" }}>
         <Link prefetch={false} href={base} className={view === "open" ? "seg-on" : undefined}>On the register ({s.open.count})</Link>
@@ -132,10 +132,10 @@ function Uploader({ slug, onDone }: { slug: string; onDone: () => void }) {
 
   const set = (key: string, patch: Partial<Progress>) => setRows((all) => all.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
-  async function read(key: string, uploadId: string, again = false) {
+  async function read(key: string, uploadId: string) {
     set(key, { status: "reading", text: "Reading (a minute or so)" });
     const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/outstanding-documents/uploads/${uploadId}/read`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ again }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
     });
     const b = await res.json().catch(() => ({}));
     if (!res.ok) return set(key, { status: "failed", text: said(b, `could not be read (${res.status})`), uploadId });
@@ -193,7 +193,7 @@ function Uploader({ slug, onDone }: { slug: string; onDone: () => void }) {
       >
         <FileUp size={22} className={styles.dropIcon} aria-hidden />
         <div className={styles.dropTitle}>Drop reports here, or tap to choose</div>
-        <div>Bank reconciliation reports or query lists: PDF, Excel (.xlsx) or CSV, up to 8 MB each, as many as you like at once.</div>
+        <div>Bank reconciliation reports or query lists: PDF, Excel (.xlsx) or CSV, up to 8 MB each, as many as you like at once. Each file is deleted once it has been read; the lines stay.</div>
         <input ref={input} className={styles.hidden} type="file" multiple accept={ACCEPT}
           onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void start(files); }} />
       </div>
@@ -216,7 +216,7 @@ function Uploader({ slug, onDone }: { slug: string; onDone: () => void }) {
   );
 }
 
-function Files({ slug, uploads, act, busy }: { slug: string; uploads: DocUpload[]; act: (m: "POST", p: string, b?: unknown) => Promise<Reply>; busy: boolean }) {
+function Files({ uploads, act, busy }: { uploads: DocUpload[]; act: (m: "POST", p: string, b?: unknown) => Promise<Reply>; busy: boolean }) {
   if (!uploads.length) return null;
   const label = { waiting: "Not read", reading: "Reading", read: "Read", failed: "Could not be read" } as const;
   const tone = { waiting: "neutral", reading: "blue", read: "green", failed: "red" } as const;
@@ -229,14 +229,13 @@ function Files({ slug, uploads, act, busy }: { slug: string; uploads: DocUpload[
             <span className={styles.progressName}>
               {u.file_name}
               <span className={page.small}> · {dateText(u.uploaded_at)} by {u.uploaded_by}{u.line_count != null ? ` · ${u.line_count} lines` : ""}</span>
+              {u.file_deleted_at && <span className={page.small}> · file deleted after reading</span>}
               {u.read_error && <span className={page.small}> · {u.read_error}</span>}
             </span>
             <span className={`${page.status} ${page[`s-${tone[u.read_state]}`]}`}><span className={page.dot} />{label[u.read_state]}</span>
-            <a className={page.miniBtn} href={`/api/finance/${encodeURIComponent(slug)}/outstanding-documents/uploads/${u.id}/file`} aria-label={`Download ${u.file_name}`}><Download size={13} /></a>
-            {u.read_state !== "reading" && (
-              <button type="button" className={page.miniBtn} disabled={busy} title="Lines not yet accepted from this file are replaced"
-                onClick={() => void act("POST", `/uploads/${u.id}/read`, { again: u.read_state === "read" })}>
-                <RefreshCw size={12} style={{ marginRight: 4 }} />{u.read_state === "read" ? "Read again" : "Read"}
+            {(u.read_state === "waiting" || u.read_state === "failed") && !u.file_deleted_at && (
+              <button type="button" className={page.miniBtn} disabled={busy} onClick={() => void act("POST", `/uploads/${u.id}/read`)}>
+                <RefreshCw size={12} style={{ marginRight: 4 }} />{u.read_state === "failed" ? "Try again" : "Read"}
               </button>
             )}
           </div>

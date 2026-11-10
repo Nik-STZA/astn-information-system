@@ -51,6 +51,7 @@ export interface DocUpload {
   read_at: string | null;
   read_with: string | null;
   line_count: number | null;
+  file_deleted_at: string | null;
 }
 
 export interface Bucket { count: number; value: number; unknown_gbp: number }
@@ -180,7 +181,7 @@ export function carriedAt(items: DocItem[], period: string): { count: number; va
 }
 
 // The paths the browser may reach through the portal's route.
-const DOC_PATH = /^outstanding-documents(?:\/(?:settings|bulk|uploads|uploads\/[0-9a-f-]{36}\/(?:read|file)|[0-9a-f-]{36}(?:\/(?:accept|dismiss|received|accept-without|reopen|chased))?))?$/i;
+const DOC_PATH = /^outstanding-documents(?:\/(?:settings|bulk|uploads|uploads\/[0-9a-f-]{36}\/read|[0-9a-f-]{36}(?:\/(?:accept|dismiss|received|accept-without|reopen|chased))?))?$/i;
 export const isDocsPath = (path: string) => DOC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────
@@ -216,9 +217,3 @@ export async function docsCall(slug: string, path: string, method: string, actor
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
-export async function fetchUploadFile(slug: string, id: string) {
-  const key = process.env.FINANCE_API_KEY ?? "";
-  return fetch(`${BASE_URL}/api/finance/clients/${encodeURIComponent(slug)}/outstanding-documents/uploads/${encodeURIComponent(id)}/file`, {
-    headers: { "X-API-Key": key }, cache: "no-store",
-  });
-}

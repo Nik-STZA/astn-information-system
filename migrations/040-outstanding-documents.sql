@@ -7,8 +7,11 @@
 -- it is cleared when the document arrives or accepted without one.
 --
 --   finance.document_uploads        a report a person uploaded (bank rec reports,
---                                    a former accountant's query list), kept as
---                                    the evidence the items were read from
+--                                    a former accountant's query list). The file
+--                                    is held only until it has been read; then
+--                                    its contents are deleted and the name,
+--                                    fingerprint and lines stay. The original
+--                                    lives on the client's drive (Nik, 10 Nov)
 --   finance.outstanding_documents   one transaction without its document
 --
 -- finance.client_finance_config.doc_vat_threshold: the gross amount above which
@@ -33,9 +36,11 @@ CREATE TABLE IF NOT EXISTS finance.document_uploads (
   file_name     text NOT NULL CHECK (length(btrim(file_name)) > 0),
   content_type  text NOT NULL,
   size_bytes    integer NOT NULL CHECK (size_bytes > 0),
-  -- The same file uploaded twice is one upload.
+  -- The same file uploaded twice is one upload, even after its contents are gone.
   sha256        text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
-  bytes         bytea NOT NULL,
+  -- The file, until it is read. Null once cleared.
+  bytes         bytea,
+  bytes_cleared_at timestamptz,
   uploaded_by   text NOT NULL,
   uploaded_at   timestamptz NOT NULL DEFAULT now(),
   -- waiting: stored, not read yet; read: lines taken out; failed: see read_error.
@@ -46,11 +51,12 @@ CREATE TABLE IF NOT EXISTS finance.document_uploads (
   -- How it was read: the model and region, or 'sheet' for a spreadsheet read directly.
   read_with     text,
   line_count    integer,
-  UNIQUE (client_id, sha256)
+  UNIQUE (client_id, sha256),
+  CONSTRAINT document_upload_bytes_until_read CHECK (bytes IS NOT NULL OR bytes_cleared_at IS NOT NULL)
 );
 
 COMMENT ON TABLE finance.document_uploads IS
-  'Reports uploaded for outstanding documents (bank rec reports, query lists). The file is kept as the evidence its items were read from.';
+  'Reports uploaded for outstanding documents (bank rec reports, query lists). The file is held until read, then deleted; name, fingerprint and the lines read stay.';
 
 CREATE TABLE IF NOT EXISTS finance.outstanding_documents (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
