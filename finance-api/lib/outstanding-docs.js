@@ -112,21 +112,27 @@ function normaliseLine(raw, entities = []) {
   };
 }
 
-// Lines read from one upload, set against each other and against what the
-// client already has. Each comes back with duplicate_of: the id of a live item
-// it repeats, or "upload" for a repeat inside this same file.
+// Lines read from one upload, set against what the client already has. Each
+// comes back with duplicate_of: the id of a live item it repeats, or null.
+//
+// Identical lines inside one report are separate transactions: a bank report
+// lists each transaction once, and three charges of 690.00 to one supplier on
+// one day are three charges (first live load, 10 Nov 2026). So repeats are counted:
+// the k-th identical line in this file repeats the k-th live item already
+// held, and any beyond those are new.
 function markDuplicates(lines, existing = []) {
   const live = new Map();
   for (const x of existing) if (["candidate", "open", "received", "accepted"].includes(x.state)) {
     const k = dupKey(x);
-    if (!live.has(k)) live.set(k, x.id);
+    if (!live.has(k)) live.set(k, []);
+    live.get(k).push(x.id);
   }
-  const seen = new Set();
+  const seen = new Map();
   return lines.map((l) => {
     const k = dupKey(l);
-    const dup = live.get(k) ?? (seen.has(k) ? "upload" : null);
-    seen.add(k);
-    return { ...l, duplicate_of: dup };
+    const n = seen.get(k) ?? 0;
+    seen.set(k, n + 1);
+    return { ...l, duplicate_of: live.get(k)?.[n] ?? null };
   });
 }
 

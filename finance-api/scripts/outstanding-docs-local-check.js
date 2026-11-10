@@ -135,7 +135,7 @@ async function scenario() {
       ],
     };
     r = await api("POST", `/uploads/${id}/read`, {});
-    ok("read: 3 lines, 1 repeat inside the file, 1 skipped", r.status === 200 && r.body.lines === 3 && r.body.duplicates === 1 && r.body.skipped.length === 1, r.body);
+    ok("read: 3 lines, identical lines in one file are not repeats, 1 skipped", r.status === 200 && r.body.lines === 3 && r.body.duplicates === 0 && r.body.skipped.length === 1, r.body);
     ok("the sheet went to the model as text with row labels", /R3\t29\/01\/2025\tUtility Co\t930\.31/.test(requests[0].contents[0].parts[0].text), requests[0]?.contents?.[0]?.parts?.[0]?.text?.slice(-300));
     ok("placed in Alpha from the report's organisation", r.body.unplaced === 0, r.body);
     r = await api("POST", `/uploads/${id}/read`, {});
@@ -149,19 +149,27 @@ async function scenario() {
     ok("VAT flagged above 25, up to a sixth", utility.vat.flagged && utility.vat.at_risk_max === 155.05, utility.vat);
 
     r = await api("POST", "/bulk", { step: "accept", ids: cands.map((x) => x.id) });
-    ok("bulk accept: 2 accepted, the repeat refused", r.status === 200 && r.body.done.length === 2 && r.body.refused.length === 1 && /repeats/.test(r.body.refused[0].issues[0]), r.body);
-    const repeat = r.body.refused[0].id;
-    r = await api("POST", `/${repeat}/dismiss`, { note: "Same line twice in the report" });
-    ok("the repeat dismissed", r.status === 200 && r.body.state === "dismissed", r);
+    ok("bulk accept: all 3, both identical charges kept", r.status === 200 && r.body.done.length === 3 && r.body.refused.length === 0, r.body);
+    const repeat = r.body.done.find((x) => cands.find((c) => c.id === x)?.source_line === "R9");
+    r = await api("POST", `/${repeat}/received`, { note: "Invoice came" });
+    ok("one of them cleared", r.status === 200 && r.body.state === "received", r);
 
     list = await items();
     ok("2 open, value 2,250.19, 1 VAT flag (overseas not counted)", list.summary.open.count === 2 && list.summary.open.value === 2250.19 && list.summary.vat.flagged === 1, list.summary);
     ok("by month", Object.keys(list.summary.by_month).join() === "2025-01,2025-04", list.summary.by_month);
-    ok("dismissed hidden from the live list", !list.items.some((x) => x.id === repeat));
-    ok("but kept in all", (await items("all")).items.some((x) => x.id === repeat && x.state === "dismissed"));
+    ok("received hidden from the live list", !list.items.some((x) => x.id === repeat));
+    ok("but kept in all", (await items("all")).items.some((x) => x.id === repeat && x.state === "received"));
 
     const audit = (await pool.query("SELECT action FROM finance.audit_log WHERE client_id = $1 ORDER BY id", [CID])).rows.map((x) => x.action);
-    ok("every step logged", ["outstanding_docs_uploaded", "outstanding_docs_read", "outstanding_doc_accept", "outstanding_doc_dismiss"].every((a) => audit.includes(a)), audit);
+    ok("every step logged", ["outstanding_docs_uploaded", "outstanding_docs_read", "outstanding_doc_accept", "outstanding_doc_received"].every((a) => audit.includes(a)), audit);
+
+    // A second report holding the same three lines again: each meets its twin.
+    const again = (await upload("overlap.csv", Buffer.from("x,y\n1,2\n"))).body.upload.id;
+    r = await api("POST", `/uploads/${again}/read`, {});
+    ok("a later report repeating the lines: all 3 marked as repeats (open, open, received)", r.body.duplicates === 3, r.body);
+    const twins = (await items()).items.filter((x) => x.state === "candidate");
+    r = await api("POST", "/bulk", { step: "accept", ids: twins.map((x) => x.id) });
+    ok("and refused on accept", r.body.done.length === 0 && r.body.refused.length === 3, r.body);
 
     const held = (await pool.query("SELECT bytes, bytes_cleared_at, sha256 FROM finance.document_uploads WHERE id = $1", [id])).rows[0];
     ok("the file's contents deleted once read, name and fingerprint kept", held.bytes === null && held.bytes_cleared_at && held.sha256, held);
