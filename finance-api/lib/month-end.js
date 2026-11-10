@@ -33,6 +33,8 @@ const STEPS = [
     after: ["payroll", "accruals"], notes: "Recharges for the month posted; intercompany balances agree between each pair of companies." },
   { key: "vat", title: "VAT return", wd: 5, owner: ["agent", "fm1"], vat: true, after: ["ap", "ar"],
     notes: "VAT return prepared from the ledger, boxes agreed to the VAT control account, reverse charge checked. Reviewed by FM2 and the FC before filing." },
+  { key: "outstanding-docs", title: "Outstanding documents", wd: 3, owner: ["agent", "fm1"], after: ["bank", "ap"],
+    notes: "Register checked against Xero for the month: items whose document is now in Xero cleared, spend money and bills with no attachment added for review. Open items carried and reported; they do not block sign-off." },
   { key: "bs-recs", title: "Balance sheet reconciliations", wd: 4, owner: ["agent", "fm1"],
     after: ["bank", "ap", "ar", "revenue", "payroll", "accruals", "fixed-assets", "intercompany"],
     notes: "Every balance sheet account reconciled at group level with support, in Reconciliations; differences explained, not plugged." },

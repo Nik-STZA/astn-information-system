@@ -24,7 +24,7 @@ describe("closePlan", () => {
   it("makes a one-company close without intercompany, VAT or per-company sub-tasks", () => {
     const p = closePlan({ period: "2026-09", entities: [A], cfo: "cfo@example.com" });
     expect(p.label).toBe("September 2026");
-    expect(p.tasks.map((t) => t.key)).toEqual(["close", "bank", "ap", "ar", "revenue", "payroll", "accruals", "fixed-assets", "bs-recs", "fc-review", "pack", "sign-off"]);
+    expect(p.tasks.map((t) => t.key)).toEqual(["close", "bank", "ap", "ar", "revenue", "payroll", "accruals", "fixed-assets", "outstanding-docs", "bs-recs", "fc-review", "pack", "sign-off"]);
     expect(p.tasks[0]).toMatchObject({ title: "Month-end close: September 2026", owner: "cfo@example.com", start_on: "2026-10-01", due_on: "2026-10-09", source_ref: "month-end:2026-09" });
     expect(p.tasks.find((t) => t.key === "sign-off")).toMatchObject({ owner_kind: "person", owner: "cfo@example.com", due_on: "2026-10-09" });
     expect(p.tasks.find((t) => t.key === "bank")).toMatchObject({ owner_kind: "agent", owner: "fm1", due_on: "2026-10-02", source_ref: "month-end:2026-09:bank" });

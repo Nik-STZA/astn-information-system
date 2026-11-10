@@ -23,10 +23,24 @@ Object.assign(process.env, {
 });
 
 const realFetch = global.fetch;
-global.fetch = async (url, opts) => {
+// Xero, faked: the records a scenario sets, read only.
+let xero = { BankTransactions: [], Payments: [], Invoices: [] };
+const xeroCalls = [];
+const jsonRes = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
+global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url));
   if (u.hostname === "127.0.0.1" || u.hostname === "localhost") return realFetch(url, opts);
-  throw new Error(`blocked host ${u.hostname}`);
+  if (u.hostname === "identity.xero.com") return jsonRes({ access_token: "tok", expires_in: 1800, refresh_token: "x" });
+  if (u.hostname !== "api.xero.com") throw new Error(`blocked host ${u.hostname}`);
+  if ((opts.method ?? "GET") !== "GET") throw new Error("the check must only read Xero");
+  xeroCalls.push(`${u.pathname}?${u.searchParams.get("where") ?? ""}`);
+  const page = Number(u.searchParams.get("page") || 1);
+  const one = /^\/api\.xro\/2\.0\/Invoices\/(.+)$/.exec(u.pathname);
+  if (one) return jsonRes({ Invoices: xero.Invoices.filter((i) => i.InvoiceID === one[1]) });
+  for (const k of ["BankTransactions", "Payments", "Invoices"]) {
+    if (u.pathname === `/api.xro/2.0/${k}`) return jsonRes({ [k]: page === 1 ? xero[k] : [] });
+  }
+  return jsonRes({}, 404);
 };
 
 // Gemini, faked: answers with whatever the scenario sets, and records the request.
@@ -274,6 +288,64 @@ async function scenario() {
     const open = readXlsx(Buffer.from(await (await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/export.xlsx`, { headers: { "X-API-Key": "k" } })).arrayBuffer()));
     const all = readXlsx(Buffer.from(await (await realFetch(`${base}/api/finance/clients/${SLUG}/outstanding-documents/export.xlsx?scope=all`, { headers: { "X-API-Key": "k" } })).arrayBuffer()));
     ok("open leaves the received item out, all keeps it", open[1].rows.length === 5 && all[1].rows.length === 6, [open[1].rows.length, all[1].rows.length]);
+  });
+
+  await section("the month-end check against Xero", async () => {
+    await seed();
+    await pool.query("UPDATE finance.entities SET accounting_system_config = $2 WHERE client_id = $1 AND slug = 'alpha-ltd'", [CID, JSON.stringify({ tenant_id: `tenant-${CID}`, tenant_name: "Alpha" })]);
+    const add = async (o) => (await api("POST", "", { entity: "alpha-ltd", txn_date: "2026-09-30", payee: "Supplier A", amount: 690, bank_account: "Main account", ...o })).body.id;
+    const a1 = await add({});
+    const a2 = await add({ allow_duplicate: true });
+    const c = await add({ txn_date: "2026-10-10", payee: "Printer Ltd", amount: 120 });
+    const untouched = await add({ txn_date: "2026-10-11", payee: "Nobody", amount: 55 });
+    const T = (o) => ({ Type: "SPEND", Status: "AUTHORISED", CurrencyCode: "GBP", BankAccount: { Name: "Main account" }, Contact: { Name: "Supplier A" }, HasAttachments: false, IsReconciled: true, ...o });
+    xero = {
+      BankTransactions: [
+        T({ BankTransactionID: "bt-1", DateString: "2026-09-30T00:00:00", Total: 690, HasAttachments: true, Reference: "R1" }),
+        T({ BankTransactionID: "bt-2", DateString: "2026-10-01T00:00:00", Total: 690 }),
+        T({ BankTransactionID: "bt-new", DateString: "2026-10-05T00:00:00", Total: 150, Contact: { Name: "Cafe Ltd" } }),
+        T({ BankTransactionID: "bt-small", DateString: "2026-10-06T00:00:00", Total: 12 }),
+        T({ BankTransactionID: "bt-move", Type: "SPEND-TRANSFER", DateString: "2026-10-07T00:00:00", Total: 5000 }),
+      ],
+      Payments: [{ PaymentID: "p-1", Status: "AUTHORISED", DateString: "2026-10-10T00:00:00", Amount: 120, Account: { Name: "Main account" }, Invoice: { InvoiceID: "inv-9", InvoiceNumber: "B-9", Type: "ACCPAY", CurrencyCode: "GBP", Contact: { Name: "Printer Ltd" } } }],
+      Invoices: [
+        { InvoiceID: "inv-9", Type: "ACCPAY", Status: "PAID", DateString: "2026-10-08T00:00:00", Total: 120, CurrencyCode: "GBP", HasAttachments: true, Contact: { Name: "Printer Ltd" } },
+        { InvoiceID: "b-new", Type: "ACCPAY", Status: "AUTHORISED", DateString: "2026-10-20T00:00:00", Total: 300, CurrencyCode: "GBP", InvoiceNumber: "P-77", HasAttachments: false, Contact: { Name: "Hosting Co" } },
+      ],
+    };
+    xeroCalls.length = 0;
+    let r = await api("POST", "/xero-check", { month: "2026-10" });
+    const alpha = r.body.companies?.find((x) => x.entity === "alpha-ltd");
+    ok("checked the open items, cleared 2 (spend money and a bill), added 2", r.status === 200 && alpha.open_checked === 4 && alpha.matched === 3 && alpha.cleared.length === 2 && alpha.added === 2 && !alpha.error, r.body);
+    ok("only Xero reads, over the items' window and the month", xeroCalls.length > 0 && xeroCalls.some((x) => /BankTransactions\?Date >= DateTime\(2026,9,27\) AND Date <= DateTime\(2026,10,31\)/.test(x)), xeroCalls);
+    ok("a company with no Xero connection is not checked", !r.body.companies.some((x) => x.entity === "beta-ltd"), r.body.companies);
+    const all = (await items("all")).items;
+    const st = (id) => all.find((x) => x.id === id);
+    const cleared690 = [a1, a2].map(st).filter((x) => x.state === "received");
+    ok("one of the two identical charges cleared on the attachment, the other matched and open", cleared690.length === 1 && /Attachment found in Xero on the spend money R1/.test(cleared690[0].close_reason) && [a1, a2].map(st).some((x) => x.state === "open" && x.xero_id === "bt-2"), [a1, a2].map(st));
+    ok("the bill payment cleared on the bill's attachment", st(c).state === "received" && st(c).xero_type === "bill" && st(c).xero_id === "inv-9" && /bill B-9/.test(st(c).close_reason), st(c));
+    ok("an item with nothing in Xero stays open, unmatched", st(untouched).state === "open" && !st(untouched).xero_id, st(untouched));
+    const added = all.filter((x) => x.state === "candidate");
+    ok("added for a person to accept: the spend money and the bill with no attachment, not the small one or the transfer", added.map((x) => x.xero_id).sort().join() === "b-new,bt-new", added.map((x) => x.xero_id));
+    r = await api("POST", "/xero-check", { month: "2026-10" });
+    ok("run again: nothing added twice, nothing cleared twice", r.body.companies[0].added === 0 && r.body.companies[0].cleared.length === 0, r.body);
+
+    const run = async (agent, status = "running") => (await pool.query(
+      "INSERT INTO finance.agent_runs (client_id, requested_by_email, agent, instruction, status) VALUES ($1,$2,$3,'Close October',$4) RETURNING id", [CID, CFO, agent, status])).rows[0].id;
+    r = await api("POST", "/xero-check", { month: "2026-10" }, { "X-Work-Via": `agent:fm1:${await run("fm1")}` });
+    ok("FM1 from a live run can run it", r.status === 200, r);
+    r = await api("POST", "/xero-check", { month: "2026-10" }, { "X-Work-Via": `agent:ap-clerk:${await run("ap-clerk")}` });
+    ok("the AP clerk cannot", r.status === 403, r);
+    r = await api("POST", "/xero-check", { month: "2026-10" }, { "X-Work-Via": `agent:fm1:${await run("fm1", "succeeded")}` });
+    ok("nor a finished run", r.status === 403, r);
+    r = await api("POST", "/xero-check", { month: "October" });
+    ok("a bad month refused", r.status === 422, r);
+    r = await api("POST", `/${untouched}/note`, { text: "Not in Xero yet; bank line unreconciled." }, { "X-Work-Via": `agent:fc:${await run("fc")}` });
+    ok("the FC adds a note, dated and named", r.status === 200 && /, FC: Not in Xero yet/.test(r.body.note), r.body);
+    r = await api("POST", `/${untouched}/note`, { text: "Asked the card holder." });
+    ok("a second note keeps the first", r.status === 200 && r.body.note.split("\n").length === 2, r.body);
+    r = await api("POST", `/${untouched}/accept-without`, { reason: "x".repeat(20) }, { "X-Work-Via": `agent:fm1:${await run("fm1")}` });
+    ok("an agent still cannot close an item", r.status === 403, r);
   });
 
   await section("settings and refusals", async () => {

@@ -1,7 +1,7 @@
 ---
 name: month-end-close
 title: Month-end close
-version: 1.1.0
+version: 1.2.0
 summary: The standard monthly close: the steps, their order, who does each, and what done means for each. Start here for any close work.
 roles: fc,fm1,fm2,ap-clerk,ar-clerk,fpa
 ---
@@ -34,6 +34,7 @@ covered it.
 | 11 | FC review of the close | FC | 5 | 10 | this procedure, balance-sheet-matrix |
 | 12 | Management pack and variance commentary | FC | 6 | 11 | variance-commentary |
 | 13 | CFO sign-off | CFO | 7 | 12, 9 | |
+| 14 | Outstanding documents: checked against Xero and carried; never blocks sign-off | FM1 | 3 | 1, 2 | outstanding-documents |
 
 ## What done means
 
