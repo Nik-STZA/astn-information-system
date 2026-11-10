@@ -65,9 +65,15 @@ describe("normaliseLine", () => {
 
 describe("markDuplicates", () => {
   const l = (o) => ({ txn_date: "2025-03-21", payee: "British A 1252206089244", amount: 3036.12, currency: "GBP", direction: "spent", ...o });
-  it("matches live items whatever the payee's spacing or case, and repeats inside the file", () => {
+  it("treats identical lines in one file as separate transactions", () => {
     const out = markDuplicates([l(), l({ payee: "BRITISH A   1252206089244" }), l({ amount: 1 })], [{ id: "x-1", state: "dismissed", ...l() }]);
-    expect(out.map((x) => x.duplicate_of)).toEqual([null, "upload", null]);
+    expect(out.map((x) => x.duplicate_of)).toEqual([null, null, null]);
+  });
+  it("counts repeats: the k-th identical line meets the k-th live item, the rest are new", () => {
+    const held = [{ id: "x-1", state: "open", ...l() }, { id: "x-2", state: "received", ...l() }];
+    expect(markDuplicates([l(), l(), l()], held).map((x) => x.duplicate_of)).toEqual(["x-1", "x-2", null]);
+  });
+  it("matches live items whatever the payee's spacing or case", () => {
     const again = markDuplicates([l()], [{ id: "x-2", state: "open", ...l({ payee: "british a 1252206089244" }) }]);
     expect(again[0].duplicate_of).toBe("x-2");
   });

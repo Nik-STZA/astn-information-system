@@ -310,14 +310,14 @@ function mountOutstandingDocs(app, { route, pool, audit, clientIdFromSlug, gener
     }));
   }
 
-  // The state of the live item this one repeats, if any.
+  // The live item this one was read as a repeat of, if it is still live. Only
+  // the read decides what is a repeat (markDuplicates counts identical lines),
+  // so two identical charges in one report are both accepted.
   async function liveTwin(conn, item) {
-    const rows = (await conn.query(
-      `SELECT id, state, txn_date, direction, amount, currency, payee FROM finance.outstanding_documents
-        WHERE client_id = $1 AND id <> $2 AND txn_date = $3 AND amount = $4 AND state IN ('open', 'received', 'accepted')`,
-      [item.client_id, item.id, item.txn_date, item.amount])).rows;
-    const key = docs.dupKey({ ...item, txn_date: day(item.txn_date) });
-    return rows.find((x) => docs.dupKey({ ...x, txn_date: day(x.txn_date) }) === key) ?? null;
+    if (!item.duplicate_of) return null;
+    return (await conn.query(
+      "SELECT id, state FROM finance.outstanding_documents WHERE id = $1 AND client_id = $2 AND state IN ('open', 'received', 'accepted')",
+      [item.duplicate_of, item.client_id])).rows[0] ?? null;
   }
 
   async function applyStep(conn, req, w, { client, item }, name, body = req.body || {}) {
