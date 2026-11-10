@@ -61,3 +61,25 @@ a.step:hover { background: var(--cardhover); }
 .sub { color: var(--sub); font-size: 12px; }
 .pick { height: 36px; max-width: 100%; border: 1px solid var(--bd); border-radius: 18px; padding: 0 12px; background: var(--pnl); color: var(--tx); font: 400 13px var(--font-sans); }
 .pick:focus { outline: 2px solid var(--brand-gold); outline-offset: -1px; }
+
+/* Steps worked in place (10 Nov 2026): a step is a button that opens a panel. */
+.stepItem { border-bottom: 1px solid var(--bd); }
+.stepItem:last-child { border-bottom: 0; }
+.stepItem .step { width: 100%; border: 0; border-bottom: 0; background: none; text-align: left; font: inherit; cursor: pointer; }
+.stepItem .step:hover { background: var(--cardhover); }
+.stepOpen { background: var(--pg); }
+.stepTop svg { color: var(--sub); flex: none; }
+.panel { padding: 4px 14px 14px 46px; display: flex; flex-direction: column; gap: 10px; }
+.panelNote { margin: 0; font-size: 13px; line-height: 1.55; color: var(--sub); max-width: 760px; }
+.recList { background: var(--pnl); border: 1px solid var(--bd); border-radius: 10px; }
+.recRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-bottom: 1px solid var(--bd); font-size: 13px; }
+.recRow:last-child { border-bottom: 0; }
+.recName { flex: 1; min-width: 160px; color: var(--tx); font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
+.recName:hover { text-decoration: underline; }
+.recFig { color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+.subList { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.noteBox { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--bd); border-radius: 8px; background: var(--pnl); color: var(--tx); font: 400 13px var(--font-sans); resize: vertical; }
+.panelActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.workLink { margin-left: auto; text-decoration: none; }
+.startAll { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; margin: 0 0 14px; border: 1px solid var(--bd); border-radius: 12px; background: var(--accent-bg); color: var(--tx); font-size: 13px; line-height: 1.5; }
+@media (max-width: 640px) { .panel { padding-left: 14px; } .workLink { margin-left: 0; } }

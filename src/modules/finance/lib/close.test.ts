@@ -154,3 +154,34 @@ describe("dueText", () => {
     expect(dueText(null, "2026-11-04")).toBe("No due date");
   });
 });
+
+describe("worked in place", () => {
+  it("gives each step its own recs and companies, and counts what FM1 can start", async () => {
+    const { nextOpen, recsForStep, canStart } = await import("./close");
+    const m = month();
+    const v = closeView(args(Object.values(m), {
+      recs: recList([rec("Prepayments", { status: "signed_off" }), rec("Accruals", { status: "not_started" }), rec("Business Bank", { status: "with_fc" }), rec("Patents", { workable: false, status: "not_started" })]),
+    }));
+    const accruals = v.steps.find((s) => s.key === "accruals")!;
+    expect(accruals.recs.map((r) => r.account_name)).toEqual(["Prepayments", "Accruals"]);
+    expect(v.steps.find((s) => s.key === "bank")!.subs.map((x) => x.done)).toEqual([true, true]);
+    expect(v.startable).toBe(1);
+    expect(canStart(rec("x", { status: "sent_back" }))).toBe(true);
+    expect(canStart(rec("x", { status: "with_cfo" }))).toBe(false);
+    expect(recsForStep("bs-recs", [rec("a"), rec("b")])).toHaveLength(2);
+    expect(recsForStep(null, [rec("a")])).toEqual([]);
+    // After the bills step, the next not done; done steps are passed over.
+    expect(nextOpen(v.steps, m.ap.id)?.task.id).toBe("accruals");
+    expect(nextOpen(v.steps, m.accruals.id)?.task.id).toBe("ap");
+  });
+});
+
+describe("recs under a step", () => {
+  it("by matrix line first, so a bank named for its bank sits under Bank; by name when unplaced", async () => {
+    const { recsForStep } = await import("./close");
+    const list = [rec("HSBC Innovation: Alpha", { line_key: "cash" }), rec("Business Bank"), rec("Beta Intercompany Loan", { line_key: "loans" }), rec("Directors' Loan", { line_key: "loans" }), rec("VAT", { line_key: "vat" })];
+    expect(recsForStep("bank", list).map((r) => r.account_name)).toEqual(["HSBC Innovation: Alpha", "Business Bank"]);
+    expect(recsForStep("intercompany", list).map((r) => r.account_name)).toEqual(["Beta Intercompany Loan"]);
+    expect(recsForStep("vat", list).map((r) => r.account_name)).toEqual(["VAT"]);
+  });
+});

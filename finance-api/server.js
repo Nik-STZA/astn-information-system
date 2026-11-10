@@ -1819,6 +1819,16 @@ app.get("/api/finance/clients/:slug/agent-runs", route(async (req, res) => {
   res.json({ count: rows.length, data: rows });
 }));
 
+// POST /api/finance/agent-runs/relay   a once runner near its time limit
+// hands the rest of the queue on: a fresh execution is started when anything
+// is still queued (runner.js RUNNER_BUDGET_MS).
+app.post("/api/finance/agent-runs/relay", route(async (_req, res) => {
+  const queued = Number((await pool.query("SELECT count(*) AS n FROM finance.agent_runs WHERE status = 'queued'")).rows[0].n);
+  const runner = queued ? await startAgentRunner("relay") : "nothing queued";
+  if (queued) console.log(`Runner relay: ${queued} queued, ${runner}`);
+  res.json({ queued, runner });
+}));
+
 // The runner claims one job at a time. SKIP LOCKED means a second runner takes
 // the next job rather than blocking or, worse, running the same one twice.
 const agentHandoff = require("./lib/agent-handoff");

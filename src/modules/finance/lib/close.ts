@@ -35,6 +35,10 @@ export interface CloseStep {
   waitsFor: string[];
   evidence: Evidence | null;
   href: string;
+  // Worked in place on the Close page (Nik, 10 Nov 2026): the step's own
+  // reconciliations and its per-company sub-tasks.
+  recs: RecRow[];
+  subs: Array<{ id: string; title: string; entity: string | null; done: boolean }>;
 }
 
 export interface CloseView {
@@ -54,6 +58,34 @@ export interface CloseView {
   left: Evidence[];
   readyToSignOff: boolean;
   signedOff: boolean;
+  // Recs FM1 could start on now: workable, not with a reviewer.
+  startable: number;
+}
+
+// The month's reconciliations a step speaks for: all of them for the balance
+// sheet step, those whose account name matches for the rest.
+// By the matrix line first, so a bank account named for its bank ("HSBC
+// Innovation") still sits under Bank, and by name for one not yet placed.
+const STEP_LINES: Record<string, string[]> = {
+  bank: ["cash"], revenue: ["deferred", "ar"], payroll: ["payroll"], accruals: ["prepay", "accruals"],
+  "fixed-assets": ["ppe", "intangible"], intercompany: ["ic_asset"], vat: ["vat"],
+};
+export function recsForStep(key: string | null, recs: RecRow[]): RecRow[] {
+  if (key === "bs-recs") return recs;
+  const lines = key ? STEP_LINES[key] ?? [] : [];
+  const match = key ? REC_MATCH[key] : undefined;
+  if (!lines.length && !match) return [];
+  return recs.filter((r) => (r.line_key ? lines.includes(r.line_key) || (key === "intercompany" && r.line_key === "loans" && /intercompany|inter.company/i.test(r.account_name)) : Boolean(match?.test(r.account_name))));
+}
+
+// A rec FM1 can start on now.
+export const canStart = (r: RecRow) => r.workable && ["not_started", "in_progress", "sent_back"].includes(r.status);
+
+// The next step not done after this one, for moving straight on.
+export function nextOpen(steps: CloseStep[], afterId: string | null): CloseStep | null {
+  const i = steps.findIndex((s) => s.task.id === afterId);
+  const rest = [...steps.slice(i + 1), ...steps.slice(0, Math.max(i, 0))];
+  return rest.find((s) => s.task.status !== "done") ?? null;
 }
 
 export const TONE: Record<ShownStatus, Tone> = {
@@ -154,8 +186,8 @@ export function closeView({ period, tasks, recs, journals, review, slug, today }
         ? { text: `${plural(billsOpen, "bill")} still open in Bills`, href: `${base}/bills`, tone: "amber" }
         : { text: "No bills open in Bills", href: `${base}/bills`, tone: "green" };
     }
-    const match = key ? REC_MATCH[key] : undefined;
-    if (match) return recsEvidence(recRows.filter((r) => match.test(r.account_name)), recsHref);
+    // The same recs the step lists, so the evidence and the list agree.
+    if (key && (STEP_LINES[key] || REC_MATCH[key])) return recsEvidence(recsForStep(key, recRows), recsHref);
     return null;
   };
 
@@ -179,6 +211,8 @@ export function closeView({ period, tasks, recs, journals, review, slug, today }
       waitsFor,
       evidence: evidenceFor(key),
       href: `${base}/work?task=${enc(t.id)}`,
+      recs: recsForStep(key, recRows),
+      subs: subs.map((x) => ({ id: x.id, title: x.title, entity: x.entity_name, done: x.status === "done" })),
     };
   };
 
@@ -226,6 +260,7 @@ export function closeView({ period, tasks, recs, journals, review, slug, today }
     left,
     readyToSignOff: Boolean(signOff) && !signedOff && left.length === 0,
     signedOff,
+    startable: recRows.filter(canStart).length,
   };
 }
 

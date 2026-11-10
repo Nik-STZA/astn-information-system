@@ -1228,6 +1228,44 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return out;
   }
 
+  // POST /recs/agent-all   body: { period }   a person starts FM1 on every rec
+  // of the month that can be worked and is not with a reviewer, one run each,
+  // worked one after another by a single runner (it hands on to a fresh one
+  // when its time runs out). Recs that cannot go yet come back with why.
+  app.post(`${BASE}/agent-all`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, actorEmail, actor, role }) => {
+    const period = String(req.body?.period ?? "");
+    if (!recs.isPeriod(period)) return { status: 422, body: { issues: ["period must be a month (YYYY-MM)"] } };
+    const rows = (await conn.query(
+      `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key,
+              to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id,
+              EXISTS (SELECT 1 FROM finance.agent_runs x WHERE x.rec_id = r.id AND x.status IN ('queued', 'running')
+                        AND x.queued_at > now() - interval '45 minutes') AS live
+         FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+        WHERE r.client_id = $1 AND r.period = $2 AND r.dropped_at IS NULL
+        ORDER BY a.account_name FOR UPDATE OF r`, [client.id, period])).rows;
+    const queued = [], skipped = [];
+    for (const rec of rows) {
+      const skip = (why) => skipped.push({ id: rec.id, account: rec.account_name, why });
+      if (!["not_started", "in_progress", "sent_back"].includes(rec.status)) continue;
+      if (!recs.workable(rec.line_key, rec.proof)) { skip(recs.notWorkableReason(rec.line_key, rec.proof)); continue; }
+      if (rec.live) { skip("FM1 is already working on it"); continue; }
+      if (recs.autoMethod(rec) === "counterpart" && !rec.counterpart_account_id) { skip("Choose its paired account in the other company first"); continue; }
+      if (queued.length >= 60) { skip("More than 60 in one go: start the rest after these"); continue; }
+      const run = (await conn.query(
+        `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, rec_id)
+         VALUES ($1,$2,$3,'fm1',$4,'queued',$5) RETURNING id`,
+        [client.id, actorEmail, role, recs.prepareInstruction(rec), rec.id])).rows[0];
+      await started(conn, rec);
+      await event(conn, rec.id, client.id, actor, "agent_started", { run_id: run.id, batch: true });
+      queued.push({ id: rec.id, account: rec.account_name, run_id: run.id });
+    }
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_agents_started", id: client.id, payload: { period, queued: queued.length, skipped: skipped.length } });
+    return {
+      status: 200, body: { period, queued, skipped },
+      after: queued.length ? async () => ({ runner: await startAgentRunner(queued[0].run_id) }) : undefined,
+    };
+  }, { peopleOnly: true })));
+
   // POST /recs/:id/agent   a person starts FM1 on an open rec
   app.post(`${BASE}/:id/agent`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actorEmail, actor, role }) => withRec(conn, client, req.params.id, async (rec) => {
     if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: recs.notWorkableReason(rec.line_key, rec.proof) } };
