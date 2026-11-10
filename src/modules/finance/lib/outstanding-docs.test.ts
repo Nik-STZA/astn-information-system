@@ -6,7 +6,7 @@ const item = (o: Partial<DocItem>): DocItem => ({
   reference: null, direction: "spent", amount: 120, currency: "GBP", amount_gbp: null, concern: "no_vat_invoice", note: null,
   source: "upload", upload_id: null, upload_name: null, source_line: null, duplicate_of: null, created_by: "x", created_at: "",
   opened_at: null, last_chased_at: null, chase_count: 0, closed_at: null, closed_by: null, close_reason: null,
-  vat: { flagged: true, at_risk_max: 20, reason: null }, ...o,
+  card_holder: null, vat: { flagged: true, at_risk_max: 20, reason: null }, ...o,
 });
 
 describe("fileProblem", () => {
@@ -86,5 +86,21 @@ describe("isDocsPath", () => {
     for (const p of ["outstanding-documents/../tasks", `outstanding-documents/uploads/${id}/file`, `outstanding-documents/${id}/delete`, "outstanding-documents/uploads/x/read", "tasks"]) {
       expect(isDocsPath(p)).toBe(false);
     }
+  });
+});
+
+describe("card holders", () => {
+  it("filters by card holder ignoring case, with a no-one choice, and lists one spelling each", async () => {
+    const { holders, NO_HOLDER } = await import("./outstanding-docs");
+    const list = [item({ id: "a", card_holder: "Jo Bloggs" }), item({ id: "b", card_holder: "jo  bloggs" }), item({ id: "c", card_holder: null }), item({ id: "d", card_holder: "Ann Lee" })];
+    expect(holders(list)).toEqual(["Ann Lee", "Jo Bloggs"]);
+    expect(filtered(list, { company: "", concern: "", q: "", holder: "JO BLOGGS" }).map((x) => x.id)).toEqual(["a", "b"]);
+    expect(filtered(list, { company: "", concern: "", q: "", holder: NO_HOLDER }).map((x) => x.id)).toEqual(["c"]);
+  });
+
+  it("lets the export and card holder routes through", () => {
+    expect(isDocsPath("outstanding-documents/export.xlsx")).toBe(true);
+    expect(isDocsPath("outstanding-documents/card-holders")).toBe(true);
+    expect(isDocsPath("outstanding-documents/exportxxlsx")).toBe(false);
   });
 });

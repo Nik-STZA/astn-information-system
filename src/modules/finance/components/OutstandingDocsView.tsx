@@ -9,9 +9,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { FileUp, RefreshCw } from "lucide-react";
+import { Download, FileUp, RefreshCw, UserSearch } from "lucide-react";
 import {
-  ACCEPT, CONCERN_ORDER, amountText, byMonth, byUpload, dateText, fileProblem, filtered, inBatches, monthLabel, pounds,
+  ACCEPT, CONCERN_ORDER, NO_HOLDER, amountText, byMonth, byUpload, dateText, fileProblem, filtered, holders, inBatches, monthLabel, pounds,
   type Concern, type DocItem, type DocList, type DocUpload, type Filters,
 } from "@/modules/finance/lib/outstanding-docs";
 import page from "./Page.module.css";
@@ -69,11 +69,34 @@ export default function OutstandingDocsView({ slug, data, companies, view }: {
         <Link prefetch={false} href={`${base}?view=accept`} className={view === "accept" ? "seg-on" : undefined}>To accept ({s.candidates})</Link>
         <Link prefetch={false} href={`${base}?view=closed`} className={view === "closed" ? "seg-on" : undefined}>Closed</Link>
       </div>
+      <Toolbar slug={slug} data={data} act={act} busy={busy} />
       {error && <div className={page.error} role="alert" style={{ marginTop: 10 }}>{error}</div>}
 
       {view === "accept" && <ToAccept items={candidates} uploads={data.uploads} companies={companies} data={data} act={act} call={call} busy={busy} />}
       {view === "open" && <Register items={open} companies={companies} data={data} act={act} busy={busy} />}
       {view === "closed" && <Closed items={closed} data={data} act={act} busy={busy} />}
+    </div>
+  );
+}
+
+// ── Excel and card holders ───────────────────────────────────────────────────
+
+function Toolbar({ slug, data, act, busy }: { slug: string; data: DocList; act: (m: "POST", p: string, b?: unknown) => Promise<Reply>; busy: boolean }) {
+  const [result, setResult] = useState<string | null>(null);
+  const missing = data.items.filter((i) => (i.state === "open" || i.state === "candidate") && !i.card_holder).length;
+  const href = (scope: string) => `/api/finance/${encodeURIComponent(slug)}/outstanding-documents/export.xlsx?scope=${scope}`;
+  return (
+    <div className={page.controls} style={{ marginTop: 12 }}>
+      <a className="btn-secondary" href={href("open")} download><Download size={14} style={{ marginRight: 6 }} />Excel: open items</a>
+      <a className="btn-text" href={href("all")} download>Excel with closed items</a>
+      {missing > 0 && (
+        <button type="button" className="btn-text" disabled={busy}
+          title="Reads each line's payee and reference for the person who made the payment. Never changes one already set."
+          onClick={async () => { setResult(null); const r = await act("POST", "/card-holders"); if (r.ok) setResult(`Card holder found for ${r.body.found} of ${r.body.asked}.`); }}>
+          <UserSearch size={14} style={{ marginRight: 6 }} />Find card holders ({missing})
+        </button>
+      )}
+      {result && <span className={page.small} role="status">{result}</span>}
     </div>
   );
 }
@@ -279,7 +302,7 @@ function Lead({ item }: { item: DocItem }) {
     <div>
       <div className={styles.payee}>{item.payee}</div>
       <div className={styles.meta}>
-        {dateText(item.txn_date)}{item.bank_account ? ` · ${item.bank_account}` : ""}{item.reference ? ` · ${item.reference}` : ""}
+        {dateText(item.txn_date)}{item.bank_account ? ` · ${item.bank_account}` : ""}{item.card_holder ? ` · ${item.card_holder}` : ""}{item.reference ? ` · ${item.reference}` : ""}
       </div>
     </div>
   );
@@ -388,7 +411,8 @@ function Register({ items, companies, data, act, busy }: {
   items: DocItem[]; companies: Company[]; data: DocList;
   act: (m: "POST" | "PATCH", p: string, b?: unknown) => Promise<Reply>; busy: boolean;
 }) {
-  const [f, setF] = useState<Filters>({ company: "", concern: "", q: "" });
+  const [f, setF] = useState<Filters>({ company: "", concern: "", q: "", holder: "" });
+  const people = holders(items);
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const shown = filtered(items, f);
@@ -405,6 +429,13 @@ function Register({ items, companies, data, act, busy }: {
           <option value="">All concerns</option>
           {CONCERN_ORDER.map((c) => <option key={c} value={c}>{data.concerns[c]?.label ?? c}</option>)}
         </select>
+        {people.length > 0 && (
+          <select className={page.select} value={f.holder} onChange={(e) => setF({ ...f, holder: e.target.value })} aria-label="Card holder">
+            <option value="">All card holders</option>
+            {people.map((p) => <option key={p} value={p}>{p}</option>)}
+            {items.some((i) => !i.card_holder) && <option value={NO_HOLDER}>{NO_HOLDER}</option>}
+          </select>
+        )}
         <input className={styles.input} placeholder="Search payee, reference, note" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search" />
         <button type="button" className="btn-secondary" onClick={() => setAdding((a) => !a)}>{adding ? "Cancel" : "Add by hand"}</button>
       </div>
@@ -446,6 +477,7 @@ function Register({ items, companies, data, act, busy }: {
 
 function Detail({ item, data, act, busy }: { item: DocItem; data: DocList; act: (m: "POST" | "PATCH", p: string, b?: unknown) => Promise<Reply>; busy: boolean }) {
   const [note, setNote] = useState(item.note ?? "");
+  const [holder, setHolder] = useState(item.card_holder ?? "");
   const [reason, setReason] = useState("");
   const [closing, setClosing] = useState(false);
   return (
@@ -455,6 +487,11 @@ function Detail({ item, data, act, busy }: { item: DocItem; data: DocList; act: 
         <button type="button" className={page.miniBtn} disabled={busy} onClick={() => void act("POST", `/${item.id}/chased`)}>Chased today</button>
         <button type="button" className={`${page.miniBtn} ${page.miniPrimary}`} disabled={busy} onClick={() => void act("POST", `/${item.id}/received`, { note: note || null })}>Document received</button>
         <button type="button" className={page.miniBtn} disabled={busy} onClick={() => setClosing((c) => !c)}>Close without document</button>
+      </div>
+      <div className={styles.edit}>
+        <input className={styles.input} value={holder} onChange={(e) => setHolder(e.target.value)} placeholder="Card holder or processor" aria-label="Card holder or processor" />
+        <button type="button" className={page.miniBtn} disabled={busy || holder.trim() === (item.card_holder ?? "")}
+          onClick={() => void act("PATCH", `/${item.id}`, { card_holder: holder.trim() || null })}>Save card holder</button>
       </div>
       <textarea className={styles.textarea} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note: what was asked for, what the client said" aria-label="Note" />
       <div className={page.controls}>

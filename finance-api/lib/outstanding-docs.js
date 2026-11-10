@@ -105,7 +105,7 @@ function normaliseLine(raw, entities = []) {
     line: {
       txn_date, payee, amount: amount != null ? pounds(pence(Math.abs(amount))) : null, direction, currency,
       amount_gbp: currency !== "GBP" && gbp != null && gbp > 0 ? pounds(pence(gbp)) : null,
-      bank_account: clean(r.bank_account, 120), reference: clean(r.reference, 300),
+      bank_account: clean(r.bank_account, 120), reference: clean(r.reference, 300), card_holder: holderName(r.card_holder),
       entity_id: entity?.id ?? null, entity_slug: entity?.slug ?? null,
       concern, note: clean(r.note, 500), source_line: clean(r.source_line, 40),
     },
@@ -136,6 +136,51 @@ function markDuplicates(lines, existing = []) {
   });
 }
 
+// ── Card holder or processor ─────────────────────────────────────────────────
+
+// The person who made the payment: the cardholder of a card payment, or the
+// person who sent a transfer. Card and bank feeds name them in the reference
+// ("Merchant - 20.00 USD - Jo Bloggs"). The export has a tab per person.
+const HOLDER_RULE = "the person who made the payment: the cardholder for a card payment, or the person who sent a transfer, as named in the reference (card feeds write \"Merchant - 20.00 USD - Jo Bloggs\", transfers \"To Supplier Ltd - Jo Bloggs Invoice 12\"). The person's name only, as written, without any words after it such as a company name, invoice number or note. null when no person is named.";
+
+function holderName(v) {
+  const s = clean(v, 80);
+  if (!s || /^(null|none|n\/a|unknown)$/i.test(s)) return null;
+  return s;
+}
+// Tab grouping ignores case and spacing.
+const holderKey = (v) => (holderName(v) ?? "").toLowerCase().replace(/\s+/g, " ");
+
+const HOLDERS_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    holders: { type: "ARRAY", items: { type: "OBJECT", properties: { id: { type: "STRING" }, card_holder: { type: "STRING", nullable: true } }, required: ["id"] } },
+  },
+  required: ["holders"],
+};
+
+// Finds the card holder of lines already on the register from their own
+// text (the files are deleted once read). One request, text only.
+function buildHoldersRequest(items) {
+  const lines = items.map((i) => `${i.id}\t${String(i.payee ?? "").replace(/\s+/g, " ")}\t${String(i.reference ?? "").replace(/\s+/g, " ")}`).join("\n");
+  return {
+    contents: [{ role: "user", parts: [{ text: `Each line below is a bank transaction: id, payee, reference, separated by tabs. For each, give card_holder: ${HOLDER_RULE}\n\nReturn every id given, once.\n\n${lines}` }] }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: HOLDERS_SCHEMA, temperature: 0, maxOutputTokens: 32768 },
+  };
+}
+
+// { id: name|null } for the ids asked about only.
+function parseHolders(text, ids) {
+  let raw;
+  try { raw = typeof text === "string" ? JSON.parse(text) : text; } catch { throw new Error("the answer was not valid JSON"); }
+  const want = new Set(ids);
+  const out = {};
+  for (const h of Array.isArray(raw?.holders) ? raw.holders : []) {
+    if (want.has(h?.id) && !(h.id in out)) out[h.id] = holderName(h.card_holder);
+  }
+  return out;
+}
+
 // ── Reading a report ─────────────────────────────────────────────────────────
 
 const READ_SCHEMA = {
@@ -162,6 +207,7 @@ const READ_SCHEMA = {
           amount: { type: "NUMBER", description: "Positive, in the bank account's currency" },
           currency: { type: "STRING", description: "ISO code of the bank account's currency" },
           amount_gbp: { type: "NUMBER", nullable: true },
+          card_holder: { type: "STRING", nullable: true, description: "The person who made the payment, as named in the reference, or null" },
           company: { type: "STRING", nullable: true, description: "One of the company slugs given, or null" },
           concern: { type: "STRING", enum: CONCERN_KEYS },
           note: { type: "STRING", nullable: true },
@@ -186,6 +232,7 @@ For each transaction:
 - date: YYYY-MM-DD. UK reports write dates day first (03/04/2025 is 3 April 2025).
 - payee: who was paid or who paid, as written.
 - reference: the reference or description, as written.
+- card_holder: ${HOLDER_RULE}
 - direction: "spent" for money out, "received" for money in.
 - amount: positive, in the bank account's own currency (the amount column), never the foreign amount quoted in a reference.
 - currency: the bank account's currency (GBP unless the account or column says otherwise).
@@ -260,6 +307,7 @@ function editInput(body, entities) {
   if ("concern" in b) { if (CONCERN_KEYS.includes(b.concern)) set.concern = b.concern; else issues.push(`concern must be one of ${CONCERN_KEYS.join(", ")}`); }
   if ("note" in b) set.note = b.note == null ? null : String(b.note).trim().slice(0, MAX_NOTE) || null;
   if ("bank_account" in b) set.bank_account = clean(b.bank_account, 120);
+  if ("card_holder" in b) set.card_holder = holderName(b.card_holder);
   if ("reference" in b) set.reference = clean(b.reference, 300);
   if ("payee" in b) { const p = clean(b.payee, 200); if (p) set.payee = p; else issues.push("payee cannot be empty"); }
   if ("txn_date" in b) { if (isDate(b.txn_date)) set.txn_date = b.txn_date; else issues.push("txn_date must be YYYY-MM-DD"); }
@@ -351,7 +399,98 @@ function summary(items, { threshold = DEFAULT_THRESHOLD } = {}) {
   };
 }
 
+// ── The export ───────────────────────────────────────────────────────────────
+
+const STATE_LABEL = { candidate: "Waiting to accept", open: "Open", received: "Document received", accepted: "Closed without document", dismissed: "Dismissed" };
+const NO_HOLDER = "No card holder";
+
+const ITEM_COLUMNS = [
+  { header: "Date", type: "date", width: 12 },
+  { header: "Company", width: 22 },
+  { header: "Bank account", width: 18 },
+  { header: "Payee", width: 30 },
+  { header: "Reference", type: "wrap", width: 44 },
+  { header: "Card holder / processor", width: 22 },
+  { header: "Currency", width: 9 },
+  { header: "Amount (account currency)", type: "money", width: 14 },
+  { header: "Spent £", type: "money", width: 12 },
+  { header: "Received £", type: "money", width: 12 },
+  { header: "Concern", width: 28 },
+  { header: "VAT not recoverable", width: 12 },
+  { header: "VAT at risk, up to £", type: "money", width: 13 },
+  { header: "Status", width: 18 },
+  { header: "Times chased", type: "number", width: 9 },
+  { header: "Last chased", type: "date", width: 12 },
+  { header: "Note", type: "wrap", width: 40 },
+  { header: "Source", width: 30 },
+];
+const SUM_COLUMNS = [8, 9, 12];
+
+function itemRow(i) {
+  const g = gbpOf(i);
+  return [
+    i.txn_date, i.entity_name ?? i.entity_slug ?? "", i.bank_account, i.payee, i.reference, holderName(i.card_holder) ?? "",
+    i.currency, Number(i.amount),
+    i.direction === "spent" ? g : null, i.direction === "received" ? g : null,
+    CONCERNS[i.concern]?.label ?? i.concern,
+    i.vat?.flagged ? "Yes" : "", i.vat?.at_risk_max ?? null,
+    STATE_LABEL[i.state] ?? i.state, i.chase_count || null, i.last_chased_at, i.note ?? i.close_reason,
+    [i.upload_name, i.source_line].filter(Boolean).join(", ") || (i.source === "person" ? "Added by hand" : ""),
+  ];
+}
+
+// The workbook's sheets: a summary, every item, then one tab per card holder
+// or processor (largest spend first), and the items naming no one last.
+//   items      the items to include, already chosen (open, or all)
+function exportSheets(items, { clientName, asAt, threshold = DEFAULT_THRESHOLD, scope = "open" }) {
+  const sorted = [...items].sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)) || String(a.payee).localeCompare(String(b.payee)));
+  const groups = new Map();
+  for (const i of sorted) {
+    const k = holderKey(i.card_holder);
+    if (!groups.has(k)) groups.set(k, { name: NO_HOLDER, spellings: new Map(), items: [] });
+    const g = groups.get(k);
+    g.items.push(i);
+    const n = holderName(i.card_holder);
+    if (n) g.spellings.set(n, (g.spellings.get(n) ?? 0) + 1);
+  }
+  // A tab is named by the spelling used most, then the one with most capitals.
+  const caps = (s) => (s.match(/[A-Z]/g) ?? []).length;
+  for (const g of groups.values()) {
+    const best = [...g.spellings.entries()].sort(([a, x], [b, y]) => y - x || caps(b) - caps(a) || a.localeCompare(b))[0];
+    if (best) g.name = best[0];
+  }
+  const spent = (list) => pounds(list.reduce((t, i) => t + (i.direction === "spent" && gbpOf(i) != null ? pence(gbpOf(i)) : 0), 0));
+  const received = (list) => pounds(list.reduce((t, i) => t + (i.direction === "received" && gbpOf(i) != null ? pence(gbpOf(i)) : 0), 0));
+  const atRisk = (list) => pounds(list.reduce((t, i) => t + (i.vat?.at_risk_max ? pence(i.vat.at_risk_max) : 0), 0));
+  const order = [...groups.entries()].sort(([ka, a], [kb, b]) => (ka === "") - (kb === "") || spent(b.items) - spent(a.items) || a.name.localeCompare(b.name));
+
+  const money = (v) => ({ value: v, type: "money" });
+  const num = (v) => ({ value: v, type: "number" });
+  const head = (v) => ({ value: v, style: "header" });
+  const summaryLines = [
+    [["Outstanding documents", "title"]],
+    [clientName],
+    [`As at ${asAt}. ${scope === "all" ? "Every item, open and closed." : "Open items: transactions still waiting for their supporting document."}`],
+    [`VAT: a cost above £${Number(threshold).toFixed(2)} without a valid VAT invoice is not recoverable. "Up to" is one sixth of the gross, the VAT in a standard-rated price; overseas suppliers carry no UK VAT.`],
+    [],
+    { cells: [head("Card holder / processor"), head("Items"), head("Spent £"), head("Received £"), head("VAT at risk, up to £")] },
+    ...order.map(([, g]) => ({ cells: [{ value: g.name }, num(g.items.length), money(spent(g.items)), money(received(g.items)), money(atRisk(g.items))] })),
+    { cells: [{ value: "Total", style: "bold" }, { ...num(sorted.length), style: "bold" }, { ...money(spent(sorted)), style: "boldMoney" }, { ...money(received(sorted)), style: "boldMoney" }, { ...money(atRisk(sorted)), style: "boldMoney" }] },
+    [],
+    { cells: [head("Concern"), head("Items"), head("Spent £"), head("Received £"), head("VAT at risk, up to £")] },
+    ...CONCERN_KEYS.map((k) => [k, sorted.filter((i) => i.concern === k)]).filter(([, l]) => l.length)
+      .map(([k, l]) => ({ cells: [{ value: CONCERNS[k].label }, num(l.length), money(spent(l)), money(received(l)), money(atRisk(l))] })),
+  ];
+  const table = (name, list) => ({ name, columns: ITEM_COLUMNS, rows: list.map(itemRow), totals: { label: "Total", sum: SUM_COLUMNS } });
+  return [
+    { name: "Summary", lines: summaryLines, widths: [34, 10, 14, 14, 18] },
+    table("All items", sorted),
+    ...order.map(([, g]) => table(g.name, g.items)),
+  ];
+}
+
 module.exports = {
+  HOLDER_RULE, NO_HOLDER, holderName, holderKey, buildHoldersRequest, parseHolders, exportSheets, ITEM_COLUMNS,
   CONCERNS, CONCERN_KEYS, STATES, ACCEPT_MIN, DEFAULT_THRESHOLD, MAX_UPLOAD_BYTES, MAX_NOTE, READ_SCHEMA, STEP_FROM,
   isCfo, isDate, amountOf, monthOf, gbpOf, payeeKey, dupKey, vatFlag,
   normaliseLine, markDuplicates, readPrompt, buildReadRequest, parseRead, placeByOrganisation,

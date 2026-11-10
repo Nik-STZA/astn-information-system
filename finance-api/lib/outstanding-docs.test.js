@@ -168,3 +168,51 @@ describe("summary", () => {
     expect(s.oldest).toBe("2025-01-03");
   });
 });
+
+describe("card holder or processor", () => {
+  it("is read from a report line and can be edited", async () => {
+    const { normaliseLine, editInput, holderName } = await import("./outstanding-docs");
+    expect(normaliseLine({ date: "2026-09-30", payee: "x", amount: 1, card_holder: "  Jo   Bloggs " }).line.card_holder).toBe("Jo Bloggs");
+    expect(normaliseLine({ date: "2026-09-30", payee: "x", amount: 1, card_holder: "null" }).line.card_holder).toBe(null);
+    expect(editInput({ card_holder: "Sam Smith" }, []).set).toEqual({ card_holder: "Sam Smith" });
+    expect(holderName("")).toBe(null);
+  });
+
+  it("is found for lines already loaded, text only, keeping only the ids asked", async () => {
+    const { buildHoldersRequest, parseHolders } = await import("./outstanding-docs");
+    const req = buildHoldersRequest([{ id: "a", payee: "Cafe", reference: "Cafe - Jo Bloggs" }]);
+    expect(req.contents[0].parts).toHaveLength(1);
+    expect(req.contents[0].parts[0].text).toMatch(/a\tCafe\tCafe - Jo Bloggs$/);
+    expect(parseHolders(JSON.stringify({ holders: [{ id: "a", card_holder: "Jo Bloggs" }, { id: "zz", card_holder: "Not asked" }, { id: "a", card_holder: "Twice" }] }), ["a", "b"]))
+      .toEqual({ a: "Jo Bloggs" });
+    expect(() => parseHolders("nope", ["a"])).toThrow(/not valid JSON/);
+  });
+});
+
+describe("exportSheets", () => {
+  it("gives a summary, every item, then a tab per card holder by spend, no one last", async () => {
+    const { exportSheets, ITEM_COLUMNS } = await import("./outstanding-docs");
+    const it = (o) => ({ state: "open", direction: "spent", currency: "GBP", amount: 10, concern: "no_vat_invoice", payee: "P", txn_date: "2026-10-01", entity_name: "Alpha", vat: { flagged: false, at_risk_max: null }, ...o });
+    const items = [
+      it({ card_holder: "Jo Bloggs", amount: 100, vat: { flagged: true, at_risk_max: 16.67 } }),
+      it({ card_holder: "jo  bloggs", amount: 50, txn_date: "2026-09-01" }),
+      it({ card_holder: "Sam Smith", amount: 500 }),
+      it({ card_holder: null, amount: 1000 }),
+      it({ card_holder: "Sam Smith", direction: "received", amount: 20, concern: "audit_evidence" }),
+      it({ card_holder: "Ann Lee", currency: "USD", amount: 20, amount_gbp: 15 }),
+    ];
+    const sheets = exportSheets(items, { clientName: "Sample Ltd", asAt: "10 November 2026", threshold: 25 });
+    expect(sheets.map((s) => s.name)).toEqual(["Summary", "All items", "Sam Smith", "Jo Bloggs", "Ann Lee", "No card holder"]);
+    expect(sheets[1].rows).toHaveLength(6);
+    const jo = sheets[3];
+    expect(jo.rows.map((r) => r[0])).toEqual(["2026-09-01", "2026-10-01"]);
+    const col = (h) => ITEM_COLUMNS.findIndex((c) => c.header === h);
+    expect(jo.rows[1][col("Spent £")]).toBe(100);
+    expect(jo.rows[1][col("VAT not recoverable")]).toBe("Yes");
+    expect(sheets[2].rows.find((r) => r[col("Received £")] === 20)[col("Spent £")]).toBe(null);
+    expect(sheets[4].rows[0][col("Spent £")]).toBe(15);
+    expect(jo.totals.sum).toEqual([col("Spent £"), col("Received £"), col("VAT at risk, up to £")]);
+    const total = sheets[0].lines.find((l) => l.cells?.[0]?.value === "Total");
+    expect(total.cells.map((c) => c.value)).toEqual(["Total", 6, 1665, 20, 16.67]);
+  });
+});

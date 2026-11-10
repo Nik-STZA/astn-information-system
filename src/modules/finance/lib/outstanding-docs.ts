@@ -17,6 +17,7 @@ export interface DocItem {
   txn_date: string;
   payee: string;
   reference: string | null;
+  card_holder: string | null;
   direction: "spent" | "received";
   amount: number;
   currency: string;
@@ -154,12 +155,23 @@ export function byUpload(items: DocItem[], uploads: DocUpload[]): Array<{ upload
     }));
 }
 
-export interface Filters { company: string; concern: string; q: string }
+export interface Filters { company: string; concern: string; q: string; holder?: string }
+// The card holder filter matches as the export's tabs do: case and spacing ignored.
+export const holderKey = (v: string | null | undefined) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+export const NO_HOLDER = "No card holder";
 export function filtered(items: DocItem[], f: Filters): DocItem[] {
   const q = f.q.trim().toLowerCase();
   return items.filter((it) => (!f.company || it.entity_slug === f.company)
     && (!f.concern || it.concern === f.concern)
-    && (!q || [it.payee, it.reference, it.bank_account, it.note].some((s) => s?.toLowerCase().includes(q))));
+    && (!f.holder || (f.holder === NO_HOLDER ? !holderKey(it.card_holder) : holderKey(it.card_holder) === holderKey(f.holder)))
+    && (!q || [it.payee, it.reference, it.bank_account, it.note, it.card_holder].some((s) => s?.toLowerCase().includes(q))));
+}
+
+// The card holders on a list, as the filter offers them: one spelling each.
+export function holders(items: DocItem[]): string[] {
+  const m = new Map<string, string>();
+  for (const it of items) { const k = holderKey(it.card_holder); if (k && !m.has(k)) m.set(k, it.card_holder!.trim()); }
+  return [...m.values()].sort((a, b) => a.localeCompare(b));
 }
 
 // What the close carries for a month: open items dated on or before its last
@@ -181,10 +193,17 @@ export function carriedAt(items: DocItem[], period: string): { count: number; va
 }
 
 // The paths the browser may reach through the portal's route.
-const DOC_PATH = /^outstanding-documents(?:\/(?:settings|bulk|uploads|uploads\/[0-9a-f-]{36}\/read|[0-9a-f-]{36}(?:\/(?:accept|dismiss|received|accept-without|reopen|chased))?))?$/i;
+const DOC_PATH = /^outstanding-documents(?:\/(?:settings|bulk|uploads|card-holders|export\.xlsx|uploads\/[0-9a-f-]{36}\/read|[0-9a-f-]{36}(?:\/(?:accept|dismiss|received|accept-without|reopen|chased))?))?$/i;
 export const isDocsPath = (path: string) => DOC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────
+
+export async function fetchExport(slug: string, scope: "open" | "all") {
+  const key = process.env.FINANCE_API_KEY ?? "";
+  return fetch(`${process.env.FINANCE_API_URL ?? "http://127.0.0.1:8080"}/api/finance/clients/${encodeURIComponent(slug)}/outstanding-documents/export.xlsx?scope=${scope}`, {
+    headers: { "X-API-Key": key }, cache: "no-store",
+  });
+}
 
 const BASE_URL = process.env.FINANCE_API_URL ?? "http://127.0.0.1:8080";
 
