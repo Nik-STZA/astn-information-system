@@ -250,7 +250,9 @@ async function scenario() {
     bankState.currency = "GBP";
     r = await upload("Date,Amount\n01/10/2026,5.00");
     ok("a file with no running balance is refused", r.status === 422 && /balance/.test(r.body.issues.join()), r.body);
+    await api("POST", `recs/${id}/evidence`, { entity_id: EA, amount: 4288, source: "HSBC statements, keyed by hand" });
     r = await upload(csv);
+    ok("a balance keyed by hand is replaced by the statement's, not doubled", (r.body.said || []).some((x) => /keyed by hand .* is replaced/.test(x)), r.body.said);
     ok("read: agreed on 28 Sep, 2 lines matched, 3 items held", r.status === 200 && r.body.agreed?.date === "2026-09-28" && r.body.matched === 2 && r.body.items === 3 && r.body.statement_balance === "4288.00" && r.body.check === "0.00", r.body);
     ok("Xero read for the account over the statement's dates", xeroCalls.some((c) => /^a\/api\.xro\/2\.0\/BankTransactions\?BankAccount\.AccountID==guid\("a-bank"\) AND Date >= DateTime\(2026,9,27\) AND Date <= DateTime\(2026,10,31\)/.test(c)), xeroCalls.slice(-4));
 

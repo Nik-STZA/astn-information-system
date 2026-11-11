@@ -1258,6 +1258,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (r2) => {
       const stop = editable(r2);
       if (stop) return stop;
+      // The statement's balance is the evidence for this company: it replaces a
+      // balance keyed by hand, which would otherwise count twice (11 Nov 2026).
+      const replaced = (await conn.query(
+        "DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND entity_id = $2 AND (method = 'statement' OR method IS NULL) RETURNING method, amount, source",
+        [r2.id, b.entity_id])).rows.filter((v) => v.method === null);
+      for (const v of replaced) said.push(`The balance keyed by hand (${money(recs.pence(v.amount))}, "${String(v.source).slice(0, 60)}") is replaced by the statement's.`);
       const summary = { said, read: read.read, check: out.check === null ? null : money(out.check) };
       await conn.query(
         `INSERT INTO finance.rec_statements (rec_id, entity_id, file_name, sha256, first_date, last_date, line_count, balance_at_end, agreed_on, agreed_balance, matched, summary, uploaded_by)
@@ -1267,8 +1273,6 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
            agreed_balance = EXCLUDED.agreed_balance, matched = EXCLUDED.matched, summary = EXCLUDED.summary, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`,
         [r2.id, b.entity_id, fileName, sha256, lines[0].date, lines[lines.length - 1].date, lines.length, recs.pounds(out.statement_balance),
           out.agreed?.date ?? null, out.agreed ? recs.pounds(out.agreed.balance) : null, out.matched, JSON.stringify(summary), actor]);
-      // The statement's balance is the evidence for this company.
-      await conn.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND entity_id = $2 AND method = 'statement'", [r2.id, b.entity_id]);
       await conn.query(
         `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'statement')`,

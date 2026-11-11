@@ -145,6 +145,45 @@ describe("setting the statement against Xero", () => {
     expect(out.said.join(" ")).toMatch(/older than the file/);
   });
 
+  it("matches one bank line to several Xero items: a card payment and its fee, a batch beside others", () => {
+    // As Revolut and Xero showed it on 11 Nov 2026 (names changed).
+    const lines = [line("2026-01-13", -53874, 0, 1), line("2026-03-25", -1387400, 0, 2)];
+    const items = [
+      item("2026-01-13", -53341, "charge"), item("2026-01-13", -533, "fee"),
+      item("2026-03-25", -1342500, "batch"), item("2026-03-25", -37700, "a"), item("2026-03-25", -7200, "b"),
+      item("2026-03-20", -53341, "too-early"),
+    ];
+    const m = matchAfter({ lines, items, from: "2026-01-01", periodEnd: "2026-03-31" });
+    expect(m.matched.map((p) => (p.items ?? [p.item]).map((x) => x.key).sort().join("+"))).toEqual(["charge+fee", "a+b+batch"]);
+    expect(m.bankOnly).toEqual([]);
+    expect(m.xeroOnly.map((x) => x.key)).toEqual(["too-early"]);
+  });
+
+  it("matches several bank lines to one Xero item, but only within a day", () => {
+    const lines = [line("2026-02-01", -1000, 0, 1), line("2026-02-01", -250, 0, 2), line("2026-02-05", -250, 0, 3)];
+    const m = matchAfter({ lines, items: [item("2026-02-01", -1250, "one"), item("2026-02-06", -1250, "two")], from: "2026-01-31", periodEnd: "2026-02-28" });
+    expect(m.matched.length).toBe(1);
+    expect(m.matched[0].lines.map((l) => l.row)).toEqual([1, 2]);
+    expect(m.bankOnly.map((l) => l.row)).toEqual([3]);
+  });
+
+  it("sets aside entries that cancel on the same day, and holds a near match as its difference", () => {
+    const lines = [line("2026-03-25", -682600, 0, 1), line("2026-06-03", -19732, 0, 2), line("2026-07-01", -10000, 0, 3)];
+    const items = [
+      item("2026-08-04", 612852, "clear-in"), item("2026-08-04", -612852, "clear-out"),
+      item("2026-03-25", -682560, "inv"), item("2026-06-03", -19622, "hotel"), item("2026-07-01", -11000, "too-far"),
+    ];
+    const m = matchAfter({ lines, items, from: "2026-01-01", periodEnd: "2026-09-30" });
+    expect(m.cancelled.length).toBe(1);
+    expect(m.near.map((n) => [n.item.key, n.item.amount - n.line.amount])).toEqual([["inv", 40], ["hotel", 110]]);
+    expect(m.bankOnly.map((l) => l.row)).toEqual([3]);
+    expect(m.xeroOnly.map((x) => x.key)).toEqual(["too-far"]);
+    const out = compare({ lines: [line("2026-01-01", 0, 1000000, 0), ...lines.map((l, i) => ({ ...l, balance: 1000000 - [682600, 702332, 712332][i] }))], items, ledgerEnd: 1000000 - 682560 - 19622 - 11000, periodEnd: "2026-09-30" });
+    expect(out.items.find((h) => h.xero_ref === "inv")).toMatchObject({ side: "xero_only", kind: "error", amount: 40 });
+    expect(out.check).toBe(0);
+    expect(out.said.join(" ")).toMatch(/slightly different amounts/);
+  });
+
   it("matches each line once, to the nearest date", () => {
     const lines = [line("2026-09-10", -500, 0, 1), line("2026-09-11", -500, 0, 2)];
     const items = [item("2026-09-11", -500, "x"), item("2026-09-14", -500, "y")];
