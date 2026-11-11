@@ -138,7 +138,36 @@ export interface RecEvidenceRow {
   id: string | null; entity_id: string; entity: string; kind: string | null; amount: string | null; source: string;
   document_ref: string | null; note: string | null; method: string | null; added_by: string | null; added_at: string | null;
 }
+// A bank statement read for a rec, and what stands between it and the ledger
+// (11 Nov 2026). Amounts are money into the account positive.
+export type ReconcilingKind = "timing" | "unreconciled" | "error" | "query";
+export interface RecStatement {
+  id: string; entity_id: string; entity: string; file_name: string; first_date: string | null; last_date: string | null;
+  line_count: number; balance_at_end: string | null; agreed_on: string | null; matched: number; said: string[];
+  read: { amount: string; date: string; newest_first: boolean; fit: number } | null; uploaded_by: string; uploaded_at: string;
+}
+export interface ReconcilingItem {
+  id: string | null; entity_id: string; entity: string; side: "bank_only" | "xero_only"; kind: ReconcilingKind; txn_date: string | null;
+  description: string | null; amount: string; source: "statement" | "keyed"; state: "open" | "cleared"; note: string | null;
+  added_by: string | null; cleared_by: string | null; cleared_at: string | null; cleared_note: string | null;
+}
+export interface RecBridge {
+  entity_id: string; entity: string; evidence: string | null; xero_only: string; bank_only: string; adjusted: string | null;
+  ledger: string; difference: string | null; open: number; blocking: number;
+}
+export const KIND_LABEL: Record<ReconcilingKind, string> = {
+  timing: "Timing: clears through the bank after the month end",
+  unreconciled: "Not yet in Xero: reconcile or create it in Xero",
+  error: "Error: needs fixing in Xero",
+  query: "Query for the client",
+};
+export const SIDE_LABEL = { bank_only: "On the statement, not in Xero", xero_only: "In Xero, not on the statement" } as const;
+
 export interface RecEvidence {
+  statement_upload?: boolean;
+  statements?: RecStatement[];
+  reconciling?: ReconcilingItem[];
+  bridge?: RecBridge[];
   method: "ageing_ar" | "ageing_ap" | "counterpart" | "carry_forward" | null;
   method_label: string | null;
   missing: string[];
@@ -277,6 +306,12 @@ export const EVENT_LABEL: Record<string, string> = {
   agent_restarted: "FM1 started again after a send back",
   restart_held: "FM1 not restarted: waiting for a person",
   restart_skipped: "FM1 already working, not restarted",
+  statement_read: "Bank statement read",
+  reconciling_added: "Reconciling item added",
+  reconciling_edited: "Reconciling item changed",
+  reconciling_cleared: "Reconciling item cleared",
+  reconciling_reopened: "Reconciling item reopened",
+  reconciling_removed: "Reconciling item removed",
 };
 
 // agent:fm1 to FM1; a person stays as their address.
@@ -289,7 +324,7 @@ export function actorLabel(actor: string): string {
 // proposal, the note of a draft) are left out on purpose.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const REC_PATH = new RegExp(
-  `^recs/(compose|settings|agent-all|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
+  `^recs/(compose|settings|agent-all|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|statement|reconciling(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
 export const isRecPath = (path: string) => REC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

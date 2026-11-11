@@ -5,7 +5,7 @@
 //
 // Not part of `npm test`, because it needs Postgres. To run:
 //   1. initdb a scratch cluster, start it on port 54329, create database t.
-//   2. Apply migrations 024, 025, the finance set, then 029 to 042.
+//   2. Apply migrations 024, 025, the finance set, then 029 to 043.
 //   3. node scripts/recs-evidence-local-check.js      (from finance-api)
 
 const Module = require("module");
@@ -40,9 +40,11 @@ const CHART = {
     ["b-cap", "950", "Capital - Ordinary Shares", "EQUITY", "EQUITY"],
   ]),
 };
+// The bank account in October, and what Xero holds on it (bank statement checks).
+const bankState = { oct: 3888.40, currency: "GBP", txns: [], pays: [] };
 const tbs = {
   "a:2026-10-31": () => [row("a-ar", "Accounts Receivable", "610", 300, 0, 300, 0), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0),
-    row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100), row("a-bank", "HSBC Innovation", "090", 0, 0, 3888.40, 0), row("a-dla", "Directors' Loan Account", "835", 0, 0, 0, 5000)],
+    row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100), row("a-bank", "HSBC Innovation", "090", 0, 0, bankState.oct, 0), row("a-dla", "Directors' Loan Account", "835", 0, 0, 0, 5000)],
   "a:2026-09-30": () => [row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0), row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100),
     row("a-bank", "HSBC Innovation", "090", 0, 0, 3888.40, 0), row("a-dla", "Directors' Loan Account", "835", 0, 0, 0, 5000)],
   "a:2026-11-30": () => [row("a-ar", "Accounts Receivable", "610", 0, 0, 300, 0), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0),
@@ -74,6 +76,9 @@ global.fetch = async (url, opts = {}) => {
   xeroCalls.push(`${t}${u.pathname}?${u.searchParams.get("where") ?? ""}`);
   const page = Number(u.searchParams.get("page") || 1);
   if (u.pathname.endsWith("/Accounts")) return json({ Accounts: CHART[t] });
+  if (u.pathname.endsWith("/Accounts/a-bank")) return json({ Accounts: [{ AccountID: "a-bank", CurrencyCode: bankState.currency }] });
+  if (u.pathname.endsWith("/BankTransactions")) return json({ BankTransactions: page === 1 && t === "a" ? bankState.txns : [] });
+  if (u.pathname.endsWith("/Payments")) return json({ Payments: page === 1 && t === "a" ? bankState.pays : [] });
   if (u.pathname.endsWith("/Reports/TrialBalance")) {
     const f = tbs[`${t}:${u.searchParams.get("date")}`];
     return json({ Reports: [{ Rows: [{ RowType: "Section", Rows: f ? f() : [] }] }] });
@@ -213,6 +218,93 @@ async function scenario() {
     r = await api("POST", `recs/${nid}/evidence/fetch`, {}, fm1);
     v = (await api("GET", `recs/${nid}`)).body;
     ok("November: October's signed evidence carried where nothing moved, and it ties", r.status === 200 && v.cover.ties && v.evidence.rows.every((x) => /carried from October 2026/.test(x.source)), { r: r.body, ev: v.evidence.rows });
+  });
+
+  await section("a bank statement: the last day it agreed, and what stands between", async () => {
+    const id = byName(list, "HSBC Innovation").id;
+    const bt = (id2, type, total, date, name) => ({ BankTransactionID: id2, Type: type, Status: "AUTHORISED", Total: total, DateString: `${date}T00:00:00`, BankAccount: { AccountID: "a-bank" }, Contact: { Name: name } });
+    // Xero on the account: a receipt and a payment that are on the statement
+    // (the payment a day apart), one in the last days of October not yet
+    // through the bank, and one from early October the bank never saw.
+    bankState.txns = [bt("t-rcpt", "RECEIVE", 1000, "2026-10-15", "Jo Bloggs Ltd"), bt("t-ghost", "SPEND", 300, "2026-10-05", "Sample Supplier")];
+    bankState.pays = [
+      { PaymentID: "p-pay", PaymentType: "ACCPAYPAYMENT", Status: "AUTHORISED", Amount: 500, DateString: "2026-10-20T00:00:00", Account: { AccountID: "a-bank" }, Invoice: { InvoiceNumber: "BILL-1", Contact: { Name: "Sample Supplier" } } },
+      { PaymentID: "p-late", PaymentType: "ACCPAYPAYMENT", Status: "AUTHORISED", Amount: 111.60, DateString: "2026-10-30T00:00:00", Account: { AccountID: "a-bank" }, Invoice: { InvoiceNumber: "BILL-2", Contact: { Name: "Sample Supplier" } } },
+      { PaymentID: "p-other", PaymentType: "ACCPAYPAYMENT", Status: "AUTHORISED", Amount: 7, DateString: "2026-10-20T00:00:00", Account: { AccountID: "elsewhere" } },
+    ];
+    // The bank's export, newest first, with a fee Xero does not have.
+    const csv = [
+      "Date,Description,Paid out,Paid in,Balance",
+      "21/10/2026,BILL-1 Sample Supplier,500.00,,4288.00",
+      "16/10/2026,Account fee,12.00,,4788.00",
+      "15/10/2026,Jo Bloggs Ltd,,1000.00,4800.00",
+      "28/09/2026,Interest,,50.00,3800.00",
+    ].join("\n");
+    const upload = (text, headers = {}) => api("POST", `recs/${id}/statement`, { file_name: "HSBC October.csv", content_base64: Buffer.from(text).toString("base64") }, headers);
+
+    let r = await upload(csv, fm1);
+    ok("FM1 cannot upload a statement", r.status === 403, r);
+    bankState.currency = "USD";
+    r = await upload(csv);
+    ok("a foreign currency account is refused for now", r.status === 409 && /USD/.test(r.body.error), r.body);
+    bankState.currency = "GBP";
+    r = await upload("Date,Amount\n01/10/2026,5.00");
+    ok("a file with no running balance is refused", r.status === 422 && /balance/.test(r.body.issues.join()), r.body);
+    r = await upload(csv);
+    ok("read: agreed on 28 Sep, 2 lines matched, 3 items held", r.status === 200 && r.body.agreed?.date === "2026-09-28" && r.body.matched === 2 && r.body.items === 3 && r.body.statement_balance === "4288.00" && r.body.check === "0.00", r.body);
+    ok("Xero read for the account over the statement's dates", xeroCalls.some((c) => /^a\/api\.xro\/2\.0\/BankTransactions\?BankAccount\.AccountID==guid\("a-bank"\) AND Date >= DateTime\(2026,9,27\) AND Date <= DateTime\(2026,10,31\)/.test(c)), xeroCalls.slice(-4));
+
+    let v = (await api("GET", `recs/${id}`)).body;
+    const items = v.evidence.reconciling;
+    const find = (amt) => items.find((i) => i.amount === amt);
+    ok("the fee: on the statement, not in Xero", find("-12.00")?.side === "bank_only" && find("-12.00")?.kind === "unreconciled", items);
+    ok("the late payment: timing", find("-111.60")?.side === "xero_only" && find("-111.60")?.kind === "timing", items);
+    ok("the early one the bank never saw: an error", find("-300.00")?.side === "xero_only" && find("-300.00")?.kind === "error", items);
+    ok("the statement balance is the evidence", v.evidence.rows.length === 1 && v.evidence.rows[0].method === "statement" && v.evidence.rows[0].amount === "4288.00", v.evidence.rows);
+    ok("the bridge comes to the ledger and the rec ties", v.evidence.bridge[0].adjusted === "3888.40" && v.evidence.bridge[0].difference === "0.00" && v.cover.ties && v.evidence.bridge[0].blocking === 2, { b: v.evidence.bridge, c: v.cover });
+    ok("the statement is described, the file not kept", v.evidence.statements[0].agreed_on === "2026-09-28" && v.evidence.statements[0].line_count === 4 && v.evidence.statements[0].read.newest_first === true, v.evidence.statements);
+
+    const ghost = find("-300.00").id;
+    r = await api("PATCH", `recs/${id}/reconciling/${ghost}`, { state: "cleared" }, fm1);
+    ok("clearing needs a reason", r.status === 422 && /why/.test(r.body.issues.join()), r.body);
+    r = await api("DELETE", `recs/${id}/reconciling/${ghost}`, undefined);
+    ok("what the statement found is cleared, not deleted", r.status === 409, r.body);
+    r = await api("POST", `recs/${id}/reconciling`, { entity_id: EA, side: "bank_only", kind: "query", description: "Unknown receipt", amount: 25 }, fm1);
+    ok("FM1 can key an item", r.status === 201, r.body);
+    v = (await api("GET", `recs/${id}`)).body;
+    ok("a keyed item moves the bridge", v.evidence.bridge[0].difference === "-25.00" && !v.cover.ties, v.evidence.bridge);
+    r = await api("DELETE", `recs/${id}/reconciling/${r.body.id}`, undefined);
+    ok("and a keyed one can be removed", r.status === 200, r.body);
+
+    // The fee is put into Xero: the ledger moves and a fresh upload matches it.
+    bankState.txns.push(bt("t-fee", "SPEND", 12, "2026-10-16", "HSBC"));
+    bankState.oct = 3876.40;
+    r = await api("PATCH", `recs/${id}/reconciling/${ghost}`, { kind: "query", note: "Asked the client whether this left the bank" });
+    ok("a person edits the ghost into a query", r.status === 200 && r.body.kind === "query", r.body);
+    await api("POST", "recs/compose", { period: "2026-10" });
+    r = await upload(csv);
+    v = (await api("GET", `recs/${id}`)).body;
+    ok("uploaded again: the fee matched, the edited item kept once, nothing doubled", r.status === 200 && r.body.matched === 3 && v.evidence.reconciling.filter((i) => i.state === "open").length === 2
+      && v.evidence.reconciling.filter((i) => i.amount === "-300.00").length === 1 && v.evidence.reconciling.find((i) => i.amount === "-300.00").kind === "query", { r: r.body, items: v.evidence.reconciling });
+    ok("still ties against the new ledger", v.cover.ties && v.evidence.bridge[0].ledger === "3876.40", v.evidence.bridge);
+
+    r = await api("POST", `recs/${id}/prepare`, { note: "Agrees to the HSBC statement; one late payment, one query with the client." }, fm1);
+    ok("prepared", r.status === 200, r.body);
+    r = await api("POST", `recs/${id}/review`, { pass: true, note: "Agreed to the statement." }, { "X-Work-Via": `agent:fc:${await run("fc")}`, "X-Actor-Email": FC });
+    r = await api("POST", `recs/${id}/sign-off`, { sole_reviewer: true });
+    ok("sign-off refused while a query is open", r.status === 422 && /1 reconciling item is still open that is not timing/.test(r.body.issues.join()), r.body);
+    r = await api("POST", `recs/${id}/reopen`, {});
+    r = await api("PATCH", `recs/${id}/reconciling/${ghost}`, { kind: "timing", note: "Client confirms it cleared on 3 November" });
+    await api("POST", `recs/${id}/prepare`, { note: "Agrees to the HSBC statement; two payments clear in November." }, fm1);
+    await api("POST", `recs/${id}/review`, { pass: true, note: "Agreed." }, { "X-Work-Via": `agent:fc:${await run("fc")}`, "X-Actor-Email": FC });
+    r = await api("POST", `recs/${id}/sign-off`, { sole_reviewer: true });
+    ok("signed off with only timing items open", r.status === 200 && r.body.status === "signed_off", r.body);
+    const snap = (await pool.query("SELECT signed_snapshot FROM finance.recs WHERE id = $1", [id])).rows[0].signed_snapshot;
+    ok("the items are kept with what was signed", snap.reconciling?.filter((i) => i.state === "open").length === 2, snap.reconciling);
+    const l2 = (await api("GET", "recs?period=2026-10")).body;
+    ok("the list shows it tied", byName(l2, "HSBC Innovation").ties && byName(l2, "HSBC Innovation").support === "3876.40", byName(l2, "HSBC Innovation"));
+    r = await upload(csv);
+    ok("no upload once signed", r.status === 409, r.body);
   });
 
   await section("start FM1 on every rec the month can work, in one go", async () => {

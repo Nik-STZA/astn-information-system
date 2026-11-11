@@ -14,6 +14,9 @@ const { checkApprovalText } = require("./journal");
 const { jnlRef } = require("./journals");
 const { lineFor, LINES } = require("./bs-matrix");
 const work = require("./work");
+const bank = require("./bank-statement");
+const sheetRead = require("./sheet-read");
+const crypto = require("crypto");
 
 const MISSING = "Reconciliations are waiting for migration 032 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
@@ -120,11 +123,36 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
        FROM finance.rec_evidence v JOIN finance.entities e ON e.id = v.entity_id
       WHERE v.rec_id = ANY($1::uuid[]) ORDER BY e.name, v.added_at`, [recIds])).rows : []);
 
+  // Reconciling items and statements (migration 043). Until it is applied
+  // there are none: the table is looked for first, as a failed query would
+  // spoil the transaction it runs in. Once found it is not looked for again.
+  let reconcilingReady = false;
+  const hasReconciling = async (db) => {
+    if (!reconcilingReady) reconcilingReady = Boolean((await db.query("SELECT to_regclass('finance.rec_reconciling_items') IS NOT NULL AS ok")).rows[0].ok);
+    return reconcilingReady;
+  };
+  const reconcilingOf = async (db, recIds) => (recIds.length && await hasReconciling(db) ? (await db.query(
+    `SELECT i.id, i.rec_id, i.entity_id, e.name AS entity_name, i.side, i.kind, i.txn_date::text AS txn_date, i.description, i.amount,
+            i.statement_row, i.xero_ref, i.source, i.state, i.note, i.added_by, i.added_at, i.edited_by, i.edited_at,
+            i.cleared_by, i.cleared_at, i.cleared_note
+       FROM finance.rec_reconciling_items i JOIN finance.entities e ON e.id = i.entity_id
+      WHERE i.rec_id = ANY($1::uuid[]) ORDER BY e.name, i.state, i.txn_date NULLS LAST, i.added_at`, [recIds])).rows : []);
+  const statementsOf = async (db, recId) => (await hasReconciling(db) ? (await db.query(
+    `SELECT s.id, s.entity_id, s.file_name, s.first_date::text AS first_date, s.last_date::text AS last_date, s.line_count, s.balance_at_end,
+            s.agreed_on::text AS agreed_on, s.agreed_balance, s.matched, s.summary, s.uploaded_by, s.uploaded_at
+       FROM finance.rec_statements s WHERE s.rec_id = $1`, [recId])).rows : []);
+  // As kept in a snapshot: what decides the figures, and what was said.
+  const reconcilingSnap = (rows) => rows.map((i) => ({
+    id: i.id, entity_id: i.entity_id, side: i.side, kind: i.kind, txn_date: i.txn_date, description: i.description, amount: i.amount,
+    source: i.source, state: i.state, note: i.note, cleared_note: i.cleared_note,
+  }));
+
   // What supports the ledger: the schedule for Prepayments, the evidence for
-  // an evidence rec (none held is none, so it does not tie), else nothing.
-  const supportFor = (rec, items, evidence = []) => {
+  // an evidence rec (none held is none, so it does not tie) bridged by its open
+  // reconciling items, else nothing.
+  const supportFor = (rec, items, evidence = [], reconciling = []) => {
     if (rec.proof === "schedule" && recs.workable(rec.line_key, rec.proof)) return recs.scheduleTotals(items, rec.period);
-    if (recs.usesEvidence(rec.line_key, rec.proof)) return recs.evidenceTotals(evidence);
+    if (recs.usesEvidence(rec.line_key, rec.proof)) return recs.evidenceTotals(evidence, reconciling);
     return null;
   };
 
@@ -139,7 +167,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const items = await itemsOf(conn, client.id, [rec.rec_account_id]);
     const tol = await tolerance(conn, client.id);
     const evidence = await evidenceOf(conn, [rec.id]);
-    return { balances, items, evidence, tol, tied: recs.cover(balances, supportFor(rec, items, evidence), tol) };
+    const reconciling = await reconcilingOf(conn, [rec.id]);
+    return { balances, items, evidence, reconciling, tol, tied: recs.cover(balances, supportFor(rec, items, evidence, reconciling), tol) };
   };
 
   // Re-works a rec's flag against the ledger and schedule as they are now.
@@ -196,12 +225,14 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       ]);
       const items = await itemsOf(pool, client.id, rows.rows.map((r) => r.rec_account_id));
       const evidence = await evidenceOf(pool, rows.rows.map((r) => r.id));
+      const reconciling = await reconcilingOf(pool, rows.rows.map((r) => r.id));
       const priorBy = new Map(priorRecs.rows.map((r) => [r.rec_account_id, r.status]));
       const list = rows.rows.map((r) => {
         // A signed rec shows what was signed, not the ledger since.
         const signed = r.status === "signed_off" ? r.signed_snapshot : null;
         const mine = signed ? signed.items : items.filter((i) => i.rec_account_id === r.rec_account_id);
-        const support = supportFor(r, mine, signed?.evidence ?? evidence.filter((v) => v.rec_id === r.id));
+        const support = supportFor(r, mine, signed?.evidence ?? evidence.filter((v) => v.rec_id === r.id),
+          signed ? (signed.reconciling ?? []) : reconciling.filter((i) => i.rec_id === r.id));
         const balances = signed ? signed.balances.map((b) => ({ ...b, code: b.account_code })) : r.balances;
         const c = recs.cover(balances, support, signed ? signed.tolerance : tol);
         return {
@@ -477,13 +508,16 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const tol = signed?.tolerance ?? liveTol;
     const liveEvidence = await evidenceOf(pool, [rec.id]);
     const evidence = signed?.evidence ?? liveEvidence;
-    const support = supportFor(rec, items, evidence);
+    const liveReconciling = await reconcilingOf(pool, [rec.id]);
+    const reconciling = signed ? (signed.reconciling ?? []) : liveReconciling;
+    const support = supportFor(rec, items, evidence, reconciling);
     const c = recs.cover(balances, support, tol);
     const names = new Map(balances.map((b) => [b.entity_id, b.entity_name]));
     const entities = await companies(pool, client.id);
     for (const e of entities) names.set(e.id, e.name);
     const evidenceBlock = recs.usesEvidence(rec.line_key, rec.proof)
-      ? await evidenceView(client, rec, balances, signed ? evidence.map((v) => ({ ...v, entity_name: names.get(v.entity_id) })) : liveEvidence, names)
+      ? await evidenceView(client, rec, balances, signed ? evidence.map((v) => ({ ...v, entity_name: names.get(v.entity_id) })) : liveEvidence, names,
+        { reconciling, statements: await statementsOf(pool, rec.id) })
       : null;
     const months = rec.proof === "schedule" ? recs.scheduleMonths(items, rec.period) : [];
     const p = prior.rows[0] ?? null;
@@ -870,15 +904,16 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   }), { peopleOnly: true })));
 
   // What a preparer saw, kept whatever later happens to the ledger or schedule.
-  const snapshotFor = (balances, items, rec, evidence = []) => ({
+  const snapshotFor = (balances, items, rec, evidence = [], reconciling = []) => ({
     balances: recs.snapshotOf(balances),
     evidence: evidence.map((v) => ({ entity_id: v.entity_id, amount: v.amount, source: v.source, document_ref: v.document_ref, method: v.method })),
+    reconciling: reconcilingSnap(reconciling),
     schedule: items.map((i) => ({ ...i, ...(({ released, balance, this_month }) => ({ released, balance, this_month }))(recs.itemAt(i, rec.period)) })),
   });
 
   // POST /recs/:id/prepare   body: { note }   hands to the FC. Clears any re-check.
   app.post(`${BASE}/:id/prepare`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
-    const { balances, items, evidence, tied: c } = await figuresOn(conn, client, rec);
+    const { balances, items, evidence, reconciling, tied: c } = await figuresOn(conn, client, rec);
     const note = String(req.body?.note ?? "").trim().slice(0, 4000);
     const comments = c.rows.every((r) => r.ties || balances.find((b) => b.entity_id === r.entity_id)?.comment);
     const issues = recs.stepIssues("prepare", { rec, tied: c.ties, via, role, actor, note, comments, missingEvidence: missingEvidenceFor(rec, balances, evidence) });
@@ -887,7 +922,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       `UPDATE finance.recs SET status = 'with_fc', preparer_note = $2, prepared_snapshot = $3, prepared_by = $4, prepared_by_person = $5, prepared_at = now(),
          recheck_reason = NULL, recheck_at = NULL, review_note = NULL, reviewed_by = NULL, reviewed_by_person = NULL, reviewed_at = NULL,
          sole_reviewer = false, signed_snapshot = NULL, updated_at = now() WHERE id = $1`,
-      [rec.id, note || null, JSON.stringify(snapshotFor(balances, items, rec, evidence)), actor, actorEmail]);
+      [rec.id, note || null, JSON.stringify(snapshotFor(balances, items, rec, evidence, reconciling)), actor, actorEmail]);
     await event(conn, rec.id, client.id, actor, "prepared", { ties: c.ties, difference: money(c.group.variance) });
     return { status: 200, body: { status: "with_fc" } };
   }))));
@@ -923,10 +958,10 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       reads = await readIssuesAtSignOff(who.client, first);
     }
     return recTx(req, res, (conn, { client, actor, actorEmail, via, role }) => withRec(conn, client, req.params.id, async (rec) => {
-      const { balances, items, evidence, tol, tied: c } = await figuresOn(conn, client, rec);
+      const { balances, items, evidence, reconciling, tol, tied: c } = await figuresOn(conn, client, rec);
       const sole = req.body?.sole_reviewer === true;
       const reason = String(req.body?.accept_variance ?? "").trim().slice(0, 2000);
-      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads, accept: reason });
+      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads, accept: reason, blocking: recs.blockingItems(reconciling) });
       // A journal still waiting here is a fix for the same difference: decide
       // it first, rather than accept the difference beside it.
       if (!c.ties && reason) {
@@ -945,7 +980,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       await conn.query(
         `UPDATE finance.recs SET status = 'signed_off', signed_off_by = $2, signed_off_role = $3, signed_off_at = now(),
            sole_reviewer = $4, signed_snapshot = $5, updated_at = now() WHERE id = $1`,
-        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, evidence, tolerance: tol, accepted, at: new Date().toISOString() })]);
+        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, evidence, reconciling: reconcilingSnap(reconciling), tolerance: tol, accepted, at: new Date().toISOString() })]);
       const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged, accepted_variance: accepted };
       if (accepted) await event(conn, rec.id, client.id, actor, "variance_accepted", { reason, group: accepted.group });
       await event(conn, rec.id, client.id, actor, "signed_off", { role, ...payload });
@@ -1046,9 +1081,34 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
 
   // The evidence part of a rec's page: what is held, how more can be fetched,
   // and, for an intercompany rec, its pair.
-  async function evidenceView(client, rec, balances, evidence, names) {
+  async function evidenceView(client, rec, balances, evidence, names, { reconciling = [], statements = [] } = {}) {
     const method = recs.autoMethod(rec);
     const out = {
+      statement_upload: rec.line_key === "cash",
+      statements: statements.map((st) => ({
+        id: st.id, entity_id: st.entity_id, entity: names.get(st.entity_id) ?? "A company", file_name: st.file_name,
+        first_date: st.first_date, last_date: st.last_date, line_count: st.line_count, balance_at_end: st.balance_at_end === null ? null : money(recs.pence(st.balance_at_end)),
+        agreed_on: st.agreed_on, matched: st.matched, said: st.summary?.said ?? [], read: st.summary?.read ?? null, uploaded_by: st.uploaded_by, uploaded_at: st.uploaded_at,
+      })),
+      reconciling: reconciling.map((i) => ({
+        id: i.id ?? null, entity_id: i.entity_id, entity: names.get(i.entity_id) ?? "A company", side: i.side, kind: i.kind, txn_date: i.txn_date ?? null,
+        description: i.description ?? null, amount: money(recs.pence(i.amount)), source: i.source, state: i.state, note: i.note ?? null,
+        added_by: i.added_by ?? null, cleared_by: i.cleared_by ?? null, cleared_at: i.cleared_at ?? null, cleared_note: i.cleared_note ?? null,
+      })),
+      bridge: balances.map((b) => {
+        const has = evidence.filter((v) => v.entity_id === b.entity_id);
+        const open = reconciling.filter((i) => i.entity_id === b.entity_id && i.state === "open");
+        const xeroOnly = open.filter((i) => i.side === "xero_only").reduce((a, i) => a + recs.pence(i.amount), 0);
+        const bankOnly = open.filter((i) => i.side === "bank_only").reduce((a, i) => a + recs.pence(i.amount), 0);
+        const evidenceP = has.reduce((a, v) => a + recs.pence(v.amount), 0);
+        const ledger = recs.pence(b.closing);
+        return {
+          entity_id: b.entity_id, entity: names.get(b.entity_id) ?? "A company", evidence: has.length ? money(evidenceP) : null,
+          xero_only: money(xeroOnly), bank_only: money(bankOnly), adjusted: has.length ? money(evidenceP + xeroOnly - bankOnly) : null,
+          ledger: money(ledger), difference: has.length ? money(evidenceP + xeroOnly - bankOnly - ledger) : null,
+          open: open.length, blocking: recs.blockingItems(open).length,
+        };
+      }),
       method, method_label: method ? recs.METHOD_LABEL[method] : null,
       missing: missingEvidenceFor(rec, balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), evidence),
       rows: evidence.map((v) => ({
@@ -1121,6 +1181,214 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (!gone) return { status: 404, body: { error: "no such evidence on this reconciliation" } };
     await event(conn, rec.id, client.id, actor, "evidence_removed", gone);
     return { status: 200, body: { removed: req.params.eid } };
+  }))));
+
+  // ── Bank statements and reconciling items (migration 043) ─────────────────
+
+  const KINDS = ["timing", "unreconciled", "error", "query"];
+  const SIDES = ["bank_only", "xero_only"];
+  const MAX_STATEMENT_BYTES = 700 * 1024;
+  const xeroDate = (d) => { const [y, m, dd] = d.split("-").map(Number); return `DateTime(${y},${m},${dd})`; };
+  const notReady = { status: 503, body: { error: "Reconciling items are waiting for migration 043 to be applied.", migration_missing: true } };
+
+  // POST /recs/:id/statement   body: { entity_id?, file_name, content_base64 }
+  // A person uploads the bank's export for a bank account. It is read, set
+  // against Xero's items on the account, and becomes the rec's evidence (the
+  // balance at the month end) and its reconciling items (what does not match
+  // since the last day they agreed). Uploading again replaces what the last
+  // upload found, keeping items a person has edited or cleared. The file is not
+  // kept: its name and sha256 are.
+  app.post(`${BASE}/:id/statement`, tolerant(async (req, res) => {
+    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a reconciliation id" });
+    if (req.get("X-Work-Via")) return res.status(403).json({ error: "only a person uploads a bank statement, in os.stza.io" });
+    const who = await preflight(req, res);
+    if (!who) return;
+    if (!await hasReconciling(pool)) return res.status(notReady.status).json(notReady.body);
+    const rec = await loadRec(pool, who.client.id, req.params.id);
+    if (!rec) return res.status(404).json({ error: "reconciliation not found" });
+    if (rec.line_key !== "cash" || !String(rec.account_key ?? "").startsWith("bank:")) return res.status(409).json({ error: "A bank statement goes on a bank account's reconciliation" });
+    if (editable(rec)) return res.status(409).json(editable(rec).body);
+    const balances = await balancesOf(pool, rec.id);
+    const b = req.body?.entity_id ? balances.find((x) => x.entity_id === req.body.entity_id) : balances.length === 1 ? balances[0] : null;
+    if (!b) return res.status(422).json({ issues: ["entity_id must be the company whose statement this is"] });
+    const fileName = String(req.body?.file_name ?? "").replace(/[\\/\u0000-\u001f]+/g, " ").trim().slice(0, 200);
+    if (!fileName) return res.status(422).json({ issues: ["file_name is required"] });
+    let bytes;
+    try { bytes = Buffer.from(String(req.body?.content_base64 ?? ""), "base64"); } catch { bytes = Buffer.alloc(0); }
+    if (!bytes.length) return res.status(422).json({ issues: [`${fileName} is empty`] });
+    if (bytes.length > MAX_STATEMENT_BYTES) return res.status(413).json({ issues: [`${fileName} is over ${Math.round(MAX_STATEMENT_BYTES / 1024)} KB: export a shorter date range`] });
+    const kind = sheetRead.kindOf(bytes, fileName, "");
+    if (kind !== "csv" && kind !== "xlsx") return res.status(422).json({ issues: [`${fileName} is not a CSV or an Excel workbook (.xlsx). Use the bank's transaction export`] });
+    let read;
+    try { read = bank.readStatement(sheetRead.readSheets(bytes, kind)); } catch (e) { return res.status(422).json({ issues: [`${fileName} could not be read: ${String(e.message || e).slice(0, 200)}`] }); }
+    if (read.issues.length) return res.status(422).json({ issues: read.issues });
+    const lines = read.lines;
+    if (lines[0].date > rec.period_end) return res.status(422).json({ issues: [`The statement starts ${bank.nice(lines[0].date)}, after the month end: it cannot show the balance at ${bank.nice(rec.period_end)}`] });
+
+    // Xero: the account's currency, and its items over the statement's dates.
+    const accountId = rec.account_key.slice(5);
+    const entity = (await companies(pool, who.client.id)).find((e) => e.id === b.entity_id);
+    let items = [];
+    const said = [...read.said];
+    try {
+      const ctx = await xeroEntityContext(who.client.slug, entity.slug);
+      if (!ctx || ctx.error) throw new Error(ctx?.error ?? "not connected to Xero");
+      const acct = (await xeroGet(ctx.accessToken, ctx.tenantId, `/Accounts/${accountId}`))?.Accounts?.[0];
+      const org = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Organisation"))?.Organisations?.[0];
+      if (acct?.CurrencyCode && org?.BaseCurrency && acct.CurrencyCode !== org.BaseCurrency) {
+        return res.status(409).json({ error: `This account is in ${acct.CurrencyCode}. Foreign currency statements come in the next change; for now add the evidence by hand` });
+      }
+      const other = read.read.currencies.filter((c) => acct?.CurrencyCode && c !== acct.CurrencyCode);
+      if (other.length) return res.status(422).json({ issues: [`The statement has lines in ${other.join(", ")}, but the account is in ${acct.CurrencyCode}. Export this account only`] });
+      const from = bank.matchAfter({ lines, items: [], from: null, periodEnd: rec.period_end }).from;
+      const window = `Date >= ${xeroDate(from)} AND Date <= ${xeroDate(rec.period_end)}`;
+      const txns = await xeroPages(ctx, "/BankTransactions", "BankTransactions", { where: `BankAccount.AccountID==guid("${accountId}") AND ${window}` });
+      const pays = await xeroPages(ctx, "/Payments", "Payments", { where: window });
+      if (txns.length >= 3000) said.push("Xero holds over 3,000 transactions on this account in the statement's dates; only the first 3,000 were read. Export a shorter range");
+      const seen = new Set();
+      items = bank.xeroItems({ bankTransactions: txns, payments: pays, accountId }).filter((x) => (seen.has(x.key) ? false : seen.add(x.key)));
+    } catch (e) {
+      return res.status(502).json({ error: `Xero could not be read for ${entity?.name ?? "this company"}: ${String(e.message || e).slice(0, 200)}` });
+    }
+    const out = bank.compare({ lines, items, ledgerEnd: recs.pence(b.closing), periodEnd: rec.period_end });
+    if (out.statement_balance === null) return res.status(422).json({ issues: ["The statement does not show a balance at the month end"] });
+    said.push(...out.said);
+    const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+
+    return recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (r2) => {
+      const stop = editable(r2);
+      if (stop) return stop;
+      const summary = { said, read: read.read, check: out.check === null ? null : money(out.check) };
+      await conn.query(
+        `INSERT INTO finance.rec_statements (rec_id, entity_id, file_name, sha256, first_date, last_date, line_count, balance_at_end, agreed_on, agreed_balance, matched, summary, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (rec_id, entity_id) DO UPDATE SET file_name = EXCLUDED.file_name, sha256 = EXCLUDED.sha256, first_date = EXCLUDED.first_date,
+           last_date = EXCLUDED.last_date, line_count = EXCLUDED.line_count, balance_at_end = EXCLUDED.balance_at_end, agreed_on = EXCLUDED.agreed_on,
+           agreed_balance = EXCLUDED.agreed_balance, matched = EXCLUDED.matched, summary = EXCLUDED.summary, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`,
+        [r2.id, b.entity_id, fileName, sha256, lines[0].date, lines[lines.length - 1].date, lines.length, recs.pounds(out.statement_balance),
+          out.agreed?.date ?? null, out.agreed ? recs.pounds(out.agreed.balance) : null, out.matched, JSON.stringify(summary), actor]);
+      // The statement's balance is the evidence for this company.
+      await conn.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND entity_id = $2 AND method = 'statement'", [r2.id, b.entity_id]);
+      await conn.query(
+        `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'statement')`,
+        [r2.id, b.entity_id, r2.proof, recs.pounds(out.statement_balance), `Bank statement balance at ${bank.nice(r2.period_end)}`.slice(0, 300), fileName.slice(0, 300),
+          out.agreed ? `Agreed with Xero on ${bank.nice(out.agreed.date)}` : "Did not agree with Xero on any day in the file", actor]);
+      // What the last upload found is replaced; what a person touched is kept.
+      await conn.query(
+        "DELETE FROM finance.rec_reconciling_items WHERE rec_id = $1 AND entity_id = $2 AND source = 'statement' AND state = 'open' AND edited_at IS NULL",
+        [r2.id, b.entity_id]);
+      const kept = (await conn.query(
+        "SELECT side, txn_date::text AS txn_date, amount, statement_row, xero_ref FROM finance.rec_reconciling_items WHERE rec_id = $1 AND entity_id = $2 AND source = 'statement'",
+        [r2.id, b.entity_id])).rows;
+      const keyOf = (x) => [x.side, x.txn_date, recs.pence(x.amount), x.xero_ref ?? ""].join("|");
+      const keptKeys = new Set(kept.map(keyOf));
+      let added = 0;
+      for (const h of out.items) {
+        const row = { ...h, amount: recs.pounds(h.amount) };
+        if (keptKeys.has(keyOf(row))) continue;
+        await conn.query(
+          `INSERT INTO finance.rec_reconciling_items (rec_id, entity_id, side, kind, txn_date, description, amount, statement_row, xero_ref, source, added_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'statement',$10)`,
+          [r2.id, b.entity_id, h.side, h.kind, h.txn_date, h.description ? String(h.description).slice(0, 300) : null, row.amount, h.statement_row, h.xero_ref, actor]);
+        added += 1;
+      }
+      await started(conn, r2);
+      await event(conn, r2.id, client.id, actor, "statement_read", {
+        entity_id: b.entity_id, file_name: fileName, sha256, lines: lines.length, balance: recs.pounds(out.statement_balance), agreed_on: out.agreed?.date ?? null, items: added,
+      });
+      await auditRec(conn, req, { client, actorEmail, role, action: "rec_statement_read", id: r2.id, payload: { account: r2.account_name, file_name: fileName, sha256, items: added } });
+      return {
+        status: 200,
+        body: {
+          said, read: read.read, statement_balance: recs.pounds(out.statement_balance), agreed: out.agreed ? { date: out.agreed.date, balance: recs.pounds(out.agreed.balance) } : null,
+          matched: out.matched, items: added, check: summary.check,
+        },
+      };
+    }), { peopleOnly: true });
+  }));
+
+  const itemIssues = (b, balances, { partial = false } = {}) => {
+    const issues = [];
+    if (!partial || b.entity_id !== undefined) if (!balances.some((x) => x.entity_id === b.entity_id)) issues.push("entity_id must be one of the companies on this reconciliation");
+    if (!partial || b.side !== undefined) if (!SIDES.includes(b.side)) issues.push("side must be bank_only (on the statement, not in Xero) or xero_only (in Xero, not on the statement)");
+    if (!partial || b.kind !== undefined) if (!KINDS.includes(b.kind)) issues.push(`kind must be one of ${KINDS.join(", ")}`);
+    if (!partial || b.amount !== undefined) {
+      const a = Number(b.amount);
+      if (!Number.isFinite(a) || a === 0 || Math.abs(a) > 1e12) issues.push("amount must be a number: money into the account positive, out negative");
+    }
+    if (b.txn_date !== undefined && b.txn_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.txn_date))) issues.push("txn_date must be YYYY-MM-DD");
+    if (!partial && String(b.description ?? "").trim().length < 3) issues.push("description must say what the item is");
+    return issues;
+  };
+
+  // POST /recs/:id/reconciling   body: { entity_id, side, kind, txn_date?, description, amount, note? }
+  app.post(`${BASE}/:id/reconciling`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!mayEvidence(via)) return { status: 403, body: { error: "FM1 or a person records reconciling items" } };
+    if (!await hasReconciling(conn)) return notReady;
+    if (!recs.usesEvidence(rec.line_key, rec.proof)) return { status: 409, body: { error: "Reconciling items go on a reconciliation proved by evidence" } };
+    const stop = editable(rec);
+    if (stop) return stop;
+    const b = req.body || {};
+    const issues = itemIssues(b, await balancesOf(conn, rec.id));
+    if (issues.length) return { status: 422, body: { issues } };
+    const row = (await conn.query(
+      `INSERT INTO finance.rec_reconciling_items (rec_id, entity_id, side, kind, txn_date, description, amount, source, note, added_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'keyed',$8,$9) RETURNING id`,
+      [rec.id, b.entity_id, b.side, b.kind, b.txn_date || null, String(b.description).trim().slice(0, 300), recs.pounds(recs.pence(Number(b.amount))),
+        String(b.note ?? "").trim().slice(0, 2000) || null, actor])).rows[0];
+    await started(conn, rec);
+    await event(conn, rec.id, client.id, actor, "reconciling_added", { entity_id: b.entity_id, side: b.side, kind: b.kind, amount: recs.pounds(recs.pence(Number(b.amount))) });
+    return { status: 201, body: { id: row.id } };
+  }))));
+
+  // PATCH /recs/:id/reconciling/:iid   body: { kind?, note?, state?: open|cleared, cleared_note? }
+  // Clearing says why it no longer stands between statement and ledger (it
+  // went through the bank, it was fixed in Xero): 5 characters at least.
+  app.patch(`${BASE}/:id/reconciling/:iid`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!mayEvidence(via)) return { status: 403, body: { error: "FM1 or a person works reconciling items" } };
+    if (!work.isGuid(req.params.iid)) return { status: 400, body: { error: "iid must be a reconciling item id" } };
+    if (!await hasReconciling(conn)) return notReady;
+    const stop = editable(rec);
+    if (stop) return stop;
+    const it = (await conn.query("SELECT * FROM finance.rec_reconciling_items WHERE id = $1 AND rec_id = $2 FOR UPDATE", [req.params.iid, rec.id])).rows[0];
+    if (!it) return { status: 404, body: { error: "no such reconciling item on this reconciliation" } };
+    const b = req.body || {};
+    const issues = itemIssues({ kind: b.kind }, [], { partial: true });
+    if (b.state !== undefined && !["open", "cleared"].includes(b.state)) issues.push("state must be open or cleared");
+    const clearing = b.state === "cleared" && it.state !== "cleared";
+    const why = String(b.cleared_note ?? "").trim();
+    if (clearing && why.length < 5) issues.push("Say why it is cleared: through the bank on a date, fixed in Xero, or explained");
+    if (issues.length) return { status: 422, body: { issues } };
+    const kind = b.kind ?? it.kind;
+    const note = b.note !== undefined ? (String(b.note).trim().slice(0, 2000) || null) : it.note;
+    const state = b.state ?? it.state;
+    await conn.query(
+      `UPDATE finance.rec_reconciling_items SET kind = $2, note = $3, state = $4, edited_by = $5, edited_at = now(),
+         cleared_by = CASE WHEN $4 = 'cleared' THEN COALESCE(CASE WHEN $6 THEN $5 END, cleared_by) END,
+         cleared_at = CASE WHEN $4 = 'cleared' THEN COALESCE(CASE WHEN $6 THEN now() END, cleared_at) END,
+         cleared_note = CASE WHEN $4 = 'cleared' THEN COALESCE(CASE WHEN $6 THEN $7 END, cleared_note) END
+       WHERE id = $1`,
+      [it.id, kind, note, state, actor, clearing, why.slice(0, 2000) || null]);
+    await event(conn, rec.id, client.id, actor, clearing ? "reconciling_cleared" : state === "open" && it.state === "cleared" ? "reconciling_reopened" : "reconciling_edited",
+      { id: it.id, kind, state, amount: it.amount, ...(clearing ? { why } : {}) });
+    return { status: 200, body: { id: it.id, kind, state } };
+  }))));
+
+  // DELETE /recs/:id/reconciling/:iid   a keyed item only. What a statement
+  // found is cleared with a note instead, so the trail stays.
+  app.delete(`${BASE}/:id/reconciling/:iid`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (rec) => {
+    if (!mayEvidence(via)) return { status: 403, body: { error: "FM1 or a person removes reconciling items" } };
+    if (!work.isGuid(req.params.iid)) return { status: 400, body: { error: "iid must be a reconciling item id" } };
+    if (!await hasReconciling(conn)) return notReady;
+    const stop = editable(rec);
+    if (stop) return stop;
+    const it = (await conn.query("SELECT id, source, side, amount FROM finance.rec_reconciling_items WHERE id = $1 AND rec_id = $2", [req.params.iid, rec.id])).rows[0];
+    if (!it) return { status: 404, body: { error: "no such reconciling item on this reconciliation" } };
+    if (it.source !== "keyed") return { status: 409, body: { error: "This came from the statement: clear it with a note instead" } };
+    await conn.query("DELETE FROM finance.rec_reconciling_items WHERE id = $1", [it.id]);
+    await event(conn, rec.id, client.id, actor, "reconciling_removed", { id: it.id, side: it.side, amount: it.amount });
+    return { status: 200, body: { removed: it.id } };
   }))));
 
   // POST /recs/:id/counterpart   body: { rec_account_id | null }   a person pairs
