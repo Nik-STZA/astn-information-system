@@ -181,12 +181,23 @@ function notWorkableReason(lineKey, proof) {
 // ── Evidence ─────────────────────────────────────────────────────────────────
 
 // The support for an evidence rec: each company's evidence summed, in pence.
-// A company with no evidence has none, so it does not tie.
-function evidenceTotals(rows) {
+// A company with no evidence has none, so it does not tie. Open reconciling
+// items (lib/bank-statement.js) bridge a company's evidence to its ledger: in
+// Xero only adds, on the statement only takes away. They count only beside
+// evidence, never as evidence on their own.
+function evidenceTotals(rows, reconciling = []) {
   const out = new Map();
   for (const r of rows || []) out.set(r.entity_id, (out.get(r.entity_id) ?? 0) + pence(r.amount));
+  for (const it of reconciling || []) {
+    if (it.state !== "open" || !out.has(it.entity_id)) continue;
+    out.set(it.entity_id, out.get(it.entity_id) + (it.side === "xero_only" ? 1 : -1) * pence(it.amount));
+  }
   return out;
 }
+
+// Reconciling items that stop a sign-off: anything open but timing. Timing
+// items are real, and clear through the bank next month.
+const blockingItems = (reconciling = []) => (reconciling || []).filter((it) => it.state === "open" && it.kind !== "timing");
 
 // How evidence can be fetched for a rec without a person keying it, or null.
 //   ageing_ar / ageing_ap  the control account against Xero's invoices outstanding at the month end
@@ -718,7 +729,7 @@ const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent
 //   note     the note given
 //   reads    why the figures cannot be relied on at sign-off
 //   accept   the CFO's reason for signing off a difference that does not tie
-function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "", missingEvidence = null }) {
+function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "", missingEvidence = null, blocking = [] }) {
   const issues = [];
   const say = (s) => issues.push(s);
   const worked = workable(rec.line_key, rec.proof);
@@ -748,6 +759,10 @@ function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, com
     if (!tied && !why) say("It does not tie. Post the journal in Xero and refresh, correct the schedule, or accept the difference with a reason");
     if (!tied && why && why.length < ACCEPT_MIN) say(`Say why the difference is accepted, in at least ${ACCEPT_MIN} characters`);
     if (tied && why) say("It ties, so there is no difference to accept");
+    if (blocking.length) {
+      const n = blocking.length;
+      say(`${n} reconciling item${n === 1 ? " is" : "s are"} still open that ${n === 1 ? "is" : "are"} not timing. Fix ${n === 1 ? "it" : "them"} in Xero and upload the statement again, or clear ${n === 1 ? "it" : "them"} with a note`);
+    }
     if (!via && needsSoleReviewer(rec, person) && !sole) {
       say("You prepared or reviewed this, or started the agents that did. Tick sole reviewer to sign off: it is recorded and shown on the reconciliation");
     }
@@ -966,7 +981,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
-  EVIDENCE_PROOFS, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, carryForward,
+  EVIDENCE_PROOFS, usesEvidence, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,

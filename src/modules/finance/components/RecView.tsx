@@ -11,6 +11,7 @@ import { Check, ChevronRight, Minus, Plus, X } from "lucide-react";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import { EVENT_LABEL, PROOF_LABEL, actorLabel, dayLabel, money, monthLabel, type CoverRow, type EntityChecks, type RecDetail, type RecEvidence, type RecJournal, type ScheduleItem } from "@/modules/finance/lib/recs";
 import { StatusPill } from "./RecsList";
+import RecReconciling from "./RecReconciling";
 import styles from "./Recs.module.css";
 
 type Send = (path: string, body?: unknown, method?: string) => Promise<boolean>;
@@ -169,6 +170,9 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
       )}
 
       {data.evidence && <Evidence data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />}
+      {data.evidence && (data.evidence.statement_upload || (data.evidence.reconciling ?? []).length > 0 || preparing) && (
+        <RecReconciling data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />
+      )}
 
       {rec.workable && rec.proof === "schedule" && (
         <Fold title="Schedule" open meta={`${schedule.items.length} ${schedule.items.length === 1 ? "item" : "items"}`}
