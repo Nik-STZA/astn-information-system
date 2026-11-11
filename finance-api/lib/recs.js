@@ -207,11 +207,22 @@ const METHOD_LABEL = {
   carry_forward: "Last month's signed evidence, carried where the account did not move",
 };
 
+// A Xero date as YYYY-MM-DD, or null. Xero sends "2026-10-18T00:00:00" in a
+// *DateString field and "/Date(1792368000000+0000)/" in Date; payments and
+// allocations nested on an invoice often carry only the second. Reading only
+// the first skipped a part-payment on 10 Nov 2026 and showed an invoice gross.
+function day(s) {
+  if (s === null || s === undefined || s === "") return null;
+  const ms = /^\/Date\((-?\d+)/.exec(String(s));
+  if (ms) return new Date(Number(ms[1])).toISOString().slice(0, 10);
+  const m = /(\d{4}-\d{2}-\d{2})/.exec(String(s));
+  return m ? m[1] : null;
+}
+
 // An invoice's amount still outstanding at a date, in pence, from its own
 // payments, credit notes, prepayments and overpayments dated on or before it.
 // Null when it was not raised by then, or was voided or deleted.
 function outstandingAt(inv, date) {
-  const day = (s) => { const m = /(\d{4}-\d{2}-\d{2})/.exec(String(s ?? "")); return m ? m[1] : null; };
   const raised = day(inv.DateString ?? inv.Date);
   if (!raised || raised > date || ["VOIDED", "DELETED", "DRAFT", "SUBMITTED"].includes(inv.Status)) return null;
   let left = pence(inv.Total);
@@ -227,7 +238,6 @@ function outstandingAt(inv, date) {
 // payables a credit. Foreign invoices are converted at the rate Xero recorded.
 // A credit note's credit still unallocated at a date, in pence, or null.
 function creditLeftAt(cn, date) {
-  const day = (s) => { const m = /(\d{4}-\d{2}-\d{2})/.exec(String(s ?? "")); return m ? m[1] : null; };
   const raised = day(cn.DateString ?? cn.Date);
   if (!raised || raised > date || ["VOIDED", "DELETED", "DRAFT", "SUBMITTED"].includes(cn.Status)) return null;
   let left = pence(cn.Total);

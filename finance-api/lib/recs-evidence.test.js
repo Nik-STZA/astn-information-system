@@ -64,6 +64,17 @@ describe("automatic methods", () => {
     expect(creditLeftAt({ Status: "AUTHORISED", DateString: "2026-09-01T00:00:00", Total: 50, Allocations: [{ DateString: "2026-10-02T00:00:00", Amount: 50 }] }, "2026-09-30")).toBe(5000);
   });
 
+  it("reads a payment dated only as /Date(ms)/, as Xero nests them on an invoice", () => {
+    // The shape Xero returned on 10 Nov 2026: a part-payment with no DateString.
+    const inv = { Status: "AUTHORISED", DateString: "2026-09-03T00:00:00", Date: "/Date(1788393600000+0000)/", Total: 250000,
+      Payments: [{ Date: "/Date(1792368000000+0000)/", Amount: 119988 }] };
+    expect(outstandingAt(inv, "2026-09-30")).toBe(25000000);
+    expect(outstandingAt(inv, "2026-10-31")).toBe(13001200);
+    expect(outstandingAt({ Status: "AUTHORISED", Date: "/Date(1788393600000+0000)/", Total: 10 }, "2026-09-30")).toBe(1000);
+    expect(creditLeftAt({ Status: "AUTHORISED", DateString: "2026-09-01T00:00:00", Total: 50, Allocations: [{ Date: "/Date(1792368000000+0000)/", Amount: 50 }] }, "2026-10-31")).toBe(0);
+    expect(ageingEvidence([inv], { date: "2026-10-31", kind: "ar" })).toMatchObject({ amount: "130012.00", count: 1 });
+  });
+
   it("gives receivables as a debit and payables as a credit, net of unallocated credit", () => {
     const invs = [{ Status: "AUTHORISED", DateString: "2026-10-01T00:00:00", Total: 300 }, { Status: "AUTHORISED", DateString: "2026-10-02T00:00:00", Total: 200, CurrencyRate: 2 }];
     const cns = [{ Status: "AUTHORISED", DateString: "2026-10-03T00:00:00", Total: 50 }];
