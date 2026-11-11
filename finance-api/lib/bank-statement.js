@@ -317,7 +317,7 @@ function matchAfter({ lines, items, from, periodEnd, days = MATCH_DAYS }) {
   const start = from ?? addDays(lines[0]?.date ?? periodEnd, -1);
   const bank = lines.filter((l) => l.date > start && l.date <= periodEnd);
   const xero = items.filter((x) => x.date > start && x.date <= periodEnd).map((x) => ({ ...x, used: false }));
-  const matched = [], bankOnly = [];
+  const matched = [];
   for (const l of bank) {
     let pick = null;
     for (const x of xero) {
@@ -326,11 +326,89 @@ function matchAfter({ lines, items, from, periodEnd, days = MATCH_DAYS }) {
       if (gap > days) continue;
       if (!pick || gap < pick.gap) pick = { x, gap };
     }
-    if (pick) { pick.x.used = true; matched.push({ line: l, item: pick.x }); }
-    else bankOnly.push(l);
+    if (pick) { pick.x.used = true; l.used = true; matched.push({ line: l, item: pick.x }); }
   }
+  // Then one to several, each way. Revolut shows a card payment and its fee as
+  // one line where Xero holds two (the charge, and "revolut" for the fee), and
+  // a batch payment in Xero can sit beside separate items on one bank line.
+  // Seen on 11 Nov 2026: without this, 104 of 566 lines on one account stood
+  // as differences that were the same money.
+  const left = bank.filter((l) => !l.used);
+  for (const l of left) {
+    const group = groupFor(l, xero.filter((x) => !x.used), GROUP_DAYS);
+    if (group) { for (const x of group) x.used = true; l.used = true; matched.push({ line: l, items: group }); }
+  }
+  for (const x of xero.filter((y) => !y.used)) {
+    const group = groupFor(x, bank.filter((l) => !l.used), GROUP_DAYS);
+    if (group) { for (const l of group) l.used = true; x.used = true; matched.push({ lines: group, item: x }); }
+  }
+  // Entries on one side that cancel each other on the same day (Revolut's
+  // account clearing in Xero, a charge and its reversal) stand for nothing.
+  const cancelled = [];
+  for (const side of [bank, xero]) {
+    const open = side.filter((v) => !v.used);
+    for (const a of open) {
+      if (a.used) continue;
+      const b = open.find((v) => v !== a && !v.used && v.date === a.date && v.amount === -a.amount);
+      if (b) { a.used = true; b.used = true; cancelled.push([a, b]); }
+    }
+  }
+  // Last, the same payment at a slightly different amount: a card payment in
+  // another currency entered at a different rate, a fee left out. They become
+  // one item, the difference, rather than two that look unrelated.
+  const near = [];
+  for (const l of bank.filter((v) => !v.used)) {
+    let pick = null;
+    for (const x of xero) {
+      if (x.used || Math.sign(x.amount) !== Math.sign(l.amount)) continue;
+      const diff = Math.abs(x.amount - l.amount);
+      if (diff > Math.max(NEAR_PENCE, Math.round(Math.abs(l.amount) * NEAR_SHARE))) continue;
+      const gap = daysApart(x.date, l.date);
+      if (gap > days) continue;
+      if (!pick || diff < pick.diff || (diff === pick.diff && gap < pick.gap)) pick = { x, diff, gap };
+    }
+    if (pick) { pick.x.used = true; l.used = true; near.push({ line: l, item: pick.x }); }
+  }
+  const bankOnly = bank.filter((l) => !l.used).map(({ used, ...l }) => l);
   const xeroOnly = xero.filter((x) => !x.used).map(({ used, ...x }) => x);
-  return { matched, bankOnly, xeroOnly, from: start };
+  for (const l of bank) delete l.used;
+  return { matched, near, cancelled, bankOnly, xeroOnly, from: start };
+}
+
+// How close a near match must be: within 2% of the line, or 50p on a small one.
+const NEAR_PENCE = 50;
+const NEAR_SHARE = 0.02;
+
+// Two to MAX_GROUP of `pool`, on the same side of nil as `one` and within
+// `days` of it, that add up to it exactly. The nearest in date are tried
+// first, and the set nearest in date wins. Null when none do.
+const MAX_GROUP = 4;
+const GROUP_DAYS = 1;
+const MAX_TRIED = 14;
+function groupFor(one, pool, days) {
+  const sign = Math.sign(one.amount);
+  const near = pool
+    .filter((p) => Math.sign(p.amount) === sign && Math.abs(p.amount) < Math.abs(one.amount) && daysApart(p.date, one.date) <= days)
+    .map((p) => ({ p, gap: daysApart(p.date, one.date) }))
+    .sort((a, b) => a.gap - b.gap)
+    .slice(0, MAX_TRIED);
+  let best = null;
+  const walk = (start, chosen, sum, gap) => {
+    if (chosen.length >= 2 && sum === one.amount) {
+      if (!best || gap < best.gap || (gap === best.gap && chosen.length < best.set.length)) best = { set: [...chosen], gap };
+      return;
+    }
+    if (chosen.length === MAX_GROUP) return;
+    for (let i = start; i < near.length; i++) {
+      const next = sum + near[i].p.amount;
+      if (Math.abs(next) > Math.abs(one.amount)) continue;
+      chosen.push(near[i].p);
+      walk(i + 1, chosen, next, gap + near[i].gap);
+      chosen.pop();
+    }
+  };
+  walk(0, [], 0, 0);
+  return best ? best.set : null;
 }
 
 // The whole comparison for one account. Returns what the rec needs:
@@ -347,6 +425,13 @@ function compare({ lines, items, ledgerEnd, periodEnd }) {
   const agreed = agreedPoint({ lines, items, ledgerEnd, periodEnd });
   const m = matchAfter({ lines, items, from: agreed?.date ?? null, periodEnd });
   const held = [
+    // A near match is held as one item, the difference: in Xero less on the
+    // statement, so it moves the bridge exactly as the pair would.
+    ...m.near.map(({ line, item }) => ({
+      side: "xero_only", kind: "error", txn_date: line.date,
+      description: `${item.description ?? "Xero"} - bank ${(line.amount / 100).toFixed(2)}, Xero ${(item.amount / 100).toFixed(2)}`.slice(0, 300),
+      amount: item.amount - line.amount, statement_row: line.row, xero_ref: item.key,
+    })),
     ...m.bankOnly.map((l) => ({ side: "bank_only", kind: "unreconciled", txn_date: l.date, description: l.description, amount: l.amount, statement_row: l.row, xero_ref: null })),
     ...m.xeroOnly.map((x) => ({
       side: "xero_only", kind: x.date >= addDays(periodEnd, -TIMING_DAYS) ? "timing" : "error",
@@ -363,6 +448,8 @@ function compare({ lines, items, ledgerEnd, periodEnd }) {
     said.push(`The statement and Xero do not agree on any day in this file (it starts ${nice(lines[0]?.date)}). The gap is older than the file: export from earlier.`);
     if (check) said.push(`Before the file starts there is a difference of ${(check / 100).toFixed(2)} that the lines in it cannot explain.`);
   }
+  if (m.near.length) said.push(`${m.near.length} ${m.near.length === 1 ? "payment is" : "payments are"} in both at slightly different amounts (a rate or a fee): each is held as its difference.`);
+  if (m.cancelled.length) said.push(`${m.cancelled.length} pair${m.cancelled.length === 1 ? "" : "s"} of entries cancel out on the same day and are left aside.`);
   return { statement_balance: statementBalance, agreed, items: held, matched: m.matched.length, check, said };
 }
 
