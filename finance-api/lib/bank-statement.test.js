@@ -193,3 +193,97 @@ describe("setting the statement against Xero", () => {
     expect(agreedPoint({ lines: [line("2026-09-10", 0, 5, 1)], items: [], ledgerEnd: 6, periodEnd: "2026-09-30" })).toBe(null);
   });
 });
+
+describe("testing near matches against Xero's own balances", () => {
+  // The case of 13 Nov 2026 (names changed): a card account, January to
+  // September. Xero sat 10.63 below the statement at every month end, and
+  // Xero's net movement equalled the statement's in every month. The old
+  // matcher held four near differences (0.40, 1.10, -0.20, -2.02; net -0.72)
+  // as errors and called the rest, 9.91, older than the file.
+  const opening = 100000;
+  const bankMoves = [
+    ["2026-01-13", -53874], ["2026-02-02", 700000], ["2026-03-25", -682600], ["2026-04-10", -1250], ["2026-05-31", 7499],
+    ["2026-06-03", -19732], ["2026-06-05", -350], ["2026-07-15", 25000], ["2026-09-30", -30069],
+  ];
+  let run = opening;
+  const lines = bankMoves.map(([date, amount], i) => { run += amount; return { row: i + 2, date, description: `L${i}`, amount, balance: run }; });
+  const items = [
+    { key: "charge", date: "2026-01-13", amount: -53341 }, { key: "fee", date: "2026-01-13", amount: -533 },
+    { key: "funding", date: "2026-02-02", amount: 700000 },
+    { key: "sta", date: "2026-03-25", amount: -682560 },
+    { key: "sub", date: "2026-04-10", amount: -1250 },
+    { key: "late", date: "2026-06-01", amount: 7499 },
+    { key: "hotel", date: "2026-06-03", amount: -19622 }, { key: "coffee", date: "2026-06-05", amount: -370 },
+    { key: "refund", date: "2026-07-15", amount: 25000 },
+    { key: "batch", date: "2026-09-30", amount: -30271 }, { key: "receipt", date: "2026-09-30", amount: 202 },
+  ].map((x) => ({ ...x, description: x.key }));
+  const periodEnd = "2026-09-30";
+  const statementAt = (d) => bs.balanceAt(lines, d);
+  // Xero 10.63 below at every month end, but for 31 May: a receipt on the
+  // statement that day is in Xero on 1 June, so the gap is 85.62 (as seen).
+  const xeroBalances = Object.fromEntries(bs.balanceDays(lines, periodEnd).map((d) => [d, statementAt(d) - 1063 - (d === "2026-05-31" ? 7499 : 0)]));
+  const ledgerEnd = xeroBalances[periodEnd];
+
+  it("reads Xero's balance on the day before the file and at each month end", () => {
+    expect(bs.balanceDays(lines, periodEnd)).toEqual([
+      "2026-01-12", "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30",
+    ]);
+  });
+
+  it("holds nothing and puts the whole 10.63 before the file", () => {
+    const out = compare({ lines, items, ledgerEnd, periodEnd, xeroBalances });
+    expect(out.agreed).toBe(null);
+    expect(out.items).toEqual([]);
+    expect(out.before_file).toMatchObject({ date: "2026-01-12", statement: opening, xero: opening - 1063, difference: 1063, from_xero: true });
+    expect(out.check).toBe(1063);
+    expect(out.noted.map((n) => n.amount).sort((a, b) => a - b)).toEqual([-20, 40, 110]);
+    expect(out.said.join(" ")).toMatch(/difference of 10\.63/);
+    expect(out.said.join(" ")).not.toMatch(/A further/);
+  });
+
+  it("matches a bank line to a Xero payment and a receipt on the same day", () => {
+    const m = matchAfter({ lines, items, from: "2026-01-12", periodEnd });
+    const amazon = m.matched.find((p) => p.line?.date === "2026-09-30");
+    expect(amazon.items.map((x) => x.key).sort()).toEqual(["batch", "receipt"]);
+    expect(m.near.map((n) => n.item.key)).toEqual(["sta", "hotel", "coffee"]);
+    expect(m.matched.some((p) => p.item?.key === "late")).toBe(true);
+  });
+
+  it("still holds a near difference when Xero's balance did move by it", () => {
+    const moved = { ...xeroBalances };
+    for (const d of Object.keys(moved)) if (d >= "2026-03-31") moved[d] += 40;
+    const out = compare({ lines, items, ledgerEnd: moved[periodEnd], periodEnd, xeroBalances: moved });
+    expect(out.items.map((h) => [h.xero_ref, h.kind, h.amount])).toEqual([["sta", "error", 40]]);
+    expect(out.check - out.before_file.difference).toBe(0);
+  });
+
+  it("without Xero's balances, works the day before back from the items and holds the near differences", () => {
+    const out = compare({ lines, items, ledgerEnd, periodEnd });
+    expect(out.before_file.from_xero).toBe(false);
+    expect(out.items.map((h) => h.xero_ref)).toEqual(["sta", "hotel", "coffee"]);
+    expect(out.before_file.difference).toBe(1063 + 130);
+    expect(out.check).toBe(1063 + 130);
+    expect(out.said.join(" ")).not.toMatch(/A further/);
+  });
+
+  it("finds the fewest entries of either sign that make up an amount", () => {
+    const pool = [{ amount: 500 }, { amount: -300 }, { amount: 202 }, { amount: 100 }];
+    expect(bs.offsetsFor(202, pool)).toEqual([{ amount: 202 }]);
+    expect(bs.offsetsFor(200, pool)).toEqual([{ amount: 500 }, { amount: -300 }]);
+    expect(bs.offsetsFor(7, pool)).toBe(null);
+  });
+
+  it("reads one account's closing balance from Xero's Bank Summary", () => {
+    const report = { Reports: [{ Rows: [
+      { RowType: "Header", Cells: [{ Value: "Bank Accounts" }, { Value: "Opening Balance" }, { Value: "Cash Received" }, { Value: "Cash Spent" }, { Value: "Closing Balance" }] },
+      { RowType: "Section", Rows: [
+        { RowType: "Row", Cells: [{ Value: "Other", Attributes: [{ Id: "accountID", Value: "x-1" }] }, { Value: "1.00" }, { Value: "0" }, { Value: "0" }, { Value: "1.00" }] },
+        { RowType: "Row", Cells: [{ Value: "Card GBP", Attributes: [{ Id: "accountID", Value: "a-2" }] }, { Value: "100.00" }, { Value: "5.00" }, { Value: "10.00" }, { Value: "-1,095.00" }] },
+        { RowType: "SummaryRow", Cells: [{ Value: "Total" }, { Value: "" }, { Value: "" }, { Value: "" }, { Value: "96.00" }] },
+      ] },
+    ] }] };
+    expect(bs.bankSummaryClosing(report, "a-2")).toBe(-109500);
+    expect(bs.bankSummaryClosing(report, null, "Other")).toBe(100);
+    expect(bs.bankSummaryClosing(report, "nope")).toBe(null);
+  });
+});

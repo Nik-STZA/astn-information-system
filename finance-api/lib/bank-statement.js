@@ -353,6 +353,23 @@ function matchAfter({ lines, items, from, periodEnd, days = MATCH_DAYS }) {
       if (b) { a.used = true; b.used = true; cancelled.push([a, b]); }
     }
   }
+  // Before calling anything a near match: other Xero entries on the same day
+  // as the nearest one may make up the bank amount, either way round. Seen on
+  // 13 Nov 2026: a batch payment of 302.71 and a 2.02 receipt in Xero against
+  // one bank line of 300.69.
+  for (const l of bank.filter((v) => !v.used)) {
+    let pick = null;
+    for (const x of xero) {
+      if (x.used || Math.sign(x.amount) !== Math.sign(l.amount)) continue;
+      const diff = Math.abs(x.amount - l.amount);
+      if (diff === 0 || diff > Math.max(NEAR_PENCE, Math.round(Math.abs(l.amount) * NEAR_SHARE))) continue;
+      const gap = daysApart(x.date, l.date);
+      if (gap > days) continue;
+      const extra = offsetsFor(l.amount - x.amount, xero.filter((y) => !y.used && y !== x && (y.date === x.date || y.date === l.date)));
+      if (extra && (!pick || gap < pick.gap)) pick = { set: [x, ...extra], gap };
+    }
+    if (pick) { for (const x of pick.set) x.used = true; l.used = true; matched.push({ line: l, items: pick.set }); }
+  }
   // Last, the same payment at a slightly different amount: a card payment in
   // another currency entered at a different rate, a fee left out. They become
   // one item, the difference, rather than two that look unrelated.
@@ -411,46 +428,196 @@ function groupFor(one, pool, days) {
   return best ? best.set : null;
 }
 
+// One to MAX_OFFSETS of `pool`, of either sign, adding up to `needed` exactly;
+// the fewest that do. Null when none do.
+const MAX_OFFSETS = 3;
+function offsetsFor(needed, pool) {
+  const some = pool.slice(0, MAX_TRIED);
+  let best = null;
+  const walk = (start, chosen, sum) => {
+    if (chosen.length && sum === needed) {
+      if (!best || chosen.length < best.length) best = [...chosen];
+      return;
+    }
+    if (chosen.length === MAX_OFFSETS) return;
+    for (let i = start; i < some.length; i++) {
+      chosen.push(some[i]);
+      walk(i + 1, chosen, sum + some[i].amount);
+      chosen.pop();
+    }
+  };
+  walk(0, [], 0);
+  return best;
+}
+
+// ── Xero's own balances ──────────────────────────────────────────────────────
+
+// The days on which Xero's balance for the account is read: the day before the
+// file starts, each month end in the file, and the month end of the rec.
+function balanceDays(lines, periodEnd) {
+  if (!lines.length) return [];
+  const out = [addDays(lines[0].date, -1)];
+  let d = lines[0].date;
+  for (;;) {
+    const [y, m] = d.split("-").map(Number);
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    if (end >= periodEnd) break;
+    out.push(end);
+    d = addDays(end, 1);
+  }
+  out.push(periodEnd);
+  return [...new Set(out)];
+}
+
+// One account's closing balance, in pence, from Xero's Bank Summary report
+// (the report's ToDate is the day). Null when the account is not in it.
+function bankSummaryClosing(report, accountId, accountName) {
+  const rows = report?.Reports?.[0]?.Rows ?? [];
+  const flat = rows.flatMap((r) => (r.Rows ? r.Rows : [r]));
+  const header = rows.find((r) => r.RowType === "Header")?.Cells?.map((c) => String(c.Value ?? "")) ?? [];
+  let col = header.findIndex((h) => /closing/i.test(h));
+  for (const r of flat) {
+    if (r.RowType !== "Row" || !r.Cells?.length) continue;
+    const first = r.Cells[0];
+    const id = (first.Attributes ?? []).find((a) => /account/i.test(a.Id ?? ""))?.Value;
+    if (!(accountId && id === accountId) && !(accountName && String(first.Value).trim() === accountName)) continue;
+    if (col < 0) col = r.Cells.length - 1;
+    const v = penceOf(r.Cells[col]?.Value);
+    return v;
+  }
+  return null;
+}
+
+// Statement less Xero at a day end, in pence. Xero's own balance when it was
+// read for that day; otherwise the month-end ledger less Xero's items after it.
+function gapAt({ lines, items, ledgerEnd, periodEnd, xeroBalances }, date) {
+  const s = balanceAt(lines, date);
+  if (s === null) return null;
+  if (xeroBalances && xeroBalances[date] !== undefined && xeroBalances[date] !== null) return s - xeroBalances[date];
+  let after = 0;
+  for (const x of items) if (x.date > date && x.date <= periodEnd) after += x.amount;
+  return s - (ledgerEnd - after);
+}
+
+// How a held item moves the gap (statement less Xero): one in Xero only
+// lowers it, one on the statement only raises it.
+const moveOf = (h) => (h.side === "xero_only" ? -h.amount : h.amount);
+
+// A near match is a real difference only if the gap between the statement and
+// Xero moved by it and stayed moved. Month by month, the Xero money that its
+// items do not show (from Xero's own balances) is set against the near
+// differences; the fewest that still stand are kept, the rest are only
+// noted. Seen on 13 Nov 2026: four near differences (net -0.72) were held as
+// errors while Xero sat 10.63 below the statement at every month end.
+function testNear(near, ctx, monthEnds) {
+  const keep = [], noted = [];
+  const ends = [...monthEnds].sort();
+  const monthOf = (d) => ends.find((e) => e >= d) ?? null;
+  const groups = new Map();
+  for (const n of near) {
+    const k = monthOf(n.txn_date);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(n);
+  }
+  for (const [end, list] of groups) {
+    const i = ends.indexOf(end);
+    const g1 = end ? gapAt(ctx, end) : null;
+    const g0 = i > 0 ? gapAt(ctx, ends[i - 1]) : null;
+    if (g0 === null || g1 === null || list.length > 12) { keep.push(...list); continue; }
+    // What Xero's items say the gap did this month, less what Xero's own
+    // balance says it did, is the Xero money the items do not show. The near
+    // differences that stand are those that money does not offset. A payment
+    // crossing the month end (bank 31 May, Xero 1 Jun) moves both the same
+    // way, so it drops out (seen on 13 Nov 2026: 74.99 across 31 May).
+    const byItems = { ...ctx, xeroBalances: null };
+    const i0 = gapAt(byItems, ends[i - 1]), i1 = gapAt(byItems, end);
+    if (i0 === null || i1 === null) { keep.push(...list); continue; }
+    const unseen = (i1 - i0) - (g1 - g0);
+    const needed = list.reduce((a, n) => a + moveOf(n), 0) - unseen;
+    let best = null;
+    for (let mask = 0; mask < 1 << list.length; mask++) {
+      let sum = 0, count = 0;
+      for (let j = 0; j < list.length; j++) if (mask & (1 << j)) { sum += moveOf(list[j]); count += 1; }
+      if (sum === needed && (best === null || count < best.count)) best = { mask, count };
+    }
+    if (best === null) { keep.push(...list); continue; }
+    list.forEach((n, j) => (best.mask & (1 << j) ? keep : noted).push(n));
+  }
+  return { keep, noted };
+}
+
 // The whole comparison for one account. Returns what the rec needs:
 //   statement_balance  at the month end
 //   agreed             { date, balance } or null
 //   items              reconciling items to hold: { side, kind, txn_date, description, amount, statement_row, xero_ref }
 //   check              statement + xero_only - bank_only - ledger (nil when it all holds)
 //   said               plain sentences for the person
-function compare({ lines, items, ledgerEnd, periodEnd }) {
+//   before_file        { date, statement, xero, difference, from_xero } on the
+//                      day before the file starts, or null
+//   noted              near differences not held, because Xero's balance shows
+//                      them offset in the same month
+//   xeroBalances       optional { "YYYY-MM-DD": pence } read from Xero for the
+//                      days balanceDays gives; without it the ledger on a day is
+//                      worked back from the items
+function compare({ lines, items, ledgerEnd, periodEnd, xeroBalances = null }) {
   const said = [];
+  const ctx = { lines, items, ledgerEnd, periodEnd, xeroBalances };
   const statementBalance = balanceAt(lines, periodEnd);
   const last = lines[lines.length - 1];
   if (last && last.date < periodEnd.slice(0, 7) + "-01") said.push(`The statement's last line is ${nice(last.date)}, before this month: if anything moved since, export to the month end`);
   const agreed = agreedPoint({ lines, items, ledgerEnd, periodEnd });
   const m = matchAfter({ lines, items, from: agreed?.date ?? null, periodEnd });
-  const held = [
-    // A near match is held as one item, the difference: in Xero less on the
-    // statement, so it moves the bridge exactly as the pair would.
-    ...m.near.map(({ line, item }) => ({
-      side: "xero_only", kind: "error", txn_date: line.date,
-      description: `${item.description ?? "Xero"} - bank ${(line.amount / 100).toFixed(2)}, Xero ${(item.amount / 100).toFixed(2)}`.slice(0, 300),
-      amount: item.amount - line.amount, statement_row: line.row, xero_ref: item.key,
-    })),
+  const others = [
     ...m.bankOnly.map((l) => ({ side: "bank_only", kind: "unreconciled", txn_date: l.date, description: l.description, amount: l.amount, statement_row: l.row, xero_ref: null })),
     ...m.xeroOnly.map((x) => ({
       side: "xero_only", kind: x.date >= addDays(periodEnd, -TIMING_DAYS) ? "timing" : "error",
       txn_date: x.date, description: x.description, amount: x.amount, statement_row: null, xero_ref: x.key,
     })),
   ];
+  // A near match is held as one item, the difference: in Xero less on the
+  // statement, so it moves the bridge exactly as the pair would.
+  const nearItems = m.near.map(({ line, item }) => ({
+    side: "xero_only", kind: "error", txn_date: line.date,
+    description: `${item.description ?? "Xero"} - bank ${(line.amount / 100).toFixed(2)}, Xero ${(item.amount / 100).toFixed(2)}`.slice(0, 300),
+    amount: item.amount - line.amount, statement_row: line.row, xero_ref: item.key,
+  }));
+  const ends = balanceDays(lines, periodEnd).filter((d) => !agreed || d >= agreed.date);
+  if (agreed && !ends.includes(agreed.date)) ends.unshift(agreed.date);
+  const tested = testNear(nearItems, ctx, ends);
+  const held = [...tested.keep, ...others];
   const effect = held.reduce((a, h) => a + (h.side === "xero_only" ? h.amount : -h.amount), 0);
   const check = statementBalance === null ? null : statementBalance + effect - ledgerEnd;
+
+  // Before the file starts: the statement's opening balance less Xero's
+  // balance on the day before, read directly, never a residual.
+  let beforeFile = null;
+  if (lines.length) {
+    const day = addDays(lines[0].date, -1);
+    const statement = balanceAt(lines, day);
+    const fromXero = Boolean(xeroBalances && xeroBalances[day] !== undefined && xeroBalances[day] !== null);
+    const gap = gapAt(ctx, day);
+    if (statement !== null && gap !== null) beforeFile = { date: day, statement, xero: statement - gap, difference: gap, from_xero: fromXero };
+  }
+
   if (agreed) {
     said.push(agreed.date === periodEnd
       ? "The statement and Xero agree at the month end."
       : `The statement and Xero last agreed on ${nice(agreed.date)}. ${m.matched.length} line${m.matched.length === 1 ? "" : "s"} since then matched Xero; ${held.length} did not.`);
   } else {
-    said.push(`The statement and Xero do not agree on any day in this file (it starts ${nice(lines[0]?.date)}). The gap is older than the file: export from earlier.`);
-    if (check) said.push(`Before the file starts there is a difference of ${(check / 100).toFixed(2)} that the lines in it cannot explain.`);
+    said.push(`The statement and Xero do not agree on any day in this file (it starts ${nice(lines[0]?.date)}). The gap is older than the file.`);
+    if (beforeFile && beforeFile.difference) {
+      said.push(`On ${nice(beforeFile.date)}, before the file starts, the statement shows ${(beforeFile.statement / 100).toFixed(2)} and Xero ${(beforeFile.xero / 100).toFixed(2)}${beforeFile.from_xero ? "" : " (worked back from Xero's items)"}: a difference of ${(beforeFile.difference / 100).toFixed(2)}.`);
+    }
+    const rest = check === null || !beforeFile ? null : check - beforeFile.difference;
+    if (rest) said.push(`A further ${(rest / 100).toFixed(2)} is not explained by the difference before the file or the items held.`);
   }
-  if (m.near.length) said.push(`${m.near.length} ${m.near.length === 1 ? "payment is" : "payments are"} in both at slightly different amounts (a rate or a fee): each is held as its difference.`);
+  if (tested.keep.length) said.push(`${tested.keep.length} ${tested.keep.length === 1 ? "payment is" : "payments are"} in both at slightly different amounts (a rate or a fee), and Xero's balance moved by ${tested.keep.length === 1 ? "it" : "them"}: each is held as its difference.`);
+  if (tested.noted.length) {
+    said.push(`${tested.noted.length} small difference${tested.noted.length === 1 ? "" : "s"} between a bank line and its Xero entry ${tested.noted.length === 1 ? "is" : "are"} offset by other Xero entries in the same month (Xero's balance did not move by ${tested.noted.length === 1 ? "it" : "them"}), so only noted: `
+      + tested.noted.map((n) => `${nice(n.txn_date)} ${(n.amount / 100).toFixed(2)}`).join(", ") + ".");
+  }
   if (m.cancelled.length) said.push(`${m.cancelled.length} pair${m.cancelled.length === 1 ? "" : "s"} of entries cancel out on the same day and are left aside.`);
-  return { statement_balance: statementBalance, agreed, items: held, matched: m.matched.length, check, said };
+  return { statement_balance: statementBalance, agreed, items: held, matched: m.matched.length, check, before_file: beforeFile, noted: tested.noted, said };
 }
 
 // The effect of a reconciling item on the support for the ledger, in pence:
@@ -459,4 +626,5 @@ const itemEffect = (it) => (it.side === "xero_only" ? 1 : -1) * pence(it.amount)
 
 module.exports = {
   MATCH_DAYS, TIMING_DAYS, dateOf, slashOrder, penceOf, findColumns, readStatement, balanceAt, xeroItems, agreedPoint, matchAfter, compare, itemEffect, xeroDay, nice,
+  balanceDays, bankSummaryClosing, gapAt, testNear, offsetsFor,
 };
