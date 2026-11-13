@@ -1229,6 +1229,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const accountId = rec.account_key.slice(5);
     const entity = (await companies(pool, who.client.id)).find((e) => e.id === b.entity_id);
     let items = [];
+    let xeroBalances = null;
     const said = [...read.said];
     try {
       const ctx = await xeroEntityContext(who.client.slug, entity.slug);
@@ -1247,10 +1248,25 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       if (txns.length >= 3000) said.push("Xero holds over 3,000 transactions on this account in the statement's dates; only the first 3,000 were read. Export a shorter range");
       const seen = new Set();
       items = bank.xeroItems({ bankTransactions: txns, payments: pays, accountId }).filter((x) => (seen.has(x.key) ? false : seen.add(x.key)));
+      // Xero's own balance on the day before the file and at each month end,
+      // so a difference is tested against the ledger, not against the items
+      // (13 Nov 2026). Without them the matcher works back from the items.
+      try {
+        const days = bank.balanceDays(lines, rec.period_end);
+        const got = {};
+        for (const day of days) {
+          const report = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/BankSummary", { fromDate: day, toDate: day });
+          got[day] = bank.bankSummaryClosing(report, accountId, acct?.Name ?? null);
+        }
+        if (days.every((d) => got[d] !== null && got[d] !== undefined)) xeroBalances = got;
+        else said.push("Xero's Bank Summary did not show this account on every month end, so differences were tested against Xero's items only");
+      } catch {
+        said.push("Xero's Bank Summary could not be read, so differences were tested against Xero's items only");
+      }
     } catch (e) {
       return res.status(502).json({ error: `Xero could not be read for ${entity?.name ?? "this company"}: ${String(e.message || e).slice(0, 200)}` });
     }
-    const out = bank.compare({ lines, items, ledgerEnd: recs.pence(b.closing), periodEnd: rec.period_end });
+    const out = bank.compare({ lines, items, ledgerEnd: recs.pence(b.closing), periodEnd: rec.period_end, xeroBalances });
     if (out.statement_balance === null) return res.status(422).json({ issues: ["The statement does not show a balance at the month end"] });
     said.push(...out.said);
     const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
@@ -1264,7 +1280,11 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         "DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND entity_id = $2 AND (method = 'statement' OR method IS NULL) RETURNING method, amount, source",
         [r2.id, b.entity_id])).rows.filter((v) => v.method === null);
       for (const v of replaced) said.push(`The balance keyed by hand (${money(recs.pence(v.amount))}, "${String(v.source).slice(0, 60)}") is replaced by the statement's.`);
-      const summary = { said, read: read.read, check: out.check === null ? null : money(out.check) };
+      const summary = {
+        said, read: read.read, check: out.check === null ? null : money(out.check),
+        before_file: out.before_file ? { date: out.before_file.date, statement: money(out.before_file.statement), xero: money(out.before_file.xero), difference: money(out.before_file.difference), from_xero: out.before_file.from_xero } : null,
+        noted: out.noted.map((n) => ({ txn_date: n.txn_date, description: n.description, amount: money(n.amount) })),
+      };
       await conn.query(
         `INSERT INTO finance.rec_statements (rec_id, entity_id, file_name, sha256, first_date, last_date, line_count, balance_at_end, agreed_on, agreed_balance, matched, summary, uploaded_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
