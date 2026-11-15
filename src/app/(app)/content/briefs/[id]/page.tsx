@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchBrief } from "@/lib/data/content";
+import { fetchBrief, fetchLinkedInDrafts } from "@/lib/data/content";
 import { markdownToHtml } from "@/lib/markdown";
 import BriefEditor from "./BriefEditor";
 
@@ -15,6 +15,10 @@ export default async function BriefDetailPage({
   const res = await fetchBrief(id);
   if (!res.data) notFound();
   const brief = res.data;
+  // A brief with an open LinkedIn post publishes when the post is approved; a
+  // catch-up brief for a past week has none and is published from here.
+  const drafts = brief.status === "draft" ? await fetchLinkedInDrafts() : null;
+  const hasPost = (drafts?.data?.data ?? []).some((d) => d.brief_id === brief.id && (d.status === "draft" || d.status === "approved"));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: brief.status === "draft" ? 1280 : 820 }}>
@@ -34,13 +38,17 @@ export default async function BriefDetailPage({
         <p style={{ fontSize: 12.5, color: "var(--sub)", marginTop: 4 }}>
           {brief.item_count} items ·{" "}
           <span style={{ fontWeight: 700, color: brief.status === "draft" ? "var(--warning-amber)" : "var(--success-green)" }}>
-            {brief.status === "draft" ? "Draft — editable until its LinkedIn post is approved" : "Published — locked"}
+            {brief.status !== "draft"
+              ? "Published — locked"
+              : hasPost
+                ? "Draft — editable until its LinkedIn post is approved"
+                : "Draft — catch-up brief, no LinkedIn post: publish it from here"}
           </span>
         </p>
       </div>
 
       {brief.status === "draft" ? (
-        <BriefEditor id={brief.id} initialMarkdown={brief.report_markdown} />
+        <BriefEditor id={brief.id} initialMarkdown={brief.report_markdown} briefOnly={!hasPost} />
       ) : (
       <article
         className="brief-prose"

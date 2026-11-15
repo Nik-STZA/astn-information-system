@@ -1,7 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory, rewriteContext, fetchBriefVersions, fetchBriefVersion } from "@/lib/data/content";
+import { updateBriefMarkdown, runAgentWorkflow, fetchWorkflowStatus, fetchApprovedPool, rewriteStory, rewriteContext, fetchBriefVersions, fetchBriefVersion, publishBriefOnly } from "@/lib/data/content";
+
+// Publishes a catch-up brief (no LinkedIn post) to africanstn.com.
+export async function publishBriefAction(id: string) {
+  const res = await publishBriefOnly(id);
+  revalidatePath(`/content/briefs/${id}`);
+  revalidatePath("/content/briefs");
+  return res;
+}
 
 export async function saveBrief(id: string, markdown: string) {
   const res = await updateBriefMarkdown(id, markdown);

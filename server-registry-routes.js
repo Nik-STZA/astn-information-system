@@ -720,20 +720,72 @@ app.post("/api/content/linkedin-drafts/:id/publish", async (req, res) => {
 
   // The edition is committed as published whatever happens here; a failed
   // rebuild is reported so the operator can trigger a Netlify deploy by hand.
-  result.site_rebuild = "not_needed";
-  if (result.published) {
-    const hook = (process.env.NETLIFY_BUILD_HOOK || "").trim();
-    if (!hook || hook === "unset") {
-      result.site_rebuild = "not_configured";
-    } else {
-      try {
-        const r = await fetch(hook, { method: "POST", body: "{}" });
-        result.site_rebuild = r.ok ? "triggered" : `failed (${r.status})`;
-      } catch (e) {
-        result.site_rebuild = `failed (${e.message})`;
-      }
-    }
+  result.site_rebuild = result.published ? await triggerSiteRebuild() : "not_needed";
+  res.json(result);
+});
+
+// Rebuilds africanstn.com after an edition is published.
+async function triggerSiteRebuild() {
+  const hook = (process.env.NETLIFY_BUILD_HOOK || "").trim();
+  if (!hook || hook === "unset") return "not_configured";
+  try {
+    const r = await fetch(hook, { method: "POST", body: "{}" });
+    return r.ok ? "triggered" : `failed (${r.status})`;
+  } catch (e) {
+    return `failed (${e.message})`;
   }
+}
+
+// Publishes a draft brief that has no LinkedIn post: catch-up editions for
+// past weeks, which are briefs only (Nik, 15 Nov 2026: LinkedIn posts start
+// with the current week). A brief with an open LinkedIn post is published by
+// approving that post, so the two always go out together.
+app.post("/api/content/briefs/:id/publish", async (req, res) => {
+  const client = await pool.connect();
+  let result;
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT w.id, w.status, w.item_ids, w.week_ending,
+              (SELECT count(*)::int FROM linkedin_drafts d WHERE d.brief_id = w.id AND d.status IN ('draft', 'approved')) AS open_posts
+         FROM weekly_reports w WHERE w.id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    const brief = rows[0];
+    if (!brief) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (brief.status !== "draft") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This brief is already published" });
+    }
+    if (brief.open_posts > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This brief has a LinkedIn post: publish it by approving the post on the LinkedIn page" });
+    }
+    await client.query(
+      `UPDATE weekly_reports SET status = 'published', published_at = NOW() WHERE id = $1 AND status = 'draft'`,
+      [brief.id]
+    );
+    let itemsReported = 0;
+    if (Array.isArray(brief.item_ids) && brief.item_ids.length > 0) {
+      const r = await client.query(
+        `UPDATE classified_items SET status = 'reported' WHERE id = ANY($1::uuid[]) AND status = 'approved'`,
+        [brief.item_ids]
+      );
+      itemsReported = r.rowCount;
+    }
+    await client.query("COMMIT");
+    result = { id: brief.id, published: true, items_reported: itemsReported, week_ending: brief.week_ending };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("POST /api/content/briefs/:id/publish error:", err.message);
+    return res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+  result.site_rebuild = await triggerSiteRebuild();
   res.json(result);
 });
 
