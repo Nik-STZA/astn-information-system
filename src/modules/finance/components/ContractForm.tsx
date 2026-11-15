@@ -157,7 +157,8 @@ export default function ContractForm({
         <label className={`${styles.field} ${isMissing("notice") ? styles.fieldMissing : ""}`}>Notice period, days{page_("notice_days")}{isMissing("notice") ? " · not found in the document" : ""}
           <input className={styles.input} inputMode="numeric" value={f.notice_days} onChange={set("notice_days")} />
         </label>
-        <label className={styles.field}>Balance sheet account it holds money on (Xero code)
+        <label className={`${styles.field} ${f.side === "customer" && !f.account_code.trim() ? styles.fieldMissing : ""}`}>
+          Balance sheet account it holds money on (Xero code){f.side === "customer" && !f.account_code.trim() ? " · needed for the reconciliation" : ""}
           <input className={styles.input} value={f.account_code} placeholder={f.side === "customer" ? "e.g. 810 deferred income" : "e.g. prepayments"} onChange={set("account_code")} />
         </label>
         <label className={`${styles.field} ${styles.wide}`}>Payment terms{page_("payment_terms")}
@@ -196,6 +197,7 @@ export default function ContractForm({
           {f.side === "customer" && (
             <>
               <div className={styles.sectionHead} style={{ padding: "0 16px" }}><h2>Already billed into the account</h2></div>
+              <div className={styles.meta} style={{ padding: "0 16px" }}>The invoice that put the money on the account, from Xero: a PDF read cannot know it.</div>
               <div className={styles.form}>
                 <label className={styles.field}>Invoice date<input className={styles.input} type="date" value={billed.on_date} onChange={(e) => setBilled({ ...billed, on_date: e.target.value })} /></label>
                 <label className={styles.field}>Amount held<input className={styles.input} inputMode="decimal" value={billed.amount} onChange={(e) => setBilled({ ...billed, amount: e.target.value })} /></label>
