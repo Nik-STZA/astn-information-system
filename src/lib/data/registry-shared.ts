@@ -25,6 +25,8 @@ export type RegistryRow = {
   sport: string | null;
   organization_type: string | null;
   source_confidence: string | null;
+  // When the researcher last had it (sent or decided), if ever. Migration 046.
+  last_rechecked?: string | null;
 };
 
 export type FilterOptions = {

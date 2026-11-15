@@ -24,6 +24,9 @@ const REGISTRY_CLIENT = "africanstn";
 const AGENT = "registry-reviewer";
 const VERIFIER = "registry-verifier";
 const OPEN = ["queued", "reviewing", "proposed", "failed"];
+// How long a re-checked record stays out of the Verify queue and is skipped
+// by bulk sends. Matches RECHECK_DAYS in server-registry-routes.js.
+const RECHECK_DAYS = 90;
 
 const CANDIDATE_COLUMNS = `id, kind, submitted_name, submitted_website, submitted_country, submitted_sport,
   submitted_note, submitted_by, submitted_at, status, agent_run_id, verdict, verdict_reason,
@@ -346,13 +349,27 @@ function mountRegistryCandidates(app, {
     if (ids.length > rc.MAX_BATCH) return res.status(400).json({ error: `at most ${rc.MAX_BATCH} at a time` });
     if (ids.some((id) => !UUID.test(id))) return res.status(400).json({ error: "not a record id" });
 
+    // A record re-checked in the last RECHECK_DAYS is skipped, unless one
+    // record is sent back on purpose (again). "Send this page" kept re-sending
+    // records a careful re-check had left at Medium-High (15 Nov 2026).
+    const again = req.body?.again === true && ids.length === 1;
+
     const out = await inTransaction(async (conn) => {
       const clientId = await registryClient(conn);
       const orgs = (await conn.query(
-        "SELECT id, organization_name, organization_website, country, sport FROM organizations WHERE id = ANY($1::uuid[])", [ids]
+        `SELECT o.id, o.organization_name, o.organization_website, o.country, o.sport,
+                EXISTS (SELECT 1 FROM registry_candidates rc WHERE rc.organization_id = o.id AND rc.kind = 'reverify'
+                          AND rc.status IN ('queued', 'reviewing', 'proposed', 'failed')) AS open,
+                EXISTS (SELECT 1 FROM registry_candidates rc WHERE rc.organization_id = o.id AND rc.kind = 'reverify'
+                          AND rc.decided_at > now() - make_interval(days => $2)) AS recent
+           FROM organizations o WHERE o.id = ANY($1::uuid[])`, [ids, RECHECK_DAYS]
       )).rows;
       const queued = [];
+      let skippedOpen = 0;
+      let skippedRecent = 0;
       for (const o of orgs) {
+        if (o.open) { skippedOpen++; continue; }
+        if (o.recent && !again) { skippedRecent++; continue; }
         const { rows } = await conn.query(
           `INSERT INTO registry_candidates
              (kind, organization_id, submitted_name, submitted_website, submitted_country, submitted_sport, submitted_by)
@@ -372,10 +389,13 @@ function mountRegistryCandidates(app, {
           clientId, payload: { count: queued.length, organization_ids: queued.map((q) => q.organization_id) }, ip: req.ip,
         });
       }
-      return { queued, skipped: ids.length - queued.length };
+      return { queued, skipped: ids.length - queued.length, skippedOpen, skippedRecent };
     });
     const runner = out.queued.length ? await startAgentRunner(out.queued[0].agent_run_id) : "nothing queued";
-    res.status(out.queued.length ? 201 : 200).json({ count: out.queued.length, skipped: out.skipped, runner });
+    res.status(out.queued.length ? 201 : 200).json({
+      count: out.queued.length, skipped: out.skipped,
+      skipped_open: out.skippedOpen, skipped_recent: out.skippedRecent, runner,
+    });
   }));
 
   // The research for one re-verification, run when the runner reaches it: the

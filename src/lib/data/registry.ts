@@ -47,6 +47,9 @@ type FetchOrganizationsOpts = {
   // When true, the result is restricted to rows that don't already match the
   // High confidence band - powers the verification queue.
   verifyMode?: boolean;
+  // In verifyMode, include records the researcher has or re-checked recently
+  // (hidden by default so "send this page" never re-sends them).
+  showRechecked?: boolean;
   sort?: RegistrySortField;
   sortDir?: SortDir;
 };
@@ -59,6 +62,7 @@ function filterParams(filters: RegistryFilters, opts: FetchOrganizationsOpts = {
   if (filters.type) params.set("type", filters.type);
   if (filters.confidence) params.set("confidence", filters.confidence);
   if (opts.verifyMode) params.set("verify", "1");
+  if (opts.verifyMode && opts.showRechecked) params.set("rechecked", "show");
   return params;
 }
 
@@ -91,8 +95,14 @@ export async function fetchOrganizations(
 // Headline count of organisations awaiting verification - anything not at the
 // High band, including rows with a null source_confidence.
 export async function fetchVerificationQueueCount(): Promise<number> {
-  const res = await cloudRunFetch<{ count: number }>("/api/organizations/verify-count");
-  return res.data?.count ?? 0;
+  return (await fetchVerificationQueueCounts()).total;
+}
+
+// The queue total, and how many of those are hidden as already with or
+// recently re-checked by the researcher.
+export async function fetchVerificationQueueCounts(): Promise<{ total: number; rechecked: number }> {
+  const res = await cloudRunFetch<{ count: number; rechecked?: number }>("/api/organizations/verify-count");
+  return { total: res.data?.count ?? 0, rechecked: res.data?.rechecked ?? 0 };
 }
 
 // Bulk fetch every row matching the filters - used by /registry/export.
