@@ -479,7 +479,42 @@ app.post("/api/admin/migrate-015", async (req, res) => {
 // Body: { headline, summary, source_name, source_url, tone? }
 // Returns: { body: string }
 
-const REWRITE_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+// Gemini on Vertex AI in London, billed to Google Cloud and signed in as this
+// Cloud Run service's own identity (15 Nov 2026). The AI Studio prepaid key ran
+// out of credit on 6 Nov and every call answered 402; the default model here,
+// "gemini-3.8-flash", does not exist on Vertex at all (404). gemini-3.5-flash
+// is what finance-api uses for bills.
+const REWRITE_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const GEMINI_PROJECT = process.env.GEMINI_PROJECT || "africanstn-research";
+const GEMINI_LOCATION = process.env.GEMINI_LOCATION || "europe-west2";
+
+// The service's access token, from the metadata server Cloud Run provides.
+async function metadataToken() {
+  const r = await fetch(
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+    { headers: { "Metadata-Flavor": "Google" } },
+  );
+  if (!r.ok) throw new Error(`could not get a Google token (${r.status})`);
+  return (await r.json()).access_token;
+}
+
+// One Gemini call. Returns { text } or throws with Google's reason.
+async function geminiGenerate(body) {
+  const url = `https://${GEMINI_LOCATION}-aiplatform.googleapis.com/v1/projects/${GEMINI_PROJECT}/locations/${GEMINI_LOCATION}/publishers/google/models/${REWRITE_MODEL}:generateContent`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await metadataToken()}` },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const errText = await r.text();
+    throw new Error(`Gemini ${r.status}: ${errText.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  if (!text) throw new Error(`No text in Gemini response (finishReason ${data?.candidates?.[0]?.finishReason || "none"})`);
+  return { text };
+}
 
 const REWRITE_SYSTEM = `You are an editor for the AfricanSTN Weekly Intelligence Brief — the authoritative intelligence service for professionals working in African sports technology.
 
@@ -511,11 +546,6 @@ app.post("/api/content/rewrite-story", async (req, res) => {
     return res.status(400).json({ error: "headline and summary are required" });
   }
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
-  }
-
   const userPayload = JSON.stringify({
     headline,
     summary,
@@ -525,29 +555,15 @@ app.post("/api/content/rewrite-story", async (req, res) => {
   });
 
   try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: REWRITE_SYSTEM }] },
-          contents: [{ role: "user", parts: [{ text: userPayload }] }],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 1024,
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
+    const { text } = await geminiGenerate({
+      system_instruction: { parts: [{ text: REWRITE_SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: userPayload }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 1024,
+        thinkingConfig: { thinkingBudget: 0 },
       },
-    );
-    if (!r.ok) {
-      const errText = await r.text();
-      throw new Error(`Gemini ${r.status}: ${errText.slice(0, 200)}`);
-    }
-    const data = await r.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("No text in Gemini response");
+    });
     res.json({ body: text.trim() });
   } catch (err) {
     console.error("rewrite-story error:", err.message);
@@ -580,11 +596,6 @@ app.post("/api/content/rewrite-context", async (req, res) => {
     return res.status(400).json({ error: "stories array is required" });
   }
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
-  }
-
   const storySummaries = stories.map((s, i) =>
     `${i + 1}. **${s.headline}**\n${s.body.trim()}`
   ).join("\n\n");
@@ -592,29 +603,15 @@ app.post("/api/content/rewrite-context", async (req, res) => {
   const userPayload = `Here are this week's included stories:\n\n${storySummaries}`;
 
   try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: CONTEXT_SYSTEM }] },
-          contents: [{ role: "user", parts: [{ text: userPayload }] }],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 1024,
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
+    const { text } = await geminiGenerate({
+      system_instruction: { parts: [{ text: CONTEXT_SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: userPayload }] }],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 1024,
+        thinkingConfig: { thinkingBudget: 0 },
       },
-    );
-    if (!r.ok) {
-      const errText = await r.text();
-      throw new Error(`Gemini ${r.status}: ${errText.slice(0, 200)}`);
-    }
-    const data = await r.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("No text in Gemini response");
+    });
     res.json({ context: text.trim() });
   } catch (err) {
     console.error("rewrite-context error:", err.message);
@@ -623,39 +620,18 @@ app.post("/api/content/rewrite-context", async (req, res) => {
 });
 
 // ─── GET /api/content/gemini-health ──────────────────────────────────────
-// Diagnostic: verify Gemini API key is configured and the model responds.
+// Diagnostic: does Gemini on Vertex answer, signed in as this service.
 
 app.get("/api/content/gemini-health", async (req, res) => {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    return res.json({
-      ok: false,
-      model: REWRITE_MODEL,
-      error: "GEMINI_API_KEY not configured on this Cloud Run service",
-      keyLength: 0,
-    });
-  }
+  const where = { provider: "vertex", model: REWRITE_MODEL, location: GEMINI_LOCATION };
   try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${REWRITE_MODEL}:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: "Reply with exactly: OK" }] }],
-          generationConfig: { maxOutputTokens: 8, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      },
-    );
-    if (!r.ok) {
-      const errText = await r.text();
-      return res.json({ ok: false, model: REWRITE_MODEL, error: `Gemini ${r.status}: ${errText.slice(0, 300)}`, keyLength: key.length });
-    }
-    const data = await r.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "(no text)";
-    res.json({ ok: true, model: REWRITE_MODEL, response: text.trim(), keyLength: key.length });
+    const { text } = await geminiGenerate({
+      contents: [{ role: "user", parts: [{ text: "Reply with exactly: OK" }] }],
+      generationConfig: { maxOutputTokens: 8, thinkingConfig: { thinkingBudget: 0 } },
+    });
+    res.json({ ok: true, ...where, response: text.trim() });
   } catch (err) {
-    res.json({ ok: false, model: REWRITE_MODEL, error: err.message, keyLength: key.length });
+    res.json({ ok: false, ...where, error: err.message });
   }
 });
 
