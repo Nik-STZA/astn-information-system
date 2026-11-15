@@ -717,6 +717,7 @@ async function clientRules(slug) {
 
 const { threadToMessages } = require("./lib/thread");
 const agentCost = require("./lib/agent-cost");
+const registryReviewer = require("./lib/registry-reviewer");
 const { handoffRefusal, recHandoffRefusal } = require("./lib/agent-handoff");
 
 // ── Execute one job ──────────────────────────────────────────────────────────
@@ -727,6 +728,12 @@ async function executeJob(job) {
   let usage = agentCost.NO_USAGE;
 
   console.log(`  Claimed job ${job.id} [${job.agent || "general"}]: ${job.instruction.slice(0, 80)}`);
+
+  // The registry reviewer works on the AfricanSTN registry, not a client's
+  // books: no Xero, no entities, no finance procedures (lib/registry-reviewer.js).
+  if (job.agent === registryReviewer.AGENT) {
+    return registryReviewer.executeRegistryReview(job, { anthropic, model: MODEL, apiCall, apiRequest });
+  }
 
   // 1. Discover entities for this client
   let entities;

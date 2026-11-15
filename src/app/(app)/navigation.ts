@@ -23,6 +23,7 @@ const SHELL_NAV: NavGroup[] = [
       { href: "/overview", label: "Overview" },
       { href: "/registry", label: "Registry" },
       { href: "/registry/verify", label: "Verify" },
+      { href: "/registry/candidates", label: "Candidates" },
     ],
   },
   {

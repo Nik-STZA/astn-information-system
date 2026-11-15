@@ -6613,6 +6613,14 @@ require("./lib/outstanding-docs-routes").mountOutstandingDocs(app, {
 // Journals and the Approvals folders, in one read-only list (lib/review.js).
 require("./lib/review-routes").mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks });
 
+// ── Registry candidates ─────────────────────────────────────────────────────
+
+// Organisations submitted for the AfricanSTN registry from os.stza.io. The
+// registry reviewer agent proposes on the AfricanSTN client's agent queue; only
+// a person's approval writes public.organizations (lib/registry-candidates-routes.js,
+// migration 044).
+require("./lib/registry-candidates-routes").mountRegistryCandidates(app, { route, pool, audit, startAgentRunner });
+
 // ── Start ───────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
