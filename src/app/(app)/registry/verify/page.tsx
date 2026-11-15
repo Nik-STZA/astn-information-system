@@ -9,7 +9,7 @@ import {
   confidenceBand,
   fetchFilterOptions,
   fetchOrganizations,
-  fetchVerificationQueueCount,
+  fetchVerificationQueueCounts,
   isRegistrySortField,
   type ConfidenceBand,
   type RegistryFilters as RegistryFilterValues,
@@ -126,11 +126,26 @@ export default async function VerificationQueuePage(props: PageProps) {
   const dirRaw = readParam(searchParams.dir);
   const activeDir: SortDir = dirRaw === "desc" ? "desc" : "asc";
 
-  const [options, result, queueTotal] = await Promise.all([
+  // Records already with the researcher or re-checked in the last 90 days are
+  // hidden unless asked for, so "send these" always sends ones not yet done.
+  const showRechecked = readParam(searchParams.rechecked) === "show";
+  const [options, result, counts] = await Promise.all([
     fetchFilterOptions(),
-    fetchOrganizations(filters, page, REGISTRY_PAGE_SIZE, { verifyMode: true, sort: activeSort, sortDir: activeDir }),
-    fetchVerificationQueueCount(),
+    fetchOrganizations(filters, page, REGISTRY_PAGE_SIZE, { verifyMode: true, showRechecked, sort: activeSort, sortDir: activeDir }),
+    fetchVerificationQueueCounts(),
   ]);
+  const queueTotal = counts.total;
+  const toggleRechecked = (() => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(searchParams)) {
+      const val = Array.isArray(v) ? v[0] : v;
+      if (val && k !== "rechecked" && k !== "page") p.set(k, val);
+    }
+    if (!showRechecked) p.set("rechecked", "show");
+    const qs = p.toString();
+    return qs ? `/registry/verify?${qs}` : "/registry/verify";
+  })();
+  const dayMonth = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
   const filteredCount = result.totalCount;
   const fmt = (n: number) => n.toLocaleString("en-GB");
@@ -229,6 +244,16 @@ export default async function VerificationQueuePage(props: PageProps) {
         >
           <span style={{ color: "#B08D3F" }}>{fmt(filteredCount)}</span>{" "}
           of {fmt(queueTotal)} awaiting verification
+          {counts.rechecked > 0 ? (
+            <>
+              {" · "}
+              <Link href={toggleRechecked} style={{ color: "#B08D3F" }}>
+                {showRechecked
+                  ? `Hide the ${fmt(counts.rechecked)} the researcher has or checked recently`
+                  : `${fmt(counts.rechecked)} hidden: with the researcher or checked in the last 90 days (show)`}
+              </Link>
+            </>
+          ) : null}
         </div>
         <RegistryPagination
           page={page}
@@ -383,6 +408,11 @@ export default async function VerificationQueuePage(props: PageProps) {
                       }}
                     >
                       {org.organization_name ?? "—"}
+                      {org.last_rechecked ? (
+                        <span style={{ display: "block", fontWeight: 500, fontSize: 11, color: "var(--sub)", marginTop: 2 }}>
+                          Researched {dayMonth(org.last_rechecked)}
+                        </span>
+                      ) : null}
                     </td>
                     <td
                       style={{
@@ -422,7 +452,12 @@ export default async function VerificationQueuePage(props: PageProps) {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      <RegistryResearchButton ids={[org.id]} label="Research" compact />{" "}
+                      <RegistryResearchButton
+                        ids={[org.id]}
+                        label={org.last_rechecked ? "Research again" : "Research"}
+                        again={Boolean(org.last_rechecked)}
+                        compact
+                      />{" "}
                       <Link
                         href={`/registry/${org.id}`}
                         style={{

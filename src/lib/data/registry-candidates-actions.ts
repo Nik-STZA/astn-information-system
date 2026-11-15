@@ -103,24 +103,31 @@ export async function rerunCandidate(id: string, _prev: ActionResult, formData: 
   return done("Sent back to the reviewer.");
 }
 
-// Sends existing records to the researcher, in batches of MAX_BATCH.
-export async function queueReverify(ids: string[], _prev: ActionResult, _formData: FormData): Promise<ActionResult> {
+// Sends existing records to the researcher, in batches of MAX_BATCH. Records
+// already with the researcher, or re-checked in the last 90 days, are skipped
+// unless again is set for a single record sent back on purpose.
+export async function queueReverify(ids: string[], again: boolean, _prev: ActionResult, _formData: FormData): Promise<ActionResult> {
   const email = await signedIn();
   if (!email) return fail("You are not signed in.");
   if (!ids.length) return fail("Nothing to send.");
   let queued = 0;
-  let skipped = 0;
+  let open = 0;
+  let recent = 0;
   for (let i = 0; i < ids.length; i += MAX_BATCH) {
-    const r = await financeApi<{ count: number; skipped: number }>("/api/registry/reverify", {
-      method: "POST", body: { organizationIds: ids.slice(i, i + MAX_BATCH) }, actorEmail: email,
+    const r = await financeApi<{ count: number; skipped_open?: number; skipped_recent?: number }>("/api/registry/reverify", {
+      method: "POST", body: { organizationIds: ids.slice(i, i + MAX_BATCH), again: again && ids.length === 1 }, actorEmail: email,
     });
     if (!r.ok) return fail(queued ? `${queued} sent, then: ${r.error}` : (r.error ?? "Not sent."));
     queued += r.data?.count ?? 0;
-    skipped += r.data?.skipped ?? 0;
+    open += r.data?.skipped_open ?? 0;
+    recent += r.data?.skipped_recent ?? 0;
   }
   revalidatePath(PATH);
-  if (!queued) return done(skipped === 1 ? "Already with the researcher." : "All of these are already with the researcher.");
-  return done(`${queued} sent to the researcher${skipped ? ` (${skipped} already there)` : ""}. Results appear under Candidates.`);
+  revalidatePath("/registry/verify");
+  const skippedNote = [open ? `${open} already with the researcher` : null, recent ? `${recent} checked in the last 90 days` : null]
+    .filter(Boolean).join(", ");
+  if (!queued) return done(skippedNote ? `Nothing sent: ${skippedNote}.` : "Nothing sent.");
+  return done(`${queued} sent to the researcher${skippedNote ? ` (skipped ${skippedNote})` : ""}. Results appear under Candidates.`);
 }
 
 // Applies the ticked changes of a re-verification.

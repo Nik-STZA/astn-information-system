@@ -51,9 +51,21 @@ function orgFilterClauses(q, params) {
   }
   if (q.verify === "1" || q.verify === "true") {
     where.push(`(source_confidence IS NULL OR source_confidence NOT ILIKE 'High%')`);
+    // Records already with the researcher, or re-checked in the last 90 days,
+    // leave the queue unless asked for (rechecked=show). A careful re-check
+    // often ends at Medium-High, which stays below High, and "send this page"
+    // kept re-sending the same first page (15 Nov 2026: 103 re-checks on 59
+    // records). Migration 046.
+    if (q.rechecked !== "show") where.push(`id NOT IN (${RECHECKED_IDS})`);
   }
   return where;
 }
+
+const RECHECK_DAYS = 90;
+const RECHECKED_IDS = `SELECT organization_id FROM registry_candidates
+  WHERE kind = 'reverify' AND organization_id IS NOT NULL
+    AND (status IN ('queued', 'reviewing', 'proposed', 'failed')
+         OR decided_at > now() - interval '${RECHECK_DAYS} days')`;
 
 // ─── Registry: organizations ───────────────────────────────────────────────
 
@@ -78,10 +90,14 @@ app.get("/api/organizations/facets", async (_req, res) => {
 app.get("/api/organizations/verify-count", async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT count(*)::int AS n FROM organizations
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE id IN (${RECHECKED_IDS}))::int AS rechecked
+       FROM organizations
        WHERE source_confidence IS NULL OR source_confidence NOT ILIKE 'High%'`
     );
-    res.json({ count: rows[0].n });
+    // rechecked: of those, how many are hidden as already with or recently
+    // seen by the researcher.
+    res.json({ count: rows[0].n, rechecked: rows[0].rechecked });
   } catch (err) {
     console.error("GET /api/organizations/verify-count error:", err.message);
     res.status(500).json({ error: err.message });
@@ -121,6 +137,8 @@ app.get("/api/organizations", async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, organization_name, country, country_iso, sport,
               organization_type, source_confidence,
+              (SELECT max(coalesce(rc.decided_at, rc.submitted_at)) FROM registry_candidates rc
+                WHERE rc.organization_id = organizations.id AND rc.kind = 'reverify') AS last_rechecked,
               count(*) OVER()::int AS __total
        FROM organizations ${whereSql}
        ORDER BY ${sort} ${dir} NULLS LAST, id ASC

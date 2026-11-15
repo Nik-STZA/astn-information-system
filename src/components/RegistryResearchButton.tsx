@@ -10,8 +10,12 @@ const IDLE: ActionResult = { status: "idle" };
 
 // Sends registry records to the researcher for re-verification. compact is the
 // per-row button; otherwise it is the "send this page" button with its result.
-export default function RegistryResearchButton({ ids, label, compact = false }: { ids: string[]; label: string; compact?: boolean }) {
-  const [state, action, pending] = useActionState(queueReverify.bind(null, ids), IDLE);
+// again: this one record was re-checked recently and is being sent back on
+// purpose; without it the server skips recently re-checked records.
+export default function RegistryResearchButton({ ids, label, compact = false, again = false }: {
+  ids: string[]; label: string; compact?: boolean; again?: boolean;
+}) {
+  const [state, action, pending] = useActionState(queueReverify.bind(null, ids, again), IDLE);
 
   if (compact) {
     return (
