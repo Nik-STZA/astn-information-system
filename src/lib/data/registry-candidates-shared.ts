@@ -4,7 +4,7 @@
 export type CandidateStatus = "queued" | "reviewing" | "proposed" | "failed" | "approved" | "rejected" | "duplicate";
 
 export const DECIDED: CandidateStatus[] = ["approved", "rejected", "duplicate"];
-export type Verdict = "add" | "duplicate" | "reject";
+export type Verdict = "add" | "duplicate" | "reject" | "update" | "no_change";
 
 export type CandidateSubmission = {
   name: string;
@@ -35,8 +35,40 @@ export type Proposal = {
   notes?: string;
 };
 
+// A re-verification's proposal: changes to an existing record.
+export type ReverifyProposal = {
+  changes: Record<string, string | number>;
+  notes_append: string;
+  sources?: string[];
+};
+
+export type WebsiteCheck = {
+  url: string | null;
+  final_url?: string | null;
+  http_status?: number | null;
+  outcome: string;
+  website_status: string;
+  title?: string | null;
+  mentions_name?: boolean | null;
+  checked_at: string;
+};
+
+export const REVERIFY_FIELD_LABEL: Record<string, string> = {
+  organization_website: "Website",
+  operational_status: "Operational status",
+  founded_year: "Founded",
+  ceased_year: "Ceased",
+  source_confidence: "Confidence",
+  verification_source: "Verification source",
+  region_province: "City or province",
+};
+
 export type Candidate = {
   id: string;
+  kind: "new" | "reverify";
+  website_check: WebsiteCheck | null;
+  research_meta: { engine: string; model?: string; searches?: number; tokens?: { total?: number } | null } | null;
+  current: Record<string, string | number | null> | null;
   submitted_name: string;
   submitted_website: string | null;
   submitted_country: string | null;
@@ -48,7 +80,7 @@ export type Candidate = {
   agent_run_id: string | null;
   verdict: Verdict | null;
   verdict_reason: string | null;
-  proposal: Proposal | null;
+  proposal: (Proposal & Partial<ReverifyProposal>) | null;
   evidence: Array<{ url: string; finding: string }>;
   duplicates: Array<{ organization_id?: string; astn_id: string; organization_name: string; why?: string; score?: number }>;
   reviewed_at: string | null;
@@ -137,4 +169,6 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
   add: "Recommends adding",
   duplicate: "Already in registry",
   reject: "Recommends rejecting",
+  update: "Changes proposed",
+  no_change: "No changes found",
 };

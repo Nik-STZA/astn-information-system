@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import {
+  applyReverify,
   approveCandidate,
   confirmDuplicate,
   rejectCandidate,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/data/registry-candidates-actions";
 import {
   DECIDED,
+  REVERIFY_FIELD_LABEL,
   STATUS_LABEL,
   VERDICT_LABEL,
   safeHref,
@@ -40,7 +42,7 @@ function when(iso: string | null): string {
 // A decided candidate takes one line: what happened and where it went.
 export function DecidedRow({ candidate: c, message }: { candidate: Candidate; message?: string }) {
   const outcome =
-    c.status === "approved" ? "Added as" : c.status === "duplicate" ? "Duplicate of" : null;
+    c.status === "approved" ? (c.kind === "reverify" ? "Re-checked" : "Added as") : c.status === "duplicate" ? "Duplicate of" : null;
   return (
     <div className={styles.row}>
       <span className={`${styles.pill} ${STATUS_PILL[c.status]}`}>{STATUS_LABEL[c.status]}</span>
@@ -53,6 +55,7 @@ export function DecidedRow({ candidate: c, message }: { candidate: Candidate; me
                 {outcome} <Link href={`/registry/${c.organization_id}`}>{c.astn_id ?? "registry record"}</Link>
               </>
             ) : null}
+            {c.kind === "reverify" && c.status === "approved" && c.decision_note ? ` · ${c.decision_note}` : null}
             {c.status === "rejected" && c.decision_note ? c.decision_note : null}
           </>
         )}
@@ -78,6 +81,7 @@ export default function RegistryCandidateCard({ candidate: c, reference }: { can
       <div className={styles.cardHead}>
         <span className={styles.name}>{c.submitted_name}</span>
         <div className={styles.pills}>
+          {c.kind === "reverify" ? <span className={`${styles.pill} ${styles.pillBlue}`}>Re-check{c.astn_id ? ` of ${c.astn_id}` : ""}</span> : null}
           <span className={`${styles.pill} ${STATUS_PILL[c.status]}`}>{STATUS_LABEL[c.status]}</span>
           {c.verdict && proposed ? <span className={styles.pill}>{VERDICT_LABEL[c.verdict]}</span> : null}
         </div>
@@ -103,8 +107,10 @@ export default function RegistryCandidateCard({ candidate: c, reference }: { can
         </details>
       ) : null}
 
-      {proposed && c.verdict === "duplicate" ? <DuplicateActions candidate={c} onDone={setDecided} /> : null}
-      {proposed && c.verdict !== "duplicate" && c.proposal ? (
+      {c.kind === "reverify" ? <WebsiteLine candidate={c} /> : null}
+      {proposed && c.kind === "reverify" ? <ReverifyForm candidate={c} onDone={setDecided} /> : null}
+      {proposed && c.kind !== "reverify" && c.verdict === "duplicate" ? <DuplicateActions candidate={c} onDone={setDecided} /> : null}
+      {proposed && c.kind !== "reverify" && c.verdict !== "duplicate" && c.proposal ? (
         <details className={styles.details}>
           <summary>{c.verdict === "add" ? "Review the record and add" : "Add it anyway"}</summary>
           <ApproveForm candidate={c} reference={reference} onDone={setDecided} />
@@ -151,6 +157,64 @@ function useFoldOnSuccess(state: ActionResult, onDone: (message: string) => void
   useEffect(() => {
     if (state.status === "ok") onDone(state.message);
   }, [state, onDone]);
+}
+
+function WebsiteLine({ candidate: c }: { candidate: Candidate }) {
+  const w = c.website_check;
+  const m = c.research_meta;
+  if (!w && !m) return null;
+  const site = w?.outcome === "no_website" ? "no website on the record"
+    : w ? `website ${w.outcome.replace(/_/g, " ")}${w.http_status ? ` (HTTP ${w.http_status})` : ""}${w.final_url && w.final_url !== w.url ? `, now at ${w.final_url}` : ""}`
+    : null;
+  return (
+    <div className={styles.meta}>
+      {[site, m?.searches !== undefined ? `${m.searches} Google search${m.searches === 1 ? "" : "es"} by Gemini` : null].filter(Boolean).join(" · ")}
+    </div>
+  );
+}
+
+function show(v: string | number | null | undefined): string {
+  return v === null || v === undefined || v === "" ? "(empty)" : String(v);
+}
+
+// Before and after for each proposed change; tick the ones to apply, correct
+// any value first. Applying nothing still records the record as checked.
+function ReverifyForm({ candidate: c, onDone }: { candidate: Candidate; onDone: (m: string) => void }) {
+  const [state, action, pending] = useActionState(applyReverify.bind(null, c.id), IDLE);
+  useFoldOnSuccess(state, onDone);
+  const changes = Object.entries(c.proposal?.changes ?? {});
+
+  return (
+    <form action={action} className={styles.decide}>
+      {changes.length ? (
+        <div className={styles.changes}>
+          {changes.map(([f, v]) => (
+            <div key={f} className={styles.change}>
+              <label className={styles.changeHead}>
+                <input type="checkbox" name="apply" value={f} defaultChecked />
+                <span className="label-brand">{REVERIFY_FIELD_LABEL[f] ?? f}</span>
+              </label>
+              <span className={styles.before}>{show(c.current?.[f])}</span>
+              <input name={`value_${f}`} className="input-brand" defaultValue={String(v)} autoComplete="off" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span className={styles.hint}>No field changes proposed. Marking it checked records the research and the note.</span>
+      )}
+      <label className={styles.field}>
+        <span className="label-brand">Note to add</span>
+        <textarea name="notes_append" className="input-brand" rows={2} defaultValue={c.proposal?.notes_append ?? ""} />
+      </label>
+      <div className={styles.actions}>
+        <button type="submit" className="btn-primary" disabled={pending}>
+          {pending ? "Applying…" : changes.length ? "Apply ticked changes" : "Mark as checked"}
+        </button>
+        {c.organization_id ? <Link href={`/registry/${c.organization_id}`} className="btn-text">Open record</Link> : null}
+      </div>
+      <Message state={state} />
+    </form>
+  );
 }
 
 function DuplicateActions({ candidate: c, onDone }: { candidate: Candidate; onDone: (m: string) => void }) {

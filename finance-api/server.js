@@ -6664,7 +6664,11 @@ require("./lib/review-routes").mountReview(app, { route, pool, clientIdFromSlug,
 // registry reviewer agent proposes on the AfricanSTN client's agent queue; only
 // a person's approval writes public.organizations (lib/registry-candidates-routes.js,
 // migration 044).
-require("./lib/registry-candidates-routes").mountRegistryCandidates(app, { route, pool, audit, startAgentRunner });
+// Re-verifications of existing records use Gemini with Google Search grounding
+// through the same Vertex client as bills (migration 046).
+require("./lib/registry-candidates-routes").mountRegistryCandidates(app, {
+  route, pool, audit, startAgentRunner, generate: (body) => vertex.generate(body),
+});
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

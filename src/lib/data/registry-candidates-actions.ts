@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import { getAuthEmail } from "@/lib/auth";
 import { financeApi } from "@/lib/data/registry-candidates";
 import {
+  MAX_BATCH,
   parseCandidateLines,
   type ActionResult,
   type CandidateSubmission,
@@ -100,6 +101,51 @@ export async function rerunCandidate(id: string, _prev: ActionResult, formData: 
   if (!r.ok) return fail(r.error ?? "Not sent back.");
   revalidatePath(PATH);
   return done("Sent back to the reviewer.");
+}
+
+// Sends existing records to the researcher, in batches of MAX_BATCH.
+export async function queueReverify(ids: string[], _prev: ActionResult, _formData: FormData): Promise<ActionResult> {
+  const email = await signedIn();
+  if (!email) return fail("You are not signed in.");
+  if (!ids.length) return fail("Nothing to send.");
+  let queued = 0;
+  let skipped = 0;
+  for (let i = 0; i < ids.length; i += MAX_BATCH) {
+    const r = await financeApi<{ count: number; skipped: number }>("/api/registry/reverify", {
+      method: "POST", body: { organizationIds: ids.slice(i, i + MAX_BATCH) }, actorEmail: email,
+    });
+    if (!r.ok) return fail(queued ? `${queued} sent, then: ${r.error}` : (r.error ?? "Not sent."));
+    queued += r.data?.count ?? 0;
+    skipped += r.data?.skipped ?? 0;
+  }
+  revalidatePath(PATH);
+  if (!queued) return done(skipped === 1 ? "Already with the researcher." : "All of these are already with the researcher.");
+  return done(`${queued} sent to the researcher${skipped ? ` (${skipped} already there)` : ""}. Results appear under Candidates.`);
+}
+
+// Applies the ticked changes of a re-verification.
+export async function applyReverify(id: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const email = await signedIn();
+  if (!email) return fail("You are not signed in.");
+  const apply = formData.getAll("apply").filter((v): v is string => typeof v === "string");
+  const fields: Record<string, string | number | null> = {};
+  for (const f of apply) {
+    const v = text(formData, `value_${f}`);
+    if (v !== null) fields[f] = /_year$/.test(f) ? Number(v) : v;
+  }
+  const note = text(formData, "notes_append");
+  if (note) fields.notes_append = note;
+  const r = await financeApi<{ astn_id: string; applied: string[] }>(`/api/registry/candidates/${encodeURIComponent(id)}/approve`, {
+    method: "POST", body: { apply, fields }, actorEmail: email,
+  });
+  if (!r.ok) {
+    const errors = Array.isArray(r.body?.errors) ? (r.body?.errors as string[]) : undefined;
+    return fail(r.error ?? "Not applied.", { errors });
+  }
+  revalidatePath(PATH);
+  revalidatePath("/registry/verify");
+  const n = r.data?.applied?.length ?? 0;
+  return done(n ? `${r.data?.astn_id}: ${n} change${n === 1 ? "" : "s"} applied.` : `${r.data?.astn_id}: marked as checked.`);
 }
 
 export async function confirmDuplicate(id: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {

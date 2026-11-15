@@ -1,6 +1,7 @@
 import Link from "next/link";
 import RegistryExportButtons from "@/components/RegistryExportButtons";
 import RegistryPagination from "@/components/RegistryPagination";
+import RegistryResearchButton from "@/components/RegistryResearchButton";
 import VerifyFilters from "@/components/VerifyFilters";
 import {
   CONFIDENCE_BANDS,
@@ -204,6 +205,14 @@ export default async function VerificationQueuePage(props: PageProps) {
 
       {/* Filter bar */}
       <VerifyFilters options={options} />
+
+      {/* Send the records on this page to the researcher (registry re-verification). */}
+      {result.rows.length > 0 ? (
+        <RegistryResearchButton
+          ids={result.rows.map((r) => r.id)}
+          label={`Send these ${result.rows.length} to the researcher`}
+        />
+      ) : null}
 
       {/* Result bar */}
       <div
@@ -413,6 +422,7 @@ export default async function VerificationQueuePage(props: PageProps) {
                         whiteSpace: "nowrap",
                       }}
                     >
+                      <RegistryResearchButton ids={[org.id]} label="Research" compact />{" "}
                       <Link
                         href={`/registry/${org.id}`}
                         style={{
