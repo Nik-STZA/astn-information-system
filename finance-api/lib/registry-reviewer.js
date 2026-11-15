@@ -41,7 +41,7 @@ The record (proposal), using the registry's conventions:
 - astn_vertical: one of the four listed. astn_sub_vertical: optional, from the same family as existing rows.
 - organization_website: its own site, as https://domain with no trailing slash.
 - operational_status: active only if there is evidence of activity in the last 12 months; otherwise dormant, ceased, pre_launch, unclear or unknown.
-- source_confidence: start with a band (High, Medium-High, Medium, Medium-Low, Low) and say in brackets what supports it, e.g. "Medium-High (website live, LinkedIn 12 staff, TechCabal 2025 article)". High needs two independent sources that agree.
+- source_confidence: start with a band (High, Medium-High, Medium, Medium-Low, Low) and say in brackets what supports it, e.g. "Medium-High (website live, LinkedIn 12 staff, TechCabal 2025 article)". High needs two independent sources that agree. Keep it under 300 characters: the detail belongs in notes and evidence.
 - verification_source: short source keys joined with +, e.g. "website_check + linkedin + techcabal_2025-03".
 - notes: two to four plain sentences: what it does, where, since when, and anything a reviewer should know. Start with today's date in brackets, [YYYY-MM-DD].
 - evidence: every web address you relied on, each with one line on what it showed. Only addresses you actually opened or that appeared in your search results. Never invent a source, a figure, a founder or a date: if you could not establish something, leave it out and say so.

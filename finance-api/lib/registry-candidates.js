@@ -23,6 +23,7 @@ const VERTICALS = [
 const OPERATIONAL_STATUSES = ["active", "dormant", "ceased", "pre_launch", "unclear", "transformed", "unknown"];
 const CONFIDENCE_BANDS = ["High", "Medium-High", "Medium", "Medium-Low", "Low"];
 const VERDICTS = ["add", "duplicate", "reject"];
+const CONFIDENCE_MAX = 300;
 
 // Words that say what kind of company it is rather than which one.
 const NAME_NOISE = new Set([
@@ -174,9 +175,20 @@ function bandOf(confidence) {
 function validateProposal(p, refs, today = new Date()) {
   const errors = [];
   const v = {};
+  // Too long is refused, not cut: a cut sentence in the registry reads as if
+  // it were the whole of what the reviewer found (KE-MSP-0108, 15 Nov 2026).
+  const text = (field, max) => {
+    const raw = Array.isArray(p?.[field]) ? p[field].join(", ") : p?.[field];
+    const s = clean(raw, Infinity);
+    if (s && s.length > max) {
+      errors.push(`${field} is ${s.length} characters; keep it to ${max}`);
+      return null;
+    }
+    return s;
+  };
   const need = (field, max = 300) => {
-    const s = clean(p?.[field], max);
-    if (!s) errors.push(`${field} is required`);
+    const s = text(field, max);
+    if (!s && !errors.some((e) => e.startsWith(`${field} is `))) errors.push(`${field} is required`);
     return s;
   };
 
@@ -190,7 +202,7 @@ function validateProposal(p, refs, today = new Date()) {
   const code = clean(p?.sport_code, 5)?.toUpperCase() ?? null;
   if (!code) errors.push("sport_code is required");
   else if (!refs.sports.has(code)) errors.push(`sport_code ${code} is not in lookup_sports`);
-  else { v.sport_code = code; v.sport = clean(p?.sport, 80) || refs.sports.get(code); }
+  else { v.sport_code = code; v.sport = text("sport", 80) || refs.sports.get(code); }
 
   v.level = need("level", 80);
   v.organization_type = need("organization_type", 80);
@@ -199,9 +211,9 @@ function validateProposal(p, refs, today = new Date()) {
   if (!vertical) errors.push("astn_vertical is required");
   else if (!VERTICALS.includes(vertical)) errors.push(`astn_vertical must be one of: ${VERTICALS.join(", ")}`);
   else v.astn_vertical = vertical;
-  v.astn_sub_vertical = clean(p?.astn_sub_vertical, 80);
+  v.astn_sub_vertical = text("astn_sub_vertical", 80);
 
-  const siteRaw = clean(p?.organization_website, 300);
+  const siteRaw = text("organization_website", 300);
   v.organization_website = normaliseWebsite(siteRaw);
   if (siteRaw && !v.organization_website) errors.push(`organization_website "${siteRaw}" is not a web address`);
 
@@ -215,15 +227,14 @@ function validateProposal(p, refs, today = new Date()) {
   if (!OPERATIONAL_STATUSES.includes(op)) errors.push(`operational_status must be one of: ${OPERATIONAL_STATUSES.join(", ")}`);
   else v.operational_status = op;
 
-  const conf = clean(p?.source_confidence, 300);
-  if (!conf) errors.push("source_confidence is required");
-  else if (!bandOf(conf)) errors.push(`source_confidence must start with a band: ${CONFIDENCE_BANDS.join(", ")}`);
-  else v.source_confidence = conf;
+  const conf = need("source_confidence", CONFIDENCE_MAX);
+  if (conf && !bandOf(conf)) errors.push(`source_confidence must start with a band: ${CONFIDENCE_BANDS.join(", ")}`);
+  else if (conf) v.source_confidence = conf;
 
   v.verification_source = need("verification_source", 300);
-  v.region_province = clean(p?.region_province, 120);
-  v.business_model = clean(p?.business_model, 40);
-  v.tags = clean(Array.isArray(p?.tags) ? p.tags.join(", ") : p?.tags, 500);
+  v.region_province = text("region_province", 120);
+  v.business_model = text("business_model", 40);
+  v.tags = text("tags", 500);
   v.notes = need("notes", 4000);
 
   return errors.length ? { errors } : { value: v };
@@ -254,7 +265,7 @@ function approvalNote(notes, { candidateId, date }) {
 }
 
 module.exports = {
-  MAX_BATCH, VERTICALS, OPERATIONAL_STATUSES, CONFIDENCE_BANDS, VERDICTS,
+  MAX_BATCH, VERTICALS, OPERATIONAL_STATUSES, CONFIDENCE_BANDS, VERDICTS, CONFIDENCE_MAX,
   normaliseWebsite, domainOf, normaliseName, parseSubmission, parseBatch,
   similarity, rankMatches, searchTerms, nextAstnId, bandOf,
   validateProposal, validateVerdict, cleanEvidence, approvalNote,

@@ -51,7 +51,7 @@ export default async function RegistryCandidatesPage(props: PageProps) {
       </div>
 
       {list.data.length ? (
-        <div className={styles.list}>
+        <div className={view === "done" ? styles.rows : styles.list}>
           {list.data.map((c) => <RegistryCandidateCard key={c.id} candidate={c} reference={reference} />)}
         </div>
       ) : (

@@ -128,7 +128,7 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
           WHERE status = ANY($1)
           ORDER BY ${done ? "decided_at DESC" : "submitted_at DESC"}
           LIMIT 100`,
-        [done ? ["approved", "rejected"] : OPEN]
+        [done ? ["approved", "rejected", "duplicate"] : OPEN]
       );
       res.json({ count: rows.length, data: rows });
     } catch (e) {
@@ -213,6 +213,46 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
         targetId: req.params.id, clientId: await registryClient(conn), payload: { note }, ip: req.ip,
       });
       return { status: 200, body: { id: rows[0].id, status: "rejected" } };
+    });
+    res.status(out.status).json(out.body);
+  }));
+
+  // Closes a candidate as already in the registry, linked to the row it
+  // duplicates (migration 045). The row is one the reviewer named, unless the
+  // person names another that exists.
+  app.post("/api/registry/candidates/:id/confirm-duplicate", tolerant(async (req, res) => {
+    const email = actor(req, res);
+    if (!email) return;
+    if (!UUID.test(req.params.id)) return res.status(400).json({ error: "not a candidate id" });
+    const note = String(req.body?.note || "").trim().slice(0, 1000) || null;
+    const wanted = req.body?.organizationId ? String(req.body.organizationId) : null;
+    if (wanted && !UUID.test(wanted)) return res.status(400).json({ error: "not an organisation id" });
+
+    const out = await inTransaction(async (conn) => {
+      const { rows } = await conn.query(
+        "SELECT id, status, duplicates FROM registry_candidates WHERE id = $1 FOR UPDATE", [req.params.id]
+      );
+      const c = rows[0];
+      if (!c) return { status: 404, body: { error: "candidate not found" } };
+      if (!OPEN.includes(c.status)) return { status: 409, body: { error: `this candidate is already ${c.status}` } };
+      const named = (Array.isArray(c.duplicates) ? c.duplicates : []).map((d) => d.organization_id).filter(Boolean);
+      const orgId = wanted ?? (named.length === 1 ? named[0] : null);
+      if (!orgId) return { status: 400, body: { error: "say which registry record it duplicates" } };
+      const org = await conn.query("SELECT id, astn_id, organization_name FROM organizations WHERE id = $1", [orgId]);
+      if (!org.rows.length) return { status: 404, body: { error: "that registry record does not exist" } };
+
+      await conn.query(
+        `UPDATE registry_candidates
+            SET status = 'duplicate', organization_id = $2, decided_by = $3, decided_at = now(), decision_note = $4
+          WHERE id = $1`,
+        [c.id, orgId, email, note]
+      );
+      await audit(conn, {
+        actorEmail: email, action: "registry.candidate.duplicate", targetType: "registry_candidate",
+        targetId: c.id, clientId: await registryClient(conn),
+        payload: { organization_id: orgId, astn_id: org.rows[0].astn_id, note }, ip: req.ip,
+      });
+      return { status: 200, body: { id: c.id, status: "duplicate", organization_id: orgId, astn_id: org.rows[0].astn_id } };
     });
     res.status(out.status).json(out.body);
   }));

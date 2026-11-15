@@ -136,6 +136,13 @@ describe("proposals", () => {
     ]));
   });
 
+  it("refuses an over-long field instead of cutting it", () => {
+    const long = `Medium (${"evidence ".repeat(40)})`;
+    const { errors, value } = validateProposal({ ...goodProposal, source_confidence: long }, refs, new Date("2026-11-15"));
+    expect(value).toBeUndefined();
+    expect(errors).toEqual([`source_confidence is ${long.length} characters; keep it to 300`]);
+  });
+
   it("needs a known verdict and a reason", () => {
     expect(validateVerdict("add", "Active Nigerian startup")).toBeNull();
     expect(validateVerdict("maybe", "x")).toMatch(/verdict must be/);

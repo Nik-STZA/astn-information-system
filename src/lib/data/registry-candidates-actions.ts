@@ -102,6 +102,19 @@ export async function rerunCandidate(id: string, _prev: ActionResult, formData: 
   return done("Sent back to the reviewer.");
 }
 
+export async function confirmDuplicate(id: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const email = await signedIn();
+  if (!email) return fail("You are not signed in.");
+  const r = await financeApi<{ astn_id: string }>(`/api/registry/candidates/${encodeURIComponent(id)}/confirm-duplicate`, {
+    method: "POST",
+    body: { organizationId: text(formData, "organizationId"), note: text(formData, "note") },
+    actorEmail: email,
+  });
+  if (!r.ok) return fail(r.error ?? "Not closed.");
+  revalidatePath(PATH);
+  return done(`Closed as a duplicate of ${r.data?.astn_id}.`);
+}
+
 export async function rejectCandidate(id: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const email = await signedIn();
   if (!email) return fail("You are not signed in.");
