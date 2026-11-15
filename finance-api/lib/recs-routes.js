@@ -16,6 +16,7 @@ const { lineFor, LINES } = require("./bs-matrix");
 const work = require("./work");
 const bank = require("./bank-statement");
 const sheetRead = require("./sheet-read");
+const contractsLib = require("./contracts");
 const crypto = require("crypto");
 
 const MISSING = "Reconciliations are waiting for migration 032 to be applied.";
@@ -151,7 +152,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   // an evidence rec (none held is none, so it does not tie) bridged by its open
   // reconciling items, else nothing.
   const supportFor = (rec, items, evidence = [], reconciling = []) => {
-    if (rec.proof === "schedule" && recs.workable(rec.line_key, rec.proof)) return recs.scheduleTotals(items, rec.period);
+    if (recs.bySchedule(rec.line_key, rec.proof)) return recs.scheduleTotals(items, rec.period);
     if (recs.usesEvidence(rec.line_key, rec.proof)) return recs.evidenceTotals(evidence, reconciling);
     return null;
   };
@@ -519,7 +520,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       ? await evidenceView(client, rec, balances, signed ? evidence.map((v) => ({ ...v, entity_name: names.get(v.entity_id) })) : liveEvidence, names,
         { reconciling, statements: await statementsOf(pool, rec.id) })
       : null;
-    const months = rec.proof === "schedule" ? recs.scheduleMonths(items, rec.period) : [];
+    const months = recs.bySchedule(rec.line_key, rec.proof) ? recs.scheduleMonths(items, rec.period) : [];
     const p = prior.rows[0] ?? null;
     // The latest FM1 run on this rec, so the page can say it is working and
     // show what it said when it finished.
@@ -894,7 +895,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   // account's, not the month's.
   app.put(`${BASE}/:id/releases`, tolerant(async (req, res) => recTx(req, res, (conn, { client, actor, actorEmail, role }) => withRec(conn, client, req.params.id, async (rec) => {
     if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO switches the monthly release on or off" } };
-    if (!recs.workable(rec.line_key, rec.proof)) return { status: 409, body: { error: "Monthly releases work only for Prepayments for now" } };
+    if (!recs.bySchedule(rec.line_key, rec.proof)) return { status: 409, body: { error: "Monthly releases work only for Prepayments for now" } };
     if (typeof req.body?.on !== "boolean") return { status: 400, body: { error: "on must be true or false" } };
     const on = req.body.on;
     await conn.query("UPDATE finance.rec_accounts SET releases_on = $2, releases_by = $3, releases_at = now() WHERE id = $1", [rec.rec_account_id, on, actorEmail]);
@@ -1164,7 +1165,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const row = (await conn.query(
       `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [rec.id, b.entity_id, rec.proof, recs.pounds(recs.pence(amount)), source.slice(0, 300), String(b.document_ref ?? "").trim().slice(0, 300) || null,
+      [rec.id, b.entity_id, recs.evidenceKind(rec.proof), recs.pounds(recs.pence(amount)), source.slice(0, 300), String(b.document_ref ?? "").trim().slice(0, 300) || null,
         String(b.note ?? "").trim().slice(0, 2000) || null, actor])).rows[0];
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "evidence_added", { entity_id: b.entity_id, amount: recs.pounds(recs.pence(amount)), source });
@@ -1296,7 +1297,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       await conn.query(
         `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'statement')`,
-        [r2.id, b.entity_id, r2.proof, recs.pounds(out.statement_balance), `Bank statement balance at ${bank.nice(r2.period_end)}`.slice(0, 300), fileName.slice(0, 300),
+        [r2.id, b.entity_id, recs.evidenceKind(r2.proof), recs.pounds(out.statement_balance), `Bank statement balance at ${bank.nice(r2.period_end)}`.slice(0, 300), fileName.slice(0, 300),
           out.agreed ? `Agreed with Xero on ${bank.nice(out.agreed.date)}` : "Did not agree with Xero on any day in the file", actor]);
       // What the last upload found is replaced; what a person touched is kept.
       await conn.query(
@@ -1482,6 +1483,26 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const amount = recs.pounds(-recs.pence(t.closing));
       rows.push({ entity_id: balances[0].entity_id, amount, source: `${names.get(t.entity_id) ?? "The other company"}: ${t.account_name} at ${date}, reversed`, note: `The paired account read from the same trial balances as this one.` });
       said.push(`${names.get(t.entity_id)} holds ${t.account_name} at ${money(recs.pence(t.closing))}; reversed, that is ${amount}.`);
+    } else if (method === "contracts") {
+      // The contracts register (migration 047): customer contracts of this
+      // client held on the rec's account in each company, at the month end.
+      let held = [];
+      try {
+        const cs = (await pool.query(
+          `SELECT c.id, c.entity_id, c.side, c.account_code, c.counterparty FROM finance.contracts c
+            WHERE c.client_id = $1 AND c.side = 'customer' AND c.status <> 'cancelled' AND c.entity_id = ANY($2::uuid[])`,
+          [who.client.id, balances.map((b) => b.entity_id)])).rows;
+        const ms = cs.length ? (await pool.query(
+          "SELECT contract_id, kind, on_date, amount, withdrawn_at FROM finance.contract_movements WHERE client_id = $1 AND contract_id = ANY($2::uuid[]) AND withdrawn_at IS NULL",
+          [who.client.id, cs.map((c) => c.id)])).rows : [];
+        held = cs.map((c) => ({ ...c, movements: ms.filter((m) => m.contract_id === c.id) }));
+      } catch (e) {
+        if (e?.code !== "42P01") throw e;
+        return res.status(409).json({ error: "The contracts register is waiting for migration 047. Record the outside evidence meanwhile." });
+      }
+      const ev = contractsLib.deferredEvidence(balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), held, date);
+      rows.push(...ev.rows);
+      said.push(...ev.said);
     } else if (method === "carry_forward") {
       const prior = (await pool.query(
         "SELECT id, status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2", [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
@@ -1500,7 +1521,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         await conn.query(
           `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [r2.id, v.entity_id, r2.proof, v.amount, String(v.source).slice(0, 300), v.document_ref ?? null, v.note ?? null, actor, method]);
+          [r2.id, v.entity_id, recs.evidenceKind(r2.proof), v.amount, String(v.source).slice(0, 300), v.document_ref ?? null, v.note ?? null, actor, method]);
       }
       await started(conn, r2);
       await event(conn, r2.id, client.id, actor, "evidence_fetched", { method, rows: rows.length });
