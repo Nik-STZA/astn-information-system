@@ -47,7 +47,12 @@ async function generate(body, {
     if (r.ok) {
       const text = (json.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
       if (!text) throw new Error(`Vertex returned no text (finishReason ${json.candidates?.[0]?.finishReason || "none"})`);
-      return { text, usage: json.usageMetadata || null, model: t.model, location: t.location };
+      // grounding: the searches made and sources used when the request asked
+      // for Google Search grounding (registry re-verification); null otherwise.
+      return {
+        text, usage: json.usageMetadata || null, model: t.model, location: t.location,
+        grounding: json.candidates?.[0]?.groundingMetadata || null,
+      };
     }
     last = { status: r.status, message: json.error?.message || "" };
     if (r.status !== 429) break;

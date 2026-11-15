@@ -734,6 +734,21 @@ async function executeJob(job) {
   if (job.agent === registryReviewer.AGENT) {
     return registryReviewer.executeRegistryReview(job, { anthropic, model: MODEL, apiCall, apiRequest });
   }
+  // A re-verification is researched by finance-api itself (Gemini on Vertex,
+  // which only finance-api may call); the runner only starts it and records it.
+  if (job.agent === "registry-verifier") {
+    const r = await apiRequest("POST", `/api/registry/runs/${job.id}/verify`);
+    const b = r.body || {};
+    const label = `Gemini on Vertex AI (${b.model || "gemini"}, ${b.location || "europe-west2"}) with Google Search grounding`;
+    const common = { durationMs: b.durationMs ?? 0, costUsd: null, processingPath: "vertex", processingPathLabel: label,
+      toolsUsed: [{ name: "website_check", count: 1 }, ...(b.searches ? [{ name: "google_search", count: b.searches }] : [])] };
+    if (!r.ok || !b.ok) return { status: "failed", error: b.error || `finance-api answered ${r.status}`, ...common };
+    return {
+      status: "succeeded",
+      output: `Re-verification proposed (${b.verdict}${b.changes?.length ? `: ${b.changes.join(", ")}` : ""}). Website: ${b.website}. ${b.searches} searches, ${b.tokens?.total ?? "?"} tokens.`,
+      ...common,
+    };
+  }
 
   // 1. Discover entities for this client
   let entities;

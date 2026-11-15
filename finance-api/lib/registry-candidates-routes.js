@@ -14,28 +14,36 @@
 // every other route with a 503, so finance-api can deploy ahead of it.
 
 const rc = require("./registry-candidates");
+const rv = require("./registry-verifier");
+const { checkWebsite: defaultCheckWebsite } = require("./website-check");
 
 const MISSING = "Registry candidates are waiting for migration 044 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REGISTRY_CLIENT = "africanstn";
 const AGENT = "registry-reviewer";
+const VERIFIER = "registry-verifier";
 const OPEN = ["queued", "reviewing", "proposed", "failed"];
 
-const CANDIDATE_COLUMNS = `id, submitted_name, submitted_website, submitted_country, submitted_sport,
+const CANDIDATE_COLUMNS = `id, kind, submitted_name, submitted_website, submitted_country, submitted_sport,
   submitted_note, submitted_by, submitted_at, status, agent_run_id, verdict, verdict_reason,
-  proposal, evidence, duplicates, reviewed_at, decided_by, decided_at, decision_note, organization_id`;
+  proposal, evidence, duplicates, reviewed_at, decided_by, decided_at, decision_note, organization_id,
+  website_check, research_meta`;
 
 function instructionFor(c, note) {
-  const lines = [
-    `Review registry candidate ${c.id}: "${c.submitted_name}".`,
-    "Read it with get_candidate, check it against the registry, research it, and record your proposal with record_proposal.",
-  ];
+  const lines = c.kind === "reverify"
+    ? [`Re-verify registry record "${c.submitted_name}" (candidate ${c.id}): website check, then grounded research.`]
+    : [
+      `Review registry candidate ${c.id}: "${c.submitted_name}".`,
+      "Read it with get_candidate, check it against the registry, research it, and record your proposal with record_proposal.",
+    ];
   if (note) lines.push(`The reviewer asked you to look again: ${note}`);
   return lines.join("\n");
 }
 
-function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) {
+function mountRegistryCandidates(app, {
+  route, pool, audit, startAgentRunner, generate, checkWebsite = defaultCheckWebsite,
+}) {
   const tolerant = (fn) => route(async (req, res) => {
     try {
       await fn(req, res);
@@ -88,7 +96,7 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
     const { rows } = await conn.query(
       `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status)
        VALUES ($1, $2, NULL, $3, $4, 'queued') RETURNING id`,
-      [clientId, actorEmail, AGENT, instructionFor(candidate, note)]
+      [clientId, actorEmail, candidate.kind === "reverify" ? VERIFIER : AGENT, instructionFor(candidate, note)]
     );
     await conn.query(
       `UPDATE registry_candidates SET agent_run_id = $2, status = 'queued' WHERE id = $1`,
@@ -123,7 +131,12 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
     try {
       const { rows } = await pool.query(
         `SELECT ${CANDIDATE_COLUMNS},
-                (SELECT astn_id FROM organizations o WHERE o.id = c.organization_id) AS astn_id
+                (SELECT astn_id FROM organizations o WHERE o.id = c.organization_id) AS astn_id,
+                -- For a re-verification, what the record holds now, to show beside the proposal.
+                CASE WHEN c.kind = 'reverify' THEN (
+                  SELECT jsonb_build_object(${rv.CHANGEABLE.map((f) => `'${f}', o.${f}`).join(", ")})
+                    FROM organizations o WHERE o.id = c.organization_id
+                ) END AS current
            FROM registry_candidates c
           WHERE status = ANY($1)
           ORDER BY ${done ? "decided_at DESC" : "submitted_at DESC"}
@@ -174,7 +187,7 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
 
     const out = await inTransaction(async (conn) => {
       const { rows } = await conn.query(
-        "SELECT id, submitted_name, status FROM registry_candidates WHERE id = $1 FOR UPDATE", [req.params.id]
+        "SELECT id, kind, submitted_name, status FROM registry_candidates WHERE id = $1 FOR UPDATE", [req.params.id]
       );
       const c = rows[0];
       if (!c) return { status: 404, body: { error: "candidate not found" } };
@@ -257,8 +270,176 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
     res.status(out.status).json(out.body);
   }));
 
-  // The one write to public.organizations. fields may correct any part of the
-  // proposal; the result is checked again in full before it is written.
+  // A re-verification approved: the ticked changes (apply), as proposed or as
+  // corrected (fields), written to the existing row. The organizations_audit
+  // trigger records the before and after against the person, through
+  // app.user_email. Notes are appended, never replaced. Applying no changes is
+  // allowed: it records that the record was checked.
+  async function applyReverify(conn, c, email, req) {
+    const org = (await conn.query("SELECT * FROM organizations WHERE id = $1 FOR UPDATE", [c.organization_id])).rows[0];
+    if (!org) return { status: 404, body: { error: "the registry record no longer exists" } };
+    const proposed = c.proposal?.changes || {};
+    const apply = Array.isArray(req.body?.apply) ? req.body.apply.map(String) : Object.keys(proposed);
+    const overrides = req.body?.fields && typeof req.body.fields === "object" ? req.body.fields : {};
+    const wanted = {};
+    for (const f of apply) {
+      if (!rv.CHANGEABLE.includes(f)) return { status: 400, body: { error: `${f} cannot be changed here` } };
+      wanted[f] = Object.prototype.hasOwnProperty.call(overrides, f) ? overrides[f] : proposed[f];
+    }
+    const { changes, errors } = rv.validateChanges(wanted, org);
+    if (errors.length) return { status: 400, body: { error: "some changes did not pass the checks", errors } };
+
+    const noteRaw = String(overrides.notes_append ?? c.proposal?.notes_append ?? "").trim().slice(0, 1500);
+    const day = new Date().toISOString().slice(0, 10);
+    const note = `${noteRaw && /^\[\d{4}-\d{2}-\d{2}\]/.test(noteRaw) ? noteRaw : `[${day}] ${noteRaw || "Re-verified; no change."}`} (re-verified from registry candidate ${c.id}, approved in os.stza.io)`;
+    const check = c.website_check || null;
+
+    const sets = [];
+    const values = [];
+    for (const [f, v] of Object.entries(changes)) { values.push(v); sets.push(`"${f}" = $${values.length}`); }
+    values.push(note); sets.push(`notes = CASE WHEN coalesce(notes, '') = '' THEN $${values.length} ELSE notes || E'\\n' || $${values.length} END`);
+    values.push(day); sets.push(`verification_date = $${values.length}`);
+    sets.push("last_research_date = CURRENT_DATE", "research_depth = 'moderate'");
+    if (check?.url) {
+      values.push(check.website_status || "unknown"); sets.push(`website_status = $${values.length}`);
+      sets.push("last_website_check = CURRENT_DATE");
+    }
+    await conn.query("SELECT set_config('app.user_email', $1, true)", [email]);
+    values.push(org.id);
+    await conn.query(`UPDATE organizations SET ${sets.join(", ")} WHERE id = $${values.length}`, values);
+
+    const sources = Array.isArray(c.proposal?.sources) && c.proposal.sources.length
+      ? c.proposal.sources.map(String)
+      : (Array.isArray(c.evidence) ? c.evidence.map((e) => String(e.finding || "").replace(/^(Search source|Site Gemini named as a source): /, "")).filter(Boolean) : []);
+    const band = rc.bandOf(changes.source_confidence || org.source_confidence);
+    await conn.query(
+      `INSERT INTO research_log
+         (organization_id, astn_id, researcher, research_type, sources_checked, findings_summary,
+          status_changed, old_status, new_status, data_updated, confidence, session_reference)
+       VALUES ($1,$2,'agent_registry_verifier','status_verification',$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        org.id, org.astn_id, [...new Set(["website_check", ...sources])].slice(0, 20), c.verdict_reason,
+        Boolean(changes.operational_status), org.operational_status, changes.operational_status || org.operational_status,
+        JSON.stringify({ from_candidate: c.id, applied: changes, offered: Object.keys(proposed), website_check: check?.outcome ?? null }),
+        band === "High" || band === "Medium-High" ? "high" : band === "Medium" ? "medium" : "low",
+        c.agent_run_id,
+      ]
+    );
+    await conn.query(
+      `UPDATE registry_candidates SET status = 'approved', decided_by = $2, decided_at = now(), decision_note = $3 WHERE id = $1`,
+      [c.id, email, Object.keys(changes).length ? `Applied: ${Object.keys(changes).join(", ")}` : "Checked; no fields changed"]
+    );
+    await audit(conn, {
+      actorEmail: email, action: "registry.reverify.apply", targetType: "registry_candidate", targetId: c.id,
+      clientId: await registryClient(conn), payload: { organization_id: org.id, astn_id: org.astn_id, applied: Object.keys(changes) }, ip: req.ip,
+    });
+    return { status: 200, body: { id: c.id, status: "approved", organization_id: org.id, astn_id: org.astn_id, applied: Object.keys(changes) } };
+  }
+
+  // Sends existing registry records to the researcher (migration 046). Records
+  // already waiting on a re-verification are skipped, not queued twice.
+  app.post("/api/registry/reverify", tolerant(async (req, res) => {
+    const email = actor(req, res);
+    if (!email) return;
+    const ids = [...new Set((Array.isArray(req.body?.organizationIds) ? req.body.organizationIds : []).map(String))];
+    if (!ids.length) return res.status(400).json({ error: "no records were sent" });
+    if (ids.length > rc.MAX_BATCH) return res.status(400).json({ error: `at most ${rc.MAX_BATCH} at a time` });
+    if (ids.some((id) => !UUID.test(id))) return res.status(400).json({ error: "not a record id" });
+
+    const out = await inTransaction(async (conn) => {
+      const clientId = await registryClient(conn);
+      const orgs = (await conn.query(
+        "SELECT id, organization_name, organization_website, country, sport FROM organizations WHERE id = ANY($1::uuid[])", [ids]
+      )).rows;
+      const queued = [];
+      for (const o of orgs) {
+        const { rows } = await conn.query(
+          `INSERT INTO registry_candidates
+             (kind, organization_id, submitted_name, submitted_website, submitted_country, submitted_sport, submitted_by)
+           VALUES ('reverify', $1, $2, NULLIF($3, ''), $4, $5, $6)
+           ON CONFLICT (organization_id) WHERE kind = 'reverify' AND status IN ('queued', 'reviewing', 'proposed', 'failed')
+           DO NOTHING
+           RETURNING id, kind, submitted_name`,
+          [o.id, o.organization_name, o.organization_website, o.country, o.sport, email]
+        );
+        if (!rows.length) continue;
+        const runId = await queueReview(conn, clientId, rows[0], email);
+        queued.push({ id: rows[0].id, organization_id: o.id, agent_run_id: runId });
+      }
+      if (queued.length) {
+        await audit(conn, {
+          actorEmail: email, action: "registry.reverify.queue", targetType: "organization", targetId: queued[0].organization_id,
+          clientId, payload: { count: queued.length, organization_ids: queued.map((q) => q.organization_id) }, ip: req.ip,
+        });
+      }
+      return { queued, skipped: ids.length - queued.length };
+    });
+    const runner = out.queued.length ? await startAgentRunner(out.queued[0].agent_run_id) : "nothing queued";
+    res.status(out.queued.length ? 201 : 200).json({ count: out.queued.length, skipped: out.skipped, runner });
+  }));
+
+  // The research for one re-verification, run when the runner reaches it: the
+  // free website check, then Gemini with Google Search grounding. finance-api
+  // does it rather than the runner because only finance-api may call Vertex.
+  app.post("/api/registry/runs/:runId/verify", tolerant(async (req, res) => {
+    if (!UUID.test(req.params.runId)) return res.status(400).json({ error: "not a run id" });
+    const started = Date.now();
+    const { rows } = await pool.query(
+      `UPDATE registry_candidates SET status = 'reviewing'
+        WHERE agent_run_id = $1 AND kind = 'reverify' AND status IN ('queued', 'reviewing')
+        RETURNING id, organization_id`,
+      [req.params.runId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "no re-verification is waiting on this run" });
+    const c = rows[0];
+    const fail = async (message) => {
+      await pool.query(
+        `UPDATE registry_candidates SET status = 'failed', verdict_reason = $3, reviewed_at = now()
+          WHERE id = $1 AND agent_run_id = $2`, [c.id, req.params.runId, message.slice(0, 1000)]
+      );
+      return res.json({ ok: false, error: message, durationMs: Date.now() - started });
+    };
+
+    const org = (await pool.query("SELECT * FROM organizations WHERE id = $1", [c.organization_id])).rows[0];
+    if (!org) return fail("The registry record no longer exists.");
+    const check = await checkWebsite(org.organization_website || null, { name: org.organization_name });
+
+    let answer;
+    try {
+      answer = await generate(rv.buildRequest(org, check));
+    } catch (e) {
+      await pool.query("UPDATE registry_candidates SET website_check = $2 WHERE id = $1", [c.id, JSON.stringify(check)]);
+      return fail(`Gemini could not be reached: ${e.message}`);
+    }
+    const parsed = rv.parseAnswer(answer.text, answer.grounding, org);
+    const meta = {
+      engine: "gemini", model: answer.model, location: answer.location,
+      searches: Array.isArray(answer.grounding?.webSearchQueries) ? answer.grounding.webSearchQueries.length : 0,
+      queries: answer.grounding?.webSearchQueries ?? [],
+      tokens: answer.usage ? { prompt: answer.usage.promptTokenCount, output: answer.usage.candidatesTokenCount, thinking: answer.usage.thoughtsTokenCount, total: answer.usage.totalTokenCount } : null,
+    };
+    await pool.query("UPDATE registry_candidates SET website_check = $2, research_meta = $3 WHERE id = $1",
+      [c.id, JSON.stringify(check), JSON.stringify(meta)]);
+    if (parsed.error) return fail(parsed.error);
+
+    const saved = await pool.query(
+      `UPDATE registry_candidates
+          SET status = 'proposed', verdict = $3, verdict_reason = $4, proposal = $5, evidence = $6, reviewed_at = now()
+        WHERE id = $1 AND agent_run_id = $2 AND status = 'reviewing'
+        RETURNING id`,
+      [c.id, req.params.runId, parsed.verdict, parsed.reason, JSON.stringify(parsed.proposal), JSON.stringify(parsed.evidence)]
+    );
+    if (!saved.rows.length) return res.status(409).json({ error: "this re-verification was decided or re-run while it was being researched" });
+    res.json({
+      ok: true, verdict: parsed.verdict, changes: Object.keys(parsed.proposal.changes), website: check.outcome,
+      searches: meta.searches, tokens: meta.tokens, model: meta.model, location: meta.location, durationMs: Date.now() - started,
+    });
+  }));
+
+  // Approval: the only route that writes public.organizations. A new
+  // candidate's fields may correct any part of the proposal, and the result
+  // is checked again in full before it is written; a re-verification goes to
+  // applyReverify above.
   app.post("/api/registry/candidates/:id/approve", tolerant(async (req, res) => {
     const email = actor(req, res);
     if (!email) return;
@@ -275,6 +456,7 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
       if (c.status !== "proposed") {
         return { status: 409, body: { error: `only a proposed candidate can be approved; this one is ${c.status}` } };
       }
+      if (c.kind === "reverify") return applyReverify(conn, c, email, req);
 
       // Lookups through the pool: four reads at once on the transaction's own
       // connection would queue behind each other (and pg deprecates it).
@@ -458,4 +640,4 @@ function mountRegistryCandidates(app, { route, pool, audit, startAgentRunner }) 
   }));
 }
 
-module.exports = { mountRegistryCandidates, instructionFor, AGENT, REGISTRY_CLIENT };
+module.exports = { mountRegistryCandidates, instructionFor, AGENT, VERIFIER, REGISTRY_CLIENT };
