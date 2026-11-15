@@ -110,12 +110,21 @@ export default function ContractDetail({ slug, d }: { slug: string; d: Detail })
           : <div className={styles.actions}><button type="button" className={styles.btn} onClick={() => setAdding(true)}>Add a payment or milestone</button></div>)}
       </section>
 
-      {(c.account_code || d.movements.length > 0) && (
+      {/* Always on a customer contract (15 Nov 2026: the first live contract,
+          read from a PDF, had no account code, so this section was hidden and
+          nothing could be recorded against the Income in Advance rec). */}
+      {(c.side === "customer" || c.account_code || d.movements.length > 0) && (
         <section className={`${page.card} ${styles.section}`} aria-labelledby="held">
           <div className={page.cardHead}>
-            <h2 id="held">Held on account {c.account_code ?? "-"}</h2>
+            <h2 id="held">{c.account_code ? `Held on account ${c.account_code}` : "Held on the balance sheet"}</h2>
             <span className={styles.amount}>{money(d.held, cur)}</span>
           </div>
+          {!c.account_code && (
+            <div className={styles.notice} style={{ marginTop: 12 }}>
+              No balance sheet account is set, so the reconciliation cannot match this contract to the ledger.
+              {active ? <> Set the Xero code it holds money on (for deferred income, usually 810) under <Link prefetch={false} href={`${here}/${c.id}?edit=1`}>Terms, Edit</Link>, then record what has been billed in.</> : null}
+            </div>
+          )}
           {d.ledger && (
             <div className={styles.tieRow}>
               <span className={styles.grow}>At {dateLabel(d.ledger.period_end)}, the latest reconciled month</span>
