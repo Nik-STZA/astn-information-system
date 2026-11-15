@@ -13,7 +13,7 @@ import {
   type StoryTone,
 } from "@/lib/brief-items";
 import { markdownToHtml } from "@/lib/markdown";
-import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction, rewriteContextAction, loadBriefVersions, loadBriefVersion } from "./actions";
+import { saveBrief, regeneratePost, regeneratePostStatus, loadApprovedPool, rewriteStoryAction, rewriteContextAction, loadBriefVersions, loadBriefVersion, publishBriefAction } from "./actions";
 import type { ReviewItem, BriefVersion } from "@/lib/data/content";
 
 /**
@@ -26,7 +26,10 @@ import type { ReviewItem, BriefVersion } from "@/lib/data/content";
  * persistent deselection (excluded items stay visible and re-selectable),
  * and per-item editorial tone tags.
  */
-export default function BriefEditor({ id, initialMarkdown }: { id: string; initialMarkdown: string }) {
+export default function BriefEditor({ id, initialMarkdown, briefOnly = false }: { id: string; initialMarkdown: string; briefOnly?: boolean }) {
+  // briefOnly: a catch-up brief with no LinkedIn post, published from here.
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  const [published, setPublished] = useState(false);
   const [text, setText] = useState(initialMarkdown);
   const [savedText, setSavedText] = useState(initialMarkdown);
   const [mode, setMode] = useState<"edit" | "preview">("edit");
@@ -216,6 +219,30 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
     setMsg({ ok: true, text: "Saved. Redraft the LinkedIn post so it matches the edited brief." });
   }
 
+  // Two clicks: the first asks, the second publishes to africanstn.com.
+  async function publishBrief() {
+    if (dirty) {
+      setMsg({ ok: false, text: "Save the brief first." });
+      return;
+    }
+    if (!confirmPublish) {
+      setConfirmPublish(true);
+      setMsg({ ok: true, text: "This puts the brief on africanstn.com. Click Publish again to confirm." });
+      return;
+    }
+    setBusy("post");
+    const res = await publishBriefAction(id);
+    setBusy(null);
+    setConfirmPublish(false);
+    if (res.error || !res.data?.published) {
+      setMsg({ ok: false, text: res.error ?? "Not published." });
+      return;
+    }
+    setPublished(true);
+    const site = res.data.site_rebuild === "triggered" ? "africanstn.com is rebuilding." : `Site rebuild: ${res.data.site_rebuild} - deploy Netlify by hand.`;
+    setMsg({ ok: true, text: `Published. ${site}` });
+  }
+
   async function redraftPost() {
     if (dirty) {
       setMsg({ ok: false, text: "Save the brief first." });
@@ -272,13 +299,23 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
           >
             {busy === "save" ? "Saving…" : dirty ? "Save brief" : "Saved"}
           </button>
-          <button
-            onClick={redraftPost}
-            disabled={busy !== null}
-            style={{ ...btn, border: "1px solid var(--bd)", background: "transparent", color: "var(--gold-dark)" }}
-          >
-            {busy === "post" ? "Redrafting…" : "Redraft LinkedIn post"}
-          </button>
+          {briefOnly ? (
+            <button
+              onClick={publishBrief}
+              disabled={busy !== null || published}
+              style={{ ...btn, border: "1px solid var(--gold-dark)", background: confirmPublish ? "#C5A059" : "transparent", color: confirmPublish ? "#141414" : "var(--gold-dark)" }}
+            >
+              {published ? "Published" : busy === "post" ? "Publishing…" : confirmPublish ? "Publish — confirm" : "Publish brief"}
+            </button>
+          ) : (
+            <button
+              onClick={redraftPost}
+              disabled={busy !== null}
+              style={{ ...btn, border: "1px solid var(--bd)", background: "transparent", color: "var(--gold-dark)" }}
+            >
+              {busy === "post" ? "Redrafting…" : "Redraft LinkedIn post"}
+            </button>
+          )}
         </div>
         {msg && <div style={{ fontSize: 12, color: msg.ok ? "var(--success-green)" : "var(--alert-red)" }}>{msg.text}</div>}
         {mode === "edit" ? (
@@ -297,7 +334,9 @@ export default function BriefEditor({ id, initialMarkdown }: { id: string; initi
           />
         )}
         <p style={{ fontSize: 11, color: "var(--empty-text)", margin: 0 }}>
-          Publishing happens on the <Link href="/content/linkedin" style={{ color: "var(--gold-dark)" }}>LinkedIn page</Link>: Approve &amp; publish puts this brief and its post out together.
+          {briefOnly
+            ? "A catch-up brief for a past week: it has no LinkedIn post and is published from here."
+            : <>Publishing happens on the <Link href="/content/linkedin" style={{ color: "var(--gold-dark)" }}>LinkedIn page</Link>: Approve &amp; publish puts this brief and its post out together.</>}
         </p>
       </div>
 

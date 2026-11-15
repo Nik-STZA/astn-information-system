@@ -299,6 +299,16 @@ export async function publishLinkedInDraft(id: string, editedText: string) {
   );
 }
 
+// Publishes a draft brief that has no LinkedIn post (a catch-up edition for a
+// past week). The API refuses a brief with an open LinkedIn post.
+export async function publishBriefOnly(id: string) {
+  return cloudRunMutate<{ id: string; published: boolean; items_reported: number; week_ending: string | null; site_rebuild: string }>(
+    `/api/content/briefs/${id}/publish`,
+    "POST",
+    {},
+  );
+}
+
 // ─── Agent workflow triggers (brief generation etc.) ────────────────────────
 
 export type AgentWorkflow =
