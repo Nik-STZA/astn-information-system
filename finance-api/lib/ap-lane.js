@@ -281,7 +281,7 @@ function draftDifferences(bill, draft) {
 //   { differences, filled, attachments, documents }
 function triage({ review, doc, match, bill, duplicates = [], draft = null, sameFile = null }) {
   const reasons = (review?.flags || []).filter((f) => f.flagged).map(({ check, detail }) => ({ check, detail }));
-  if (!bill.DueDateString) reasons.push({ check: "no_due_date", detail: "no due date on the document and no payment terms in the supplier master" });
+  if (!bill.DueDateString && bill.Type !== "ACCPAYCREDIT") reasons.push({ check: "no_due_date", detail: "no due date on the document and no payment terms in the supplier master" });
   if (!bill.CurrencyCode) reasons.push({ check: "no_currency", detail: "the document's currency could not be read" });
   const status = match?.link?.supplier?.status;
   if (status && status !== "active") reasons.push({ check: "supplier_status", detail: `the supplier is ${status} in the master` });
@@ -517,18 +517,27 @@ function decide(item, { action, note = "", edits = null } = {}) {
 
 const money2 = (n) => (Math.round(Number(n) * 100) / 100).toFixed(2);
 
-// The request the existing bill write takes (server.js documentPlan), at
-// SUBMITTED: the lane ends there and the CFO approves in Xero (D3, and one
-// approval per bill, Nik 26 Oct 2026). Anything still missing is an issue, not
-// a guess.
+// The request the existing bill or credit note write takes (server.js
+// documentPlan), at SUBMITTED: the lane ends there and the CFO approves in Xero
+// (D3, and one approval per bill, Nik 26 Oct 2026). Anything still missing is
+// an issue, not a guess.
+//
+// A supplier credit note is its own Xero record (CreditNotes), so it is always
+// created, never written over a draft. Xero keys everything emailed to the
+// bills address as a draft bill (STZA, 15 Nov 2026: an Anthropic credit note);
+// that draft cannot become a credit note and the lane never deletes, so it is
+// left for the CFO to delete in Xero.
+//   kind  "invoice" | "credit_note": which documentPlan to use
 function sendRequest(item) {
   const bill = item.proposed_bill || {};
   const issues = [];
+  const credit = bill.Type === "ACCPAYCREDIT";
   if (!["clean", "approved"].includes(item.state)) issues.push(`only a clean or approved item is sent; this item is ${item.state}`);
-  if (bill.Type !== "ACCPAY") issues.push("only bills are sent for now; a supplier credit note goes in by hand");
+  if (!["ACCPAY", "ACCPAYCREDIT"].includes(bill.Type)) issues.push("only supplier bills and credit notes are sent");
   if (!bill.Contact?.ContactID) issues.push("no Xero supplier: choose one first");
-  if (!bill.DateString) issues.push("no date on the bill");
-  if (!bill.DueDateString) issues.push("no due date: set one first (Xero needs it on a bill awaiting approval)");
+  if (!bill.DateString) issues.push(`no date on the ${credit ? "credit note" : "bill"}`);
+  // A credit note has no due date in Xero.
+  if (!credit && !bill.DueDateString) issues.push("no due date: set one first (Xero needs it on a bill awaiting approval)");
   (bill.LineItems || []).forEach((l, i) => {
     if (!l.AccountCode) issues.push(`line ${i + 1} has no account`);
     if (!l.TaxType) issues.push(`line ${i + 1} has no VAT treatment`);
@@ -536,13 +545,14 @@ function sendRequest(item) {
   const fromDraft = item.source === "ledger_draft";
   if (fromDraft && !item.ledger_draft_id) issues.push("the Xero draft this item came from is not recorded");
   const body = {
-    // A draft Xero keyed is updated in place: one bill, its document already attached.
-    id: fromDraft ? item.ledger_draft_id : undefined,
-    type: "ACCPAY",
+    // A draft bill Xero keyed is updated in place: one bill, its document already
+    // attached. A credit note is always new (see above).
+    id: fromDraft && !credit ? item.ledger_draft_id : undefined,
+    type: credit ? "ACCPAYCREDIT" : "ACCPAY",
     status: "SUBMITTED",
     contact_id: bill.Contact?.ContactID,
     date: (bill.DateString || "").slice(0, 10),
-    due_date: bill.DueDateString ? bill.DueDateString.slice(0, 10) : undefined,
+    due_date: !credit && bill.DueDateString ? bill.DueDateString.slice(0, 10) : undefined,
     number: bill.InvoiceNumber || undefined,
     reference: bill.Reference || bill.InvoiceNumber || undefined,
     currency_code: bill.CurrencyCode || undefined,
@@ -552,11 +562,11 @@ function sendRequest(item) {
     })),
     // Xero's History shows only that we acted. The reasoning is ours: it stays on
     // the queue item and never goes to Xero.
-    audit_note: fromDraft
+    audit_note: fromDraft && !credit
       ? "Reviewed against the attached document."
       : "Keyed from the attached document.",
   };
-  return { body, issues };
+  return { body, issues, kind: credit ? "credit_note" : "invoice" };
 }
 
 module.exports = {

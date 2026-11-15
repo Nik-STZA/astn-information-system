@@ -271,6 +271,44 @@ describe("drafts Xero keyed", () => {
   });
 });
 
+// A supplier credit note is its own Xero record (STZA, 15 Nov 2026: a supplier
+// credit note emailed to the bills address, keyed by Xero as a draft bill).
+describe("supplier credit notes", () => {
+  const credit = { ...buildBill({ doc: { ...invoice, document_type: "credit_note", due_date: null }, match: { link: { ...link, payment_terms_days: null } }, entity }) };
+
+  it("is proposed as ACCPAYCREDIT and needs no due date", () => {
+    expect(credit.Type).toBe("ACCPAYCREDIT");
+    expect(credit.DueDateString).toBeNull();
+    const t = triage({ review: { flags: [] }, doc: invoice, match: { link }, bill: credit });
+    expect(t.reasons.map((r) => r.check)).not.toContain("no_due_date");
+  });
+
+  it("is sent as a new credit note at SUBMITTED", () => {
+    const { body, issues, kind } = sendRequest({ state: "clean", file_name: "cn.pdf", proposed_bill: credit });
+    expect(issues).toEqual([]);
+    expect(kind).toBe("credit_note");
+    expect(body).toMatchObject({ type: "ACCPAYCREDIT", status: "SUBMITTED", number: "GB6AYHTG9AEUD" });
+    expect(body.id).toBeUndefined();
+    expect(body.due_date).toBeUndefined();
+  });
+
+  it("from a Xero draft bill, is still created new: the draft cannot change type", () => {
+    const item = { state: "approved", file_name: "cn.pdf", proposed_bill: { ...credit, InvoiceID: "00000000-0000-4000-8000-0000000000d2" },
+      source: "ledger_draft", ledger_draft_id: "00000000-0000-4000-8000-0000000000d2" };
+    const { body, issues, kind } = sendRequest(item);
+    expect(issues).toEqual([]);
+    expect(kind).toBe("credit_note");
+    expect(body.id).toBeUndefined();
+    expect(body.audit_note).toBe("Keyed from the attached document.");
+  });
+
+  it("a bill still goes as an invoice", () => {
+    expect(sendRequest({ state: "clean", file_name: "a.pdf", proposed_bill: buildBill({ doc: invoice, match: { link }, entity }) }).kind).toBe("invoice");
+    expect(sendRequest({ state: "clean", file_name: "a.pdf", proposed_bill: { ...credit, Type: "ACCREC" } }).issues)
+      .toContain("only supplier bills and credit notes are sent");
+  });
+});
+
 describe("due date before a send", () => {
   // FSL, 27 Oct 2026: a retainer invoice with no due date; Xero refused the
   // bill at SUBMITTED ("Due Date cannot be empty").
