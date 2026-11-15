@@ -1,9 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
-import { approveCandidate, rejectCandidate, rerunCandidate } from "@/lib/data/registry-candidates-actions";
+import { useActionState, useEffect, useState } from "react";
 import {
+  approveCandidate,
+  confirmDuplicate,
+  rejectCandidate,
+  rerunCandidate,
+} from "@/lib/data/registry-candidates-actions";
+import {
+  DECIDED,
   STATUS_LABEL,
   VERDICT_LABEL,
   safeHref,
@@ -23,6 +29,7 @@ const STATUS_PILL: Record<Candidate["status"], string> = {
   failed: styles.pillRed,
   approved: styles.pillGreen,
   rejected: "",
+  duplicate: "",
 };
 
 function when(iso: string | null): string {
@@ -30,9 +37,41 @@ function when(iso: string | null): string {
   return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+// A decided candidate takes one line: what happened and where it went.
+export function DecidedRow({ candidate: c, message }: { candidate: Candidate; message?: string }) {
+  const outcome =
+    c.status === "approved" ? "Added as" : c.status === "duplicate" ? "Duplicate of" : null;
+  return (
+    <div className={styles.row}>
+      <span className={`${styles.pill} ${STATUS_PILL[c.status]}`}>{STATUS_LABEL[c.status]}</span>
+      <span className={styles.rowName}>{c.submitted_name}</span>
+      <span className={styles.rowMeta}>
+        {message ?? (
+          <>
+            {outcome && c.organization_id ? (
+              <>
+                {outcome} <Link href={`/registry/${c.organization_id}`}>{c.astn_id ?? "registry record"}</Link>
+              </>
+            ) : null}
+            {c.status === "rejected" && c.decision_note ? c.decision_note : null}
+          </>
+        )}
+      </span>
+      <span className={styles.rowDate}>{when(c.decided_at)}</span>
+    </div>
+  );
+}
+
 export default function RegistryCandidateCard({ candidate: c, reference }: { candidate: Candidate; reference: RegistryReference | null }) {
+  // Once decided here the card folds to one line straight away, without
+  // waiting for the list to reload.
+  const [decided, setDecided] = useState<string | null>(null);
+  if (DECIDED.includes(c.status)) return <DecidedRow candidate={c} />;
+  if (decided) return <DecidedRow candidate={c} message={decided} />;
+
   const site = safeHref(c.submitted_website);
-  const open = ["queued", "reviewing", "proposed", "failed"].includes(c.status);
+  const proposed = c.status === "proposed";
+  const where = [c.submitted_country, c.submitted_sport].filter(Boolean).join(" · ");
 
   return (
     <article className={`card ${styles.panel}`}>
@@ -40,86 +79,119 @@ export default function RegistryCandidateCard({ candidate: c, reference }: { can
         <span className={styles.name}>{c.submitted_name}</span>
         <div className={styles.pills}>
           <span className={`${styles.pill} ${STATUS_PILL[c.status]}`}>{STATUS_LABEL[c.status]}</span>
-          {c.verdict && c.status === "proposed" ? <span className={styles.pill}>{VERDICT_LABEL[c.verdict]}</span> : null}
+          {c.verdict && proposed ? <span className={styles.pill}>{VERDICT_LABEL[c.verdict]}</span> : null}
         </div>
       </div>
       <div className={styles.meta}>
         {site ? <a href={site} target="_blank" rel="noopener noreferrer">{c.submitted_website}</a> : null}
-        {[c.submitted_country, c.submitted_sport].filter(Boolean).length ? ` · ${[c.submitted_country, c.submitted_sport].filter(Boolean).join(" · ")}` : null}
+        {where ? ` · ${where}` : null}
         {` · submitted ${when(c.submitted_at)}`}
-        {c.decided_at ? ` · decided ${when(c.decided_at)}` : null}
       </div>
-      {c.submitted_note ? <p className={styles.reason}>{c.submitted_note}</p> : null}
 
-      {c.verdict_reason ? (
-        <div className={styles.section}>
-          <span className={styles.sectionTitle}>{c.status === "failed" ? "What happened" : "Reviewer"}</span>
-          <p className={styles.reason}>{c.verdict_reason}</p>
-        </div>
+      {c.verdict_reason ? <p className={styles.reason}>{c.verdict_reason}</p> : null}
+
+      {c.evidence?.length || c.duplicates?.length ? (
+        <details className={styles.details}>
+          <summary>
+            {[
+              c.duplicates?.length ? `${c.duplicates.length} registry match${c.duplicates.length === 1 ? "" : "es"}` : null,
+              c.evidence?.length ? `${c.evidence.length} source${c.evidence.length === 1 ? "" : "s"}` : null,
+            ].filter(Boolean).join(" · ")}
+            {c.submitted_note ? " · your note" : null}
+          </summary>
+          <Evidence candidate={c} />
+        </details>
       ) : null}
 
-      {c.duplicates?.length ? (
-        <div className={styles.section}>
-          <span className={styles.sectionTitle}>Possibly already in the registry</span>
-          <ul className={styles.links}>
-            {c.duplicates.map((d) => (
-              <li key={d.astn_id}>
-                {d.organization_id ? <Link href={`/registry/${d.organization_id}`}>{d.astn_id} {d.organization_name}</Link> : `${d.astn_id} ${d.organization_name}`}
-                {d.why ? <span> · {d.why}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {proposed && c.verdict === "duplicate" ? <DuplicateActions candidate={c} onDone={setDecided} /> : null}
+      {proposed && c.verdict !== "duplicate" && c.proposal ? (
+        <details className={styles.details}>
+          <summary>{c.verdict === "add" ? "Review the record and add" : "Add it anyway"}</summary>
+          <ApproveForm candidate={c} reference={reference} onDone={setDecided} />
+        </details>
       ) : null}
-
-      {c.evidence?.length ? (
-        <div className={styles.section}>
-          <span className={styles.sectionTitle}>Evidence</span>
-          <ul className={styles.links}>
-            {c.evidence.map((e) => {
-              const href = safeHref(e.url);
-              return (
-                <li key={e.url}>
-                  {href ? <a href={href} target="_blank" rel="noopener noreferrer">{e.url}</a> : e.url}
-                  <span> · {e.finding}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
-
-      {c.status === "approved" && c.organization_id ? (
-        <p className={styles.reason}>
-          Added as <Link href={`/registry/${c.organization_id}`}>{c.astn_id ?? "a new record"}</Link>.
-        </p>
-      ) : null}
-      {c.status === "rejected" && c.decision_note ? <p className={styles.reason}>Rejected: {c.decision_note}</p> : null}
-
-      {c.status === "proposed" && c.proposal ? (
-        c.verdict === "add" ? (
-          <ApproveForm candidate={c} reference={reference} />
-        ) : (
-          <details className={styles.details}>
-            <summary>Add it anyway</summary>
-            <ApproveForm candidate={c} reference={reference} />
-          </details>
-        )
-      ) : null}
-
-      {open && (c.status === "proposed" || c.status === "failed") ? <SendBackOrReject candidate={c} /> : null}
+      {proposed || c.status === "failed" ? <SendBackOrReject candidate={c} onDone={setDecided} /> : null}
     </article>
   );
 }
 
-function ApproveForm({ candidate: c, reference }: { candidate: Candidate; reference: RegistryReference | null }) {
+function Evidence({ candidate: c }: { candidate: Candidate }) {
+  return (
+    <div className={styles.section}>
+      {c.submitted_note ? <p className={styles.reason}>Your note: {c.submitted_note}</p> : null}
+      {c.duplicates?.length ? (
+        <ul className={styles.links}>
+          {c.duplicates.map((d) => (
+            <li key={d.astn_id}>
+              {d.organization_id ? <Link href={`/registry/${d.organization_id}`}>{d.astn_id} {d.organization_name}</Link> : `${d.astn_id} ${d.organization_name}`}
+              {d.why ? <span> · {d.why}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {c.evidence?.length ? (
+        <ul className={styles.links}>
+          {c.evidence.map((e) => {
+            const href = safeHref(e.url);
+            return (
+              <li key={e.url}>
+                {href ? <a href={href} target="_blank" rel="noopener noreferrer">{e.url}</a> : e.url}
+                <span> · {e.finding}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+// Fold the card when an action succeeds.
+function useFoldOnSuccess(state: ActionResult, onDone: (message: string) => void) {
+  useEffect(() => {
+    if (state.status === "ok") onDone(state.message);
+  }, [state, onDone]);
+}
+
+function DuplicateActions({ candidate: c, onDone }: { candidate: Candidate; onDone: (m: string) => void }) {
+  const [state, action, pending] = useActionState(confirmDuplicate.bind(null, c.id), IDLE);
+  useFoldOnSuccess(state, onDone);
+  const matches = (c.duplicates ?? []).filter((d) => d.organization_id);
+
+  return (
+    <form action={action} className={styles.decide}>
+      {matches.length > 1 ? (
+        <label className={styles.field}>
+          <span className="label-brand">Duplicate of</span>
+          <select name="organizationId" className="input-brand" defaultValue={matches[0].organization_id}>
+            {matches.map((d) => <option key={d.organization_id} value={d.organization_id}>{d.astn_id} {d.organization_name}</option>)}
+          </select>
+        </label>
+      ) : matches.length === 1 ? (
+        <input type="hidden" name="organizationId" value={matches[0].organization_id} />
+      ) : null}
+      <div className={styles.actions}>
+        <button type="submit" className="btn-primary" disabled={pending || !matches.length}>
+          {pending ? "Closing…" : matches.length === 1 ? `Confirm duplicate of ${matches[0].astn_id}` : "Confirm duplicate"}
+        </button>
+        {matches.length === 1 ? (
+          <Link href={`/registry/${matches[0].organization_id}`} className="btn-text">Open {matches[0].astn_id}</Link>
+        ) : null}
+      </div>
+      <Message state={state} />
+    </form>
+  );
+}
+
+function ApproveForm({ candidate: c, reference, onDone }: { candidate: Candidate; reference: RegistryReference | null; onDone: (m: string) => void }) {
   const [state, action, pending] = useActionState(approveCandidate.bind(null, c.id), IDLE);
+  useFoldOnSuccess(state, onDone);
   const p = c.proposal ?? {};
   const listId = (name: string) => `${name}-${c.id}`;
 
   return (
     <form action={action} className={styles.decide}>
-      <span className={styles.sectionTitle}>Proposed record: correct anything before adding</span>
+      <span className={styles.hint}>Correct anything before adding. The ASTN ID is given when you add it.</span>
       <div className={styles.fields}>
         <Field label="Name" name="organization_name" value={p.organization_name} wide />
         <Select label="Country" name="country_iso" value={p.country_iso}
@@ -152,38 +224,47 @@ function ApproveForm({ candidate: c, reference }: { candidate: Candidate; refere
         {state.status === "error" && state.canOverride ? (
           <button type="submit" name="allowDuplicate" value="1" className="btn-secondary" disabled={pending}>Add anyway</button>
         ) : null}
-        <span className={styles.hint}>The ASTN ID is given when you add it.</span>
       </div>
       <Message state={state} />
     </form>
   );
 }
 
-function SendBackOrReject({ candidate: c }: { candidate: Candidate }) {
+function SendBackOrReject({ candidate: c, onDone }: { candidate: Candidate; onDone: (m: string) => void }) {
   const [note, setNote] = useState("");
   const [rerunState, rerun, rerunPending] = useActionState(rerunCandidate.bind(null, c.id), IDLE);
   const [rejectState, reject, rejectPending] = useActionState(rejectCandidate.bind(null, c.id), IDLE);
+  useFoldOnSuccess(rerunState, onDone);
+  useFoldOnSuccess(rejectState, onDone);
   const pending = rerunPending || rejectPending;
+  const agreeReject = c.status === "proposed" && c.verdict === "reject";
 
   return (
-    <div className={styles.decide}>
-      <label className={styles.field}>
-        <span className="label-brand">Note (optional)</span>
-        <textarea className="input-brand" rows={2} value={note} onChange={(e) => setNote(e.target.value)}
-          placeholder="What the reviewer should look at again, or why you are rejecting it" />
-      </label>
-      <div className={styles.actions}>
-        <form action={rerun}>
-          <input type="hidden" name="note" value={note} />
-          <button type="submit" className="btn-secondary" disabled={pending}>{c.status === "failed" ? "Run again" : "Send back to reviewer"}</button>
-        </form>
-        <form action={reject}>
-          <input type="hidden" name="note" value={note} />
-          <button type="submit" className="btn-text" disabled={pending}>Reject</button>
-        </form>
+    <details className={styles.details} open={agreeReject || c.status === "failed"}>
+      <summary>{c.verdict === "duplicate" ? "Not a duplicate?" : "Other actions"}</summary>
+      <div className={styles.decide}>
+        <label className={styles.field}>
+          <span className="label-brand">Note (optional)</span>
+          <textarea className="input-brand" rows={2} value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="What the reviewer should look at again, or why you are rejecting it" />
+        </label>
+        <div className={styles.actions}>
+          <form action={reject}>
+            <input type="hidden" name="note" value={note} />
+            <button type="submit" className={agreeReject ? "btn-primary" : "btn-text"} disabled={pending}>
+              {agreeReject ? "Agree: reject" : "Reject"}
+            </button>
+          </form>
+          <form action={rerun}>
+            <input type="hidden" name="note" value={note} />
+            <button type="submit" className="btn-secondary" disabled={pending}>
+              {c.status === "failed" ? "Run again" : "Send back to reviewer"}
+            </button>
+          </form>
+        </div>
+        <Message state={rerunState.status !== "idle" ? rerunState : rejectState} />
       </div>
-      <Message state={rerunState.status !== "idle" ? rerunState : rejectState} />
-    </div>
+    </details>
   );
 }
 

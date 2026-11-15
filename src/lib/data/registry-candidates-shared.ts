@@ -1,7 +1,9 @@
 // Registry candidates: types and the paste parser, safe on client and server.
 // finance-api checks everything again (finance-api/lib/registry-candidates.js).
 
-export type CandidateStatus = "queued" | "reviewing" | "proposed" | "failed" | "approved" | "rejected";
+export type CandidateStatus = "queued" | "reviewing" | "proposed" | "failed" | "approved" | "rejected" | "duplicate";
+
+export const DECIDED: CandidateStatus[] = ["approved", "rejected", "duplicate"];
 export type Verdict = "add" | "duplicate" | "reject";
 
 export type CandidateSubmission = {
@@ -128,6 +130,7 @@ export const STATUS_LABEL: Record<CandidateStatus, string> = {
   failed: "Review failed",
   approved: "Added",
   rejected: "Rejected",
+  duplicate: "Duplicate",
 };
 
 export const VERDICT_LABEL: Record<Verdict, string> = {
