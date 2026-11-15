@@ -345,6 +345,7 @@ function Detail({ item, progress, noteAgent, slug, entity, back, names, previous
             date: bill.DateString,
             dueDate: bill.DueDateString,
             fromDraft: item.source === "ledger_draft",
+            isCredit: bill.Type === "ACCPAYCREDIT",
             total: bill.Total,
             currency: bill.CurrencyCode,
             lines: bill.LineItems.map((l) => ({

@@ -202,6 +202,10 @@ export interface ApSendResult {
   done?: string[];
   attached?: boolean;
   file?: string;
+  // What was made in Xero, and Xero's draft bill left for the CFO to delete
+  // when a credit note came in through the bills address.
+  document?: "invoice" | "credit_note";
+  draft_left?: string;
   // Xero's own words when it refused the bill (HTTP 502 from finance-api).
   xero_errors?: string[];
   error?: string;

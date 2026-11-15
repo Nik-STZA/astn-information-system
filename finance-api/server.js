@@ -5574,9 +5574,11 @@ async function itemToWrite(ctx, req) {
 
 // The write for one queue item: the bill, its document and the queue row.
 async function billSendPlan(ctx, item, actorEmail, by = null) {
-  const { body, issues } = apLane.sendRequest(item);
+  const { body, issues, kind } = apLane.sendRequest(item);
   const fromDraft = item.source === "ledger_draft";
-  const operation = fromDraft ? "update" : "create";
+  const credit = kind === "credit_note";
+  // A credit note is always created, even from a Xero draft bill (lib/ap-lane.js, sendRequest).
+  const operation = fromDraft && !credit ? "update" : "create";
   if (issues.length) return { issues, operation, extra: { item_state: item.state } };
   // The draft must be the one that was read: changed or approved in Xero since,
   // it is read again (intake) before anything is sent over it.
@@ -5588,7 +5590,9 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
       return { issues: ["the Xero draft was changed after it was read: fetch new documents to read it again"], operation, extra: { item_state: item.state } };
     }
   }
-  const bill = await documentPlan("invoice")(ctx, body);
+  const d = writeRules.DOCUMENTS[kind];
+  const what = credit ? "credit note" : "bill";
+  const bill = await documentPlan(kind)(ctx, body);
   if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
   const done = [];
   return {
@@ -5607,31 +5611,54 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
       const saved = bill.saved(r.body);
       // Xero answers 200 with the errors on the bill itself (HasErrors and
       // ValidationErrors): the row is marked written only when Xero took it.
-      if (!r.ok || !saved?.InvoiceID || saved.HasValidationErrors || saved.HasErrors || (saved.ValidationErrors || []).length) return r;
-      done.push(`bill ${saved.InvoiceNumber || saved.InvoiceID} ${fromDraft ? "updated" : "created"} ${saved.Status}`);
+      const savedId = saved?.[d.idField];
+      if (!r.ok || !savedId || saved.HasValidationErrors || saved.HasErrors || (saved.ValidationErrors || []).length) return r;
+      done.push(`${what} ${saved[d.numberField] || savedId} ${fromDraft && !credit ? "updated" : "created"} ${saved.Status}`);
       let attachError = null;
-      if (fromDraft) {
+      if (fromDraft && !credit) {
         // Xero attached the document when it keyed the draft.
         done.push(`document ${item.file_name} already attached`);
+      } else if (fromDraft) {
+        // The document sits on Xero's draft bill: copy it onto the credit note.
+        const got = await xeroFetch(ctx.accessToken, ctx.tenantId,
+          `/Invoices/${item.ledger_draft_id}/Attachments/${item.ledger_attachment_id}`, {}, { accept: item.mime_type || "application/octet-stream" });
+        if (!got.ok) attachError = { status: got.status, text: "could not read the document from Xero's draft bill" };
+        else {
+          const raw = Buffer.from(await got.arrayBuffer());
+          const a = await xeroSend(ctx, "PUT", `/CreditNotes/${savedId}/Attachments/${encodeURIComponent(item.file_name)}`, {
+            raw, contentType: item.mime_type || "application/octet-stream",
+            key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:attach_credit", { draft: item.ledger_draft_id, credit: savedId }),
+          });
+          if (a.ok) done.push(`document ${item.file_name} attached`);
+          else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
+        }
+        done.push(`Xero's draft bill ${item.ledger_draft_id} left as it is: delete it in Xero`);
       } else {
         const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
-          json: { ObjectId: saved.InvoiceID, ObjectGroup: "Invoice" },
-          key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: saved.InvoiceID }),
+          json: { ObjectId: savedId, ObjectGroup: credit ? "CreditNote" : "Invoice" },
+          key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:associate", { file: item.xero_file_id, invoice: savedId }),
         });
         if (a.ok) done.push(`document ${item.file_name} attached`);
         else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
       }
+      // xero_invoice_id holds the credit note's id for a credit note.
       await pool.query(
         `UPDATE finance.ap_items SET state = 'written', xero_invoice_id = $2, written_at = now(), write_error = $3,
                 decided_by_email = COALESCE(decided_by_email, $4), decided_at = COALESCE(decided_at, now()),
                 proposed_bill = $5, decision_note = $6, edits = $7
-          WHERE id = $1`, [item.id, saved.InvoiceID, attachError ? JSON.stringify({ attach: attachError }) : null, actorEmail,
+          WHERE id = $1`, [item.id, savedId, attachError ? JSON.stringify({ attach: attachError }) : null, actorEmail,
           JSON.stringify(item.proposed_bill), item.decision_note, item.edits ? JSON.stringify(item.edits) : null]);
       // The bill is in Xero: tasks waiting on it move on (Work).
       await workBillDecided(item.id, "sent to Xero");
       return r;
     },
-    describe: (s, raw) => ({ ...bill.describe(s, raw), done, attached: done.some((x) => x.startsWith("document")) }),
+    // The portal reads InvoiceID/InvoiceNumber for either kind; document and
+    // draft_left say what was made and what the CFO still deletes in Xero.
+    describe: (s, raw) => ({
+      ...bill.describe(s, raw), InvoiceID: s?.[d.idField], InvoiceNumber: s?.[d.numberField] ?? "",
+      document: kind, ...(credit && fromDraft ? { draft_left: item.ledger_draft_id } : {}),
+      done, attached: done.some((x) => x.startsWith("document")),
+    }),
   };
 }
 

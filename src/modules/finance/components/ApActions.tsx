@@ -24,6 +24,9 @@ export interface ApActionsItem {
   date: string | null;
   dueDate: string | null;
   fromDraft: boolean;
+  // A supplier credit note (ACCPAYCREDIT): no due date, always created as a new
+  // Xero credit note; Xero's own draft bill for it is left for you to delete.
+  isCredit: boolean;
   total: number | null;
   currency: string | null;
   lines: Array<{ description: string; amount: number; account: string | null; tax: string | null; accountName?: string | null; taxName?: string | null }>;
@@ -78,10 +81,18 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
     <div className={styles.actions}>
       {!result && !recoding && (
         <>
-          <p className={styles.status}>
-            {item.fromDraft ? "Updates Xero's draft bill" : "Creates a bill"} from {item.contactName}{item.number ? `, ${item.number}` : ""},
-            due {shortDate(item.dueDate)}, at Awaiting approval with the document attached. You then approve it in Xero.
-          </p>
+          {item.isCredit ? (
+            <p className={styles.status}>
+              Creates a credit note from {item.contactName}{item.number ? `, ${item.number}` : ""}, at Awaiting approval with
+              the document attached. You then approve it in Xero.
+              {item.fromDraft ? " Xero keyed this as a draft bill: delete that draft in Xero afterwards." : ""}
+            </p>
+          ) : (
+            <p className={styles.status}>
+              {item.fromDraft ? "Updates Xero's draft bill" : "Creates a bill"} from {item.contactName}{item.number ? `, ${item.number}` : ""},
+              due {shortDate(item.dueDate)}, at Awaiting approval with the document attached. You then approve it in Xero.
+            </p>
+          )}
           <div className={styles.buttonRow}>
             <button type="button" className={styles.button} onClick={send} disabled={busy}>
               {busy ? "Sending..." : sendLabel(item)}
@@ -104,10 +115,12 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
 }
 
 export function SentNote({ result }: { result: ApSendResult }) {
+  const what = result.document === "credit_note" ? "credit note" : "bill";
   return (
     <p className={styles.done}>
-      Sent: bill {result.InvoiceNumber || result.InvoiceID} is in Xero, {String(result.xero_status || "").toLowerCase().replace("submitted", "awaiting approval")}.
+      Sent: {what} {result.InvoiceNumber || result.InvoiceID} is in Xero, {String(result.xero_status || "").toLowerCase().replace("submitted", "awaiting approval")}.
       {result.attached ? " The document is attached." : " The document could not be attached: attach it in Xero."}
+      {result.draft_left ? " Delete Xero's draft bill for it in Xero." : ""}
     </p>
   );
 }
@@ -168,7 +181,7 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
     } catch (e) { setError(e instanceof Error ? e.message : "The decision failed"); } finally { setBusy(false); }
   }
 
-  const ready = contactId && dueDate && lines.every((l) => l.account && l.tax);
+  const ready = contactId && (dueDate || item.isCredit) && lines.every((l) => l.account && l.tax);
   const supplierOptions = [
     ...(item.contactId && options && !options.suppliers.some((s) => s.contact_id === item.contactId)
       ? [{ value: item.contactId, label: item.contactName ?? item.contactId }] : []),
@@ -185,11 +198,13 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
         <>
           <SearchSelect label="Supplier" value={contactId} options={supplierOptions} placeholder="Type to find a supplier"
             onChange={setContactId} />
-          <label className={styles.field}>
-            <span>Due date{item.date ? ` (bill dated ${shortDate(item.date)})` : ""}</span>
-            <input type="date" className={styles.select} value={dueDate} min={(item.date ?? "").slice(0, 10) || undefined}
-              onChange={(e) => setDueDate(e.target.value)} />
-          </label>
+          {!item.isCredit && (
+            <label className={styles.field}>
+              <span>Due date{item.date ? ` (bill dated ${shortDate(item.date)})` : ""}</span>
+              <input type="date" className={styles.select} value={dueDate} min={(item.date ?? "").slice(0, 10) || undefined}
+                onChange={(e) => setDueDate(e.target.value)} />
+            </label>
+          )}
           {item.lines.map((l, i) => (
             <fieldset key={i} className={styles.lineEdit}>
               <legend>{l.description} · {money(l.amount, null)}</legend>
@@ -216,7 +231,7 @@ function DecidePanel({ slug, entity, item, recode = false, onCancel, onSaved }: 
             </button>
             {onCancel && <button type="button" className={styles.buttonSecondary} onClick={onCancel} disabled={busy}>Cancel</button>}
           </div>
-          {!ready && <p className={styles.status}>Choose a supplier, a due date, and an account and VAT treatment for every line, to approve.</p>}
+          {!ready && <p className={styles.status}>Choose a supplier,{item.isCredit ? "" : " a due date,"} and an account and VAT treatment for every line, to approve.</p>}
         </>
       )}
       {issues.length > 0 && <Issues title="Not saved" issues={issues} onClose={() => setIssues([])} />}
