@@ -17,7 +17,7 @@ import { usePathname } from "next/navigation";
 import {
   BadgeCheck, BookOpen, FileQuestionMark, Package, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
-  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
+  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, ListPlus, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -56,6 +56,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/overview": Gauge,
   "/registry": Database,
   "/registry/verify": BadgeCheck,
+  "/registry/candidates": ListPlus,
   "/data-protection": ShieldCheck,
   "/data-protection/jurisdictions": Globe,
   "/data-protection/editions": Newspaper,
