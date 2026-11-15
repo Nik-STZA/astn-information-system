@@ -5595,6 +5595,7 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
   const bill = await documentPlan(kind)(ctx, body);
   if (bill.issues?.length) return { ...bill, extra: { ...(bill.extra || {}), item_state: item.state } };
   const done = [];
+  let draftDeleted = false;
   return {
     ...bill,
     extra: { ...(bill.extra || {}), item_state: item.state, file: item.file_name, ...(by ? { submitted_by: by } : {}) },
@@ -5632,7 +5633,23 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
           if (a.ok) done.push(`document ${item.file_name} attached`);
           else attachError = { status: a.status, text: (a.text || "").slice(0, 300) };
         }
-        done.push(`Xero's draft bill ${item.ledger_draft_id} left as it is: delete it in Xero`);
+        // Xero's draft bill is now a duplicate of the credit note. It is
+        // deleted only when a person sent it (an agent's lane ends at
+        // SUBMITTED) and only once the document is safely on the credit note,
+        // since the draft may be the only place the document is held. The draft
+        // was checked unchanged just before the send. A deleted draft cannot be
+        // restored in Xero, which is why these limits are narrow (Nik, 15 Nov 2026).
+        if (!by && !attachError) {
+          const del = await xeroSend(ctx, "POST", `/Invoices/${item.ledger_draft_id}`, {
+            json: { Invoices: [{ InvoiceID: item.ledger_draft_id, Status: "DELETED" }] },
+            key: writeRules.idempotencyKey(ctx.entity.slug, "send_ap_bill:delete_draft", { draft: item.ledger_draft_id, credit: savedId }),
+          });
+          const gone = (del.body?.Invoices || [])[0];
+          draftDeleted = del.ok && gone?.Status === "DELETED";
+        }
+        done.push(draftDeleted
+          ? `Xero's draft bill ${item.ledger_draft_id} deleted`
+          : `Xero's draft bill ${item.ledger_draft_id} left as it is: delete it in Xero`);
       } else {
         const a = await xeroSend(ctx, "POST", `${XERO_FILES_API}/Files/${item.xero_file_id}/Associations`, {
           json: { ObjectId: savedId, ObjectGroup: credit ? "CreditNote" : "Invoice" },
@@ -5656,7 +5673,8 @@ async function billSendPlan(ctx, item, actorEmail, by = null) {
     // draft_left say what was made and what the CFO still deletes in Xero.
     describe: (s, raw) => ({
       ...bill.describe(s, raw), InvoiceID: s?.[d.idField], InvoiceNumber: s?.[d.numberField] ?? "",
-      document: kind, ...(credit && fromDraft ? { draft_left: item.ledger_draft_id } : {}),
+      document: kind,
+      ...(credit && fromDraft ? (draftDeleted ? { draft_deleted: item.ledger_draft_id } : { draft_left: item.ledger_draft_id }) : {}),
       done, attached: done.some((x) => x.startsWith("document")),
     }),
   };
