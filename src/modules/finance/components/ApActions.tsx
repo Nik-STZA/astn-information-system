@@ -85,7 +85,7 @@ function SendPanel({ slug, entity, item }: { slug: string; entity: string; item:
             <p className={styles.status}>
               Creates a credit note from {item.contactName}{item.number ? `, ${item.number}` : ""}, at Awaiting approval with
               the document attached. You then approve it in Xero.
-              {item.fromDraft ? " Xero keyed this as a draft bill: delete that draft in Xero afterwards." : ""}
+              {item.fromDraft ? " Xero keyed this as a draft bill: that draft is deleted once the credit note has the document." : ""}
             </p>
           ) : (
             <p className={styles.status}>
@@ -120,7 +120,8 @@ export function SentNote({ result }: { result: ApSendResult }) {
     <p className={styles.done}>
       Sent: {what} {result.InvoiceNumber || result.InvoiceID} is in Xero, {String(result.xero_status || "").toLowerCase().replace("submitted", "awaiting approval")}.
       {result.attached ? " The document is attached." : " The document could not be attached: attach it in Xero."}
-      {result.draft_left ? " Delete Xero's draft bill for it in Xero." : ""}
+      {result.draft_deleted ? " Xero's draft bill for it was deleted." : ""}
+      {result.draft_left ? " Xero's draft bill for it is still there: delete it in Xero." : ""}
     </p>
   );
 }

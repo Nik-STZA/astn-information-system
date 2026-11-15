@@ -524,9 +524,10 @@ const money2 = (n) => (Math.round(Number(n) * 100) / 100).toFixed(2);
 //
 // A supplier credit note is its own Xero record (CreditNotes), so it is always
 // created, never written over a draft. Xero keys everything emailed to the
-// bills address as a draft bill (STZA, 15 Nov 2026: an Anthropic credit note);
-// that draft cannot become a credit note and the lane never deletes, so it is
-// left for the CFO to delete in Xero.
+// bills address as a draft bill (STZA, 15 Nov 2026: a supplier credit note);
+// that draft cannot become a credit note. server.js billSendPlan deletes it
+// after a person's send once the document is on the credit note; otherwise it
+// is left for the CFO to delete in Xero.
 //   kind  "invoice" | "credit_note": which documentPlan to use
 function sendRequest(item) {
   const bill = item.proposed_bill || {};
