@@ -1,0 +1,84 @@
+/* Contracts (15 Nov 2026). Phone first: rows stack, the drop zone is a tap
+   target, nothing scrolls sideways except a wide table inside its own box. */
+
+.section { margin-top: 22px; max-width: 1040px; }
+.sectionHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.sectionHead h2 { font-size: 14px; }
+.grow { flex: 1; }
+
+.drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center;
+  padding: 20px 16px; border: 1.5px dashed var(--bd); border-radius: 12px; background: var(--pnl); color: var(--sub);
+  font-size: 13px; line-height: 1.5; cursor: pointer; max-width: 1040px; box-sizing: border-box;
+}
+.drop:hover, .dropOn { border-color: var(--brand-gold); background: var(--accent-bg); color: var(--tx); }
+.drop:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.dropTitle { font-size: 14px; font-weight: 600; color: var(--tx); }
+.hidden { display: none; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.cardItem { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; text-decoration: none; color: var(--tx); }
+.cardItem:hover { background: var(--cardhover); }
+.when { font-size: 12px; font-weight: 600; color: var(--sub); }
+.whenAmber { color: #854D0E; }
+.whenRed { color: #9A3412; }
+:global([data-theme="dark"]) .whenAmber { color: #FDE68A; }
+:global([data-theme="dark"]) .whenRed { color: #FDBA74; }
+
+.seg { display: inline-flex; background: var(--cardhover); border-radius: 999px; padding: 3px; gap: 2px; }
+.segItem { display: inline-flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 999px; font-size: 13px; color: var(--sub); text-decoration: none; }
+.segOn { background: var(--pnl); color: var(--tx); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+/* Wraps: on a phone the amount and buttons drop under the name. */
+.row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; padding: 12px 16px; border-bottom: 1px solid var(--bd); font-size: 13px; line-height: 1.5; }
+.row > :first-child { flex: 1 1 240px; min-width: 0; }
+.row > :nth-child(2) { flex: 0 1 auto; min-width: 0; }
+.row:last-child { border-bottom: 0; }
+.name { font-weight: 600; color: var(--tx); text-decoration: none; overflow-wrap: anywhere; }
+.name:hover { text-decoration: underline; }
+.meta { font-size: 12px; color: var(--sub); overflow-wrap: anywhere; }
+.amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 500; }
+.pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.pill { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; background: var(--cardhover); color: var(--label-text); }
+.pillAccent { background: var(--accent-bg); color: var(--accent-text); }
+
+.layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; padding: 12px 16px; }
+.layer { border: 1px solid var(--bd); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; }
+.layerHead { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--sub); text-transform: uppercase; }
+
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 16px; padding: 12px 16px; font-size: 13px; }
+.fact { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.factLabel { font-size: 12px; color: var(--sub); }
+.factValue { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 12px; padding: 12px 16px; }
+.wide { grid-column: 1 / -1; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--sub); min-width: 0; }
+.fieldMissing { color: #854D0E; font-weight: 600; }
+:global([data-theme="dark"]) .fieldMissing { color: #FDE68A; }
+.input, .select, .textarea {
+  min-height: 34px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--bd); background: var(--pnl); color: var(--tx);
+  font: 400 13px var(--font-sans); min-width: 0; box-sizing: border-box; width: 100%;
+}
+.textarea { min-height: 60px; resize: vertical; }
+.input:focus, .select:focus, .textarea:focus { outline: 2px solid var(--brand-gold); outline-offset: 0; }
+.lines { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px; }
+.line { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; padding: 10px; border: 1px solid var(--bd); border-radius: 10px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px 16px; border-top: 1px solid var(--bd); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--bd); background: var(--pnl); color: var(--tx); font: 500 13px var(--font-sans); cursor: pointer; text-decoration: none; white-space: nowrap; }
+.btn:hover { background: var(--cardhover); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btnPrimary { background: var(--tx); color: var(--pnl); border-color: var(--tx); }
+.btnPrimary:hover { background: var(--tx); opacity: 0.9; }
+
+.notice { padding: 10px 12px; border-radius: 10px; background: var(--accent-bg); color: var(--tx); font-size: 13px; line-height: 1.5; margin: 0 16px 12px; }
+.issues { padding: 10px 12px; border-radius: 10px; background: #FFF1E6; color: #9A3412; font-size: 13px; line-height: 1.5; margin: 8px 16px; }
+:global([data-theme="dark"]) .issues { background: #431407; color: #FDBA74; }
+.issues ul { margin: 4px 0 0; padding-left: 18px; }
+.empty { padding: 24px 16px; text-align: center; color: var(--sub); font-size: 13px; }
+.tieRow { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--bd); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tieRow:last-child { border-bottom: 0; }
+.agrees { color: var(--success-green); font-weight: 600; }
+.differs { color: #9A3412; font-weight: 600; }
+:global([data-theme="dark"]) .differs { color: #FDBA74; }

@@ -6652,6 +6652,16 @@ require("./lib/outstanding-docs-routes").mountOutstandingDocs(app, {
   route, pool, audit, clientIdFromSlug, express, xeroEntityContext, xeroGet, generate: (body) => vertex.generate(body),
 });
 
+// ── Contracts ───────────────────────────────────────────────────────────────
+
+// What each company of a client has agreed to sell and to buy, ring-fenced per
+// client (lib/contracts-routes.js, migration 047). Contract PDFs are read by
+// Gemini in London, as bills are, and deleted once read. The Deferred income
+// reconciliation takes its evidence from this register.
+require("./lib/contracts-routes").mountContracts(app, {
+  route, pool, audit, clientIdFromSlug, express, viaInput: work.viaInput, generate: (body) => vertex.generate(body),
+});
+
 // ── Review ──────────────────────────────────────────────────────────────────
 
 // Everything waiting on a person for a client, from Bills, Reconciliations,

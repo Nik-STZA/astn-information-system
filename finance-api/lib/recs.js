@@ -168,8 +168,19 @@ function matrixFields(lineKey) {
 // an amount per company with its source and document (10 Nov 2026). Asset
 // schedules other than Prepayments are not built yet.
 const EVIDENCE_PROOFS = new Set(["outside_evidence", "ledger_review"]);
-const usesEvidence = (lineKey, proof) => Boolean(lineKey) && EVIDENCE_PROOFS.has(proof);
-const workable = (lineKey, proof) => (lineKey === "prepay" && proof === "schedule") || usesEvidence(lineKey, proof);
+// Deferred income is proved by a schedule, and its schedule is the contracts
+// register (migration 047): the register's held amounts come onto the rec as
+// evidence per company, so it is worked as an evidence rec (15 Nov 2026).
+const REGISTER_SCHEDULED = new Set(["deferred"]);
+const usesEvidence = (lineKey, proof) => Boolean(lineKey)
+  && (EVIDENCE_PROOFS.has(proof) || (proof === "schedule" && REGISTER_SCHEDULED.has(lineKey)));
+// The kind an evidence row is held as (rec_evidence allows the two evidence
+// proofs). Deferred income's register stands on its signed contracts, which
+// are outside evidence.
+const evidenceKind = (proof) => (EVIDENCE_PROOFS.has(proof) ? proof : "outside_evidence");
+// Prepayments: its own schedule on the rec (items, monthly releases, checks).
+const bySchedule = (lineKey, proof) => lineKey === "prepay" && proof === "schedule";
+const workable = (lineKey, proof) => bySchedule(lineKey, proof) || usesEvidence(lineKey, proof);
 
 // Why a rec cannot be worked yet, in a person's words, or null.
 function notWorkableReason(lineKey, proof) {
@@ -203,7 +214,9 @@ const blockingItems = (reconciling = []) => (reconciling || []).filter((it) => i
 //   ageing_ar / ageing_ap  the control account against Xero's invoices outstanding at the month end
 //   counterpart            an intercompany account against the paired account in the other company
 //   carry_forward          an account that did not move: last month's signed evidence, carried
+//   contracts              deferred income against the contracts register's held amounts
 function autoMethod(rec) {
+  if (rec.line_key === "deferred") return "contracts";
   if (rec.line_key === "ar") return "ageing_ar";
   if (rec.line_key === "ap") return "ageing_ap";
   if (rec.line_key === "ic_asset" || (rec.line_key === "loans" && /intercompany|inter.company/i.test(rec.account_name ?? ""))) return "counterpart";
@@ -216,6 +229,7 @@ const METHOD_LABEL = {
   ageing_ap: "Xero supplier bills outstanding at the month end",
   counterpart: "The paired account in the other company, reversed",
   carry_forward: "Last month's signed evidence, carried where the account did not move",
+  contracts: "The contracts register: what each customer contract holds on the account at the month end",
 };
 
 // A Xero date as YYYY-MM-DD, or null. Xero sends "2026-10-18T00:00:00" in a
@@ -981,7 +995,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
-  EVIDENCE_PROOFS, usesEvidence, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, carryForward,
+  EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,

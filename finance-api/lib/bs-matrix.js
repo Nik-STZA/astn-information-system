@@ -57,6 +57,8 @@ const BY_NAME = [
   [/prepay/i, "prepay"],
   [/accrual/i, "accruals"],
   [/deferred (income|revenue)/i, "deferred"],
+  // Xero's default chart names deferred income "Income in Advance" (810).
+  [/income (received )?in advance|revenue in advance/i, "deferred"],
   [/customer deposit|payments? on account|payments? received on account/i, "deposits"],
   [/stock|inventor/i, "stock"],
   [/right.of.use|rou asset/i, "rou"],

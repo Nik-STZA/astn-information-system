@@ -1,8 +1,8 @@
 ---
 name: revenue-and-deferred-revenue
 title: Revenue and deferred revenue
-version: 1.1.0
-summary: Rolling deferred income forward by contract, tying billing to revenue, proving accrued income, and applying the client's reporting framework, including the FRS 102 changes from 2026.
+version: 1.2.0
+summary: Rolling deferred income forward by contract from the contracts register, the standard revenue patterns, tying billing to revenue, proving accrued income, and applying the client's reporting framework, including the FRS 102 changes from 2026.
 roles: fm1,fc
 ---
 
@@ -15,7 +15,9 @@ CFO has set one.
 Use the words the matrix sets: **deferred income** for billed and not yet earned,
 **accrued income** (or contract asset) for earned and not yet billed, and **customer
 deposits** for money held against an order. Customer deposits are reconciled under
-`other-balance-sheet-accounts`. Never call anything income received in advance.
+`other-balance-sheet-accounts`. Never call anything income received in advance, though
+Xero's default chart names the deferred income account "Income in Advance" (810): that
+account is deferred income.
 
 ## When this applies
 
@@ -28,6 +30,35 @@ no such balance still checks cut-off and looks for items that should be deferred
 **A schedule by contract or customer.** For deferred income: contract, invoice, total,
 the period or the thing to be delivered, released to date, and what is left. For
 accrued income: contract, what was delivered, the amount, and when it will be billed.
+
+**The contracts register is that schedule** (Contracts, in the client's menu). Each
+customer contract there carries its pattern, its payment schedule and milestones, and
+what it has billed into and released from its balance sheet account. On the Deferred
+income rec, fetch the evidence (`fetch_rec_evidence`): it takes what each contract holds
+on the account at the month end, per company. A balance with no contract behind it is a
+finding: name it, and ask for the contract. Only a person adds or changes contracts.
+
+## The standard patterns
+
+How a contract becomes revenue is its pattern, confirmed by the CFO on the contract. The
+client's rules (below this procedure, when there are any) come next, then the contract's
+own terms. Anything outside all three is a stop and ask.
+
+| Pattern | When it is revenue | What proves it |
+|---|---|---|
+| Goods sold | On delivery | Delivery note or proof of dispatch |
+| Services, as delivered | As the work is done; unbilled work accrued | Time records or statement of work |
+| Subscription or SaaS | Spread evenly over the service period; a set-up fee judged on its own | The period on the invoice or contract |
+| Milestone or installation | Held until each milestone is evidenced, then released; fulfilment costs held too | Signed handover or acceptance note |
+| Deposit | Never on receipt: a liability until delivery starts | Order and receipt |
+| Agent or principal | As agent, only the share kept | Contract terms on control |
+| Sponsorship | Over the term, unless separately priced deliverables; value in kind at fair value | Agreement and rights schedule |
+| Event | On the event date; tickets and hospitality held until then | Event date and ticketing report |
+| Grant | Section 24: performance model or accrual model, per policy; clawback tracked | Grant letter, conditions, claims |
+| Media rights | Access over a term spread; a right to use when granted; royalties and shares as usage happens; minimum guarantee spread | Rights agreement and usage reports |
+
+A milestone is released only when the register shows it met, with its evidence named. Do
+not release on a date, a payment or an expectation.
 
 Release is driven by the schedule, and never plugged to reach a balance. Where a
 billing system exists, its report is outside evidence for billings, and it ties to
@@ -113,7 +144,8 @@ Stop and ask rather than guess when:
 
 ## What goes to the FC
 
-These recs cannot be prepared on the rec yet, so this goes per `balance-sheet-matrix`.
+The Deferred income rec is prepared on the rec, from the register's evidence; accrued
+income still goes per `balance-sheet-matrix` until it has a register of its own.
 The working, the schedule by contract, the roll-forward, the tie to billing, the aged
 items, cut-off documents, the framework basis, each judgement with what it does to
 revenue, and what you could not verify. Deferred income and accrued income are
@@ -138,3 +170,4 @@ reads the contract itself where it can.
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. |
 | 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |
+| 1.2.0 | 15 November 2026 | The contracts register is the deferred income schedule (evidence fetched from it); the standard revenue patterns, including sponsorship, events, grants and media rights. |
