@@ -46,6 +46,16 @@ export interface RecList {
   counts: { total: number; signed_off: number; recheck: number };
   lines: Array<{ key: string; line: string }>;
   recs: RecRow[];
+  intercompany?: IntercompanyView | null;
+}
+
+// The group's intercompany position for the month (16 Nov 2026).
+export interface IntercompanySide { rec_id: string; account_name: string; entity_id: string; entity: string; closing: string; status: RecStatus }
+export interface IntercompanyView {
+  pairs: Array<{ a: IntercompanySide; b: IntercompanySide; difference: string; ties: boolean }>;
+  unpaired: Array<IntercompanySide & { suggested: { account_name: string; entity: string; difference: string } | null }>;
+  grid: { entities: Array<{ id: string; name: string }>; cells: Array<{ from: string; to: string; amount: string }> };
+  ties: boolean;
 }
 
 export interface CoverRow {

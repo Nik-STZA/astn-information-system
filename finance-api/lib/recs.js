@@ -329,6 +329,46 @@ function counterpartCandidates(rec, others, names) {
     .map(({ rec_account_id, account_name, entity_id, difference }) => ({ rec_account_id, account_name, entity_id, difference: pounds(difference) }));
 }
 
+// The group's intercompany position for a month (16 Nov 2026), as the
+// management pack shows it: each pair of accounts side by side, and a grid of
+// what each company says about each other company. A pair ties when the two
+// balances, a debit and a credit, sum to nil within tolerance.
+//   accounts  [{ rec_id, rec_account_id, account_name, entity_id, closing (pence), counterpart_account_id, status }]
+//             one company each; the intercompany recs of the month
+//   names     Map entity id -> company name
+// Returns { pairs, unpaired, grid: { entities, cells }, ties }
+function intercompanyGrid(accounts, names, tol = 0) {
+  const by = new Map(accounts.map((a) => [a.rec_account_id, a]));
+  // A pair set from either side counts.
+  const twinOf = (a) => by.get(a.counterpart_account_id)
+    ?? accounts.find((o) => o.counterpart_account_id === a.rec_account_id && o.entity_id !== a.entity_id) ?? null;
+  const side = (a) => ({ rec_id: a.rec_id, account_name: a.account_name, entity_id: a.entity_id, entity: names.get(a.entity_id) ?? "A company", closing: pounds(a.closing), status: a.status });
+  const pairs = [], unpaired = [], seen = new Set();
+  const cells = new Map();
+  const add = (from, to, p) => { const k = `${from}|${to}`; cells.set(k, (cells.get(k) ?? 0) + p); };
+  for (const a of accounts) {
+    if (seen.has(a.rec_account_id)) continue;
+    const b = twinOf(a);
+    if (!b || b.entity_id === a.entity_id) {
+      const best = counterpartCandidates({ ...a, line_key: "ic_asset" }, accounts.filter((o) => !seen.has(o.rec_account_id)), names)[0] ?? null;
+      unpaired.push({ ...side(a), suggested: best ? { account_name: best.account_name, entity: names.get(best.entity_id) ?? "A company", difference: best.difference } : null });
+      seen.add(a.rec_account_id);
+      continue;
+    }
+    seen.add(a.rec_account_id); seen.add(b.rec_account_id);
+    const diff = a.closing + b.closing;
+    pairs.push({ a: side(a), b: side(b), difference: pounds(diff), ties: Math.abs(diff) <= tol });
+    add(a.entity_id, b.entity_id, a.closing);
+    add(b.entity_id, a.entity_id, b.closing);
+  }
+  const ids = [...new Set(accounts.map((a) => a.entity_id))].sort((x, y) => String(names.get(x)).localeCompare(String(names.get(y))));
+  const grid = {
+    entities: ids.map((id) => ({ id, name: names.get(id) ?? "A company" })),
+    cells: [...cells].map(([k, p]) => { const [from, to] = k.split("|"); return { from, to, amount: pounds(p) }; }),
+  };
+  return { pairs, unpaired, grid, ties: unpaired.length === 0 && pairs.every((p) => p.ties) };
+}
+
 // Evidence carried from the prior month: each company's signed evidence rows,
 // for a company whose ledger did not move. A company that moved gets none.
 function carryForward(priorEvidence, balances) {
@@ -1005,7 +1045,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
-  EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, carryForward,
+  EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,

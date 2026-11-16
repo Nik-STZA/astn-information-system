@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { STATUS_LABEL, PROOF_LABEL, isStale, money, periodChoices, periodLong, type RecList, type RecRow } from "@/modules/finance/lib/recs";
+import IntercompanyGrid from "./IntercompanyGrid";
 import styles from "./Recs.module.css";
 
 async function post(slug: string, path: string, body: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
@@ -98,6 +99,8 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
       {data.counts.recheck > 0 && (
         <div className={styles.alert} role="status">{data.counts.recheck === 1 ? "1 reconciliation needs" : `${data.counts.recheck} reconciliations need`} re-checking: a figure moved after it was prepared.</div>
       )}
+
+      {data.intercompany && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
 
       {data.recs.length === 0 ? (
         <div className={`${styles.card} ${styles.pad}`}><span className={styles.sub}>{data.composed_at ? "No balance sheet account has a balance or a movement this month." : "Reading the trial balance..."}</span></div>

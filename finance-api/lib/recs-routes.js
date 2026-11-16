@@ -214,6 +214,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         pool.query(
           `SELECT r.id, r.rec_account_id, r.period, r.status, r.owner, r.challenge, r.class, r.artefact, r.proof, r.recheck_reason,
                   r.sole_reviewer, r.signed_snapshot, r.line_key, a.account_name,
+                  to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id,
                   COALESCE(json_agg(json_build_object('entity_id', b.entity_id, 'closing', b.closing, 'code', b.account_code, 'currency', b.currency)) FILTER (WHERE b.rec_id IS NOT NULL), '[]') AS balances
              FROM finance.recs r
              JOIN finance.rec_accounts a ON a.id = r.rec_account_id
@@ -245,8 +246,21 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           prior_status: priorBy.get(r.rec_account_id) ?? null,
         };
       });
+      // Across the group: the intercompany recs, one company each, as the
+      // figures the list shows (a signed rec, what was signed).
+      const names = new Map(entities.map((e) => [e.id, e.name]));
+      const icAccounts = [];
+      for (const r of rows.rows) {
+        if (recs.autoMethod(r) !== "counterpart") continue;
+        const bals = r.status === "signed_off" && r.signed_snapshot ? r.signed_snapshot.balances : r.balances;
+        if (bals.length !== 1) continue;
+        icAccounts.push({ rec_id: r.id, rec_account_id: r.rec_account_id, account_name: r.account_name, entity_id: bals[0].entity_id,
+          closing: recs.pence(bals[0].closing), counterpart_account_id: r.counterpart_account_id, status: r.status });
+      }
+      const intercompany = icAccounts.length ? recs.intercompanyGrid(icAccounts, names, tol) : null;
       const errors = run.rows[0]?.entity_errors ?? [];
       res.json({
+        intercompany,
         ...base,
         prior: { ...base.prior, open: priorRecs.rows.some((r) => r.recheck_reason || (r.status !== "signed_off" && !r.dropped_at)) },
         tolerance: money(tol),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  workable, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, outstandingAt, creditLeftAt, ageingEvidence,
+  workable, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, outstandingAt, creditLeftAt, ageingEvidence, intercompanyGrid,
   counterpartCandidates, carryForward, stepIssues, prepareInstruction, cover,
 } from "./recs";
 import { classify } from "./bs-matrix";
@@ -99,6 +99,28 @@ describe("automatic methods", () => {
     expect(ap.amount).toBe("-1600.00");
     expect(ap.note).toMatch(/less 2 prepayments or overpayments not yet allocated/);
     expect(ageingEvidence(invs, { date: "2026-09-30", kind: "ap", advances }).amount).toBe("0.00");
+  });
+
+  it("lays out the group's intercompany pairs and grid, paired from either side", () => {
+    const names = new Map([["u", "Alpha Digital Ltd"], ["h", "Beta Holdings Ltd"], ["f", "Gamma Ltd"]]);
+    const acc = (id, name, entity, closing, twin = null) => ({ rec_id: `r-${id}`, rec_account_id: id, account_name: name, entity_id: entity, closing, counterpart_account_id: twin, status: "in_progress" });
+    const out = intercompanyGrid([
+      acc("u1", "Beta Holdings intercompany", "u", 1000000, "h1"),
+      acc("h1", "Alpha intercompany", "h", -1000000),            // paired from the other side only
+      acc("u2", "Gamma intercompany loan", "u", 50000, "f1"),
+      acc("f1", "Alpha intercompany loan", "f", -49000),           // out by 10.00
+      acc("h2", "Gamma intercompany", "h", 2500),                  // not paired
+    ], names, 0);
+    expect(out.pairs).toHaveLength(2);
+    expect(out.pairs[0]).toMatchObject({ difference: "0.00", ties: true });
+    expect(out.pairs[1]).toMatchObject({ difference: "10.00", ties: false });
+    expect(out.unpaired).toEqual([expect.objectContaining({ account_name: "Gamma intercompany", entity: "Beta Holdings Ltd" })]);
+    expect(out.ties).toBe(false);
+    expect(out.grid.entities.map((e) => e.name)).toEqual(["Alpha Digital Ltd", "Beta Holdings Ltd", "Gamma Ltd"]);
+    expect(out.grid.cells).toEqual(expect.arrayContaining([
+      { from: "u", to: "h", amount: "10000.00" }, { from: "h", to: "u", amount: "-10000.00" }, { from: "f", to: "u", amount: "-490.00" },
+    ]));
+    expect(intercompanyGrid([acc("u1", "x", "u", 100, "h1"), acc("h1", "y", "h", -100)], names, 0).ties).toBe(true);
   });
 
   it("suggests the intercompany twin that names this company, closest balance first", () => {
