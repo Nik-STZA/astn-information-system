@@ -383,8 +383,145 @@ def extract_tangible(ctx, wb):
     return list(assets.values()), lines
 
 
+# ── Development project layout ───────────────────────────────────────────────
+
+def optional_col(h, *names):
+    try:
+        return col(h, *names)
+    except Refused:
+        return None
+
+
+def extract_dev(ctx, wb):
+    p = ctx.profile["dev_project"]
+    ent = p["entity"]
+    assets = {}
+    ws = wb[p["asset_sheet"]]
+    h = header_map(ws, 3)
+    c = {k: col(h, n) for k, n in [("no", "Asset No"), ("name", "Asset Name"), ("type", "Asset Type"), ("status", "Status"), ("done", "Date of Completion")]}
+    mc = month_col(ws, 3, ctx.as_at)
+    for i, r in enumerate(ws.iter_rows(min_row=4, values_only=True), start=4):
+        name = text(r[c["name"]])
+        if not name:
+            continue
+        kind = text(r[c["type"]])
+        ac = p["accounts"].get(kind or "")
+        if not ac:
+            ctx.find("unknown_asset_type", f"{p['asset_sheet']} row {i}", value=kind)
+            ac = {}
+        no = f"IA-{int(num(r[c['no']])):03d}" if num(r[c["no"]]) is not None else name
+        status = (text(r[c["status"]]) or "").lower()
+        assets[name.lower()] = {"asset_no": no, "entity": ent, "name": name, "asset_type": kind,
+                                "status": "wip" if status == "wip" else status,
+                                "completion_date": day(r[c["done"]]), "workbook_wip": num(r[mc]) or 0.0,
+                                "cost_account": ac.get("wip"), "accum_account": ac.get("accumulated"), "opening_accumulated": 0.0,
+                                "accounts": ac, "source_ref": ctx.ref(p["asset_sheet"], i)}
+    lines = []
+    for sheet in p["invoice_tabs"]:
+        ws = wb[sheet]
+        h = header_map(ws, 3)
+        ci = {"date": col(h, "Date"), "inv": optional_col(h, "Invoice Number"), "net": col(h, "Net"), "item": col(h, "Item"),
+              "treat": col(h, "Accounting Treatment")}
+        for k, n in [("pct", "% allocation"), ("alloc", "Allocated amount"), ("phase_name", "Phase Name"), ("proposal", "Proposal Number"),
+                     ("milestone", "R&D Claim"), ("research", "Research"), ("dev", "Development"), ("admin", "Admin")]:
+            ci[k] = optional_col(h, n)
+        ci["phase"] = h.get("Phase")
+        ci["year"], ci["month"] = optional_col(h, "Year"), optional_col(h, "Month")
+        cur = None
+        for i, r in enumerate(ws.iter_rows(min_row=4, values_only=True), start=4):
+            net = num(r[ci["net"]])
+            where = f"{sheet} row {i}"
+            base_is_cont = False
+            if net is None or not day(r[ci["date"]]):
+                base_is_cont = True
+                # A continuation row of a split invoice: no date, number or
+                # net, only the item and its share. It belongs to the invoice
+                # above, which must be in the same year and month.
+                share = (num(r[ci["alloc"]]) if ci["alloc"] is not None else None)
+                if cur is None or not text(r[ci["item"]]) or share is None:
+                    continue
+                y = num(r[ci["year"]]) if ci["year"] is not None else None
+                m = num(r[ci["month"]]) if ci["month"] is not None else None
+                if y and m and (int(y), int(m)) != tuple(int(x) for x in cur["line_date"][:7].split("-")):
+                    ctx.find("continuation_row_other_month", where, invoice=cur["invoice_no"])
+                    continue
+                own = num(r[ci["net"]])
+                net = own if own is not None else cur["source_net"]
+                r = list(r)
+                r[ci["date"]] = dt.datetime.fromisoformat(cur["line_date"])
+                if ci["inv"] is not None:
+                    r[ci["inv"]] = cur["invoice_no"]
+                for k in ("proposal", "phase_name", "milestone"):
+                    if ci.get(k) is not None and r[ci[k]] in (None, ""):
+                        r[ci[k]] = cur.get({"proposal": "proposal_no", "milestone": "rd_milestone"}.get(k, k))
+                if ci.get("phase") is not None and r[ci["phase"]] in (None, ""):
+                    r[ci["phase"]] = cur.get("phase")
+            item = text(r[ci["item"]])
+            raw = text(r[ci["treat"]])
+            a = assets.get((item or "").lower())
+            pick = lambda k: text(r[ci[k]]) if ci.get(k) is not None else None
+            inv = pick("inv")
+            base = {"source_type": "workbook", "supplier": p["supplier_of_tab"].get(sheet, sheet), "invoice_no": inv,
+                    "line_date": day(r[ci["date"]]), "billed_entity": ent, "owning_entity": ent, "source_net": R2(net),
+                    "proposal_no": pick("proposal"), "phase": pick("phase"), "phase_name": pick("phase_name"),
+                    "item": item, "rd_milestone": pick("milestone"), "source_ref": ctx.ref(sheet, i),
+                    "group": f"{sheet}|{inv or ('row ' + str(i))}|{R2(net)}" + (f"|row {i}" if (cur is not None and num(r[ci["net"]]) is not None and base_is_cont) else "")}
+            if text(r[ci["net"]]) is not None and day(r[ci["date"]]):
+                cur = base
+            slices = []
+            if ci["dev"] is not None and ci["admin"] is not None:
+                # Research, development (capitalised) and admin split on one row.
+                for k, t in [("research", "expense_research"), ("dev", "capitalise"), ("admin", "expense_admin")]:
+                    v = num(r[ci[k]]) if ci[k] is not None else None
+                    if v:
+                        slices.append((v, t))
+            else:
+                v = num(r[ci["alloc"]]) if ci["alloc"] is not None else None
+                if v is None:
+                    v = net * (num(r[ci["pct"]]) if (ci["pct"] is not None and num(r[ci["pct"]]) is not None) else 1)
+                t = treatment_of(raw, base.get("phase_name") or "")
+                if t is None:
+                    ctx.find("no_treatment", where, value=raw)
+                slices.append((v, t))
+            for v, t in slices:
+                if t == "capitalise" and not a:
+                    ctx.find("capitalised_without_asset", where, item=item, amount=R2(v))
+                lines.append({**base, "raw_amount": v, "amount": R2(v), "treatment": t,
+                              "asset_no": a["asset_no"] if (a and t == "capitalise") else None,
+                              "percent_info": num(r[ci["pct"]]) if ci["pct"] is not None else None,
+                              "posted_account": a["cost_account"] if (a and t == "capitalise") else None,
+                              "reason_text": f"Workbook treatment: {raw}" + (f"; phase: {base['phase_name']}" if base.get("phase_name") else ""),
+                              "fields": {"workbook_treatment": raw}})
+    # Pence: rows of one invoice may split one net amount by percentages. Each
+    # slice is rounded, then any difference goes on the largest slice so the
+    # slices of an invoice sum to its net.
+    groups = collections.defaultdict(list)
+    for l in lines:
+        groups[l["group"]].append(l)
+    for g, ls in groups.items():
+        net = ls[0]["source_net"]
+        total = R2(sum(l["amount"] for l in ls))
+        raw_total = sum(l["raw_amount"] for l in ls)
+        if abs(raw_total - net) < 0.01:
+            if total != net:
+                big = max(ls, key=lambda l: abs(l["amount"]))
+                big["fields"]["rounding"] = R2(net - total)
+                big["amount"] = R2(big["amount"] + net - total)
+        else:
+            ctx.find("slices_do_not_make_invoice", g, net=net, slices=R2(raw_total))
+    for l in lines:
+        l.pop("raw_amount", None)
+        l.pop("group", None)
+    for a in assets.values():
+        a["opening_cost"] = R2(sum(l["amount"] for l in lines if l["asset_no"] == a["asset_no"] and (l["line_date"] or "") <= ctx.as_at))
+        if abs(a["opening_cost"] - a["workbook_wip"]) >= 0.005:
+            ctx.find("asset_total_after_rounding", a["asset_no"], name=a["name"], workbook=round(a["workbook_wip"], 4), register=a["opening_cost"])
+    return list(assets.values()), lines
+
+
 LAYOUTS = {
     "ip_register": {"grouping": "ip_registered", "sheets": IP_SHEETS, "extract": extract_ip},
+    "dev_project": {"grouping": "dev_project", "extract": extract_dev, "sheets": []},
     "tangible_build": {"grouping": "tangible_build", "extract": extract_tangible,
                        "sheets": ["Tangible Assets - WIP", "Tangible Assets - Cost", "WIP Invoice Schedule"]},
 }
@@ -439,13 +576,15 @@ def main():
     ap.add_argument("--original", required=True, help="the client's file it was copied from")
     ap.add_argument("--as-at", required=True)
     ap.add_argument("--tb", help="Xero balances at the opening date, JSON")
+    ap.add_argument("--named", help="named items carried at the opening date, JSON")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     sys.stdout.reconfigure(errors="replace")
     layout = LAYOUTS[a.layout]
     profile = json.load(open(a.profile, encoding="utf-8"))
     ctx = Ctx(profile, a.file, a.original, a.as_at)
-    sheets = list(layout["sheets"]) + [v for k, v in profile.get(layout["grouping"], {}).items() if k.endswith("_sheet")]
+    gp = profile.get(layout["grouping"], {})
+    sheets = list(layout["sheets"]) + [v for k, v in gp.items() if k.endswith("_sheet")] + list(gp.get("invoice_tabs", []))
     bad = uncached(a.file, sheets)
     if bad:
         print(f"REFUSED: {len(bad)} formula cell(s) with no cached result, e.g. " + ", ".join(f"'{s}'!{c}" for s, c in bad[:10]))
@@ -474,13 +613,18 @@ def main():
         bf = []  # its invoices are the full history and tie to the ledger: they are the opening
     lines = bf + lines
     per_asset, ties = reconcile(ctx, assets, lines, tb)
+    named = json.load(open(a.named, encoding="utf-8"))["items"] if a.named else []
+    for t in ties:
+        mine = [n for n in named if n["entity"] == t["entity"] and str(n["account"]) == str(t["account"])]
+        t["named_items"] = mine
+        t["unexplained"] = R2(t["difference"] - sum(n["amount"] for n in mine))
     out = {"layout": a.layout, "grouping": layout["grouping"], "client": profile["client"], "as_at": a.as_at,
            "source": ctx.source, "assets": assets, "cost_lines": lines, "findings": ctx.findings,
            "reconciliation": {"per_asset": per_asset, "per_account": ties}}
     json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1, default=str)
     print(f"{a.layout}: {len(assets)} assets, {len(lines)} cost lines, {len(ctx.findings)} findings -> {a.out}")
     for t in ties:
-        flag = "ties" if t["difference"] == 0 else "DIFFERS"
+        flag = "ties" if t["difference"] == 0 else ("ties after named items" if t["unexplained"] == 0 else f"UNEXPLAINED {t['unexplained']:,.2f}")
         print(f"  {t['entity']:24} {t['account']:4} register {t['register']:>12,.2f}  ledger {t['ledger']:>12,.2f}  diff {t['difference']:>10,.2f}  {flag}")
     if per_asset:
         print(f"  assets whose typed cost differs from invoices or another tab: {len(per_asset)}")
