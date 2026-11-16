@@ -45,6 +45,21 @@ function nextAssetNumber(numbers) {
 
 // ── Fixed assets ─────────────────────────────────────────────────────────────
 
+// While the asset register amortises an account (finance.asset_account_map,
+// amortised_by 'register', migration 049), Xero's register must not hold an
+// asset or asset type on it, or the asset would be depreciated twice (CFO
+// decision 9, 16 Nov 2026). owned: the map rows for the company. dates: the
+// days to test (the purchase date and today), so a mapping that starts or ends
+// between them still blocks. Returns the reason, or null.
+function registerOwnedIssue(accountIds, owned, dates) {
+  const ids = new Set((accountIds || []).filter(Boolean).map((a) => String(a).toLowerCase()));
+  const hit = (owned || []).find((r) => r.amortised_by === "register" && !r.ended_at
+    && ids.has(String(r.xero_account_id).toLowerCase())
+    && (dates || []).filter(Boolean).some((d) => r.effective_from <= d && (!r.effective_to || r.effective_to >= d)));
+  if (!hit) return null;
+  return `Account ${hit.account_code ?? hit.xero_account_id} is amortised by the asset register (${hit.grouping}), so it cannot also hold an asset in Xero's fixed asset register. Record it in the asset register instead.`;
+}
+
 // A proposal for one asset, from the purchase that bought it, checked against
 // the register as Xero holds it: { types, numbers, assets } read just before.
 // Returns { issues, warnings, input, summary } where input is exactly the body
@@ -80,6 +95,8 @@ function fixedAssetProposal(body, register) {
 
   const type = (register?.types || []).find((t) => String(t.assetTypeId).toLowerCase() === String(b.asset_type_id).toLowerCase());
   if (!type) return { issues: [`No asset type ${b.asset_type_id} in this company's register. Read the types with get_fixed_assets what=types.`], warnings };
+  const owned = registerOwnedIssue([type.fixedAssetAccountId, type.accumulatedDepreciationAccountId], register?.registerOwned, [b.purchase_date, register?.today]);
+  if (owned) return { issues: [owned], warnings };
 
   // The same purchase already in the register, at any status.
   const same = (register?.assets || []).find((a) =>
@@ -175,4 +192,4 @@ function tierWarning(kind, policy, companyName) {
   return `Xero changes of this kind (the ${k.tier} tier) are switched off for ${companyName}, so approving will be refused until they are switched on.`;
 }
 
-module.exports = { KINDS, isKind, isGuid, isDate, nextAssetNumber, fixedAssetProposal, changeKey, outcomeOf, failureText, tierWarning };
+module.exports = { KINDS, isKind, isGuid, isDate, nextAssetNumber, fixedAssetProposal, registerOwnedIssue, changeKey, outcomeOf, failureText, tierWarning };

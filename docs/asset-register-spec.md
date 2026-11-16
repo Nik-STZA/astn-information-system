@@ -1,8 +1,11 @@
 # Asset register - build spec
 
-Status: draft for CFO review, 16 November 2026, revised the same day after an
+Status: agreed with the CFO, 16 November 2026. Revised the same day after an
 independent review against the code (three blockers fixed: rec hook, period
-lock, journal idempotency). Nothing here is built yet.
+lock, journal idempotency), then after a second review against the code and
+Xero, with the CFO's decisions recorded in section 12. Build step 1 (PR A) is
+migration 049, the grouping catalogue, the engine and the `create_fixed_asset`
+block; nothing else is built yet.
 Built with Claude Code. Client neutral; pilot client Feldspar Sport Group
 (FGH, FSL, UDL), with groupings switched on per client.
 
@@ -42,10 +45,12 @@ schedule"). This builds that schedule.
 - **Every ledger write is traceable both ways** (decision 2), using the existing
   `finance.journals` pipeline with a new source.
 - **What was decided cannot be rewritten** (the principle of decision 11, which
-  makes `finance.notes` append only by trigger, `005-notes.sql`). `finance.audit_log`
-  has no such trigger, so the register does not rely on it: `asset_events` and
-  `asset_approvals` are append only by trigger, and a signed month is locked
-  (4.6). Nothing goes to Xero History beyond the short line it already gets.
+  makes `finance.notes` append only by trigger, `src/modules/finance/db/migrations/005-notes.sql`;
+  in the current migrations folder the same pattern is `029-client-master.sql`,
+  `shared.client_events_append_only`). `finance.audit_log` has no such trigger,
+  so the register does not rely on it: `asset_events` and `asset_approvals` are
+  append only by trigger, and a signed month is locked (4.6). Nothing goes to
+  Xero History beyond the short line it already gets.
 
 ## 3. Groupings, proof and per-client enablement
 
@@ -127,10 +132,21 @@ so they are unworkable ("only the Prepayments schedule is"). Recs are also
 keyed across companies by account **name**, not code (`032`, `rec_accounts`),
 so one rec can hold, say, FSL 775 and UDL 775.
 
-The register therefore follows what migration 047 did for Deferred income:
+The register therefore follows what migration 047 did for Deferred income
+(build step 6; nothing of this is in migration 049):
 
 - add `intangible` and `ppe` to `REGISTER_SCHEDULED` in `recs.js`, so they are
-  worked as evidence recs;
+  worked as evidence recs, **only for a client with a grouping enabled on that
+  line**: the set applies to every client today, so the change is gated per
+  client and STZA's own `ppe` rec is unchanged;
+- on `ppe`, accounts Xero's register owns (Feldspar UDL 720/721) still need
+  evidence: the Xero register mirror (`fixed-assets.js`, `ledgerTie`, live as
+  #158) writes it with its own method, alongside the asset register's;
+- a grouping expects its accounts on one line, but **placement is the CFO's**
+  (`rec_accounts.line_key`, migration 032). The rec reads the placement and
+  reports a different one (`placementIssue`, `lib/asset-groupings.js`); it never
+  assumes either way. (16 Nov 2026: the CFO is re-placing 772-789 from `ppe` to
+  `intangible`; 738 and 720/721 stay on `ppe`.)
 - when the month's checks run, write the register's closing figure per company
   for each rec account into `finance.rec_evidence` with a new method
   `asset_register`, kind `outside_evidence`, carrying the register period id;
@@ -147,9 +163,6 @@ No new `workable()` signature, no change to the eight callers.
 One row per client and grouping:
 
 - `enabled`, enabled by and when (CFO only, audited)
-- entities in scope
-- account map per entity: cost, accumulated, charge, WIP, capitalisation credit
-  (resolved to Xero AccountID, so a renumbered chart does not break it)
 - numbering scheme (`{ENTITY}-TMK-{0000}`, `UDL-PSA-{00000}`)
 - policy: the template, or a client override, effective dated
 - suppliers to watch at intake
@@ -157,15 +170,37 @@ One row per client and grouping:
 - `paused` (Feldspar Software Development, 16 Nov 2026): data kept, no intake,
   no proposals, rec shown as paused not failing
 
-Switching a grouping on runs a dry check first: which ledger accounts it would
-own, which are already owned by another grouping or by an asset type in Xero's
-own fixed asset register (both refused), and which asset accounts remain
-outside any register.
+**The account map (`finance.asset_account_map`).** Which ledger accounts a
+grouping uses is held per company, by Xero AccountID (so a renumbered chart
+does not break it), with the account's role (cost, WIP, accumulated, charge,
+impairment, capitalisation credit), **who amortises it** (`amortised_by`:
+`register` or `xero`, CFO decision 9) and the dates it applies from and to. A
+mapping ends by date, never by deletion. Ownership is per account and dated, not
+per grouping, because:
 
-While a grouping owns an account, an agent proposal to `create_fixed_asset`
-(`lib/agent-xero-changes.js`) on that account is refused, so an asset cannot be
-depreciated by Xero and amortised by the register at once. This holds until
-open decision 2 is taken.
+- **one account can serve more than one grouping.** UDL 789 Software (WIP)
+  holds Software's staff time and IA Track's third-party cost (the Peacock
+  platform). Each cost line names its grouping; the tie sums all groupings on
+  the account. Groupings that share an account must agree on who amortises it
+  (`mapIssues`, `lib/asset-register.js`);
+- **who amortises an account changes on a date.** The FSL trade marks
+  (775/776) and the FGH patent (772/773) stay in Xero's register for FY26 and
+  move at the planned cut-off: a `xero` row to 31 Dec 2026 and a `register` row
+  from 1 Jan 2027 (UDL's trade marks: 10, item 2).
+
+Switching a grouping on runs a dry check first: the company's framework has a
+template (`enableIssues`, 3.4), which ledger accounts it would map, where the
+map would disagree on who amortises an account, how each account is placed on
+the Reconciliations page, and which asset accounts remain outside any register.
+
+**Xero's register is refused an account the register amortises.** While
+`amortised_by = 'register'` on an account (on the purchase date or today), a
+new asset whose type posts to it, or a new asset type on it, is refused with
+the reason (`registerOwnedIssue`, `lib/xero-changes.js`). The check runs on
+both ways in: the proposal (`fixedAssetProposal`, for the runner's agents) and
+the write route `POST .../write/fixed-assets` that Cowork calls directly. An
+asset is never depreciated by Xero and amortised by the register at once.
+Accounts mapped `xero` are not refused.
 
 ### 3.4 Reporting framework
 
@@ -211,16 +246,20 @@ rather than carrying it.
 
 ## 4. Data model
 
-Seven tables, all in `finance`, all keyed to `shared.clients` and
-`finance.entities`: `asset_groupings_client` (3.3), `asset_policies`,
-`assets`, `asset_cost_lines`, `asset_events`, `asset_approvals` and
-`asset_register_periods`.
+Nine tables, all in `finance`, all keyed to `shared.clients` and
+`finance.entities`, created by migration `049-asset-register.sql`:
+`asset_groupings_client` and `asset_account_map` (3.3), `asset_policies`,
+`assets`, `asset_cost_lines`, `asset_approvals`, `asset_events`,
+`asset_register_periods` and `asset_planned_lines` (11.2).
 
 - Amounts `numeric(14,2)` in the **company's base currency**, as the ledger
   holds them. A foreign-currency invoice keeps its original amount and rate as
   information; the slice amount is the base-currency net Xero posted.
 - No row is deleted: as in migration 047, there is no DELETE grant, and rows
-  end by state (`withdrawn`, `rejected`, `superseded`).
+  end by state (`withdrawn`, `rejected`, `superseded`) or by date.
+- Client and company keys are `ON DELETE RESTRICT`, not the codebase's usual
+  `CASCADE`: a client holding asset history cannot be deleted with it, and an
+  append-only table would otherwise either block the delete or lose history.
 
 ### 4.1 `finance.asset_policies` - the rules an asset follows
 
@@ -271,8 +310,11 @@ JNDC, Sports Labs, Chambers for Sport, WIP Invoice Schedule). One row per slice
 of an invoice.
 
 Source
-- Xero invoice id and line item id (or manual journal id and line), supplier,
-  invoice no., invoice date, net, VAT, gross, currency, billed entity, PDF link
+- `source_type`: `invoice`, `manual_journal`, `bank_transaction` (each with its
+  Xero id and line id, required) or `workbook`: a row migrated from a register
+  workbook whose Xero id is not known, which must carry `source_ref` instead
+- supplier, invoice no., invoice date, net, VAT, gross, currency, billed entity,
+  document link
 - for a manual journal line, the source amount is the line's amount (debit
   positive); there is no VAT
 - billed entity and owning entity kept separately (FGH bills for FSL trade
@@ -296,7 +338,10 @@ Treatment
   Explanation" column, for every supplier)
 - `expected_account` (from treatment and asset) against `posted_account` (from
   Xero). A mismatch is a finding, with the fix route: `edit_bill` (preferred,
-  keeps document and ledger aligned, as on 5 Oct 2026) or `journal`
+  keeps document and ledger aligned, as on 5 Oct 2026) or `journal`. The tie
+  holds a line on its **posted** account, so it compares like with like and the
+  error shows once, as the mismatch (e.g. LTD-504736 and LTD-504738, posted to
+  787, belonging in 786 and 789, until the bills are edited in Xero)
 
 Approval
 - state `proposed` / `approved` / `rejected` / `withdrawn`; every change of
@@ -305,52 +350,74 @@ Approval
   edited
 
 Invariant: for each source invoice line, the slices sum to its net amount to the
-penny. Enforced by a check run on every write and shown on the page.
+penny. Enforced by a check run on every write and shown on the page
+(`sliceIssues`). The database enforces what it can on each row: capitalised
+cost has an asset, an approved line has a treatment and a reason, a workbook
+row has its `source_ref`.
 
 ### 4.4 `finance.asset_events` - what happens to an asset
 
-Append only by trigger (as `005-notes.sql`). A wrong event is answered by a
-reversing event, never edited.
+Append only by trigger (`finance.asset_append_only`, the 029 pattern). A wrong
+event is answered by a reversing event, never edited.
 
-- `transfer` (WIP or pending to available or registered), `amortisation`,
-  `impairment`, `impairment_test` (with or without a charge), `disposal`,
-  `reclass`, `catch_up`, `transition`, `reversal`
+- `opening` (accumulated amortisation brought forward at the opening date; cost
+  comes from the migrated cost lines), `transfer` (WIP or pending to available
+  or registered: signed, with evidence, enforced by the database),
+  `amortisation`, `impairment`, `impairment_test` (with or without a charge),
+  `disposal`, `reclass` (including a parent's split to its components),
+  `catch_up`, `transition`, `reversal`
 - `basis` (the framework the event is measured under)
-- period, amount, accounts, reason, signed by and when, evidence reference, and
-  the `finance.journals` row it produced
+- period, amount, accounts, reason, signed by and when, evidence reference
+- the link to the journal it produced is held from the journal side (4.5),
+  because an event cannot be updated after it is written
 
 ### 4.5 Journals - source, link and duplicates
 
-Migration 049 extends `finance.journals` as 034 and 035 did for prepayments:
+**Not in migration 049** (CFO, 16 Nov 2026). The September and October roll
+proposes no journal: nothing is available for use, and the FSL and UDL trade
+marks and the FGH patent are amortised by Xero's register until 1 Jan 2027. The
+`finance.journals` change goes in its own migration, shipped with the first
+register journal and before the 1 Jan 2027 cut-off, extending `finance.journals`
+as 034 and 035 did for prepayments:
 
 - drop and re-add `journals_source_check` with
   `('person', 'agent', 'schedule', 'asset')`
-- add `asset_event_id uuid REFERENCES finance.asset_events (id)`, `asset_id
-  uuid REFERENCES finance.assets (id)` and `asset_kind text` (the event kind),
-  with a check that `source = 'asset'` has all three
-- one live journal per asset, month and kind:
-  `UNIQUE (asset_id, period, kind) WHERE source = 'asset' AND state IN
-  ('proposed', 'approved', 'draft_created', 'posted')`
+- **granularity, decided in that migration**: the CFO leans to one journal per
+  company, grouping, month and kind, with one line per account (one per asset
+  would be about 89 journals a month for FSL's trade marks alone). The
+  journal's events are linked through a link table (journal id, event id),
+  written when the journal is proposed, since events cannot be updated
+- one live journal per company, grouping, month and kind:
+  `UNIQUE (entity_id, asset_grouping, period, asset_kind) WHERE source = 'asset'
+  AND state IN ('proposed', 'approved', 'draft_created', 'posted')`, with a
+  check that `source = 'asset'` has its grouping and kind. **The unique index
+  names `asset_kind`**: the first draft of this spec added a column
+  `asset_kind` but indexed `kind`, which does not exist
 - `journals.sourceOf` (`journals.js:146-151`) gains an `asset` branch so these
   show as the register's, not an agent's
 
 Before proposing, the engine looks for **the same journal already in Xero or on
-the Journals page by hand** (as `recs-routes.js:895-900` does for releases):
-same company, month, accounts and amount. If found, it is linked, not proposed
-again. This is what stops the September and October roll re-proposing the FSL
+the Journals page by hand**: same company, month, accounts and amount. If found,
+it is linked, not proposed again. Today's check (`recs-routes.js:895-900`, for
+releases) looks only at the Journals page; "already in Xero" needs a read of
+Xero's manual journals or the account's movements, built with that migration. This is what stops the September and October roll re-proposing the FSL
 and FGH amortisation being fixed by hand now. Nothing is proposed into a month
 on or before Xero's period lock date; a charge missed in a locked month is
 proposed as a `catch_up` in the first open month.
 
 ### 4.6 `finance.asset_register_periods` - the signed month
 
-One row per client, grouping, company and month: status `open` / `prepared` /
-`signed`, the figures per asset and account at sign-off (a snapshot, as
-`recs.signed_snapshot`), the trial balance it was tied to, signed by and when.
+One row per client, grouping and month (a workbook covers every company in its
+grouping: the IP register holds FGH, FSL and UDL on one Cover Sheet): status
+`open` / `prepared` / `signed`, the figures per company, asset and account at
+sign-off (a snapshot, as `recs.signed_snapshot`), the trial balance it was tied
+to, signed by and when.
 
-- Cost lines dated in a signed month, and events in it, cannot be changed: the
-  write is refused with the reason. A correction is a `reclass` or `catch_up`
-  event in an open month.
+- Cost lines dated in a signed month, and events in it, cannot be added or
+  changed: finance-api refuses the write with the reason (`lockIssue`) and the
+  database refuses it too (`finance.asset_period_lock` trigger), for a cost
+  line on its old date and its new one. A correction is a `reclass` or
+  `catch_up` event in an open month. Other groupings' months are unaffected.
 - Re-opening a signed month is a CFO action, audited, and marks the month's
   recs to re-check, as recs do today.
 - The acceptance test (8) compares against these snapshots, so September and
@@ -383,18 +450,30 @@ Then:
 
 1. **Tie to the ledger** per entity and account against the trial balance,
    difference shown as found, never explained away (as `fixed-assets.js`).
-   Tolerance `client_finance_config.rec_tolerance`; variances at 2dp.
-2. **Expected-charge control**: prior accumulated amortisation plus this
-   month's expected charge, against the ledger. A frozen account fails.
+   Tolerance `client_finance_config.rec_tolerance`; variances at 2dp. Known
+   residuals are **named items**, shown beside the difference with their label
+   and never netted into it; the row ties only when the difference less the
+   named items is within tolerance (`tie`).
+2. **Expected-charge control**, by who amortises the account (3.3):
+   - `register`: prior accumulated amortisation plus this month's expected
+     charge, against the ledger. A frozen account fails even when the register
+     froze too (`expectedChargeControl`).
+   - `xero`: Xero's own register is the schedule, so the control is whether
+     its depreciation has run for the month, from `settings.lastDepreciationDate`
+     as the Fixed assets page reads it (`xeroRunControl`). On 16 Nov 2026 FGH
+     and FSL were last run to 31 Aug 2026 (Sep and Oct not run: the 2 x 366.23
+     and 2 x 45.48), UDL to 31 Oct 2026.
 3. **Trial balance footing**: debits equal credits, and the account totals
    equal Xero's own report totals for the date, before anything is compared
-   (the August IA Track defect).
+   (the August IA Track defect) (`tbFooting`).
 4. **Unallocated and mismatch lists**: cost lines without an asset, slices that
-   do not sum, posted account differing from expected.
-5. **Proposals**: one amortisation journal per asset and month (as migration
-   035 did per prepayment item), and any catch-up, onto the Journals page for
-   CFO approval, subject to the duplicate check and lock date in 4.5.
-6. **Rec evidence**: the closing figures written to `rec_evidence` (3.2).
+   do not sum, posted account differing from expected (`sliceIssues`,
+   `lineFindings`).
+5. **Proposals** (from the journal migration, 4.5): the month's amortisation and
+   any catch-up onto the Journals page for CFO approval, subject to the
+   duplicate check and lock date.
+6. **Rec evidence** (build step 6): the closing figures written to
+   `rec_evidence` (3.2).
 
 ## 6. Agent workflow
 
@@ -443,21 +522,31 @@ values and formulas, writing JSON for a finance-api bulk endpoint.
 
 - Values are read with `data_only=True`, which only works on a file last saved
   by Excel. The October files were written by script and their caches are
-  stripped, so each must be opened and saved in Excel first. The loader
-  **refuses any cell that has a formula but no cached value**, naming the
-  cell, rather than reading it as empty.
-- It records the file path, modified time and hash it read, on every row's
-  `source_ref`.
+  stripped. They are **copied to a scratch folder and the copies** opened and
+  saved in Excel on the laptop; the client folders are never touched. The
+  loader **refuses any cell that has a formula but no cached value**, naming
+  the cell, rather than reading it as empty.
+- It records, on every row's `source_ref`, the original file's path, modified
+  time and SHA-256, and the SHA-256 of the re-saved copy it actually read.
 
 - Opening position at **31 August 2026** (Xero locked): every asset and every
   invoice slice, with `source_ref` back to workbook, tab and row
 - Must tie to the 31 August trial balance per entity and account to the penny
   before it is accepted. Known residuals carried as named items, not absorbed:
-  IA Track GBP 1.37 (unexplained)
+  - IA Track GBP 1.37 (unexplained)
+  - Software's share of 789 and 787: Software is paused (not loaded), but 789
+    is shared with IA Track, so Software's balance on it, from the 2608
+    Software file, is a named item on the 789 tie; likewise 787 until the
+    LTD-504736 and LTD-504738 bill edits move those lines to 786 and 789
+  - the surplus Cardiff sensor platforms parked in 738 (CFO, 2 Nov 2026),
+    pending the tangible against inventory split
 - **Acceptance test**: roll September and October in the system and generate
   the workbooks; figures must match the October IA Track and IP files and the
   September Performance Surface file (after the known pending items: the 787
-  bill edits, the FSL and FGH amortisation, FSL-TMK-0008-CA-R)
+  bill edits, the FSL and FGH amortisation, FSL-TMK-0008-CA-R). **Performance
+  Surface October has no file to compare against** (not started; UDL 738 moved
+  +30,610 in October): its proof is the trial balance tie and the slice sums
+  only, and the test says so
 - Sources: `Month-end/FY26/2608/` (opening), `2609/`, `2610/`
 
 ## 9. Build order
@@ -465,15 +554,20 @@ values and formulas, writing JSON for a finance-api bulk endpoint.
 The first increment is whatever produces the September and October registers;
 editing pages and agents come after, because that roll is mostly migrated data.
 
-1. Migration `049-asset-register.sql` (048 is the highest today): the seven
-   tables, append-only triggers, the journals changes in 4.5, grants. Additive
-   and re-runnable. The grouping catalogue in `lib/asset-groupings.js`, tested
-   like `bs-matrix.js`.
-2. The engine (`lib/asset-register.js`, pure and tested without Xero like
-   `fixed-assets.js`) with the period lock, slice-sum, tie, expected-charge and
-   duplicate-journal checks.
-3. Importer and the 31 August tie.
-4. Export in the pack engine, and the acceptance test against the October files.
+1. **PR A** (this PR). Migration `049-asset-register.sql` (048 is the highest
+   today): the nine tables, append-only triggers, the signed-month lock
+   trigger, grants; no journals change and no `rec_evidence` method (4.5, 3.2).
+   Additive and re-runnable; applied by the CFO before merge. The grouping
+   catalogue in `lib/asset-groupings.js`, tested like `bs-matrix.js`. The
+   `create_fixed_asset` block (3.3) on the proposal and on the write route.
+2. Also PR A: the engine (`lib/asset-register.js`, pure and tested without Xero
+   like `fixed-assets.js`): roll-forward, period lock, slice sums, tie with
+   named items, expected charge (register) and Xero run date (Xero), trial
+   balance footing, map disagreements. The duplicate-journal check comes with
+   the journal migration.
+3. **PR B**: importer and the 31 August tie, IP and Performance Surface first.
+4. **PR C**: export in the pack engine, and the acceptance test against the
+   October files.
 5. Read-only pages under `/finance/clients/[slug]/fixed-assets`: Register,
    Cost lines, Policies, Monthly schedule, Findings.
 6. The rec hook (3.2) and the close step proved by the register.
@@ -488,8 +582,11 @@ note), IA Track next, Software last once unpaused.
 1. **Policy per class** - resolve Flag 3 (36 against 120 months; available for
    use against completion) before any WIP asset goes live. Not needed for the
    September and October roll, where nothing is live.
-2. **Who runs amortisation** for live assets: os.stza.io journals, or register
-   in Xero's fixed asset module and let Xero run it. One or the other.
+2. ~~Who runs amortisation~~ **Settled** (CFO decision 9, 16 Nov 2026; see 3.3
+   and 12): per grouping, per client, per account and dated. Open detail: Xero's
+   register also holds a **UDL trade mark** type on 775/776 (seen 16 Nov 2026),
+   which the decision did not name. Assumed to follow the FSL trade marks
+   (Xero to 31 Dec 2026, register from 1 Jan 2027) until the CFO says otherwise.
 3. **Month convention** for go-live (Flag 1).
 4. **Performance Surface completed-asset accounts** - TBD1-TBD12 need creating
    in Xero before the first transfer.
@@ -525,12 +622,17 @@ of 786 that inflated the modelled raise, from a mapping typo in this area.
 One register serves both. The forecast lives in os.stza.io next to the actuals,
 never mixed with them:
 
-- **Planned cost lines**: the same table as actual cost lines (4.3) with
-  `kind = 'planned'`, a `scenario` and a `forecast_version`, a supplier and
-  expected invoice date, and the commitment they come from (proposal and phase,
-  contract, purchase order). A planned line is replaced, not edited, when the
-  real invoice arrives: the actual line records which planned line it settles,
-  and the remainder stays planned or is withdrawn.
+- **Planned cost lines**: their own table, `finance.asset_planned_lines`
+  (CFO, 16 Nov 2026), not a `kind` on the actual cost lines. An actual line's
+  Xero source, posted account, slice-sum rule and period lock are hard
+  constraints a planned line cannot meet; mixing them would make those
+  columns nullable and put a filter on every actual query, and one missed
+  filter would put forecast into a signed register. Each planned line has a
+  `scenario` and a `forecast_version`, a supplier and expected date, payment
+  days, and the commitment it comes from (proposal and phase, contract,
+  purchase order). When the real invoice arrives the actual cost line records
+  which planned line it settles (`settles_planned_id`); the planned line is
+  marked settled, and any remainder stays planned or is withdrawn.
 - **Forecast fields on the asset**: expected go-live (or registration, or
   grant) date, confidence, and the evidence for it. The signed date (4.4) still
   alone starts actual amortisation; the expected date drives forecast
@@ -588,6 +690,71 @@ push move into os.stza.io as their own build. The register's forecast is then
 one input among several. The rule throughout: **the register owns asset
 numbers; the budget owns everything else; neither holds a copy of the other's.**
 
-Build order addition: planned cost lines, forecast fields and tags go in
-migration 049 (nullable, so nothing waits on them); the drop-in export comes
-after the acceptance test (9, step 4).
+Build order addition: the planned lines table, and the forecast fields and tags
+on assets and planned lines, go in migration 049 (nullable or empty, so nothing
+waits on them); the drop-in export comes after the acceptance test (9, step 4).
+
+## 12. Decision record and facts checked, 16 November 2026
+
+**CFO decisions** (planning session, 16 Nov 2026; not re-opened without asking):
+
+1. Build in os.stza.io; not Power Query, not an Excel rebuild.
+2. Excel stays as an export with live formulas, saved to client folders.
+3. One cost-line ledger, working like a FAR, with treatment and reason.
+4. Groupings defined once in code, switched on per client, with proof checks.
+5. Framework read from `finance.entities.reporting_framework`; FRS 102 and IFRS
+   templates; no template means refuse; dual basis and transition designed in.
+6. Agents propose, the CFO approves; nothing posts to Xero without approval;
+   events and approvals append only.
+7. Software Development paused: build the grouping, do not load or roll it.
+8. First increment: migration 049, engine with period lock, importer and the
+   31 Aug tie, export and acceptance test. Then read-only pages, the rec hook,
+   editing pages and agents.
+9. Who amortises is per grouping, per client: Feldspar's four groupings are
+   `register` for life; ordinary equipment (UDL 720/721) stays in Xero's
+   register; FSL trade marks and the FGH patent move from Xero at 1 Jan 2027.
+10. The register holds the forecast (11); the signed date alone starts actual
+    amortisation.
+11. The FP&A agent is forward-looking only and never posts.
+
+**Decided on the second review** (CFO, 16 Nov 2026):
+
+- Journal changes out of 049, into the migration that ships the first register
+  journal; the `kind` / `asset_kind` slip is fixed there (4.5). Granularity is
+  decided there; the CFO leans to one journal per company, grouping, month and
+  kind, with a line per account.
+- Ownership by a dated `asset_account_map` with `amortised_by`, several
+  groupings per account, and the `create_fixed_asset` block in
+  `lib/xero-changes.js` (3.3).
+- Planned lines in their own table (11.2).
+- `ON DELETE RESTRICT`; the 029 append-only pattern; signed months per
+  grouping; Xero's last depreciation date as the control for Xero-owned
+  accounts; Software's 789/787 share as named items; Performance Surface
+  October proved by the trial balance only; October files re-saved on copies,
+  with hashes (4, 4.4, 4.6, 5, 8).
+- Placement: the CFO re-places 772-789 from `ppe` to `intangible` on the
+  Reconciliations page (738, 720 and 721 stay on `ppe`); the code checks
+  placement and assumes neither way (3.2).
+- The Fixed assets tie to the ledger is live: `ledgerTie` in
+  `finance-api/lib/fixed-assets.js`, squash-merged as #158; the branch
+  `fixed-asset-tie` is spent.
+
+**Facts read from Xero, 16 Nov 2026** (read only):
+
+| Company | Asset types in Xero's register | Cost / accumulated accounts | Last depreciation run |
+|---|---|---|---|
+| FGH | Intangible asset - Patent; Patents (Registered) | 772 / 773 (charge 417) | 31 Aug 2026 |
+| FSL | Intangible asset | 775 / 776 (charge 417) | 31 Aug 2026 |
+| UDL | Computer Equipment; Office Equipment; Intangible asset - Trade Mark | 720 / 721; Office Equipment's own; 775 / 776 (charge 417) | 31 Oct 2026 |
+
+- All three companies carry the same codes 415, 417, 464, 720, 721, 738 and
+  770-789 in their charts; the AccountIDs differ per company, which is why the
+  account map holds AccountIDs.
+- Reporting codes: 772-777 are `ASS` in all three companies; 778-789 are
+  `ASS.NCA.FIX` in FGH and UDL and `ASS` in FSL. None is `ASS.NCA.INT`. This
+  affects Xero's own reports, not the register; noted for the annual accounts.
+- No TBD1-TBD12 accounts exist in any company (10, item 4).
+- 417 Amortisation is the charge account of every intangible type in Xero's
+  register. When a register-amortised asset also charges 417, the charge
+  control reads the accumulated accounts, not 417, so the two sources on 417
+  are never compared with each other.

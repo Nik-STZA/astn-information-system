@@ -40,6 +40,7 @@ const {
   allowed: readAllowed,
 } = require("./lib/xero-read");
 const fixedAssets = require("./lib/fixed-assets");
+const xeroChanges = require("./lib/xero-changes");
 const {
   balancesForCodes,
   buildXeroPayload,
@@ -4683,6 +4684,22 @@ app.post(`${WRITE}/fixed-assets`, gatedWrite("create_fixed_asset", "setup", asyn
       if (!ids.has(fa.payload[f])) issues.push(`${f} ${fa.payload[f]} is not an active account in this entity`);
     }
   }
+  // Not on an account the asset register amortises: the same rule a proposal
+  // meets (lib/xero-changes.js), here for Cowork and anything else that calls
+  // the write route directly.
+  if (!issues.length) {
+    const owned = await registerOwnedRows(ctx.entity.id);
+    if (owned.length) {
+      let accountIds = [fa.payload?.fixedAssetAccountId, fa.payload?.accumulatedDepreciationAccountId];
+      if (b.what === "asset") {
+        const types = await xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/AssetTypes`, {});
+        const type = (Array.isArray(types) ? types : []).find((t) => String(t.assetTypeId).toLowerCase() === String(fa.payload?.assetTypeId ?? "").toLowerCase());
+        accountIds = type ? [type.fixedAssetAccountId, type.accumulatedDepreciationAccountId] : [];
+      }
+      const why = xeroChanges.registerOwnedIssue(accountIds, owned, [String(fa.payload?.purchaseDate ?? "").slice(0, 10), fixedAssets.londonToday()]);
+      if (why) issues.push(why);
+    }
+  }
   const payload = fa.path ? { path: fa.path, body: fa.payload } : null;
   return {
     issues, operation: "create", payload,
@@ -6565,6 +6582,21 @@ journalRoutes = require("./lib/journals-routes").mountJournals(app, {
 // approved by the CFO in os.stza.io (lib/xero-changes-routes.js). Fixed assets
 // first.
 
+// The company's accounts the asset register amortises (finance.asset_account_map,
+// migration 049), so Xero's register is not given an asset on them. Empty
+// until 049 is applied.
+async function registerOwnedRows(entityId) {
+  try {
+    return (await pool.query(
+      `SELECT grouping, xero_account_id, account_code, amortised_by, effective_from::text AS effective_from,
+              effective_to::text AS effective_to, ended_at
+         FROM finance.asset_account_map WHERE entity_id = $1 AND amortised_by = 'register' AND ended_at IS NULL`, [entityId])).rows;
+  } catch (e) {
+    if (e?.code === "42P01" || e?.code === "42703") return [];
+    throw e;
+  }
+}
+
 // The register as Xero holds it, for checking a proposed asset: the types, and
 // every asset at every status (for duplicates and the next number). Paged, at
 // most 1,000 a status, which is far beyond any client's register.
@@ -6587,6 +6619,8 @@ async function readAssetRegister(slug, entitySlug) {
       types: Array.isArray(types) ? types : [],
       assets,
       numbers: assets.map((a) => a.assetNumber).filter(Boolean),
+      registerOwned: await registerOwnedRows(ctx.entity.id),
+      today: fixedAssets.londonToday(),
     };
   } catch (e) {
     return { unavailable: true, error: e.message };
