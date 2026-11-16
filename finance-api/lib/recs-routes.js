@@ -1031,7 +1031,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       unidentified += new Set(r.unidentified).size;
     }
     if (unidentified) return [`${unidentified} trial balance row${unidentified === 1 ? "" : "s"} with no account id could not be placed, so this cannot be signed off. Find ${unidentified === 1 ? "it" : "them"} in Xero first`];
-    const now = recs.composeAccounts(read).accounts.find((a) => a.key === rec.account_key);
+    const composed = recs.composeAccounts(read).accounts;
+    const now = composed.find((a) => a.key === rec.account_key);
     const active = new Set(entities.map((e) => e.id));
     const held = (await balancesOf(pool, rec.id)).filter((b) => active.has(b.entity_id));
     const ledger = new Map((now?.by_entity ?? []).map((b) => [b.entity_id, b]));
@@ -1041,6 +1042,21 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       if ((l?.closing ?? 0) !== recs.pence(h?.closing) || (l?.opening ?? 0) !== recs.pence(h?.opening)) {
         return ["The ledger has moved since this list was read. Refresh it, then check the reconciliation"];
       }
+    }
+    // Intercompany: the counterpart, read from Xero now, must be the evidence.
+    if (recs.autoMethod(rec) === "counterpart") {
+      let twin = null;
+      if (rec.counterpart_account_id) {
+        const ta = (await pool.query("SELECT account_key, account_name FROM finance.rec_accounts WHERE id = $1 AND client_id = $2",
+          [rec.counterpart_account_id, client.id])).rows[0];
+        const acc = ta && composed.find((a) => a.key === ta.account_key);
+        if (acc && acc.by_entity.length === 1) {
+          const b = acc.by_entity[0];
+          twin = { entity: entities.find((e) => e.id === b.entity_id)?.name ?? "The other company", account: ta.account_name, closing: b.closing };
+        }
+      }
+      const evidence = (await pool.query("SELECT amount, method FROM finance.rec_evidence WHERE rec_id = $1", [rec.id])).rows;
+      return recs.counterpartSignOffIssues({ paired: Boolean(rec.counterpart_account_id), twin, evidence });
     }
     return [];
   }
