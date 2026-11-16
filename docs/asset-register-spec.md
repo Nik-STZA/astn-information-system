@@ -549,12 +549,14 @@ amortisation, by month, entity and account.
 
 A generated **drop-in workbook** in long form, one row per entity, account,
 asset group, month and basis, with columns for actual or forecast, scenario,
-version, amount, line code and raise bucket. V18's Intangible Assets and
-Performance Surface Assets tabs are repointed once to `SUMIFS` over that table
-by entity, account, group and month, replacing the external links to the four
-budget copies. V17 is left as it is: the repoint is built into whichever
-rebuild (V18 or V19) goes live, so a live budget is not re-plumbed mid-year. No cell-address links, so an inserted row cannot move the
-budget. Months up to the last signed register period read `actual`; later
+version, amount, line code and raise bucket. The budget model's Intangible
+Assets and Performance Surface Assets tabs are repointed once to `SUMIFS` over
+that table by entity, account, group and month, replacing the external links to
+the four budget copies. No cell-address links, so an inserted row cannot move
+the budget.
+
+V17 is left as it is. The repoint is built into whichever rebuild (V18 or V19)
+goes live, so a budget in use is not re-plumbed. Months up to the last signed register period read `actual`; later
 months read the chosen scenario.
 
 The drop-in carries a control row per entity and account: actual months equal
