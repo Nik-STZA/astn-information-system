@@ -126,8 +126,68 @@ describe("coming up", () => {
       { contract_id: "c1", kind: "payment", label: "Far off", status: "pending", due_on: "2028-01-01" },
     ];
     const out = comingUp(contracts, schedule, "2026-11-15");
-    expect(out.map((x) => x.label)).toEqual(["Second instalment", "Handover", "Notice deadline"]);
+    expect(out.map((x) => x.label)).toEqual(["Second instalment", "Handover", "Notice deadline: decide"]);
     expect(out[2].due_on).toBe("2026-12-21");
+  });
+});
+
+describe("monitoring renewals", () => {
+  const sub = { id: "s1", side: "supplier", status: "active", counterparty: "A software firm", renewal: "auto",
+    start_date: "2026-01-01", end_date: "2026-12-31", notice_days: 30, cost_amount: 400, billing_frequency: "monthly" };
+
+  it("annual value from the billing rate", async () => {
+    const { annualValue } = await import("./contracts");
+    expect(annualValue(sub)).toBe(4800);
+    expect(annualValue({ ...sub, billing_frequency: "quarterly", cost_amount: 1000 })).toBe(4000);
+    expect(annualValue({ ...sub, billing_frequency: "one_off" })).toBeNull();
+    expect(annualValue({ ...sub, cost_amount: null })).toBeNull();
+  });
+
+  it("a decision applies only to the end date it was made for", async () => {
+    const { currentDecision, noticeTask } = await import("./contracts");
+    const kept = { ...sub, renewal_decision: "keep", renewal_decision_for: "2026-12-31" };
+    expect(currentDecision(kept)).toBe("keep");
+    expect(noticeTask(kept)).toBeNull();
+    expect(currentDecision({ ...kept, end_date: "2027-12-31" })).toBeNull();
+  });
+
+  it("checks a decision", async () => {
+    const { decisionInput } = await import("./contracts");
+    expect(decisionInput({ decision: "cancel", note: "Not used since July" }, sub).issues).toEqual([]);
+    expect(decisionInput({ decision: "drop", note: "" }, { ...sub, renewal: "no" }).issues).toEqual([
+      "decision must be keep, cancel or renegotiate", "say why, in a few words", "this contract does not renew"]);
+  });
+
+  it("what renews in the next 90 days, and what is at stake", async () => {
+    const { renewingSoon } = await import("./contracts");
+    const out = renewingSoon([sub, { ...sub, id: "s2", end_date: "2027-06-30" }, { ...sub, id: "s3", renewal_decision: "cancel", renewal_decision_for: "2026-12-31" }], "2026-11-15");
+    expect(out).toMatchObject({ count: 2, undecided: 1, cancelling: 1, supplier_annual: 9600 });
+  });
+});
+
+describe("the forward view", () => {
+  it("months of income and cost, renewals assumed unless cancelled, undated apart", async () => {
+    const { forwardView } = await import("./contracts");
+    const contracts = [
+      { id: "s1", side: "supplier", status: "active", renewal: "auto", start_date: "2026-01-15", end_date: "2026-12-31", cost_amount: 400, billing_frequency: "monthly" },
+      { id: "s2", side: "supplier", status: "active", renewal: "auto", start_date: "2026-03-01", end_date: "2027-02-28", cost_amount: 1200, billing_frequency: "annual",
+        renewal_decision: "cancel", renewal_decision_for: "2027-02-28" },
+      { id: "c1", side: "customer", status: "active", renewal: "no" },
+      { id: "c2", side: "customer", status: "active", renewal: "no" },
+    ];
+    const schedule = [
+      { contract_id: "c1", kind: "payment", status: "pending", amount: 65000, due_on: "2027-01-15" },
+      { contract_id: "c1", kind: "payment", status: "pending", amount: 65000, due_on: null },
+      { contract_id: "c1", kind: "payment", status: "met", amount: 120000, due_on: "2026-10-03" },
+    ];
+    const out = forwardView(contracts, schedule, "2026-11-15", 12);
+    expect(out.months.map((m) => m.month)).toEqual(["2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10"]);
+    expect(out.months[0]).toMatchObject({ cost: 400, income: 0, assumed: 0 });
+    expect(out.months[2]).toMatchObject({ income: 65000, cost: 400, assumed: 400, net: 64600 });
+    // Cancelled: the annual subscription does not come round again in March 2027.
+    expect(out.months[4].cost).toBe(400);
+    expect(out.total.cost).toBe(4800);
+    expect(out).toMatchObject({ undated_income: 65000, undated_count: 1, unpriced: 1 });
   });
 });
 

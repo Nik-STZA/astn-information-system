@@ -44,6 +44,9 @@ export default function ContractForm({
     payment_terms: start?.payment_terms ?? "",
     account_code: contract?.account_code ?? "",
     notes: contract?.notes ?? "",
+    cost_amount: contract?.cost_amount != null ? String(contract.cost_amount) : "",
+    billing_frequency: contract?.billing_frequency ?? "",
+    document_url: contract?.document_url ?? "",
   });
   const [lines, setLines] = useState<Line[]>((proposed?.schedule ?? []).map((s) => ({
     kind: s.kind, label: s.label, trigger_text: s.trigger_text ?? "", amount: s.amount != null ? String(s.amount) : "", due_on: s.due_on ?? "", expected: "",
@@ -68,6 +71,7 @@ export default function ContractForm({
       currency: f.currency, total_value: f.total_value === "" ? null : f.total_value, start_date: f.start_date || null, end_date: f.end_date || null,
       renewal: f.renewal, notice_days: f.notice_days === "" ? null : Number(f.notice_days), payment_terms: f.payment_terms,
       account_code: f.account_code, notes: f.notes,
+      cost_amount: f.cost_amount === "" ? null : f.cost_amount, billing_frequency: f.billing_frequency || null, document_url: f.document_url || null,
     };
     let url = `/api/finance/${encodeURIComponent(slug)}/contracts`;
     let method = "POST";
@@ -160,6 +164,21 @@ export default function ContractForm({
         <label className={`${styles.field} ${f.side === "customer" && !f.account_code.trim() ? styles.fieldMissing : ""}`}>
           Balance sheet account it holds money on (Xero code){f.side === "customer" && !f.account_code.trim() ? " · needed for the reconciliation" : ""}
           <input className={styles.input} value={f.account_code} placeholder={f.side === "customer" ? "e.g. 810 deferred income" : "e.g. prepayments"} onChange={set("account_code")} />
+        </label>
+        <label className={styles.field}>Price per billing period
+          <input className={styles.input} inputMode="decimal" value={f.cost_amount} placeholder="e.g. 400" onChange={set("cost_amount")} />
+        </label>
+        <label className={styles.field}>Billed
+          <select className={styles.select} value={f.billing_frequency} onChange={set("billing_frequency")}>
+            <option value="">Not set</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annual">Annually</option>
+            <option value="one_off">Once</option>
+          </select>
+        </label>
+        <label className={`${styles.field} ${styles.wide}`}>Link to the signed contract (for example on Drive)
+          <input className={styles.input} type="url" value={f.document_url} placeholder="https://drive.google.com/..." onChange={set("document_url")} />
         </label>
         <label className={`${styles.field} ${styles.wide}`}>Payment terms{page_("payment_terms")}
           <input className={styles.input} value={f.payment_terms} onChange={set("payment_terms")} />

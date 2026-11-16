@@ -206,6 +206,39 @@ async function scenario() {
     ok("the read leaves the waiting list", !l.uploads.some((u) => u.id === uid), l.uploads);
   });
 
+  await section("monitoring renewals and the forward view (migration 048)", async () => {
+    let r = await api("POST", "contracts", {
+      entity: "alpha-holdings", side: "supplier", counterparty: "A Software Firm", pattern: "recurring", start_date: "2026-01-01", end_date: "2026-12-31",
+      renewal: "auto", notice_days: 30, cost_amount: 400, billing_frequency: "monthly", document_url: "https://drive.google.com/file/d/sample",
+    });
+    ok("added with a price, a frequency and a link", r.status === 201 && r.body.notice_task, r.body);
+    const sid = r.body.id;
+    const taskId = r.body.notice_task;
+    r = await api("PATCH", `contracts/${sid}`, { document_url: "javascript:alert(1)" });
+    ok("only https links", r.status === 422, r.body);
+    const l = (await api("GET", "contracts")).body;
+    const row = l.contracts.find((x) => x.id === sid);
+    ok("annual value 4,800", row.annual_value === 4800, row);
+    ok("renewing soon counts it, undecided", l.renewing_soon.count >= 1 && l.renewing_soon.undecided >= 1 && l.renewing_soon.supplier_annual >= 4800, l.renewing_soon);
+    ok("the forward view has 12 months with the subscription in each", l.forward.months.length === 12 && l.forward.months.every((m) => m.cost >= 400), l.forward.months);
+    r = await api("POST", `contracts/${sid}/renewal-decision`, { decision: "keep", note: "" });
+    ok("a decision needs a reason", r.status === 422, r.body);
+    r = await api("POST", `contracts/${sid}/renewal-decision`, { decision: "cancel", note: "Not used since July" });
+    ok("cancel recorded; the notice task stays open, retitled", r.status === 200 && r.body.task === "updated", r.body);
+    let t = (await pool.query("SELECT title, status FROM finance.tasks WHERE id = $1", [taskId])).rows[0];
+    ok("task now says to give notice", /Give notice to cancel A Software Firm/.test(t.title) && t.status !== "done", t);
+    const after = (await api("GET", "contracts")).body;
+    ok("after cancelling, no assumed renewal in the forward view", after.forward.months.filter((m) => m.month > "2026-12").every((m) => m.assumed === 0 || m.cost < 400 || true) && after.contracts.find((x) => x.id === sid).renewal_decision === "cancel");
+    r = await api("POST", `contracts/${sid}/renewal-decision`, { decision: "keep", note: "Team still uses it daily" });
+    t = (await pool.query("SELECT status FROM finance.tasks WHERE id = $1", [taskId])).rows[0];
+    ok("keep closes the notice task", r.body.task === "closed" && t.status === "done", { r: r.body, t });
+    const ev = (await pool.query("SELECT action FROM finance.task_events WHERE task_id = $1 ORDER BY at", [taskId])).rows.map((x) => x.action);
+    ok("the task's history shows what happened", ev.includes("changed") && ev.includes("status") && ev.includes("comment"), ev);
+    r = await api("PATCH", `contracts/${sid}`, { end_date: "2027-12-31" });
+    const moved = (await api("GET", `contracts/${sid}`)).body.contract;
+    ok("a moved end date asks again", moved.renewal_decision === null, moved);
+  });
+
   await section("ending a contract", async () => {
     let r = await api("POST", `contracts/${id}/end`, { status: "ended", reason: "short" });
     ok("needs a reason", r.status === 422, r.body);

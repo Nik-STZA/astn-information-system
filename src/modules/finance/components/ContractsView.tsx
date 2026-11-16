@@ -11,7 +11,7 @@ import { useRef, useState } from "react";
 import { FileUp } from "lucide-react";
 import styles from "./Contracts.module.css";
 import page from "./Page.module.css";
-import { dateLabel, MAX_FILE_BYTES, money, whenLabel, type ContractList, type Side } from "@/modules/finance/lib/contracts";
+import { dateLabel, DECISION_LABEL, MAX_FILE_BYTES, money, monthName, whenLabel, type ContractList, type Side } from "@/modules/finance/lib/contracts";
 
 type Progress = { name: string; state: string; error?: string };
 
@@ -135,6 +135,18 @@ export default function ContractsView({ slug, data, side }: { slug: string; data
         </section>
       )}
 
+      {data.renewing_soon && data.renewing_soon.count > 0 && (
+        <div className={`${page.card} ${styles.section}`} style={{ padding: "14px 16px", display: "flex", flexWrap: "wrap", gap: "6px 24px", alignItems: "baseline", fontSize: 13 }}>
+          <strong style={{ fontSize: 14 }}>Renewing in the next {data.renewing_soon.days} days: {data.renewing_soon.count}</strong>
+          {data.renewing_soon.supplier_annual > 0 && <span>{money(data.renewing_soon.supplier_annual)} a year of costs</span>}
+          {data.renewing_soon.customer_annual > 0 && <span>{money(data.renewing_soon.customer_annual)} a year of income</span>}
+          {data.renewing_soon.undecided > 0
+            ? <span className={styles.differs}>{data.renewing_soon.undecided} still to decide</span>
+            : <span className={styles.agrees}>All decided</span>}
+          {data.renewing_soon.without_value > 0 && <span className={styles.meta}>{data.renewing_soon.without_value} without a price: add it to see what is at stake</span>}
+        </div>
+      )}
+
       {data.coming_up.length > 0 && (
         <section className={styles.section} aria-labelledby="soon">
           <div className={styles.sectionHead}><h2 id="soon">Coming up</h2></div>
@@ -165,11 +177,12 @@ export default function ContractsView({ slug, data, side }: { slug: string; data
                 <div className={styles.pills}>
                   <span className={styles.pill}>{c.pattern_label}</span>
                   {!c.pattern_confirmed_at && <span className={`${styles.pill} ${styles.pillAccent}`}>Pattern to confirm</span>}
+                  {c.renewal_decision && <span className={styles.pill}>Renewal: {DECISION_LABEL[c.renewal_decision]}</span>}
                   {c.status !== "active" && <span className={styles.pill}>{c.status === "ended" ? "Ended" : "Cancelled"}</span>}
                 </div>
               </div>
               <div>
-                <div className={styles.amount}>{c.total_value != null ? money(c.total_value, c.currency) : "-"}</div>
+                <div className={styles.amount}>{c.annual_value != null ? `${money(c.annual_value, c.currency)} a year` : c.total_value != null ? money(c.total_value, c.currency) : "-"}</div>
                 <div className={styles.meta} style={{ textAlign: "right" }}>
                   {c.next ? `${c.next.label}: ${whenLabel(c.next)}` : c.end_date ? `Ends ${dateLabel(c.end_date)}` : ""}
                 </div>
@@ -178,6 +191,49 @@ export default function ContractsView({ slug, data, side }: { slug: string; data
           ))}
         </div>
       </section>
+
+      {data.forward && (data.forward.total.income > 0 || data.forward.total.cost > 0 || data.forward.undated_income > 0) && (
+        <section className={styles.section} aria-labelledby="fwd">
+          <div className={styles.sectionHead}>
+            <h2 id="fwd">Next 12 months under contract</h2>
+            <span className={styles.meta}>For the budget and the forecast. Contracts that renew themselves are assumed to carry on unless the decision is to cancel.</span>
+          </div>
+          <div className={page.card} style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontVariantNumeric: "tabular-nums", minWidth: 420 }}>
+              <thead>
+                <tr style={{ color: "var(--sub)", fontSize: 12, textAlign: "right" }}>
+                  <th scope="col" style={{ textAlign: "left", padding: "10px 16px", fontWeight: 600 }}>Month</th>
+                  <th scope="col" style={{ padding: "10px 16px", fontWeight: 600 }}>Income</th>
+                  <th scope="col" style={{ padding: "10px 16px", fontWeight: 600 }}>Costs</th>
+                  <th scope="col" style={{ padding: "10px 16px", fontWeight: 600 }}>Net</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.forward.months.map((m) => (
+                  <tr key={m.month} style={{ borderTop: "1px solid var(--bd)", textAlign: "right" }}>
+                    <th scope="row" style={{ textAlign: "left", padding: "8px 16px", fontWeight: 500 }}>{monthName(m.month)}{m.assumed ? <span className={styles.meta}> · includes {money(m.assumed)} assumed renewals</span> : null}</th>
+                    <td style={{ padding: "8px 16px" }}>{m.income ? money(m.income) : "-"}</td>
+                    <td style={{ padding: "8px 16px" }}>{m.cost ? money(m.cost) : "-"}</td>
+                    <td style={{ padding: "8px 16px" }}>{money(m.net)}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: "1px solid var(--bd)", textAlign: "right", fontWeight: 600 }}>
+                  <th scope="row" style={{ textAlign: "left", padding: "10px 16px" }}>12 months</th>
+                  <td style={{ padding: "10px 16px" }}>{money(data.forward.total.income)}</td>
+                  <td style={{ padding: "10px 16px" }}>{money(data.forward.total.cost)}</td>
+                  <td style={{ padding: "10px 16px" }}>{money(data.forward.total.income - data.forward.total.cost)}</td>
+                </tr>
+              </tbody>
+            </table>
+            {(data.forward.undated_income > 0 || data.forward.unpriced > 0) && (
+              <div className={styles.meta} style={{ padding: "10px 16px", borderTop: "1px solid var(--bd)" }}>
+                {data.forward.undated_income > 0 ? `${money(data.forward.undated_income)} of contracted income has no date yet (${data.forward.undated_count} payment${data.forward.undated_count === 1 ? "" : "s"}), so it is not in a month. ` : ""}
+                {data.forward.unpriced > 0 ? `${data.forward.unpriced} contract${data.forward.unpriced === 1 ? " has" : "s have"} no price or billing frequency, so ${data.forward.unpriced === 1 ? "it is" : "they are"} not counted.` : ""}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {data.ties.length > 0 && (
         <section className={styles.section} aria-labelledby="ties">
