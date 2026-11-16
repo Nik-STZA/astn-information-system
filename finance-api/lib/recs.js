@@ -51,6 +51,24 @@ function isDate(s) {
 const pence = (v) => Math.round(Number(v ?? 0) * 100);
 const pounds = (p) => fromPence(p);
 
+// An intercompany reconciliation at sign-off (Nik, 17 Nov 2026): it is signed
+// off against its counterpart, so it must be paired, and its evidence must be
+// the paired account's balance as Xero holds it now, reversed. A counterpart
+// that moved after the evidence was fetched, or evidence keyed by hand in its
+// place, stops the sign-off. twin: { entity, account, closing (pence) } read
+// at sign-off, or null when it was not found. Returns the issues.
+function counterpartSignOffIssues({ paired, twin, evidence }) {
+  const gbp = (p) => (p / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!paired) return ["Choose the paired account in the other company first: an intercompany balance is signed off against its counterpart"];
+  if (!twin) return ["The paired account was not found, held by one company, in the trial balances just read, so this cannot be signed off. Refresh the month first"];
+  const want = -twin.closing;
+  const ev = (evidence || []).filter((e) => e.method === "counterpart");
+  if (!ev.length) return [`Fetch the evidence: ${twin.entity} holds ${twin.account} at ${gbp(twin.closing)}, which reversed is ${gbp(want)}`];
+  const have = ev.reduce((s, e) => s + pence(e.amount), 0);
+  if (have !== want) return [`${twin.entity}'s ${twin.account} now holds ${gbp(twin.closing)} (reversed ${gbp(want)}), but the evidence says ${gbp(have)}. Fetch the evidence again`];
+  return [];
+}
+
 // ── The list, composed from the trial balance ────────────────────────────────
 
 // The account name reduced to letters and digits. Companies in a group can
@@ -1061,7 +1079,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
-  EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
+  counterpartSignOffIssues, EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,

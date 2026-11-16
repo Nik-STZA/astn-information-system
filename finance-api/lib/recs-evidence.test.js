@@ -177,3 +177,19 @@ describe("the matrix", () => {
     expect(classify({ Name: "Output VAT control", Type: "CURRLIAB" }).key).toBe("vat");
   });
 });
+
+describe("an intercompany reconciliation at sign-off", () => {
+  const { counterpartSignOffIssues } = require("./recs");
+  const twin = { entity: "Beta Ltd", account: "Alpha intercompany", closing: -1234567 };
+  it("is refused unpaired, or when the counterpart was not read", () => {
+    expect(counterpartSignOffIssues({ paired: false, twin, evidence: [] })[0]).toMatch(/Choose the paired account/);
+    expect(counterpartSignOffIssues({ paired: true, twin: null, evidence: [] })[0]).toMatch(/not found/);
+  });
+  it("needs the counterpart's balance, reversed, as its evidence, as Xero holds it now", () => {
+    expect(counterpartSignOffIssues({ paired: true, twin, evidence: [] })[0]).toMatch(/Fetch the evidence: Beta Ltd holds Alpha intercompany at -12,345.67, which reversed is 12,345.67/);
+    expect(counterpartSignOffIssues({ paired: true, twin, evidence: [{ method: null, amount: "12345.67" }] })[0]).toMatch(/Fetch the evidence/);
+    expect(counterpartSignOffIssues({ paired: true, twin, evidence: [{ method: "counterpart", amount: "12345.67" }] })).toEqual([]);
+    const moved = counterpartSignOffIssues({ paired: true, twin: { ...twin, closing: -1300000 }, evidence: [{ method: "counterpart", amount: "12345.67" }] });
+    expect(moved[0]).toMatch(/now holds -13,000.00 \(reversed 13,000.00\), but the evidence says 12,345.67/);
+  });
+});
