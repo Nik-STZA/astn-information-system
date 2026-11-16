@@ -42,7 +42,11 @@ function prepareMonth({ period, map, assets, lines, events, trialBalances, openi
   const undecided = lines.filter((l) => l.state === "proposed" && String(l.line_date) <= end);
   for (const l of undecided) issues.push(`${l.invoice_no ?? "A line"} (${r2(l.amount).toFixed(2)}, ${l.line_date}) is still waiting for a decision.`);
 
-  const approved = lines.filter((l) => l.state === "approved").map((l) => ({ ...l, line_date: String(l.line_date) }));
+  // A line with no posted account (a workbook row whose schedule had no
+  // account column) counts on its asset's own account, as at the opening.
+  const assetAccount = Object.fromEntries(assets.map((a) => [a.id, a.cost_account_id]));
+  const approved = lines.filter((l) => l.state === "approved").map((l) => ({ ...l, line_date: String(l.line_date),
+    posted_account_id: l.posted_account_id ?? l.expected_account_id ?? assetAccount[l.asset_id] ?? null }));
   const rolled = engine.roll({ assets, lines: approved, events, period });
 
   // Accounts in force at the month end: every one is shown, even at nil.
@@ -84,7 +88,8 @@ function prepareMonth({ period, map, assets, lines, events, trialBalances, openi
     undecided: undecided.map((l) => ({ id: l.id, invoice_no: l.invoice_no, amount: r2(l.amount), line_date: String(l.line_date), question: l.fields?.question ?? null })),
     accounts: rows.map((r) => {
       const a = have.get(key(r.entity_id, r.account_id)) || {};
-      return { company: nameOf[r.entity_id] ?? r.entity_id, entity_id: r.entity_id, account_id: r.account_id, account: r.account,
+      const code = map.find((m) => m.entity_id === r.entity_id && lc(m.xero_account_id) === lc(r.account_id))?.account_code;
+      return { company: nameOf[r.entity_id] ?? r.entity_id, entity_id: r.entity_id, account_id: r.account_id, account: r.account ?? (code ? `(${code})` : null),
         opening: r2(a.opening), additions: r2(a.additions), transfers: r2(a.transfers), amortisation: r2(a.amortisation), impairment: r2(a.impairment),
         by_xero: a.by_xero ?? null, register: r.register, ledger: r.ledger, difference: r.difference, named_items: r.named_items, unexplained: r.unexplained, ties: r.ties };
     }),
