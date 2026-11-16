@@ -489,6 +489,39 @@ Then:
    monthly; the CFO signs an available-for-use date with evidence.
 5. **Close**: the engine runs, journals are proposed, recs are proved.
 
+### 6.1 The month's intake, as built (17 November 2026)
+
+`POST /api/finance/clients/:slug/asset-register/intake` (CFO, dry run by
+default) reads the month's bills, supplier credit notes, bank transactions and
+posted manual journals from Xero for every company in the grouping's account
+map. Each line on a mapped cost or WIP account becomes a proposed cost line,
+once, carrying Xero's document and line ids:
+
+- the amount is the base-currency net the ledger holds: a VAT-inclusive line
+  less its tax (LTD-504651: 7,800.00 entered gross, 6,500.00 in the ledger),
+  a foreign-currency line divided by the document's rate, a credit note
+  negative;
+- it is allocated by an allocation supplied for that invoice (from the
+  workbook or an agent) when the slices make the line, else to the one asset
+  on the account, else left unallocated with a question (an account two assets
+  share, or one no asset holds, such as 787 for LTD-504736 and LTD-504738);
+- a line on a shared account that belongs to another grouping, known by its
+  counterpart in the same document (staff time on 789 credited to 464), is set
+  aside and reported as that grouping's, not taken;
+- a document not yet approved in Xero is reported, not taken; a signed month
+  takes nothing.
+
+`POST .../asset-register/cost-lines/decide` is where the CFO approves (with
+asset, treatment and reason) or rejects proposed lines, all or none, each an
+approval row. `GET .../asset-register/cost-lines?state=proposed` lists what
+waits.
+
+Checked against Xero's September and October 2026 documents for UDL, the
+intake reproduces every movement on the mapped accounts: 738 10,940.00 and
+30,610.00; 783 216.67 and 65,511.00; 786 96,000.00; 787 192,000.00 (four
+lines, each with a question); and sets aside 8,418.68 and 6,013.34 on 789 as
+Software's.
+
 ## 7. Excel export (pack engine)
 
 A new `pack_engine/assets.py`, following `render.py`'s rule: **typed numbers
