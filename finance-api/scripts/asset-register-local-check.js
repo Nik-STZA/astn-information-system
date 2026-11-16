@@ -1,0 +1,238 @@
+// Asset register opening import, end to end: the real server.js on a real,
+// local, throwaway Postgres, with Xero and Secret Manager faked inside this
+// process. Any other network host throws, so this cannot reach Xero or a live
+// database.
+//
+// Not part of `npm test`, because it needs Postgres. To run:
+//   1. initdb a scratch cluster, start it, create database t.
+//   2. Apply migrations 024, 025, the finance set, then 029 to 049.
+//   3. DB_PORT=<port> node scripts/asset-register-local-check.js   (from finance-api)
+// Optional: ASSET_IMPORT_FILES=a.json;b.json also dry-runs real importer
+// output against trial balances built from ASSET_IMPORT_TB (Xero balances).
+
+const Module = require("module");
+const fs = require("fs");
+const FAKE_SM = "export class SecretManagerServiceClient { async accessSecretVersion() { return [{ payload: { data: Buffer.from('x') } }]; } async addSecretVersion() { return [{}]; } async listSecretVersions() { return [[]]; } async getSecret() { return [{}]; } }";
+Module.registerHooks({
+  resolve(spec, ctx, next) {
+    if (spec === "@google-cloud/secret-manager") return { url: `data:text/javascript,${encodeURIComponent(FAKE_SM)}`, shortCircuit: true, format: "module" };
+    return next(spec, ctx);
+  },
+});
+if (process.env.DB_HOST && process.env.DB_HOST !== "127.0.0.1") throw new Error("This check runs only against a local database");
+process.env.DB_HOST = "127.0.0.1";
+Object.assign(process.env, {
+  FINANCE_API_KEY: "k", DB_PORT: process.env.DB_PORT || "54329", DB_USER: process.env.DB_USER || "postgres", DB_NAME: "t", DB_PASSWORD: "x",
+});
+
+const SLUG = "sample-assets";
+const CFO = "cfo@example.com";
+const BOOK = "clerk@example.com";
+const COMPANIES = [{ slug: "alpha-ltd", name: "Alpha Ltd" }, { slug: "beta-ltd", name: "Beta Ltd" }];
+const CODES = ["738", "772", "773", "774", "775", "776", "777", "780", "783", "786", "789"];
+const accountId = (slug, code) => `00000000-0000-0000-${slug === "alpha-ltd" ? "0001" : "0002"}-000000000${code}`;
+
+// Balances per company, by code: what Xero's trial balance says.
+let balances = {};
+let readsFail = false;
+const tbRow = (id, name, dr, cr) => ({ RowType: "Row", Cells: [{ Value: name, Attributes: [{ Id: "account", Value: id }] }, { Value: "0" }, { Value: "0" }, { Value: String(dr) }, { Value: String(cr) }] });
+function tbFor(slug) {
+  const b = balances[slug] || {};
+  const rows = Object.entries(b).map(([code, v]) => tbRow(accountId(slug, code), `Account (${code})`, v > 0 ? v : 0, v < 0 ? -v : 0));
+  const net = Object.values(b).reduce((s, v) => s + v, 0);
+  rows.push(tbRow(`ffffffff-0000-0000-0000-${slug === "alpha-ltd" ? "000000000001" : "000000000002"}`, "Bank (090)", net < 0 ? -net : 0, net > 0 ? net : 0));
+  return { Reports: [{ Rows: [{ RowType: "Section", Rows: rows }] }] };
+}
+
+const realFetch = global.fetch;
+const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
+let tenantSlug = {};
+global.fetch = async (url, opts = {}) => {
+  const u = new URL(String(url));
+  if (u.hostname === "127.0.0.1" || u.hostname === "localhost") return realFetch(url, opts);
+  if (u.hostname === "identity.xero.com") return json({ access_token: "tok", expires_in: 1800, refresh_token: "x" });
+  if (u.hostname !== "api.xero.com") throw new Error(`blocked host ${u.hostname}`);
+  if (readsFail) return json({ Message: "down" }, 400);
+  const slug = tenantSlug[opts.headers?.["Xero-Tenant-Id"]];
+  if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: CODES.map((c) => ({ AccountID: accountId(slug, c), Code: c, Name: `Account ${c}`, Status: "ACTIVE" })) });
+  if (u.pathname === "/api.xro/2.0/Reports/TrialBalance") return json(tbFor(slug));
+  return json({}, 404);
+};
+
+const { app, pool } = require("../server.js");
+
+let base;
+let CID;
+let pass = 0;
+const failures = [];
+const ok = (name, cond, extra) => {
+  if (cond) { pass += 1; if (process.env.VERBOSE) console.log("  ok  ", name); return; }
+  failures.push(name);
+  console.log("  FAIL", name, extra !== undefined ? JSON.stringify(extra).slice(0, 600) : "");
+};
+async function section(name, fn) {
+  console.log(name);
+  try { await fn(); } catch (e) { failures.push(`${name}: threw`); console.log("  FAIL", name, "threw:", e.stack); }
+}
+const api = async (method, path, body, headers = {}) => {
+  const r = await realFetch(`${base}/api/finance/clients/${SLUG}/${path}`, { method, headers: { "X-API-Key": "k", "X-Actor-Email": CFO, "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+};
+
+async function seed() {
+  await pool.query("UPDATE shared.clients SET slug = 'old-' || id WHERE slug = $1", [SLUG]);
+  CID = (await pool.query("INSERT INTO shared.clients (slug, name) VALUES ($1,'Sample Group') RETURNING id", [SLUG])).rows[0].id;
+  await pool.query("INSERT INTO finance.client_finance_config (client_id) VALUES ($1)", [CID]);
+  await pool.query("INSERT INTO finance.client_engagement_roles (client_id, actor_email, role) VALUES ($1,$2,'Fractional CFO'),($1,$3,'Bookkeeper')", [CID, CFO, BOOK]);
+  tenantSlug = {};
+  for (const c of COMPANIES) {
+    const tenant = `tenant-${c.slug}-${CID}`;
+    tenantSlug[tenant] = c.slug;
+    await pool.query("INSERT INTO finance.entities (client_id, slug, name, accounting_system_config, reporting_framework) VALUES ($1,$2,$3,$4,'FRS 102')",
+      [CID, c.slug, c.name, JSON.stringify({ tenant_id: tenant, tenant_name: c.name })]);
+  }
+}
+
+const ref = (sheet, row) => ({ file: "Sample register.xlsx", sheet, row, original_sha256: "a".repeat(64), read_sha256: "b".repeat(64) });
+// An IP register: one registered trade mark with accumulated amortisation, one
+// pending patent, one written off, one invoice kept as evidence, one line
+// waiting for its asset.
+function ipPayload() {
+  return {
+    grouping: "ip_registered", as_at: "2026-08-31", client: SLUG,
+    source: { file: "Sample register.xlsx", original_sha256: "a".repeat(64), read_sha256: "b".repeat(64) },
+    assets: [
+      { asset_no: "ABC-TMK-0001", entity: "alpha-ltd", name: "ABC", status: "registered", cost_account: "775", accum_account: "776", opening_accumulated: 120.5, opening_cost: 1000, source_ref: ref("Registered", 4) },
+      { asset_no: "ABC-PAT-0001", entity: "beta-ltd", name: "Track", status: "pending", cost_account: "774", opening_cost: 2500, source_ref: ref("Pending", 4) },
+      { asset_no: "ABC-TMK-0002", entity: "alpha-ltd", name: "ABC US", status: "impaired", cost_account: "777", opening_cost: 400, source_ref: ref("Pending", 5),
+        opening_impairment: { date: "2026-03-09", amount: 400, credit_account: "777", reason: "Abandoned", source_ref: ref("Write-offs", 5) } },
+    ],
+    cost_lines: [
+      { kind: "brought_forward", source_type: "workbook", line_date: "2026-08-31", billed_entity: "alpha-ltd", owning_entity: "alpha-ltd", source_net: 1000, amount: 1000, asset_no: "ABC-TMK-0001", treatment: "capitalise", posted_account: "775", reason_text: "Brought forward", fields: {}, source_ref: ref("Registered", 4) },
+      { kind: "brought_forward", source_type: "workbook", line_date: "2026-08-31", billed_entity: "beta-ltd", owning_entity: "beta-ltd", source_net: 2500, amount: 2500, asset_no: "ABC-PAT-0001", treatment: "capitalise", posted_account: "774", reason_text: "Brought forward", fields: {}, source_ref: ref("Pending", 4) },
+      { kind: "brought_forward", source_type: "workbook", line_date: "2026-08-31", billed_entity: "alpha-ltd", owning_entity: "alpha-ltd", source_net: 400, amount: 400, asset_no: "ABC-TMK-0002", treatment: "capitalise", posted_account: "777", reason_text: "Brought forward", fields: {}, source_ref: ref("Pending", 5) },
+      { source_type: "workbook", invoice_no: "2437", line_date: "2024-01-05", billed_entity: "beta-ltd", owning_entity: "alpha-ltd", source_net: 1000, amount: 1000, asset_no: "ABC-TMK-0001", treatment: "capitalise", reason_text: "Filing", state: "superseded", superseded_by_asset_no: "ABC-TMK-0001", fields: { source_key: "inv|2437|row 3" }, source_ref: ref("Invoices", 3) },
+      { source_type: "workbook", invoice_no: "2438", line_date: "2024-01-05", billed_entity: "beta-ltd", owning_entity: "beta-ltd", source_net: 300, amount: 300, asset_no: null, treatment: null, reason_text: "Search", fields: { source_key: "inv|2438|row 4", question: "Which asset is this for?" }, source_ref: ref("Invoices", 4) },
+    ],
+    account_map: [
+      { entity: "alpha-ltd", code: "775", role: "cost", amortised_by: "xero", effective_from: "2026-08-31", effective_to: "2026-12-31" },
+      { entity: "alpha-ltd", code: "776", role: "accumulated", amortised_by: "xero", effective_from: "2026-08-31", effective_to: "2026-12-31" },
+      { entity: "alpha-ltd", code: "775", role: "cost", amortised_by: "register", effective_from: "2027-01-01" },
+      { entity: "alpha-ltd", code: "777", role: "wip", amortised_by: "register", effective_from: "2026-08-31" },
+      { entity: "beta-ltd", code: "774", role: "wip", amortised_by: "register", effective_from: "2026-08-31" },
+    ],
+    named_items: [{ entity: "alpha-ltd", account: "776", amount: 0.5, label: "Rounding against Xero's register" }],
+    findings: [{ kind: "sample", where: "row 1" }],
+  };
+}
+const ledger = () => ({ "alpha-ltd": { 775: 1000, 776: -120, 777: 0 }, "beta-ltd": { 774: 2500 } });
+
+async function scenario() {
+  await section("a dry run ties to Xero after named items and writes nothing", async () => {
+    await seed();
+    balances = ledger();
+    const r = await api("POST", "asset-register/import", ipPayload());
+    ok("200, would import", r.status === 200 && r.body.dry_run === true && r.body.would_import === true, r.body);
+    ok("counts", r.body.assets === 3 && r.body.cost_lines.total === 5 && r.body.cost_lines.superseded === 1 && r.body.cost_lines.proposed === 1 && r.body.events === 2, r.body);
+    const t776 = (r.body.tie || []).find((x) => /776/.test(x.account ?? ""));
+    ok("776 differs by 0.50, carried as a named item", t776 && t776.difference === 0.5 && t776.unexplained === 0 && t776.ties, r.body.tie);
+    const t777 = (r.body.tie || []).find((x) => /777/.test(x.account ?? ""));
+    ok("the write-off takes 777 to nil", t777 && t777.register === 0 && t777.ties, r.body.tie);
+    ok("nothing written", (await pool.query("SELECT count(*)::int AS n FROM finance.assets WHERE client_id = $1", [CID])).rows[0].n === 0);
+  });
+
+  await section("refusals", async () => {
+    balances = { ...ledger(), "beta-ltd": { 774: 2400 } };
+    let r = await api("POST", "asset-register/import", ipPayload());
+    ok("a register that does not tie is refused, with the account", r.status === 422 && r.body.issues.some((x) => /774.*100 unexplained|unexplained/.test(x)), r.body);
+    balances = ledger();
+    r = await api("POST", "asset-register/import", ipPayload(), { "X-Actor-Email": BOOK });
+    ok("only the CFO", r.status === 403, r.body);
+    r = await api("POST", "asset-register/import", ipPayload(), { "X-Work-Via": `agent:fm1:${"0".repeat(8)}-0000-0000-0000-000000000000` });
+    ok("never an agent", r.status === 403 || r.status === 400, r.body);
+    const bad = ipPayload();
+    bad.assets[0].entity = "gamma-ltd";
+    r = await api("POST", "asset-register/import", bad);
+    ok("an unknown company", r.status === 422 && r.body.issues.some((x) => /gamma-ltd/.test(x)), r.body);
+    const cap = ipPayload();
+    cap.cost_lines[4].treatment = "capitalise";
+    r = await api("POST", "asset-register/import", cap);
+    ok("capitalised with no asset", r.status === 422 && r.body.issues.some((x) => /capitalised with no asset/.test(x)), r.body);
+    await pool.query("UPDATE finance.entities SET reporting_framework = 'FRS 105' WHERE client_id = $1 AND slug = 'beta-ltd'", [CID]);
+    r = await api("POST", "asset-register/import", ipPayload());
+    ok("a company with no template for its framework", r.status === 422 && r.body.issues.some((x) => /Beta Ltd: FRS 105/.test(x)), r.body);
+    await pool.query("UPDATE finance.entities SET reporting_framework = 'FRS 102' WHERE client_id = $1 AND slug = 'beta-ltd'", [CID]);
+    readsFail = true;
+    r = await api("POST", "asset-register/import", ipPayload());
+    readsFail = false;
+    ok("Xero unreadable", r.status === 503, r.body);
+  });
+
+  await section("the import writes everything in one go, once", async () => {
+    balances = ledger();
+    let r = await api("POST", "asset-register/import", { ...ipPayload(), dry_run: false });
+    ok("201", r.status === 201 && r.body.imported === true, r.body);
+    const q = async (sql) => (await pool.query(sql, [CID])).rows;
+    const assets = await q("SELECT asset_no, status, cost_account_id FROM finance.assets WHERE client_id = $1 ORDER BY asset_no");
+    ok("three assets, with Xero account ids", assets.length === 3 && assets.every((a) => /^00000000-/.test(a.cost_account_id)), assets);
+    const lines = await q("SELECT state, kind, superseded_by, asset_id, treatment, fields FROM finance.asset_cost_lines l LEFT JOIN LATERAL (SELECT NULL AS kind) k ON true WHERE client_id = $1");
+    const ev = lines.find((l) => l.state === "superseded");
+    const bf = (await q("SELECT id FROM finance.asset_cost_lines WHERE client_id = $1 AND state = 'approved' AND amount = 1000 AND line_date = '2026-08-31'"))[0];
+    ok("the invoice is kept as evidence, pointing at the brought-forward line", ev && bf && ev.superseded_by === bf.id, { ev, bf });
+    ok("the line with no asset waits, with its question", lines.some((l) => l.state === "proposed" && !l.asset_id && l.fields.question), lines);
+    const approvals = await q("SELECT count(*)::int AS n FROM finance.asset_approvals WHERE client_id = $1");
+    ok("an approval row for every line", approvals[0].n === 5, approvals);
+    const events = await q("SELECT kind, period, amount::float AS amount FROM finance.asset_events WHERE client_id = $1 ORDER BY kind");
+    ok("opening amortisation and the write-off", events.length === 2 && events.some((e) => e.kind === "opening" && e.amount === 120.5) && events.some((e) => e.kind === "impairment" && e.period === "2026-03"), events);
+    const map = await q("SELECT count(*)::int AS n FROM finance.asset_account_map WHERE client_id = $1");
+    ok("the account map", map[0].n === 5, map);
+    const period = await q("SELECT period, status, snapshot FROM finance.asset_register_periods WHERE client_id = $1");
+    ok("August prepared, not signed, with the tie as its snapshot", period.length === 1 && period[0].period === "2026-08" && period[0].status === "prepared" && period[0].snapshot.tie.length > 0, period);
+    const g = await q("SELECT enabled, enabled_by FROM finance.asset_groupings_client WHERE client_id = $1");
+    ok("the grouping switched on by the CFO", g[0]?.enabled === true && g[0]?.enabled_by === CFO, g);
+    const audit = await q("SELECT action FROM finance.audit_log WHERE client_id = $1 AND action = 'asset_register_imported'");
+    ok("audited", audit.length === 1, audit);
+    r = await api("POST", "asset-register/import", { ...ipPayload(), dry_run: false });
+    ok("a second import is refused", r.status === 409, r.body);
+    r = await api("GET", "asset-register");
+    ok("the summary", r.status === 200 && r.body.groupings[0].assets === 3 && r.body.groupings[0].periods[0].status === "prepared", r.body);
+  });
+
+  if (process.env.ASSET_IMPORT_FILES) {
+    await section("real importer output, dry run", async () => {
+      const tb = JSON.parse(fs.readFileSync(process.env.ASSET_IMPORT_TB, "utf8"));
+      const slugs = Object.keys(tb.balances);
+      await pool.query("UPDATE shared.clients SET slug = 'old-' || id WHERE slug = $1", [SLUG]);
+      CID = (await pool.query("INSERT INTO shared.clients (slug, name) VALUES ($1,'Real') RETURNING id", [SLUG])).rows[0].id;
+      await pool.query("INSERT INTO finance.client_finance_config (client_id) VALUES ($1)", [CID]);
+      await pool.query("INSERT INTO finance.client_engagement_roles (client_id, actor_email, role) VALUES ($1,$2,'Fractional CFO')", [CID, CFO]);
+      tenantSlug = {};
+      for (const s of slugs) {
+        tenantSlug[`tenant-${s}-${CID}`] = s;
+        await pool.query("INSERT INTO finance.entities (client_id, slug, name, accounting_system_config, reporting_framework) VALUES ($1,$2,$2,$3,'FRS 102')",
+          [CID, s, JSON.stringify({ tenant_id: `tenant-${s}-${CID}` })]);
+      }
+      balances = tb.balances;
+      CODES.splice(0, CODES.length, ...new Set([...CODES, ...Object.values(tb.balances).flatMap((b) => Object.keys(b)), ...Array.from({ length: 20 }, (_, i) => String(770 + i))]));
+      for (const f of process.env.ASSET_IMPORT_FILES.split(";")) {
+        const body = JSON.parse(fs.readFileSync(f, "utf8"));
+        const r = await api("POST", "asset-register/import", body);
+        ok(`${body.grouping}: ties and would import`, r.status === 200 && r.body.would_import, { status: r.status, issues: r.body.issues });
+        console.log(`   ${body.grouping}: ${r.body.assets} assets, lines ${JSON.stringify(r.body.cost_lines)}, ${r.body.events} events`);
+      }
+    });
+  }
+}
+
+const server = app.listen(0, "127.0.0.1", async () => {
+  base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await scenario();
+  } finally {
+    console.log(`\n${pass} passed, ${failures.length} failed`);
+    if (failures.length) console.log(failures.map((f) => `  - ${f}`).join("\n"));
+    server.close();
+    await pool.end();
+    process.exit(failures.length ? 1 : 0);
+  }
+});

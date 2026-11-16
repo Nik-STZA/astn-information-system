@@ -549,6 +549,41 @@ values and formulas, writing JSON for a finance-api bulk endpoint.
   only, and the test says so
 - Sources: `Month-end/FY26/2608/` (opening), `2609/`, `2610/`
 
+### 8.1 How the opening is built (16 November 2026)
+
+The importer (`scripts/asset-register-import.py`) has one layout per workbook
+shape; company names, account codes, supplier tab names and the account map
+come from a client profile kept with the client's data, never the repo.
+
+- **Development projects** come in as real invoice slices. A split invoice
+  carries its date, number and net on its first row only; the rows below hold
+  each asset's share and are joined to it. A research / development / admin
+  split on one row becomes three slices. Pence go on the largest slice, so an
+  invoice's slices sum to its net.
+- **IP** cannot be rebuilt from its invoice tab: a Madrid filing's invoice sits
+  on its first country's mark, and the tab split it five ways where the
+  register splits it six (Japan included). The opening is one brought-forward
+  line per asset from the tab whose totals tie to the ledger; the invoice lines
+  are kept as evidence, marked superseded and pointing at that line. A
+  capitalised line with no asset comes in unallocated, with a question. The
+  write-off log becomes impairment events. New Madrid filings from September
+  are split on the WIPO basis (individual and complementary fees to their
+  country, the basic fee equally, local associate fees to their country,
+  attorney fees equally unless itemised); the history is re-split at the
+  1 Jan 2027 cut-over.
+- **Tangible builds** come in from the WIP invoice schedule, which is the full
+  history.
+- **Named items** travel with the import and must be on an account the
+  grouping's map uses. The opening at 31 Aug 2026 ties with: IA Track 1.37
+  (780 1.02, 783 -0.05, 786 0.40); 789 Software staff time 16,436.67; IP
+  rounding against Xero's register (FSL 775 0.58, 776 0.83; UDL 776 0.11).
+
+The import endpoint, `POST /api/finance/clients/:slug/asset-register/import`
+(CFO only, dry run by default), re-reads Xero's chart and trial balance at the
+opening date and refuses unless every trial balance foots and every mapped
+account ties after its named items. It imports a grouping once, in one
+transaction, and leaves the opening month prepared for the CFO to sign.
+
 ## 9. Build order
 
 The first increment is whatever produces the September and October registers;

@@ -6696,6 +6696,15 @@ require("./lib/contracts-routes").mountContracts(app, {
   route, pool, audit, clientIdFromSlug, express, viaInput: work.viaInput, generate: (body) => vertex.generate(body),
 });
 
+// ── Asset register ──────────────────────────────────────────────────────────
+
+// The register of development, IP and self-built assets (lib/asset-register-routes.js,
+// migration 049): the opening import from the register workbooks, tied to
+// Xero's trial balance before anything is written.
+require("./lib/asset-register-routes").mountAssetRegister(app, {
+  route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
+});
+
 // ── Review ──────────────────────────────────────────────────────────────────
 
 // Everything waiting on a person for a client, from Bills, Reconciliations,

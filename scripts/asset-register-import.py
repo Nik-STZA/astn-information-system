@@ -283,6 +283,7 @@ def extract_ip(ctx, wb):
 
     # Cost lines.
     lines = []
+    cur_key, cur_net = None, None
     inv_sheet = ctx.profile["ip_registered"]["invoice_sheet"]
     ws = wb[inv_sheet]
     h = header_map(ws, 2)
@@ -300,6 +301,12 @@ def extract_ip(ctx, wb):
         if raw and raw.lower().startswith("capital") and why and why.lower().startswith("expense"):
             ctx.find("treatment_contradicts_reason", where, asset_no=no, treatment=raw, reason=why[:120])
         amount = num(r[c["cpc"]]) if num(r[c["cpc"]]) is not None else num(r[c["net"]])
+        # The first row of an invoice line carries its net; the per-country
+        # rows below it carry only their share, and belong to it.
+        if num(r[c["net"]]):
+            cur_key, cur_net = f"{inv_sheet}|{text(r[c['inv']])}|row {i}", R2(r[c["net"]])
+        elif cur_key is None:
+            cur_key, cur_net = f"{inv_sheet}|row {i}", R2(amount)
         known = no in assets
         if no and not known and no != "REVIEW":
             ctx.find("line_for_unknown_asset", where, asset_no=no)
@@ -307,12 +314,15 @@ def extract_ip(ctx, wb):
             "source_type": "workbook", "supplier": text(r[c["vendor"]]), "invoice_no": text(r[c["inv"]]),
             "line_date": day(r[c["date"]]), "billed_entity": ctx.entity(r[c["billed"]], where),
             "owning_entity": ctx.entity(r[c["owner"]], where),
-            "source_net": R2(r[c["net"]]), "source_vat": R2(r[c["vat"]]), "source_gross": R2(r[c["gross"]]),
-            "amount": R2(amount), "asset_no": no if known else None, "treatment": t, "reason_text": why,
+            "source_net": cur_net, "source_vat": R2(r[c["vat"]]), "source_gross": R2(r[c["gross"]]),
+            "amount": R2(amount), "asset_no": no if known else None,
+            # Capitalised cost always names its asset; without one the line
+            # waits, unallocated, with a question.
+            "treatment": None if (t == "capitalise" and not known) else t, "reason_text": why,
             "proposal_no": text(r[c["project"]]), "work_description": text(r[c["work"]]), "item": text(r[c["item"]]),
             "item_type": text(r[c["item_type"]]), "jurisdiction": text(r[c["jur"]]), "ipo_status": text(r[c["status"]]),
-            "fields": {"type": text(r[c["type"]]), "registration_no": text(r[c["regno"]]), "workbook_treatment": raw,
-                       **({"question": "Which asset is this for? Marked REVIEW in the workbook."} if no == "REVIEW" else {})},
+            "fields": {"source_key": cur_key, "registration_no": text(r[c["regno"]]), "workbook_treatment": raw,
+                       **({"question": f"Which asset is this for? The workbook marks it {no or 'with no asset'}."} if not known else {})},
             "source_ref": ctx.ref(inv_sheet, i),
         })
 
@@ -511,7 +521,7 @@ def extract_dev(ctx, wb):
             ctx.find("slices_do_not_make_invoice", g, net=net, slices=R2(raw_total))
     for l in lines:
         l.pop("raw_amount", None)
-        l.pop("group", None)
+        l["fields"]["source_key"] = l.pop("group")
     for a in assets.values():
         a["opening_cost"] = R2(sum(l["amount"] for l in lines if l["asset_no"] == a["asset_no"] and (l["line_date"] or "") <= ctx.as_at))
         if abs(a["opening_cost"] - a["workbook_wip"]) >= 0.005:
@@ -609,16 +619,21 @@ def main():
         if layout["grouping"] == "ip_registered" and (l["line_date"] or "") <= a.as_at and l["treatment"] == "capitalise" and l["asset_no"]:
             l["state"] = "superseded"
             l["superseded_by_asset_no"] = l["asset_no"]
-    if layout["grouping"] == "tangible_build":
+    if layout["grouping"] != "ip_registered":
         bf = []  # its invoices are the full history and tie to the ledger: they are the opening
     lines = bf + lines
     per_asset, ties = reconcile(ctx, assets, lines, tb)
     named = json.load(open(a.named, encoding="utf-8"))["items"] if a.named else []
+    # Only the named items on accounts this grouping uses.
+    mine = {(m["entity"], str(m["code"])) for m in profile.get(layout["grouping"], {}).get("account_map", [])}
+    named = [n for n in named if (n["entity"], str(n["account"])) in mine]
     for t in ties:
         mine = [n for n in named if n["entity"] == t["entity"] and str(n["account"]) == str(t["account"])]
         t["named_items"] = mine
         t["unexplained"] = R2(t["difference"] - sum(n["amount"] for n in mine))
+    gp = profile.get(layout["grouping"], {})
     out = {"layout": a.layout, "grouping": layout["grouping"], "client": profile["client"], "as_at": a.as_at,
+           "account_map": gp.get("account_map", []), "named_items": named,
            "source": ctx.source, "assets": assets, "cost_lines": lines, "findings": ctx.findings,
            "reconciliation": {"per_asset": per_asset, "per_account": ties}}
     json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1, default=str)

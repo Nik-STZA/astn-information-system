@@ -84,8 +84,11 @@ function mapIssues(map) {
 
 // ── Cost lines ───────────────────────────────────────────────────────────────
 
+// A workbook line names its invoice line with fields.source_key when the
+// workbook split one invoice line over several rows; otherwise its row is its
+// own source.
 const sourceKey = (l) => (l.source_type === "workbook"
-  ? `workbook|${JSON.stringify(l.source_ref ?? {})}`
+  ? `workbook|${l.fields?.source_key ?? JSON.stringify(l.source_ref ?? {})}`
   : `${l.source_type}|${l.xero_source_id}|${l.xero_line_id ?? ""}`);
 
 // Every source line whose live slices do not sum to its net, to the penny.
