@@ -73,6 +73,13 @@ function payloadIssues(body, companies) {
       issues.push(`named item ${n.entity} ${n.account}: not an account this grouping uses`);
     }
   }
+  // A company whose own trial balance is out (Xero's foreign-currency
+  // rounding) is acknowledged by name, amount and reason, never absorbed.
+  for (const t of b.tb_acknowledgements || []) {
+    if (!slugs.has(t.entity) || !Number.isFinite(Number(t.difference)) || Number(t.difference) === 0 || text(t.reason).length < 3) {
+      issues.push(`trial balance acknowledgement ${t.entity}: needs a company, a difference (debits less credits) and a reason`);
+    }
+  }
   // The framework is the company's; a company without a template is refused.
   issues.push(...groupings.enableIssues(b.grouping, companies.filter((c) => used.has(c.slug))));
   return issues;
@@ -157,7 +164,7 @@ function plan(body, { idOf, ids }) {
 // company's trial balance, with named items beside the difference. Every
 // account in the map, and every account the register holds, is shown. Refused
 // unless each trial balance foots and nothing is left unexplained.
-function openingTie(p, { trialBalances, namedItems = [], idOf, ids, tolerance = 0 }) {
+function openingTie(p, { trialBalances, namedItems = [], idOf, ids, tolerance = 0, tbAcknowledgements = [] }) {
   const assets = p.assets.map((a) => ({ id: a.key, entity_id: a.entity_id, cost_account_id: a.cost_account_id, accum_account_id: a.accum_account_id }));
   const lines = p.lines.filter((l) => l.state === "approved").map((l) => ({
     ...l, asset_id: l.asset_key, posted_account_id: l.posted_account_id ?? p.assets.find((a) => a.key === l.asset_key)?.cost_account_id }));
@@ -173,7 +180,8 @@ function openingTie(p, { trialBalances, namedItems = [], idOf, ids, tolerance = 
   }
   const named = namedItems.map((n) => ({ entity_id: ids[n.entity], account_id: idOf[`${n.entity}|${n.account}`], label: n.label, amount: Number(n.amount) }));
   const rows = engine.tie({ rolled, trialBalances, tolerance, namedItems: named });
-  const footing = Object.fromEntries(Object.entries(trialBalances).map(([id, rep]) => [id, engine.tbFooting(rep)]));
+  const ackFor = (id) => tbAcknowledgements.find((t) => ids[t.entity] === id) || null;
+  const footing = Object.fromEntries(Object.entries(trialBalances).map(([id, rep]) => [id, engine.tbFooting(rep, null, ackFor(id))]));
   const slices = engine.sliceIssues(p.lines.map((l) => ({ ...l, id: l.index })));
   const issues = [];
   for (const [id, f] of Object.entries(footing)) if (!f.foots) issues.push(...f.issues.map((x) => `${Object.keys(ids).find((s) => ids[s] === id) ?? id}: ${x}`));

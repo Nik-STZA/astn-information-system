@@ -102,7 +102,8 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     if (resolved.issues.length) return res.status(422).json({ issues: resolved.issues });
     const cfg = (await pool.query("SELECT rec_tolerance FROM finance.client_finance_config WHERE client_id = $1", [client.id])).rows[0];
     const p = imp.plan(body, { idOf: resolved.idOf, ids });
-    const tie = imp.openingTie(p, { trialBalances, namedItems: body.named_items || [], idOf: resolved.idOf, ids, tolerance: Number(cfg?.rec_tolerance ?? 0) });
+    const tie = imp.openingTie(p, { trialBalances, namedItems: body.named_items || [], idOf: resolved.idOf, ids, tolerance: Number(cfg?.rec_tolerance ?? 0),
+      tbAcknowledgements: body.tb_acknowledgements || [] });
     const nameOf = Object.fromEntries(companies.map((c) => [c.id, c.name]));
     const summary = {
       grouping: body.grouping, as_at: body.as_at, assets: p.assets.length, events: p.events.length, account_map: p.map.length,
@@ -110,6 +111,8 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
         superseded: p.lines.filter((l) => l.state === "superseded").length, proposed: p.lines.filter((l) => l.state === "proposed").length },
       tie: tie.rows.map((r) => ({ company: nameOf[r.entity_id], account: r.account, register: r.register, ledger: r.ledger,
         difference: r.difference, named_items: r.named_items, unexplained: r.unexplained, ties: r.ties })),
+      trial_balances: Object.entries(tie.footing).map(([id, f]) => ({ company: nameOf[id], debits: f.debits, credits: f.credits,
+        xero_totals: f.xero_totals, difference: f.difference, acknowledged: f.acknowledged, foots: f.foots })),
       findings: body.findings || [],
     };
     if (!tie.ties) return res.status(422).json({ issues: tie.issues, ...summary });
@@ -174,7 +177,8 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
           [client.id, e.entity_id, assetId[e.asset_key], body.grouping, e.kind, e.basis, e.period, e.event_date, e.amount,
             JSON.stringify(e.accounts), e.reason, e.evidence_ref, JSON.stringify({ source_ref: e.source_ref }), actor]);
       }
-      const snapshot = { kind: "opening_import", source: body.source, tie: summary.tie, named_items: body.named_items || [] };
+      const snapshot = { kind: "opening_import", source: body.source, tie: summary.tie, named_items: body.named_items || [],
+        trial_balances: summary.trial_balances };
       await conn.query(
         `INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, trial_balance, prepared_by, prepared_at)
          VALUES ($1,$2,$3,'prepared',$4,$5,$6,now())
