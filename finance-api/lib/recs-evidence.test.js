@@ -114,13 +114,38 @@ describe("automatic methods", () => {
     expect(out.pairs).toHaveLength(2);
     expect(out.pairs[0]).toMatchObject({ difference: "0.00", ties: true });
     expect(out.pairs[1]).toMatchObject({ difference: "10.00", ties: false });
-    expect(out.unpaired).toEqual([expect.objectContaining({ account_name: "Gamma intercompany", entity: "Beta Holdings Ltd" })]);
+    expect(out.unpaired).toEqual([expect.objectContaining({ account_name: "Gamma intercompany", entity: "Beta Holdings Ltd", paired_elsewhere: false })]);
     expect(out.ties).toBe(false);
     expect(out.grid.entities.map((e) => e.name)).toEqual(["Alpha Digital Ltd", "Beta Holdings Ltd", "Gamma Ltd"]);
     expect(out.grid.cells).toEqual(expect.arrayContaining([
-      { from: "u", to: "h", amount: "10000.00" }, { from: "h", to: "u", amount: "-10000.00" }, { from: "f", to: "u", amount: "-490.00" },
+      { from: "u", to: "h", amount: "10000.00", ties: true }, { from: "h", to: "u", amount: "-10000.00", ties: true }, { from: "f", to: "u", amount: "-490.00", ties: false },
     ]));
     expect(intercompanyGrid([acc("u1", "x", "u", 100, "h1"), acc("h1", "y", "h", -100)], names, 0).ties).toBe(true);
+  });
+
+  it("suggests a pair for an unpaired account, pairs each account once, and ties cells within tolerance", () => {
+    const names = new Map([["u", "Alpha Digital Ltd"], ["h", "Beta Holdings Ltd"]]);
+    const acc = (id, name, entity, closing, twin = null) => ({ rec_id: `r-${id}`, rec_account_id: id, account_name: name, entity_id: entity, closing, counterpart_account_id: twin, status: "in_progress" });
+    // No line_key on these, as the route builds them.
+    const lone = intercompanyGrid([acc("u1", "Beta Holdings intercompany", "u", 1000), acc("h1", "Alpha intercompany", "h", -1000)], names, 0);
+    expect(lone.unpaired[0].suggested).toMatchObject({ account_name: "Alpha intercompany", entity: "Beta Holdings Ltd", difference: "0.00" });
+    // Two accounts naming the same twin: the second is not paired again.
+    const twice = intercompanyGrid([acc("u1", "Beta trading", "u", 1000, "h1"), acc("u2", "Beta loan", "u", 500, "h1"), acc("h1", "Alpha", "h", -1000)], names, 0);
+    expect(twice.pairs).toHaveLength(1);
+    expect(twice.unpaired.map((x) => x.account_name)).toEqual(["Beta loan"]);
+    expect(twice.unpaired[0].paired_elsewhere).toBe(true);
+    expect(twice.grid.cells.find((c) => c.from === "h")).toMatchObject({ amount: "-10.00", ties: true });
+    // Within a 1.00 tolerance, the pair and its grid cells agree.
+    const near = intercompanyGrid([acc("u1", "x", "u", 1000040, "h1"), acc("h1", "y", "h", -1000000)], names, 100);
+    expect(near.pairs[0].ties).toBe(true);
+    expect(near.grid.cells.every((c) => c.ties)).toBe(true);
+    expect(intercompanyGrid([acc("u1", "x", "u", 1000040, "h1"), acc("h1", "y", "h", -1000000)], names, 0).grid.cells.every((c) => !c.ties)).toBe(true);
+  });
+
+  it("counts a foreign prepayment or overpayment in the note", () => {
+    const ev = ageingEvidence([], { date: "2026-10-31", kind: "ap", advances: [{ Status: "AUTHORISED", DateString: "2026-10-01T00:00:00", Total: 100, CurrencyRate: 2 }] });
+    expect(ev.amount).toBe("50.00");
+    expect(ev.note).toMatch(/1 in another currency/);
   });
 
   it("suggests the intercompany twin that names this company, closest balance first", () => {

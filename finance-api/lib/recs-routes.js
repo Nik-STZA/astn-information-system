@@ -244,19 +244,25 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           ledger: money(c.group.gl), support: money(c.group.schedule), difference: money(c.group.variance), ties: c.ties, mixed_currency: c.mixed_currency,
           sole_reviewer: r.sole_reviewer, recheck_reason: r.recheck_reason, workable: recs.workable(r.line_key, r.proof), companies: balances.length,
           // A signed rec flagged to re-check: Xero's figure now, beside what was signed.
-          ...(signed && r.recheck_reason && !c.mixed_currency ? (() => {
+          ...(signed && r.recheck_reason && !c.mixed_currency && new Set(r.balances.map((b) => b.currency ?? null)).size <= 1 ? (() => {
             const now = r.balances.reduce((t, b) => t + recs.pence(b.closing), 0);
-            return { ledger_now: money(now), moved: money(now - (c.group.gl ?? 0)) };
+            const moved = now - (c.group.gl ?? 0);
+            // A re-check from a schedule edit has not moved the ledger: say nothing here.
+            return moved === 0 ? {} : { ledger_now: money(now), moved: money(moved) };
           })() : {}),
           prior_status: priorBy.get(r.rec_account_id) ?? null,
+          // Each company's own figures, for the list filtered to one company.
+          by_entity: c.rows.map((x) => ({ entity_id: x.entity_id, ledger: money(x.gl), support: money(x.schedule), difference: money(x.variance), ties: x.ties })),
         };
       });
       // Across the group: the intercompany recs, one company each, as the
       // figures the list shows (a signed rec, what was signed).
       const names = new Map(entities.map((e) => [e.id, e.name]));
       const icAccounts = [];
+      // An account chosen as a pair counts even if it is filed elsewhere.
+      const named = new Set(rows.rows.filter((r) => recs.autoMethod(r) === "counterpart" && r.counterpart_account_id).map((r) => r.counterpart_account_id));
       for (const r of rows.rows) {
-        if (recs.autoMethod(r) !== "counterpart") continue;
+        if (recs.autoMethod(r) !== "counterpart" && !named.has(r.rec_account_id)) continue;
         const bals = r.status === "signed_off" && r.signed_snapshot ? r.signed_snapshot.balances : r.balances;
         if (bals.length !== 1) continue;
         icAccounts.push({ rec_id: r.id, rec_account_id: r.rec_account_id, account_name: r.account_name, entity_id: bals[0].entity_id,
@@ -1485,12 +1491,15 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           const cnWhere = `Type=="${kind === "ap" ? "ACCPAYCREDIT" : "ACCRECCREDIT"}" AND Date <= DateTime(${dt[0]},${dt[1]},${dt[2]}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
           const creditNotes = await xeroPages(ctx, "/CreditNotes", "CreditNotes", { where: cnWhere });
           // Unallocated prepayments and overpayments sit on the control account too.
-          const side = kind === "ap" ? "SPEND" : "RECEIVE";
+          // Xero names them SPEND-/RECEIVE- when made from a bank transaction and
+          // AP/AR-prefixed when made from an invoice payment; filtered here, not
+          // in the query, so a type Xero adds later is not silently dropped.
+          const mine = kind === "ap" ? /^(SPEND|AP)/ : /^(RECEIVE|AR)/;
           const upTo = `Date <= DateTime(${dt[0]},${dt[1]},${dt[2]})`;
           const advances = [
-            ...await xeroPages(ctx, "/Prepayments", "Prepayments", { where: `Type=="${side}-PREPAYMENT" AND ${upTo}` }),
-            ...await xeroPages(ctx, "/Overpayments", "Overpayments", { where: `Type=="${side}-OVERPAYMENT" AND ${upTo}` }),
-          ];
+            ...await xeroPages(ctx, "/Prepayments", "Prepayments", { where: upTo }),
+            ...await xeroPages(ctx, "/Overpayments", "Overpayments", { where: upTo }),
+          ].filter((a) => mine.test(String(a.Type ?? "")));
           const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances });
           rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "supplier bills" : "sales invoices"} outstanding at ${date}`, note: ev.note });
           said.push(`${e.name}: ${ev.note}`);
