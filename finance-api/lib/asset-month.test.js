@@ -63,6 +63,21 @@ describe("preparing a month", () => {
     expect(short.issues.join(" ")).toMatch(/WIP \(783\).*216.67 unexplained/);
   });
 
+  it("counts a line with no posted account on its asset's account", () => {
+    const noAccount = lines.map((l) => (l.id === "bf" ? { ...l, posted_account_id: null } : l));
+    const out = prepareMonth({ period: "2026-09", map, assets, lines: noAccount, events, trialBalances: { [E]: sept }, openingTrialBalances: { [E]: opening },
+      namedItems: named, lastDepreciation: { [E]: "2026-09-30" } });
+    expect(out.prepared).toBe(true);
+    expect(out.accounts.find((a) => a.account_id === WIP)).toMatchObject({ opening: 1000, register: 1216.67, ties: true });
+  });
+
+  it("names a nil account by its code when the trial balance has no row for it", () => {
+    const extra = [...map, { entity_id: E, grouping: "g", role: "wip", xero_account_id: "acc-786", account_code: "786", amortised_by: "register", effective_from: "2026-08-31", effective_to: null }];
+    const out = prepareMonth({ period: "2026-09", map: extra, assets, lines, events, trialBalances: { [E]: sept }, openingTrialBalances: { [E]: opening },
+      namedItems: named, lastDepreciation: { [E]: "2026-09-30" } });
+    expect(out.accounts.find((a) => a.account_id === "acc-786")).toMatchObject({ account: "(786)", register: 0, ledger: 0, ties: true });
+  });
+
   it("counts the months after the opening", () => {
     expect(monthsAfter("2026-08", "2026-10")).toEqual(["2026-09", "2026-10"]);
     expect(monthsAfter("2026-11", "2027-01")).toEqual(["2026-12", "2027-01"]);
