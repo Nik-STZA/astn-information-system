@@ -219,20 +219,43 @@ function roll({ assets, lines, events, period }) {
 // The trial balance foots, and (when Xero's own balance sheet figures are
 // given, by account id) each account's balance equals Xero's report. The
 // A mistyped trial balance tab once agreed with itself.
-function tbFooting(report, reportBalances) {
+//
+// Two checks, kept apart. First, the accounts read must add up to Xero's own
+// Total row exactly: a partial or mistyped read fails here and is never
+// acknowledged away. Second, Xero's own totals must balance. Xero rounds each
+// foreign-currency balance for the report, so its trial balance can be a penny
+// out with nothing to post (seen on one company at 31 Aug 2026). That is
+// refused unless `acknowledged` names exactly that difference, debits less
+// credits, with a reason; a different amount is refused again.
+function tbFooting(report, reportBalances, acknowledged = null) {
   const tb = trialBalanceByAccountId(report);
   const rows = Object.entries(tb);
   const debits = r2(rows.reduce((s, [, b]) => s + b.ytdDebit, 0));
   const credits = r2(rows.reduce((s, [, b]) => s + b.ytdCredit, 0));
   const issues = [];
   if (!rows.length) issues.push("The trial balance has no accounts.");
-  if (debits !== credits) issues.push(`The trial balance does not foot: debits ${money(debits)}, credits ${money(credits)}.`);
+  const totalRow = (report?.Rows ?? []).flatMap((s) => (s?.RowType === "SummaryRow" ? [s] : (s?.Rows ?? []).filter((r) => r?.RowType === "SummaryRow"))).pop();
+  const cell = (i) => Number(String(totalRow?.Cells?.[i]?.Value ?? "").replace(/,/g, ""));
+  const xero = totalRow && Number.isFinite(cell(3)) && Number.isFinite(cell(4)) ? { debits: r2(cell(3)), credits: r2(cell(4)) } : null;
+  if (xero && (xero.debits !== debits || xero.credits !== credits)) {
+    issues.push(`The accounts read (debits ${money(debits)}, credits ${money(credits)}) do not add up to Xero's own total (debits ${money(xero.debits)}, credits ${money(xero.credits)}).`);
+  }
+  const difference = r2((xero ?? { debits, credits }).debits - (xero ?? { debits, credits }).credits);
+  let acknowledgedNow = null;
+  if (difference !== 0) {
+    if (acknowledged && r2(acknowledged.difference) === difference && String(acknowledged.reason ?? "").trim().length >= 3) {
+      acknowledgedNow = { difference, reason: acknowledged.reason };
+    } else {
+      issues.push(`The trial balance does not foot: debits ${money(debits)}, credits ${money(credits)} (difference ${money(difference)})`
+        + (acknowledged ? `; the acknowledgement names ${money(acknowledged.difference)}.` : "."));
+    }
+  }
   for (const [id, want] of Object.entries(reportBalances || {})) {
     const b = tb[id];
     const got = b ? r2(b.ytdDebit - b.ytdCredit) : 0;
     if (got !== r2(want)) issues.push(`${b?.name ?? id}: trial balance ${money(got)} against Xero's report ${money(want)}.`);
   }
-  return { foots: issues.length === 0, debits, credits, issues };
+  return { foots: issues.length === 0, debits, credits, xero_totals: xero, difference, acknowledged: acknowledgedNow, issues };
 }
 
 // The register against the ledger per company and account. Named items are

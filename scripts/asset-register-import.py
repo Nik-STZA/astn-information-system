@@ -627,13 +627,16 @@ def main():
     # Only the named items on accounts this grouping uses.
     mine = {(m["entity"], str(m["code"])) for m in profile.get(layout["grouping"], {}).get("account_map", [])}
     named = [n for n in named if (n["entity"], str(n["account"])) in mine]
+    # Acknowledged imbalances in Xero's own trial balance, for this grouping's companies.
+    acks = json.load(open(a.named, encoding="utf-8")).get("tb_acknowledgements", []) if a.named else []
+    acks = [t for t in acks if t["entity"] in {e for e, _ in mine}]
     for t in ties:
         mine = [n for n in named if n["entity"] == t["entity"] and str(n["account"]) == str(t["account"])]
         t["named_items"] = mine
         t["unexplained"] = R2(t["difference"] - sum(n["amount"] for n in mine))
     gp = profile.get(layout["grouping"], {})
     out = {"layout": a.layout, "grouping": layout["grouping"], "client": profile["client"], "as_at": a.as_at,
-           "account_map": gp.get("account_map", []), "named_items": named,
+           "account_map": gp.get("account_map", []), "named_items": named, "tb_acknowledgements": acks,
            "source": ctx.source, "assets": assets, "cost_lines": lines, "findings": ctx.findings,
            "reconciliation": {"per_asset": per_asset, "per_account": ties}}
     json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1, default=str)

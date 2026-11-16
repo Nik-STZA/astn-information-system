@@ -146,6 +146,22 @@ describe("controls", () => {
     expect(typo.issues[0]).toMatch(/1,100.00 against Xero's report 1,010.00/);
   });
 
+  it("checks the read against Xero's own total, and a penny inside Xero's report only when acknowledged", () => {
+    const withTotal = (rows, dr, cr) => ({ Rows: [...report(rows).Rows, { RowType: "SummaryRow", Cells: [{ Value: "Total" }, { Value: "0" }, { Value: "0" }, { Value: String(dr) }, { Value: String(cr) }] }] });
+    const rows = [[WIP, "Software (WIP) (789)", 1100.01, 0], ["x", "Bank", 0, 1100.02]];
+    const out = tbFooting(withTotal(rows, 1100.01, 1100.02));
+    expect(out).toMatchObject({ foots: false, difference: -0.01, xero_totals: { debits: 1100.01, credits: 1100.02 } });
+    const ok = tbFooting(withTotal(rows, 1100.01, 1100.02), null, { difference: -0.01, reason: "Xero's foreign-currency rounding" });
+    expect(ok).toMatchObject({ foots: true, acknowledged: { difference: -0.01 } });
+    const wrong = tbFooting(withTotal(rows, 1100.01, 1100.02), null, { difference: -0.02, reason: "Xero's foreign-currency rounding" });
+    expect(wrong.foots).toBe(false);
+    expect(wrong.issues[0]).toMatch(/acknowledgement names -0.02/);
+    // A partial read never passes, acknowledged or not.
+    const partial = tbFooting(withTotal(rows, 1200.01, 1200.02), null, { difference: -0.01, reason: "rounding" });
+    expect(partial.foots).toBe(false);
+    expect(partial.issues[0]).toMatch(/do not add up to Xero's own total/);
+  });
+
   it("ties per company and account and shows a named item beside the difference, never netted away", () => {
     const rolled = roll({ assets: [{ id: "a1", entity_id: E }], lines: [line({ amount: 100 })], events: [], period: "2026-09" });
     const tb = { [E]: report([[WIP, "Software (WIP) (789)", 101.37, 0]]) };

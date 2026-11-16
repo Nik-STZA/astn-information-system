@@ -82,6 +82,20 @@ describe("the opening tie", () => {
     expect(t.rows[0]).toMatchObject({ difference: 1.37, unexplained: 0 });
   });
 
+  it("refuses an unbalanced trial balance unless that company's exact difference is acknowledged", () => {
+    const b = body();
+    const r = resolveAccounts(b, chart);
+    const p = plan(b, { idOf: r.idOf, ids });
+    const off = { Rows: [...tb(60).Rows, { RowType: "SummaryRow", Cells: [{ Value: "Total" }, { Value: "0" }, { Value: "0" }, { Value: "60" }, { Value: "60.01" }] }] };
+    off.Rows[0].Rows[1].Cells[4].Value = "60.01";
+    expect(openingTie(p, { trialBalances: { e1: off }, idOf: r.idOf, ids }).ties).toBe(false);
+    const acks = [{ entity: "alpha-ltd", difference: -0.01, reason: "Xero's foreign-currency rounding" }];
+    const t = openingTie(p, { trialBalances: { e1: off }, idOf: r.idOf, ids, tbAcknowledgements: acks });
+    expect(t.ties).toBe(true);
+    expect(t.footing.e1.acknowledged).toEqual({ difference: -0.01, reason: "Xero's foreign-currency rounding" });
+    expect(payloadIssues({ ...b, tb_acknowledgements: [{ entity: "alpha-ltd", difference: -0.01, reason: "" }] }, companies).join(" ")).toMatch(/needs a company, a difference/);
+  });
+
   it("refuses slices that do not make their invoice", () => {
     const b = body();
     b.cost_lines[1].amount = 30;
