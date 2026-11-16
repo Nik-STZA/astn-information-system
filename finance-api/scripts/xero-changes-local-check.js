@@ -48,9 +48,9 @@ global.fetch = async (url, opts = {}) => {
   }
   if (method !== "GET") return json({}, 404);
   if (state.readsFail) return json({ Message: "down" }, 400);
-  if (u.pathname === "/assets.xro/1.0/AssetTypes") return json(TYPES);
+  if (u.pathname === "/assets.xro/1.0/AssetTypes") return json(state.types ?? TYPES);
   if (u.pathname === "/assets.xro/1.0/Settings") return json({ lastDepreciationDate: "2026-08-31T00:00:00" });
-  if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: [{ AccountID: "acc-cost", Code: "710", Name: "Computer equipment", Type: "FIXED" }, { AccountID: "acc-dep", Code: "711", Name: "Depreciation", Type: "FIXED" }, { AccountID: "acc-wip", Code: "780", Name: "Track WIP", Type: "FIXED" }] });
+  if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: [{ AccountID: "acc-cost", Code: "710", Name: "Computer equipment", Type: "FIXED" }, { AccountID: "acc-dep", Code: "711", Name: "Depreciation", Type: "FIXED" }, { AccountID: "acc-wip", Code: "780", Name: "Track WIP", Type: "FIXED" }, ...(state.extraAccounts ?? [])] });
   if (u.pathname === "/api.xro/2.0/Reports/TrialBalance") { state.tbDates = [...(state.tbDates ?? []), u.searchParams.get("date")]; return state.tbFails ? json({ Message: "down" }, 400) : json(TB); }
   if (u.pathname === "/assets.xro/1.0/Assets") {
     const status = u.searchParams.get("status");
@@ -187,6 +187,29 @@ async function scenario() {
     ok("audited end to end", ["xero_change_proposed", "xero_change_approved", "create_fixed_asset_dry_run", "create_fixed_asset_written"].every((a) => audit.includes(a)), audit);
     const inbox = await api("GET", "review");
     ok("gone from Review", !inbox.body.items.some((i) => i.kind === "xero_change"), inbox.body.items);
+  });
+
+  await section("an account the asset register amortises: Xero's register is refused it (049)", async () => {
+    await seed({ setup: true });
+    const OWNED = "aaaaaaaa-0000-0000-0000-000000000775";
+    state.types = [{ ...TYPES[0], fixedAssetAccountId: OWNED }];
+    state.extraAccounts = [{ AccountID: OWNED, Code: "775", Name: "Trade Marks (Registered)", Type: "FIXED", Status: "ACTIVE" }, { AccountID: "acc-dep", Code: "711", Name: "Depreciation", Type: "FIXED", Status: "ACTIVE" }];
+    let r = await agentPropose();
+    ok("allowed while nothing is mapped", r.status === 201, r);
+    await pool.query("UPDATE finance.xero_changes SET state = 'rejected', rejected_by = $2, rejected_at = now() WHERE id = $1", [r.body.id, CFO]).catch(() => {});
+    await pool.query(
+      `INSERT INTO finance.asset_account_map (client_id, entity_id, grouping, role, xero_account_id, account_code, amortised_by, effective_from, set_by)
+       VALUES ($1,$2,'ip_registered','cost',$3,'775','register','2026-01-01',$4)`, [CID, EA, OWNED, CFO]);
+    r = await agentPropose("fm1", { ...ASSET, purchase_date: "2026-10-01", purchase_price: 1300 });
+    ok("a proposal is refused, with the reason", r.status === 422 && /775 is amortised by the asset register \(ip_registered\)/.test((r.body.issues || []).join(" ")), r);
+    r = await api("POST", "xero/alpha-ltd/write/fixed-assets", { what: "asset", record: { assetName: "Laptop", assetTypeId: TYPE, purchaseDate: "2026-10-01", purchasePrice: 1300 }, dry_run: true, audit_note: "Local check" });
+    ok("a direct write (Cowork) is refused too", r.status === 422 && /amortised by the asset register/.test((r.body.issues || []).join(" ")), r);
+    r = await api("POST", "xero/alpha-ltd/write/fixed-assets", { what: "asset_type", record: { assetTypeName: "Trade marks", fixedAssetAccountId: OWNED, depreciationExpenseAccountId: "acc-dep", accumulatedDepreciationAccountId: "acc-dep" }, dry_run: true, audit_note: "Local check" });
+    ok("and an asset type on that account", r.status === 422 && /775 is amortised by the asset register/.test((r.body.issues || []).join(" ")), r);
+    await pool.query("UPDATE finance.asset_account_map SET amortised_by = 'xero' WHERE entity_id = $1", [EA]);
+    r = await api("POST", "xero/alpha-ltd/write/fixed-assets", { what: "asset", record: { assetName: "Laptop", assetTypeId: TYPE, purchaseDate: "2026-10-01", purchasePrice: 1300 }, dry_run: true, audit_note: "Local check" });
+    ok("allowed again while Xero amortises it", r.status === 200, r);
+    ok("nothing posted to Xero", state.posts.length === 0, state.posts);
   });
 
   await section("two approvals at once make one asset", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KINDS, fixedAssetProposal, nextAssetNumber, outcomeOf, failureText, tierWarning, changeKey } from "./xero-changes";
+import { KINDS, fixedAssetProposal, registerOwnedIssue, nextAssetNumber, outcomeOf, failureText, tierWarning, changeKey } from "./xero-changes";
 import { fixedAssetRequest } from "./xero-confirmed";
 import { agentXeroChanges, toolsFor } from "./agent-xero-changes";
 import { xeroChangeItem } from "./review";
@@ -64,6 +64,30 @@ describe("a proposed fixed asset", () => {
     const p = fixedAssetProposal(good, bare);
     expect(p.issues).toEqual([]);
     expect(p.warnings[0]).toMatch(/no depreciation method/);
+  });
+});
+
+describe("an account the asset register amortises", () => {
+  const COST = "aaaaaaaa-0000-0000-0000-000000000775";
+  const typed = { ...register, types: [{ ...register.types[0], fixedAssetAccountId: COST, accumulatedDepreciationAccountId: "acc-776" }], today: "2026-11-16" };
+  const row = (o) => ({ grouping: "ip_registered", xero_account_id: COST, account_code: "775", amortised_by: "register", effective_from: "2027-01-01", effective_to: null, ...o });
+
+  it("refuses a Xero asset on it while the register owns it, with the reason", () => {
+    const p = fixedAssetProposal({ ...good, purchase_date: "2027-02-01" }, { ...typed, registerOwned: [row()] });
+    expect(p.issues[0]).toMatch(/775 is amortised by the asset register \(ip_registered\)/);
+  });
+
+  it("allows it while Xero still amortises the account (before the cut-off), or when not mapped", () => {
+    expect(fixedAssetProposal(good, { ...typed, registerOwned: [row()] }).issues).toEqual([]);
+    expect(fixedAssetProposal(good, { ...typed, registerOwned: [row({ amortised_by: "xero", effective_from: "2026-08-31" })] }).issues).toEqual([]);
+    expect(fixedAssetProposal(good, typed).issues).toEqual([]);
+  });
+
+  it("tests both the purchase date and today, and the accumulated account too", () => {
+    expect(registerOwnedIssue([COST], [row({ effective_from: "2026-11-01" })], ["2026-09-12", "2026-11-16"])).toMatch(/775/);
+    expect(registerOwnedIssue(["acc-776"], [row({ xero_account_id: "ACC-776", account_code: "776", effective_from: "2026-01-01" })], ["2026-09-12"])).toMatch(/776/);
+    expect(registerOwnedIssue([COST], [row({ effective_from: "2026-01-01", ended_at: "2026-10-01T00:00:00Z" })], ["2026-11-16"])).toBeNull();
+    expect(registerOwnedIssue([null, undefined], [row({ effective_from: "2026-01-01" })], ["2026-11-16"])).toBeNull();
   });
 });
 
