@@ -38,8 +38,10 @@ let readsFail = false;
 // Documents Xero holds for the month, per company.
 let xeroDocs = {};
 const tbRow = (id, name, dr, cr) => ({ RowType: "Row", Cells: [{ Value: name, Attributes: [{ Id: "account", Value: id }] }, { Value: "0" }, { Value: "0" }, { Value: String(dr) }, { Value: String(cr) }] });
-function tbFor(slug) {
-  const b = balances[slug] || {};
+// Balances by date where a check needs the month end to differ from the opening.
+let balancesAt = {};
+function tbFor(slug, date) {
+  const b = (balancesAt[date] || balances)[slug] || {};
   const rows = Object.entries(b).map(([code, v]) => tbRow(accountId(slug, code), `Account (${code})`, v > 0 ? v : 0, v < 0 ? -v : 0));
   const net = Object.values(b).reduce((s, v) => s + v, 0);
   rows.push(tbRow(`ffffffff-0000-0000-0000-${slug === "alpha-ltd" ? "000000000001" : "000000000002"}`, "Bank (090)", net < 0 ? -net : 0, net > 0 ? net : 0));
@@ -57,7 +59,8 @@ global.fetch = async (url, opts = {}) => {
   if (readsFail) return json({ Message: "down" }, 400);
   const slug = tenantSlug[opts.headers?.["Xero-Tenant-Id"]];
   if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: CODES.map((c) => ({ AccountID: accountId(slug, c), Code: c, Name: `Account ${c}`, Status: "ACTIVE" })) });
-  if (u.pathname === "/api.xro/2.0/Reports/TrialBalance") return json(tbFor(slug));
+  if (u.pathname === "/api.xro/2.0/Reports/TrialBalance") return json(tbFor(slug, u.searchParams.get("date")));
+  if (u.pathname === "/assets.xro/1.0/Settings") return json({ lastDepreciationDate: "2026-09-30T00:00:00" });
   if (u.searchParams.get("page") && u.searchParams.get("page") !== "1") return json({ Invoices: [], CreditNotes: [], BankTransactions: [], ManualJournals: [] });
   if (u.pathname === "/api.xro/2.0/Invoices") return json({ Invoices: (xeroDocs[slug]?.bills ?? []) });
   if (u.pathname === "/api.xro/2.0/CreditNotes") return json({ CreditNotes: [] });
@@ -253,6 +256,63 @@ async function scenario() {
     await pool.query("INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, signed_by, signed_at) VALUES ($1,'ip_registered','2026-10','signed','{}',$2,now())", [CID, CFO]);
     r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-10" });
     ok("no intake into a signed month", r.status === 409, r.body);
+  });
+
+  await section("new assets, a split, and the month prepared and signed in order", async () => {
+    // A September journal on Alpha's 777 that two new marks share.
+    xeroDocs["alpha-ltd"] = { journals: [{ ManualJournalID: "33333333-0000-0000-0000-000000000001", Status: "POSTED", DateString: "2026-09-30T00:00:00",
+      Narration: "Recharge of new filings", JournalLines: [{ AccountCode: "777", LineAmount: 300 }, { AccountCode: "090", LineAmount: -300 }] }] };
+    let r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-09", dry_run: false });
+    ok("the journal is taken in, waiting: no live asset holds 777 (the written-off one is not offered)", r.status === 201 && r.body.taken_in === 1
+      && /777, which no asset holds/.test(r.body.lines[0].question ?? ""), r.body);
+    const newOnes = [
+      { entity: "alpha-ltd", asset_no: "ABC-TMK-0003", name: "ABC CN appeal", status: "pending", cost_account: "777", jurisdiction: "CN" },
+      { entity: "alpha-ltd", asset_no: "ABC-TMK-0004", name: "ABC CN characters", status: "pending", cost_account: "777", jurisdiction: "CN", filing_date: "2026-09-20" },
+    ];
+    r = await api("POST", "asset-register/assets", { grouping: "ip_registered", assets: [{ ...newOnes[0], cost_account: "772" }] });
+    ok("an asset on an account the grouping does not use is refused", r.status === 422 && /772 is not a cost or WIP account/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/assets", { grouping: "ip_registered", assets: newOnes });
+    ok("a dry run adds nothing", r.status === 200 && r.body.would_add.length === 2, r.body);
+    r = await api("POST", "asset-register/assets", { grouping: "ip_registered", assets: newOnes, dry_run: false });
+    ok("two marks added", r.status === 201 && r.body.added === 2, r.body);
+    r = await api("POST", "asset-register/assets", { grouping: "ip_registered", assets: newOnes, dry_run: false });
+    ok("not twice", r.status === 422 && /already in the register/.test(r.body.issues[0]), r.body);
+
+    const j = (await api("GET", "asset-register/cost-lines")).body.lines.find((l) => l.posted_account_code === "777");
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: j.id, action: "split", reason: "Two new filings", slices: [
+      { asset_no: "ABC-TMK-0003", amount: 100 }, { asset_no: "ABC-TMK-0004", amount: 150 }] }] });
+    ok("a split that does not make the line is refused", r.status === 422 && /slices make 250.00, the line is 300.00/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: j.id, action: "split", reason: "Two new filings, per the register", slices: [
+      { asset_no: "ABC-TMK-0003", amount: 100 }, { asset_no: "ABC-TMK-0004", amount: 200 }] }] });
+    ok("split", r.status === 200, r.body);
+    const parts = (await pool.query("SELECT state, amount::float AS amount, fields FROM finance.asset_cost_lines WHERE client_id = $1 AND fields->>'split_from' = $2", [CID, j.id])).rows;
+    const orig = (await pool.query("SELECT state, superseded_by FROM finance.asset_cost_lines WHERE id = $1", [j.id])).rows[0];
+    ok("two approved slices, the original kept and replaced", parts.length === 2 && parts.every((x) => x.state === "approved") && orig.state === "superseded" && orig.superseded_by, { parts, orig });
+
+    // Month end: Beta's 774 up by the 500 bill; Alpha's 777 holds the 300.
+    balancesAt = { "2026-09-30": { "alpha-ltd": { 775: 1000, 776: -120, 777: 300 }, "beta-ltd": { 774: 3000 } } };
+    r = await api("POST", "asset-register/periods/prepare", { grouping: "ip_registered", period: "2026-10" });
+    ok("months in order: October waits for September", r.status === 422 && /Prepare 2026-09 first/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/periods/prepare", { grouping: "ip_registered", period: "2026-09" });
+    ok("September ties (dry run)", r.status === 200 && r.body.prepared === true, r.body.issues ?? r.body);
+    const a774 = (r.body.accounts || []).find((a) => /774/.test(a.account ?? ""));
+    ok("774: opening 2,500 plus the 500 bill", a774 && a774.opening === 2500 && a774.additions === 500 && a774.ties, a774);
+    const a777 = (r.body.accounts || []).find((a) => /777/.test(a.account ?? ""));
+    ok("777: the split slices, net of the write-off", a777 && a777.register === 300 && a777.ties, a777);
+    const a776 = (r.body.accounts || []).find((a) => /776/.test(a.account ?? ""));
+    ok("776, Xero's to amortise: no movement, still ties on its named item", a776 && a776.by_xero === 0 && a776.ties, a776);
+    r = await api("POST", "asset-register/periods/prepare", { grouping: "ip_registered", period: "2026-09", dry_run: false });
+    ok("September prepared", r.status === 201 && r.body.prepared, r.body.issues ?? r.body);
+    r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-09" });
+    ok("September cannot be signed before August", r.status === 422 && /Sign 2026-08 first/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-08" }, { "X-Actor-Email": BOOK });
+    ok("only the CFO signs", r.status === 403, r.body);
+    r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-08" });
+    ok("August signed", r.status === 200 && r.body.signed, r.body);
+    r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-09" });
+    ok("then September", r.status === 200 && r.body.signed, r.body);
+    const stillWaiting = (await api("GET", "asset-register/cost-lines")).body.lines;
+    ok("nothing left waiting", stillWaiting.length === 0, stillWaiting);
   });
 
   if (process.env.ASSET_IMPORT_FILES) {

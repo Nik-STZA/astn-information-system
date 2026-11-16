@@ -139,7 +139,7 @@ function allocate(c, { kind, assets, hints, findings }) {
     }
     findings.push({ kind: "allocation_does_not_match", number: c.number, account: c.account_code, line: c.amount, allocation: total });
   }
-  const holders = assets.filter((a) => lc(a.cost_account_id) === lc(c.account_id) && !["disposed", "lapsed"].includes(a.status));
+  const holders = assets.filter((a) => lc(a.cost_account_id) === lc(c.account_id) && !["disposed", "lapsed", "impaired"].includes(a.status));
   if (holders.length === 1) {
     return [{ ...base, asset_id: holders[0].id, amount: c.amount, treatment: "capitalise",
       reason_text: `Posted to ${c.account_code}; ${holders[0].asset_no} ${holders[0].name} is the only asset on it.`,
