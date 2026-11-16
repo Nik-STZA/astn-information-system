@@ -115,7 +115,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
         <div className={styles.alert} role="status">{data.counts.recheck === 1 ? "1 reconciliation needs" : `${data.counts.recheck} reconciliations need`} re-checking: a figure moved after it was prepared.</div>
       )}
 
-      {data.intercompany && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
+      {data.intercompany && !groups.some((g) => g.key === "intercompany") && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
 
       {data.recs.length > 0 && (
         <div className={styles.bar}>
@@ -138,59 +138,69 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
       ) : (
         <>
           {groups.length === 0 && <div className={`${styles.card} ${styles.pad}`}><span className={styles.sub}>This company holds none of this month&apos;s accounts.</span></div>}
-          <div className={styles.cards}>
-            {groups.map((g) => [
-              g.label && <div key={`h-${g.key}`} className={styles.small} style={{ fontWeight: 600, color: "var(--tx)", marginTop: 8 }}>{g.label} · {g.rows.length}</div>,
-              ...g.rows.map((r) => (
-              <Link key={r.id} href={`/finance/clients/${slug}/reconciliations/${r.id}`} className={`${styles.card} ${styles.rowCard}`}>
-                <div className={styles.rowTop}>
-                  <span className={styles.rowName}>{accountOf(r)}</span>
-                  <StatusPill r={r} />
-                </div>
-                <div className={styles.rowFigs}>
-                  <div className={styles.fig}><div className={styles.figLabel}>Ledger</div><div className={styles.figValue}>{money(r.ledger)}</div></div>
-                  <div className={styles.fig}><div className={styles.figLabel}>Support</div><div className={styles.figValue}>{money(r.support)}</div></div>
-                  <div className={styles.fig}><div className={styles.figLabel}>Difference</div><div className={styles.figValue}>{money(r.difference)}</div></div>
-                </div>
-                {r.mixed_currency && <div className={styles.small}>Mixed currencies: no group total. Open it for each company.</div>}
-                <MovedLine r={r} />
-                {r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}
-                <div className={styles.rowMeta}><span>{PROOF_LABEL[r.proof]}</span><span>{r.placed || r.with ? `With ${ownerOf(r)}` : "Not placed"}</span>{r.class && <span>Class {r.class}</span>}</div>
-              </Link>
-              )),
-            ])}
-          </div>
-          <div className={`${styles.card} ${styles.tableWrap}`}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Account</th><th>Proved by</th><th className={styles.num}>Ledger</th><th className={styles.num}>Support</th>
-                  <th className={styles.num}>Difference</th><th>Class</th><th>With</th><th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => [
-                  g.label && <tr key={`h-${g.key}`}><td colSpan={8} className={styles.strong} style={{ background: "var(--pg)" }}>{g.label} <span className={styles.sub}>· {g.rows.length}</span></td></tr>,
-                  ...g.rows.map((r) => (
-                  <tr key={r.id}>
-                    <td><Link className={styles.link} href={`/finance/clients/${slug}/reconciliations/${r.id}`}>{accountOf(r)}</Link></td>
-                    <td className={styles.sub}>{PROOF_LABEL[r.proof]}</td>
-                    <td className={styles.num}>{r.mixed_currency ? "Mixed" : money(r.ledger)}</td>
-                    <td className={styles.num}>{r.mixed_currency ? "Mixed" : money(r.support)}</td>
-                    <td className={`${styles.num} ${r.difference && !r.ties ? styles.strong : ""}`}>{money(r.difference)}</td>
-                    <td>{r.class ?? "-"}</td>
-                    <td>{ownerOf(r)}</td>
-                    <td><StatusPill r={r} />{r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}<MovedLine r={r} /></td>
-                  </tr>
-                  )),
-                ])}
-              </tbody>
-            </table>
-          </div>
+          {groups.map((g) => (
+            <section key={g.key} style={{ marginBottom: 16 }}>
+              {g.label && <h2 className={styles.h2} style={{ margin: "8px 0" }}>{g.label} <span className={styles.sub} style={{ fontWeight: 400 }}>· {g.rows.length}</span></h2>}
+              {/* The group's pairs and grid sit with its recs. */}
+              {g.key === "intercompany" && data.intercompany && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
+              <div className={styles.cards}>
+                {g.rows.map((r) => <RecCard key={r.id} slug={slug} r={r} />)}
+              </div>
+              <div className={`${styles.card} ${styles.tableWrap}`}>
+                <table className={styles.table} style={{ tableLayout: "fixed" }}>
+                  {/* The same widths in every group, so the columns line up down the page. */}
+                  <colgroup>
+                    <col style={{ width: "26%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} />
+                    <col style={{ width: "11%" }} /><col style={{ width: "6%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Account</th><th>Proved by</th><th className={styles.num}>Ledger</th><th className={styles.num}>Support</th>
+                      <th className={styles.num}>Difference</th><th>Class</th><th>With</th><th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.rows.map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ overflowWrap: "anywhere" }}><Link className={styles.link} href={`/finance/clients/${slug}/reconciliations/${r.id}`}>{accountOf(r)}</Link></td>
+                        <td className={styles.sub} style={{ whiteSpace: "normal" }}>{PROOF_LABEL[r.proof]}</td>
+                        <td className={styles.num}>{r.mixed_currency ? "Mixed" : money(r.ledger)}</td>
+                        <td className={styles.num}>{r.mixed_currency ? "Mixed" : money(r.support)}</td>
+                        <td className={`${styles.num} ${r.difference && !r.ties ? styles.strong : ""}`}>{money(r.difference)}</td>
+                        <td>{r.class ?? "-"}</td>
+                        <td>{ownerOf(r)}</td>
+                        <td><StatusPill r={r} />{r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}<MovedLine r={r} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
         </>
       )}
       <Tolerance slug={slug} value={data.tolerance ?? "0.00"} />
     </div>
+  );
+}
+
+function RecCard({ slug, r }: { slug: string; r: RecRow }) {
+  return (
+    <Link href={`/finance/clients/${slug}/reconciliations/${r.id}`} className={`${styles.card} ${styles.rowCard}`}>
+      <div className={styles.rowTop}>
+        <span className={styles.rowName}>{accountOf(r)}</span>
+        <StatusPill r={r} />
+      </div>
+      <div className={styles.rowFigs}>
+        <div className={styles.fig}><div className={styles.figLabel}>Ledger</div><div className={styles.figValue}>{money(r.ledger)}</div></div>
+        <div className={styles.fig}><div className={styles.figLabel}>Support</div><div className={styles.figValue}>{money(r.support)}</div></div>
+        <div className={styles.fig}><div className={styles.figLabel}>Difference</div><div className={styles.figValue}>{money(r.difference)}</div></div>
+      </div>
+      {r.mixed_currency && <div className={styles.small}>Mixed currencies: no group total. Open it for each company.</div>}
+      <MovedLine r={r} />
+      {r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}
+      <div className={styles.rowMeta}><span>{PROOF_LABEL[r.proof]}</span><span>{r.placed || r.with ? `With ${ownerOf(r)}` : "Not placed"}</span>{r.class && <span>Class {r.class}</span>}</div>
+    </Link>
   );
 }
 

@@ -77,4 +77,13 @@ describe("the month's list grouped and filtered", () => {
     expect(g.map((x) => x.label)).toEqual(["Trade creditors", "Not placed"]);
     expect(g[0].rows[0]).toMatchObject({ ledger: "60.00", companies: 1 });
   });
+
+  it("puts intercompany receivables, payables and intercompany loans in one group where the receivables sit", () => {
+    const icLines = [{ key: "ar", line: "Trade debtors" }, { key: "ic_asset", line: "Intercompany receivables" }, { key: "loans", line: "Loans" }, { key: "ic_liab", line: "Intercompany payables" }];
+    const ic = [row("a", "Debtors", "ar", [["e1", "1.00"]]), row("b", "Beta intercompany", "ic_asset", [["e1", "1.00"]]), row("c", "Alpha intercompany", "ic_liab", [["e2", "1.00"]]),
+      row("d", "Alpha Intercompany Loan", "loans", [["e1", "1.00"]]), row("e", "Bank loan", "loans", [["e1", "1.00"]])];
+    expect(recGroups(ic, icLines, { order: "line", entity: "" }).map((g) => [g.key, g.rows.map((r) => r.id)])).toEqual([
+      ["ar", ["a"]], ["intercompany", ["b", "c", "d"]], ["loans", ["e"]],
+    ]);
+  });
 });

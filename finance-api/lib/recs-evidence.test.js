@@ -48,6 +48,7 @@ describe("automatic methods", () => {
     expect(autoMethod({ line_key: "ar" })).toBe("ageing_ar");
     expect(autoMethod({ line_key: "ap" })).toBe("ageing_ap");
     expect(autoMethod({ line_key: "ic_asset", account_name: "Alpha intercompany" })).toBe("counterpart");
+    expect(autoMethod({ line_key: "ic_liab", account_name: "Owed to Alpha" })).toBe("counterpart");
     expect(autoMethod({ line_key: "loans", account_name: "Alpha Intercompany Loan" })).toBe("counterpart");
     expect(autoMethod({ line_key: "loans", account_name: "Directors' Loan Account" })).toBe(null);
     expect(autoMethod({ line_key: "sharecap" })).toBe("carry_forward");

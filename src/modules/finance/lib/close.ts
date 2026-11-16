@@ -68,7 +68,7 @@ export interface CloseView {
 // Innovation") still sits under Bank, and by name for one not yet placed.
 const STEP_LINES: Record<string, string[]> = {
   bank: ["cash"], revenue: ["deferred", "ar"], payroll: ["payroll"], accruals: ["prepay", "accruals"],
-  "fixed-assets": ["ppe", "intangible"], intercompany: ["ic_asset"], vat: ["vat"],
+  "fixed-assets": ["ppe", "intangible"], intercompany: ["ic_asset", "ic_liab"], vat: ["vat"],
 };
 export function recsForStep(key: string | null, recs: RecRow[]): RecRow[] {
   if (key === "bs-recs") return recs;
