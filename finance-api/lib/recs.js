@@ -272,7 +272,7 @@ function creditLeftAt(cn, date) {
 }
 
 // Prepayments and overpayments (16 Nov 2026) sit on the control account until
-// allocated, as Xero's aged reports show them; leaving them out put Ultraspeed's
+// allocated, as Xero's aged reports show them; leaving them out put one client's
 // October payables out by a 3,000 supplier overpayment. Same shape as a credit
 // note: Total, Allocations, Payments (refunds), Status.
 function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] }) {
@@ -294,6 +294,7 @@ function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] 
   for (const a of advances || []) {
     const left = creditLeftAt(a, date);
     if (left === null || left === 0) continue;
+    if (a.CurrencyRate && Number(a.CurrencyRate) !== 1) foreign += 1;
     advTotal += base(left, a.CurrencyRate);
     adv += 1;
   }
@@ -339,23 +340,31 @@ function counterpartCandidates(rec, others, names) {
 // Returns { pairs, unpaired, grid: { entities, cells }, ties }
 function intercompanyGrid(accounts, names, tol = 0) {
   const by = new Map(accounts.map((a) => [a.rec_account_id, a]));
-  // A pair set from either side counts.
-  const twinOf = (a) => by.get(a.counterpart_account_id)
-    ?? accounts.find((o) => o.counterpart_account_id === a.rec_account_id && o.entity_id !== a.entity_id) ?? null;
+  const seen = new Set();
+  // A pair set from either side counts, and an account is in one pair only:
+  // two accounts naming the same twin leave the second unpaired.
+  const twinOf = (a) => {
+    const named = by.get(a.counterpart_account_id);
+    if (named && !seen.has(named.rec_account_id) && named.entity_id !== a.entity_id) return named;
+    return accounts.find((o) => !seen.has(o.rec_account_id) && o.counterpart_account_id === a.rec_account_id && o.entity_id !== a.entity_id) ?? null;
+  };
   const side = (a) => ({ rec_id: a.rec_id, account_name: a.account_name, entity_id: a.entity_id, entity: names.get(a.entity_id) ?? "A company", closing: pounds(a.closing), status: a.status });
-  const pairs = [], unpaired = [], seen = new Set();
+  // Candidates are all intercompany here, whatever line they were filed on.
+  const asIc = (a) => ({ ...a, line_key: "ic_asset" });
+  const pairs = [], unpaired = [];
   const cells = new Map();
   const add = (from, to, p) => { const k = `${from}|${to}`; cells.set(k, (cells.get(k) ?? 0) + p); };
   for (const a of accounts) {
     if (seen.has(a.rec_account_id)) continue;
+    seen.add(a.rec_account_id);
     const b = twinOf(a);
-    if (!b || b.entity_id === a.entity_id) {
-      const best = counterpartCandidates({ ...a, line_key: "ic_asset" }, accounts.filter((o) => !seen.has(o.rec_account_id)), names)[0] ?? null;
-      unpaired.push({ ...side(a), suggested: best ? { account_name: best.account_name, entity: names.get(best.entity_id) ?? "A company", difference: best.difference } : null });
-      seen.add(a.rec_account_id);
+    if (!b) {
+      const best = counterpartCandidates(asIc(a), accounts.filter((o) => !seen.has(o.rec_account_id)).map(asIc), names)[0] ?? null;
+      unpaired.push({ ...side(a), paired_elsewhere: Boolean(a.counterpart_account_id),
+        suggested: best ? { account_name: best.account_name, entity: names.get(best.entity_id) ?? "A company", difference: best.difference } : null });
       continue;
     }
-    seen.add(a.rec_account_id); seen.add(b.rec_account_id);
+    seen.add(b.rec_account_id);
     const diff = a.closing + b.closing;
     pairs.push({ a: side(a), b: side(b), difference: pounds(diff), ties: Math.abs(diff) <= tol });
     add(a.entity_id, b.entity_id, a.closing);
@@ -364,7 +373,12 @@ function intercompanyGrid(accounts, names, tol = 0) {
   const ids = [...new Set(accounts.map((a) => a.entity_id))].sort((x, y) => String(names.get(x)).localeCompare(String(names.get(y))));
   const grid = {
     entities: ids.map((id) => ({ id, name: names.get(id) ?? "A company" })),
-    cells: [...cells].map(([k, p]) => { const [from, to] = k.split("|"); return { from, to, amount: pounds(p) }; }),
+    // A cell agrees with its mirror within the same tolerance as the pairs.
+    cells: [...cells].map(([k, p]) => {
+      const [from, to] = k.split("|");
+      const mirror = cells.get(`${to}|${from}`);
+      return { from, to, amount: pounds(p), ties: mirror === undefined ? true : Math.abs(p + mirror) <= tol };
+    }),
   };
   return { pairs, unpaired, grid, ties: unpaired.length === 0 && pairs.every((p) => p.ties) };
 }

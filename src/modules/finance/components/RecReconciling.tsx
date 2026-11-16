@@ -164,7 +164,7 @@ function Item({ it, bank, preparing, busy, send, many }: { it: ReconcilingItem; 
       <div className={styles.evMain}>
         <div><strong>{signed(it.amount)}</strong> · {it.txn_date ? dayLabel(it.txn_date) : "no date"}{many ? ` · ${it.entity}` : ""}</div>
         <div className={styles.small}>{it.description ?? "-"}</div>
-        <div className={styles.small}>{sideLabel(it.side, bank)}{it.source === "keyed" && it.added_by ? ` · added by ${it.added_by.startsWith("agent:") ? it.added_by.slice(6).toUpperCase() : it.added_by}` : " · from the statement"}</div>
+        <div className={styles.small}>{sideLabel(it.side, bank)}{it.source === "keyed" ? (it.added_by ? ` · added by ${it.added_by.startsWith("agent:") ? it.added_by.slice(6).toUpperCase() : it.added_by}` : " · added by hand") : " · from the statement"}</div>
         {it.note && <div className={styles.small}>{it.note}</div>}
         {it.state === "cleared" && <div className={styles.small}>Cleared{it.cleared_at ? ` ${dayLabel(it.cleared_at)}` : ""}{it.cleared_note ? `: ${it.cleared_note}` : ""}</div>}
         {live ? (

@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { STATUS_LABEL, PROOF_LABEL, isStale, money, periodChoices, periodLong, type RecList, type RecRow } from "@/modules/finance/lib/recs";
+import { STATUS_LABEL, PROOF_LABEL, isStale, money, periodChoices, periodLong, recGroups, type RecList, type RecOrder, type RecRow } from "@/modules/finance/lib/recs";
 import IntercompanyGrid from "./IntercompanyGrid";
 import styles from "./Recs.module.css";
 
@@ -33,6 +33,19 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tried = useRef<string | null>(null);
+  // How the list is shown: kept in this browser only, a convenience.
+  const [order, setOrder] = useState<RecOrder>("line");
+  const [entity, setEntity] = useState("");
+  useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("stza-recs-view") ?? "{}");
+      if (v.order === "line" || v.order === "name") setOrder(v.order);
+    } catch { /* storage may be blocked */ }
+  }, []);
+  const pickOrder = (o: RecOrder) => {
+    setOrder(o);
+    try { localStorage.setItem("stza-recs-view", JSON.stringify({ order: o })); } catch { /* storage may be blocked */ }
+  };
 
   async function refresh() {
     setBusy(true);
@@ -70,6 +83,8 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
   }
 
   const anyOpen = data.recs.some((r) => r.workable && ["not_started", "sent_back"].includes(r.status));
+  const company = data.entities.some((e) => e.id === entity) ? entity : "";
+  const groups = recGroups(data.recs, data.lines, { order, entity: company });
 
   return (
     <div>
@@ -102,12 +117,31 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
 
       {data.intercompany && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
 
+      {data.recs.length > 0 && (
+        <div className={styles.bar}>
+          <div className="seg" role="group" aria-label="Order">
+            <button type="button" className={order === "line" ? "seg-on" : ""} aria-pressed={order === "line"} onClick={() => pickOrder("line")}>By line</button>
+            <button type="button" className={order === "name" ? "seg-on" : ""} aria-pressed={order === "name"} onClick={() => pickOrder("name")}>A to Z</button>
+          </div>
+          {data.entities.length > 1 && (
+            <select aria-label="Company" className={styles.pick} value={company} onChange={(e) => setEntity(e.target.value)}>
+              <option value="">All companies</option>
+              {data.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          )}
+          {company && <span className={styles.small}>Figures are this company&apos;s own.</span>}
+        </div>
+      )}
+
       {data.recs.length === 0 ? (
         <div className={`${styles.card} ${styles.pad}`}><span className={styles.sub}>{data.composed_at ? "No balance sheet account has a balance or a movement this month." : "Reading the trial balance..."}</span></div>
       ) : (
         <>
+          {groups.length === 0 && <div className={`${styles.card} ${styles.pad}`}><span className={styles.sub}>This company holds none of this month&apos;s accounts.</span></div>}
           <div className={styles.cards}>
-            {data.recs.map((r) => (
+            {groups.map((g) => [
+              g.label && <div key={`h-${g.key}`} className={styles.small} style={{ fontWeight: 600, color: "var(--tx)", marginTop: 8 }}>{g.label} · {g.rows.length}</div>,
+              ...g.rows.map((r) => (
               <Link key={r.id} href={`/finance/clients/${slug}/reconciliations/${r.id}`} className={`${styles.card} ${styles.rowCard}`}>
                 <div className={styles.rowTop}>
                   <span className={styles.rowName}>{accountOf(r)}</span>
@@ -123,7 +157,8 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                 {r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}
                 <div className={styles.rowMeta}><span>{PROOF_LABEL[r.proof]}</span><span>{r.placed || r.with ? `With ${ownerOf(r)}` : "Not placed"}</span>{r.class && <span>Class {r.class}</span>}</div>
               </Link>
-            ))}
+              )),
+            ])}
           </div>
           <div className={`${styles.card} ${styles.tableWrap}`}>
             <table className={styles.table}>
@@ -134,7 +169,9 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                 </tr>
               </thead>
               <tbody>
-                {data.recs.map((r) => (
+                {groups.map((g) => [
+                  g.label && <tr key={`h-${g.key}`}><td colSpan={8} className={styles.strong} style={{ background: "var(--pg)" }}>{g.label} <span className={styles.sub}>· {g.rows.length}</span></td></tr>,
+                  ...g.rows.map((r) => (
                   <tr key={r.id}>
                     <td><Link className={styles.link} href={`/finance/clients/${slug}/reconciliations/${r.id}`}>{accountOf(r)}</Link></td>
                     <td className={styles.sub}>{PROOF_LABEL[r.proof]}</td>
@@ -145,7 +182,8 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                     <td>{ownerOf(r)}</td>
                     <td><StatusPill r={r} />{r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}<MovedLine r={r} /></td>
                   </tr>
-                ))}
+                  )),
+                ])}
               </tbody>
             </table>
           </div>

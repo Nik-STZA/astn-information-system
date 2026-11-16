@@ -10,7 +10,7 @@ import styles from "./Recs.module.css";
 
 export default function IntercompanyGrid({ slug, ic }: { slug: string; ic: IntercompanyView }) {
   const href = (s: IntercompanySide) => `/finance/clients/${slug}/reconciliations/${s.rec_id}`;
-  const cell = (from: string, to: string) => ic.grid.cells.find((c) => c.from === from && c.to === to)?.amount ?? null;
+  const cell = (from: string, to: string) => ic.grid.cells.find((c) => c.from === from && c.to === to) ?? null;
   const out = ic.pairs.filter((p) => !p.ties).length;
 
   return (
@@ -39,7 +39,9 @@ export default function IntercompanyGrid({ slug, ic }: { slug: string; ic: Inter
         <div key={u.rec_id} className={styles.pad} style={{ borderBottom: "1px solid var(--bd)" }}>
           <Side s={u} href={href(u)} />
           <div className={styles.small}>
-            Not paired, so it cannot be checked against the other company. Open it and choose its pair
+            {u.paired_elsewhere
+              ? "Its chosen pair has no balance this month or is not an intercompany account. Open it to check the pair"
+              : "Not paired, so it cannot be checked against the other company. Open it and choose its pair"}
             {u.suggested ? `: most likely ${u.suggested.account_name} in ${u.suggested.entity} (difference ${money(u.suggested.difference)}).` : "."}
           </div>
         </div>
@@ -61,9 +63,8 @@ export default function IntercompanyGrid({ slug, ic }: { slug: string; ic: Inter
                   <td>{r.name}</td>
                   {ic.grid.entities.map((c) => {
                     const v = r.id === c.id ? null : cell(r.id, c.id);
-                    const mirror = r.id === c.id ? null : cell(c.id, r.id);
-                    const off = v !== null && mirror !== null && Number(v) + Number(mirror) !== 0;
-                    return <td key={c.id} className={styles.num} style={off ? { color: "var(--alert-red)", fontWeight: 600 } : undefined}>{r.id === c.id ? "-" : v === null ? "" : money(v)}</td>;
+                    const off = v !== null && v.ties === false;
+                    return <td key={c.id} className={styles.num} style={off ? { color: "var(--alert-red)", fontWeight: 600 } : undefined}>{r.id === c.id ? "-" : v === null ? "" : money(v.amount)}</td>;
                   })}
                 </tr>
               ))}
