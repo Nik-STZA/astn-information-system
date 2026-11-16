@@ -6,7 +6,7 @@ const id = "0b5c6f0e-1d2a-4b3c-9d8e-7f6a5b4c3d2e";
 describe("the paths the browser may reach", () => {
   it("allows the register's own routes", () => {
     for (const p of ["contracts", "contracts/uploads", `contracts/uploads/${id}/read`, `contracts/uploads/${id}/dismiss`, `contracts/${id}`,
-      `contracts/${id}/confirm-pattern`, `contracts/${id}/end`, `contracts/${id}/schedule`, `contracts/${id}/schedule/${id}`,
+      `contracts/${id}/confirm-pattern`, `contracts/${id}/renewal-decision`, `contracts/${id}/end`, `contracts/${id}/schedule`, `contracts/${id}/schedule/${id}`,
       `contracts/${id}/movements`, `contracts/${id}/movements/${id}/withdraw`]) {
       expect(isContractsPath(p)).toBe(true);
     }

@@ -37,6 +37,44 @@ export interface Contract {
   end_reason: string | null;
   held?: number;
   next?: ComingUp | null;
+  // Monitoring (migration 048).
+  cost_amount?: number | null;
+  billing_frequency?: Frequency | null;
+  annual_value?: number | null;
+  document_url?: string | null;
+  renewal_decision?: Decision | null;
+  renewal_decision_note?: string | null;
+  renewal_decided_by?: string | null;
+  renewal_decided_at?: string | null;
+}
+
+export type Frequency = "monthly" | "quarterly" | "annual" | "one_off";
+export type Decision = "keep" | "cancel" | "renegotiate";
+export const FREQUENCY_LABEL: Record<Frequency, string> = { monthly: "a month", quarterly: "a quarter", annual: "a year", one_off: "once" };
+export const DECISION_LABEL: Record<Decision, string> = { keep: "Keep", cancel: "Cancel", renegotiate: "Renegotiate" };
+
+export interface RenewingSoon {
+  days: number;
+  count: number;
+  undecided: number;
+  cancelling: number;
+  supplier_annual: number;
+  customer_annual: number;
+  without_value: number;
+}
+
+export interface Forward {
+  months: Array<{ month: string; income: number; cost: number; net: number; assumed: number }>;
+  total: { income: number; cost: number };
+  undated_income: number;
+  undated_count: number;
+  unpriced: number;
+}
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export function monthName(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1]} ${y}`;
 }
 
 export interface ComingUp {
@@ -132,6 +170,8 @@ export interface ContractList {
   ties: Tie[];
   companies: Company[];
   patterns: Pattern[];
+  renewing_soon?: RenewingSoon;
+  forward?: Forward;
 }
 
 export interface ClientRule { kind: string; title: string; summary: string | null; status: "approved" | "draft"; version: string | null }
@@ -177,7 +217,7 @@ export function whenLabel(x: Pick<ComingUp, "due_on" | "expected" | "trigger_tex
 // The paths the browser may reach through the portal's route. Ids are uuids.
 const ID = "[0-9a-f-]{36}";
 const CONTRACT_PATH = new RegExp(
-  `^contracts(?:/(?:uploads|uploads/${ID}/(?:read|dismiss)|${ID}(?:/(?:confirm-pattern|end|schedule|movements|schedule/${ID}|movements/${ID}/withdraw))?))?$`, "i");
+  `^contracts(?:/(?:uploads|uploads/${ID}/(?:read|dismiss)|${ID}(?:/(?:confirm-pattern|renewal-decision|end|schedule|movements|schedule/${ID}|movements/${ID}/withdraw))?))?$`, "i");
 export const isContractsPath = (path: string) => CONTRACT_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

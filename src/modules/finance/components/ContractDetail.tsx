@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import styles from "./Contracts.module.css";
 import page from "./Page.module.css";
-import { dateLabel, money, RENEWAL_LABEL, type ContractDetail as Detail, type ScheduleItem } from "@/modules/finance/lib/contracts";
+import { dateLabel, DECISION_LABEL, FREQUENCY_LABEL, money, RENEWAL_LABEL, type ContractDetail as Detail, type Decision, type ScheduleItem } from "@/modules/finance/lib/contracts";
 
 export default function ContractDetail({ slug, d }: { slug: string; d: Detail }) {
   const router = useRouter();
@@ -48,6 +48,10 @@ export default function ContractDetail({ slug, d }: { slug: string; d: Detail })
   return (
     <div>
       {issues.length > 0 && <div className={styles.issues} role="alert" style={{ margin: "0 0 12px" }}>Not saved:<ul>{issues.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+
+      {c.renewal !== "no" && c.status === "active" && (
+        <Renewal c={c} busy={busy} onDecide={(body) => call("/renewal-decision", "POST", body)} />
+      )}
 
       <section className={`${page.card} ${styles.section}`} aria-labelledby="how">
         <div className={page.cardHead}>
@@ -166,6 +170,11 @@ export default function ContractDetail({ slug, d }: { slug: string; d: Detail })
           <Fact label="Renewal" value={RENEWAL_LABEL[c.renewal]} />
           <Fact label="Notice" value={c.notice_days != null ? `${c.notice_days} days${c.notice_by ? `, by ${dateLabel(c.notice_by)}` : ""}` : null} />
           <Fact label="Payment terms" value={c.payment_terms} />
+          <Fact label="Price" value={c.cost_amount != null && c.billing_frequency ? `${money(c.cost_amount, cur)} ${FREQUENCY_LABEL[c.billing_frequency]}${c.annual_value != null ? ` (${money(c.annual_value, cur)} a year)` : ""}` : null} />
+          <div className={styles.fact}>
+            <span className={styles.factLabel}>Signed contract</span>
+            <span className={styles.factValue}>{c.document_url ? <a href={c.document_url} target="_blank" rel="noopener noreferrer">Open the document</a> : "-"}</span>
+          </div>
           <Fact label="Added" value={`${dateLabel(c.created_at)} by ${c.created_by}${c.source === "upload" ? ", from a PDF" : ""}`} />
           {d.upload && <Fact label="Read from" value={`${d.upload.file_name} (file deleted once read)`} />}
           {c.status !== "active" && <Fact label={c.status === "ended" ? "Ended" : "Cancelled"} value={c.end_reason} />}
@@ -176,6 +185,51 @@ export default function ContractDetail({ slug, d }: { slug: string; d: Detail })
           : <div className={styles.actions}><button type="button" className={styles.btn} onClick={() => setEnding(true)}>End or cancel</button></div>)}
       </section>
     </div>
+  );
+}
+
+// The coming renewal: when it renews, the notice deadline, what it is worth,
+// and the decision (keep, cancel, renegotiate) with why. Any role records it.
+function Renewal({ c, busy, onDecide }: { c: Detail["contract"]; busy: boolean; onDecide: (b: Record<string, unknown>) => Promise<boolean> }) {
+  const [choice, setChoice] = useState<Decision | null>(null);
+  const [note, setNote] = useState("");
+  const decided = c.renewal_decision ?? null;
+  return (
+    <section className={`${page.card} ${styles.section}`} aria-labelledby="renewal">
+      <div className={page.cardHead}>
+        <h2 id="renewal">{c.end_date ? `Renews on ${dateLabel(c.end_date)}` : "Renewal"}</h2>
+        {decided
+          ? <span className={`${styles.pill} ${decided === "keep" ? "" : styles.pillAccent}`}>Decided: {DECISION_LABEL[decided]}</span>
+          : c.end_date ? <span className={`${styles.pill} ${styles.pillAccent}`}>To decide</span> : null}
+      </div>
+      <div className={styles.facts}>
+        <Fact label="How" value={RENEWAL_LABEL[c.renewal]} />
+        <Fact label="Notice by" value={c.notice_by ? dateLabel(c.notice_by) : c.notice_days == null ? "Notice period not set" : null} />
+        <Fact label="At stake" value={c.annual_value != null ? `${money(c.annual_value, c.currency)} a year` : "No price set"} />
+        {decided && <Fact label="Why" value={`${c.renewal_decision_note ?? ""}${c.renewal_decided_by ? ` (${c.renewal_decided_by}, ${dateLabel(c.renewal_decided_at)})` : ""}`} />}
+      </div>
+      {!c.end_date
+        ? <div className={styles.notice}>Set the end date under Terms to track this renewal.</div>
+        : (
+          <div className={styles.actions}>
+            {(["keep", "cancel", "renegotiate"] as Decision[]).map((d) => (
+              <button key={d} type="button" className={`${styles.btn} ${choice === d ? styles.btnPrimary : ""}`} disabled={busy} onClick={() => setChoice(d)}>{DECISION_LABEL[d]}</button>
+            ))}
+            {choice && (
+              <>
+                <label className={styles.field} style={{ flex: "1 1 240px" }}>Why
+                  <input className={styles.input} value={note} placeholder={choice === "cancel" ? "e.g. not used since July" : ""} onChange={(e) => setNote(e.target.value)} />
+                </label>
+                <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} disabled={busy || note.trim().length < 5}
+                  onClick={async () => { if (await onDecide({ decision: choice, note })) { setChoice(null); setNote(""); } }}>
+                  {decided ? "Change the decision" : "Record the decision"}
+                </button>
+              </>
+            )}
+            {!choice && <span className={styles.meta}>{choice === null && decided === "cancel" && c.notice_by ? `Give notice by ${dateLabel(c.notice_by)}, then end the contract below.` : "Keep closes the notice task; cancel and renegotiate keep it open."}</span>}
+          </div>
+        )}
+    </section>
   );
 }
 

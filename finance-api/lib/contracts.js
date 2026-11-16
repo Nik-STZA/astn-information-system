@@ -155,7 +155,145 @@ function contractInput(body = {}, entities = [], { partial = false } = {}) {
       else set.notice_days = n;
     }
   }
+  // Monitoring and forecasting (migration 048).
+  if (has("cost_amount")) {
+    const v = amountOf(body.cost_amount);
+    if (Number.isNaN(v) || (v !== null && v < 0)) issues.push("cost_amount must be an amount");
+    else set.cost_amount = v;
+  }
+  if (has("billing_frequency")) {
+    const f = body.billing_frequency === "" ? null : body.billing_frequency;
+    if (f !== null && !FREQUENCIES.includes(f)) issues.push(`billing_frequency must be one of ${FREQUENCIES.join(", ")}`);
+    else set.billing_frequency = f;
+  }
+  if (has("document_url")) {
+    const u = clean(body.document_url, 1000);
+    if (u && !/^https:\/\/[^\s<>"']+$/i.test(u)) issues.push("document_url must be an https link (for example to the file on Drive)");
+    else set.document_url = u;
+  }
   return { set, issues };
+}
+
+// ── Monitoring: renewals and the forward view (migration 048) ────────────────
+
+const FREQUENCIES = ["monthly", "quarterly", "annual", "one_off"];
+const PER_YEAR = { monthly: 12, quarterly: 4, annual: 1 };
+const STEP_MONTHS = { monthly: 1, quarterly: 3, annual: 12 };
+const DECISIONS = ["keep", "cancel", "renegotiate"];
+const RENEWING_SOON_DAYS = 90;
+
+// A year of the contract at its billing rate, or null when it has no rate.
+// A one-off contract has no annual value: its total is the value.
+function annualValue(c) {
+  const per = PER_YEAR[c.billing_frequency];
+  if (!per || c.cost_amount === null || c.cost_amount === undefined) return null;
+  return Math.round(Number(c.cost_amount) * per * 100) / 100;
+}
+
+// The renewal decision that applies to the contract's current end date, or
+// null: a decision made for an earlier end date no longer applies.
+function currentDecision(c) {
+  if (!c.renewal_decision || !c.renewal_decision_for || !c.end_date) return null;
+  return day(c.renewal_decision_for) === day(c.end_date) ? c.renewal_decision : null;
+}
+
+function decisionInput(body = {}, c = {}) {
+  const issues = [];
+  if (!DECISIONS.includes(body.decision)) issues.push("decision must be keep, cancel or renegotiate");
+  const note = clean(body.note, 500);
+  if (!note || note.length < 5) issues.push("say why, in a few words");
+  if (!["auto", "option"].includes(c.renewal)) issues.push("this contract does not renew");
+  if (!c.end_date) issues.push("set the end date first: the decision is for that renewal");
+  if (c.status !== "active") issues.push(`this contract is ${c.status}`);
+  return { issues, decision: body.decision, note };
+}
+
+// Contracts that renew within RENEWING_SOON_DAYS, with what is at stake: the
+// annual value by side, and how many still have no decision.
+function renewingSoon(contracts = [], today) {
+  const until = addDays(today, RENEWING_SOON_DAYS);
+  const due = contracts.filter((c) => c.status === "active" && ["auto", "option"].includes(c.renewal) && c.end_date
+    && day(c.end_date) >= today && day(c.end_date) <= until);
+  const sum = (side) => due.filter((c) => c.side === side).reduce((s, c) => s + (annualValue(c) ?? 0), 0);
+  return {
+    days: RENEWING_SOON_DAYS,
+    count: due.length,
+    undecided: due.filter((c) => !currentDecision(c)).length,
+    cancelling: due.filter((c) => currentDecision(c) === "cancel").length,
+    supplier_annual: Math.round(sum("supplier") * 100) / 100,
+    customer_annual: Math.round(sum("customer") * 100) / 100,
+    without_value: due.filter((c) => annualValue(c) === null).length,
+  };
+}
+
+const monthOf = (d) => String(d).slice(0, 7);
+function addMonths(date, n) {
+  const [y, m, dd] = date.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + n, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(dd, last));
+  return t.toISOString().slice(0, 10);
+}
+
+// Month by month for the next `months` months (this month first): income from
+// customer contracts and cost of supplier contracts, for budgeting and the
+// forecast. A contract with dated payments uses them; otherwise its billing
+// rate from its start date. A contract that renews itself is assumed to carry
+// on past its end date unless the decision is to cancel, and such months are
+// counted as assumed. Undated customer payments are totalled apart.
+function forwardView(contracts = [], schedule = [], today, months = 12) {
+  const first = `${monthOf(today)}-01`;
+  const keys = Array.from({ length: months }, (_, i) => monthOf(addMonths(first, i)));
+  const end = addDays(addMonths(first, months), -1);
+  const rows = new Map(keys.map((k) => [k, { month: k, income: 0, cost: 0, assumed: 0 }]));
+  const add = (date, side, amount, assumed) => {
+    const r = rows.get(monthOf(date));
+    if (!r) return;
+    const p = pence(amount);
+    if (side === "customer") r.income += p; else r.cost += p;
+    if (assumed) r.assumed += p;
+  };
+  let undatedIncome = 0;
+  let undatedCount = 0;
+  let unpriced = 0;
+  for (const c of contracts) {
+    if (c.status !== "active") continue;
+    const pays = schedule.filter((s) => s.contract_id === c.id && s.kind === "payment" && s.status === "pending");
+    if (pays.length) {
+      for (const s of pays) {
+        if (s.amount === null || s.amount === undefined) continue;
+        if (!s.due_on) { if (c.side === "customer") { undatedIncome += pence(s.amount); undatedCount += 1; } continue; }
+        if (day(s.due_on) >= first && day(s.due_on) <= end) add(day(s.due_on), c.side, s.amount, false);
+      }
+      continue;
+    }
+    if (c.cost_amount === null || c.cost_amount === undefined || !c.billing_frequency) { unpriced += 1; continue; }
+    const start = day(c.start_date) ?? first;
+    if (c.billing_frequency === "one_off") {
+      if (start >= first && start <= end) add(start, c.side, c.cost_amount, false);
+      continue;
+    }
+    const stop = day(c.end_date);
+    const carriesOn = ["auto", "option"].includes(c.renewal) && currentDecision(c) !== "cancel";
+    const step = STEP_MONTHS[c.billing_frequency];
+    for (let i = 0, d = start; d <= end && i < 600; i += 1, d = addMonths(start, i * step)) {
+      if (d < first) continue;
+      const after = stop && d > stop;
+      if (after && !carriesOn) break;
+      add(d, c.side, c.cost_amount, Boolean(after));
+    }
+  }
+  return {
+    months: keys.map((k) => {
+      const r = rows.get(k);
+      return { month: k, income: r.income / 100, cost: r.cost / 100, net: (r.income - r.cost) / 100, assumed: r.assumed / 100 };
+    }),
+    total: {
+      income: [...rows.values()].reduce((s, r) => s + r.income, 0) / 100,
+      cost: [...rows.values()].reduce((s, r) => s + r.cost, 0) / 100,
+    },
+    undated_income: undatedIncome / 100, undated_count: undatedCount, unpriced,
+  };
 }
 
 // A pattern must belong to the contract's side: a supplier contract is never
@@ -294,7 +432,8 @@ const day = (v) => (v == null ? null : v instanceof Date ? v.toISOString().slice
 // once per contract and deadline (source_ref), so a changed date is a new task.
 function noticeTask(c, entityName = null) {
   const by = noticeBy(c);
-  if (!by || c.status !== "active") return null;
+  // Decided to keep it: nothing to do by the deadline.
+  if (!by || c.status !== "active" || currentDecision(c) === "keep") return null;
   const end = day(c.end_date);
   const verb = c.renewal === "auto" ? "renews itself" : "may be renewed";
   return {
@@ -326,8 +465,10 @@ function comingUp(contracts = [], schedule = [], today) {
   }
   for (const c of contracts) {
     const by = noticeBy(c);
-    if (!by || c.status !== "active" || by > until) continue;
-    out.push({ contract_id: c.id, counterparty: c.counterparty, kind: "notice", label: "Notice deadline", amount: null, currency: c.currency, due_on: by, expected: null, trigger_text: null, overdue: by < today });
+    if (!by || c.status !== "active" || by > until || currentDecision(c) === "keep") continue;
+    const decided = currentDecision(c);
+    out.push({ contract_id: c.id, counterparty: c.counterparty, kind: "notice",
+      label: decided === "cancel" ? "Give notice to cancel" : decided === "renegotiate" ? "Renegotiate before the notice deadline" : "Notice deadline: decide", amount: annualValue(c), currency: c.currency, due_on: by, expected: null, trigger_text: null, overdue: by < today });
   }
   const rank = (x) => (x.due_on ? 1 : 0);
   return out.sort((a, b) => rank(a) - rank(b) || String(a.due_on ?? "").localeCompare(String(b.due_on ?? "")));
@@ -465,5 +606,6 @@ module.exports = {
   clean, isDate, amountOf, pence, pounds, isGuid, isCfo, addDays, day,
   contractInput, sideIssues, datesIssues, scheduleInput, scheduleIssues, movementInput,
   heldAt, deferredEvidence, noticeBy, noticeTask, comingUp,
+  FREQUENCIES, DECISIONS, RENEWING_SOON_DAYS, annualValue, currentDecision, decisionInput, renewingSoon, forwardView, addMonths,
   READ_SCHEMA, readPrompt, buildReadRequest, parseRead, isPdf,
 };

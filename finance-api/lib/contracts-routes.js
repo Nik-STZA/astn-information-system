@@ -84,6 +84,11 @@ function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, e
     renewal: c.renewal, notice_days: c.notice_days, notice_by: k.noticeBy(c), payment_terms: c.payment_terms,
     account_code: c.account_code, notes: c.notes, source: c.source, upload_id: c.upload_id,
     created_by: c.created_by, created_at: c.created_at, updated_at: c.updated_at, ended_by: c.ended_by, ended_at: c.ended_at, end_reason: c.end_reason,
+    // Monitoring (migration 048; absent before it is applied).
+    cost_amount: num(c.cost_amount), billing_frequency: c.billing_frequency ?? null, annual_value: k.annualValue(c),
+    document_url: c.document_url ?? null,
+    renewal_decision: k.currentDecision(c), renewal_decision_note: k.currentDecision(c) ? c.renewal_decision_note : null,
+    renewal_decided_by: k.currentDecision(c) ? c.renewal_decided_by : null, renewal_decided_at: k.currentDecision(c) ? c.renewal_decided_at : null,
   });
   const scheduleView = (s) => ({
     id: s.id, kind: s.kind, seq: s.seq, label: s.label, trigger_text: s.trigger_text, amount: num(s.amount),
@@ -196,7 +201,8 @@ function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, e
           ORDER BY uploaded_at DESC LIMIT 100`, [client.id])).rows;
     } catch (e) {
       if (!isMissingTable(e)) throw e;
-      return res.json({ migration_missing: true, contracts: [], coming_up: [], uploads: [], ties: [], companies, patterns: k.PATTERNS });
+      return res.json({ migration_missing: true, contracts: [], coming_up: [], uploads: [], ties: [], companies, patterns: k.PATTERNS,
+        renewing_soon: k.renewingSoon([], today()), forward: k.forwardView([], [], today(), 12) });
     }
     const byContract = new Map();
     for (const m of movements) { if (!byContract.has(m.contract_id)) byContract.set(m.contract_id, []); byContract.get(m.contract_id).push(m); }
@@ -211,6 +217,8 @@ function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, e
     res.json({
       contracts,
       coming_up: k.comingUp(rows, schedule, t),
+      renewing_soon: k.renewingSoon(rows, t),
+      forward: k.forwardView(rows, schedule, t, 12),
       uploads: uploads.map(uploadView),
       ties: await tiesFor(pool, client.id, rows, byContract),
       companies, patterns: k.PATTERNS,
@@ -358,6 +366,43 @@ function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, e
       [c.id, client.id, pattern, w.actorEmail]);
     await log(conn, req, { client, ...w, action: "contract_pattern_confirmed", id: c.id, payload: { from: c.pattern, to: pattern } });
     return { status: 200, body: { id: c.id, pattern } };
+  })));
+
+  // POST /contracts/:id/renewal-decision   body: { decision: keep|cancel|renegotiate, note }
+  // For the coming renewal (the current end date). Keep closes the notice
+  // task; cancel and renegotiate keep it open, retitled, as the deadline still
+  // matters. Any engagement role may record it.
+  app.post(`${BASE}/:id/renewal-decision`, tolerant(async (req, res) => onContract(req, res, async (conn, w, { client, c }) => {
+    const { issues, decision, note } = k.decisionInput(req.body || {}, c);
+    if (issues.length) return { status: 422, body: { issues } };
+    await conn.query(
+      `UPDATE finance.contracts SET renewal_decision = $3, renewal_decision_note = $4, renewal_decision_for = end_date,
+              renewal_decided_by = $5, renewal_decided_at = now(), updated_at = now() WHERE id = $1 AND client_id = $2`,
+      [c.id, client.id, decision, note, w.actorEmail]);
+    const by = k.noticeBy(c);
+    const ref = by ? `contract:${c.id}:notice:${by}` : null;
+    const task = ref ? (await conn.query(
+      "SELECT id, status FROM finance.tasks WHERE client_id = $1 AND source = 'contract' AND source_ref = $2 AND deleted_at IS NULL", [client.id, ref])).rows[0] : null;
+    let taskSaid = null;
+    if (task && task.status !== "done") {
+      if (decision === "keep") {
+        await conn.query("UPDATE finance.tasks SET status = 'done', closed_at = now(), updated_at = now() WHERE id = $1", [task.id]);
+        await conn.query("INSERT INTO finance.task_events (task_id, client_id, actor, action, detail) VALUES ($1,$2,$3,'status',$4)",
+          [task.id, client.id, w.actorEmail, JSON.stringify({ changes: { status: { from: task.status, to: "done" } }, from: "contracts register", renewal_decision: decision })]);
+        taskSaid = "closed";
+      } else {
+        const old = (await conn.query("SELECT title FROM finance.tasks WHERE id = $1", [task.id])).rows[0].title;
+        const title = decision === "cancel" ? `Give notice to cancel ${c.counterparty} by ${by}` : `Renegotiate ${c.counterparty} before ${by}`;
+        await conn.query("UPDATE finance.tasks SET title = $2, updated_at = now() WHERE id = $1", [task.id, title]);
+        await conn.query("INSERT INTO finance.task_events (task_id, client_id, actor, action, detail) VALUES ($1,$2,$3,'changed',$4)",
+          [task.id, client.id, w.actorEmail, JSON.stringify({ changes: { title: { from: old, to: title } }, from: "contracts register" })]);
+        taskSaid = "updated";
+      }
+      await conn.query("INSERT INTO finance.task_events (task_id, client_id, actor, action, detail) VALUES ($1,$2,$3,'comment',$4)",
+        [task.id, client.id, w.actorEmail, JSON.stringify({ text: `Renewal decided: ${decision}. ${note}` })]);
+    }
+    await log(conn, req, { client, ...w, action: "contract_renewal_decided", id: c.id, payload: { decision, note, for_end_date: k.day(c.end_date), notice_by: by, task: taskSaid } });
+    return { status: 200, body: { id: c.id, decision, task: taskSaid } };
   })));
 
   // POST /contracts/:id/end   body: { status: ended|cancelled, reason }
