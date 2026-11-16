@@ -20,6 +20,10 @@
 
 const imp = require("./asset-import");
 const intakeLib = require("./asset-intake");
+const monthLib = require("./asset-month");
+const engine = require("./asset-register");
+
+const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
 const { isCfo } = require("./contracts");
 
 const MISSING = "The asset register is waiting for migration 049 to be applied.";
@@ -332,6 +336,45 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
         if (!line) { issues.push(`${where}: no cost line ${d.id}`); continue; }
         if (line.state !== "proposed") { issues.push(`${where}: the line is ${line.state}, not proposed`); continue; }
         if (String(d.reason ?? "").trim().length < 3) { issues.push(`${where}: a reason is required`); continue; }
+        if (d.action === "split") {
+          // One line into slices across assets: the slices must make the line.
+          const slices = Array.isArray(d.slices) ? d.slices : [];
+          const total = engine.r2(slices.reduce((t, x) => t + Number(x.amount), 0));
+          if (slices.length < 2) { issues.push(`${where}: a split needs at least two slices`); continue; }
+          if (total !== engine.r2(line.amount)) { issues.push(`${where}: slices make ${total.toFixed(2)}, the line is ${Number(line.amount).toFixed(2)}`); continue; }
+          let firstId = null;
+          let bad = false;
+          for (const sl of slices) {
+            const treatment = sl.treatment ?? "capitalise";
+            if (!TREATMENTS.includes(treatment)) { issues.push(`${where}: treatment ${treatment} is not allowed`); bad = true; break; }
+            const a = sl.asset_no ? (await conn.query("SELECT id FROM finance.assets WHERE client_id = $1 AND grouping = $2 AND asset_no = $3", [client.id, line.grouping, sl.asset_no])).rows[0] : null;
+            if (sl.asset_no && !a) { issues.push(`${where}: no asset ${sl.asset_no} in ${line.grouping}`); bad = true; break; }
+            if (treatment === "capitalise" && !a) { issues.push(`${where}: capitalised cost needs its asset`); bad = true; break; }
+            const sliceReason = String(sl.reason ?? d.reason).trim();
+            const id = (await conn.query(
+              `INSERT INTO finance.asset_cost_lines (client_id, grouping, source_type, xero_source_id, xero_line_id, billed_entity_id, owning_entity_id,
+                 supplier, invoice_no, line_date, source_net, source_vat, source_gross, currency, work_description, asset_id, amount, treatment,
+                 reason_text, posted_account_id, posted_account_code, state, fields, source_ref, created_by)
+               SELECT client_id, grouping, source_type, xero_source_id, xero_line_id, billed_entity_id, owning_entity_id, supplier, invoice_no, line_date,
+                 source_net, source_vat, source_gross, currency, work_description, $2, $3, $4, $5, posted_account_id, posted_account_code, 'approved',
+                 (fields - 'question') || jsonb_build_object('source_key', COALESCE(fields->>'source_key', xero_source_id || '|' || xero_line_id), 'split_from', id::text),
+                 source_ref, $6
+                 FROM finance.asset_cost_lines WHERE id = $1 RETURNING id`,
+              [line.id, a?.id ?? null, engine.r2(sl.amount), treatment, sliceReason, who.actorEmail])).rows[0].id;
+            firstId = firstId ?? id;
+            await conn.query(
+              `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
+               VALUES ($1,'cost_line',$2,NULL,'approved',$3,$4,$5,$6)`,
+              [client.id, id, who.actorEmail, role, sliceReason, JSON.stringify({ split_from: line.id })]);
+          }
+          if (bad) continue;
+          await conn.query("UPDATE finance.asset_cost_lines SET state = 'superseded', superseded_by = $2, updated_at = now() WHERE id = $1", [line.id, firstId]);
+          await conn.query(
+            `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
+             VALUES ($1,'cost_line',$2,'proposed','superseded',$3,$4,$5,$6)`,
+            [client.id, line.id, who.actorEmail, role, String(d.reason).trim(), JSON.stringify({ split_into: slices.length })]);
+          continue;
+        }
         if (d.action === "reject") {
           await conn.query("UPDATE finance.asset_cost_lines SET state = 'rejected', updated_at = now() WHERE id = $1", [line.id]);
         } else if (d.action === "approve") {
@@ -347,7 +390,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
           await conn.query(
             `UPDATE finance.asset_cost_lines SET state = 'approved', treatment = $2, asset_id = $3, reason_text = $4,
                fields = fields - 'question', updated_at = now() WHERE id = $1`, [line.id, treatment, assetId, String(d.reason).trim()]);
-        } else { issues.push(`${where}: action must be approve or reject`); continue; }
+        } else { issues.push(`${where}: action must be approve, split or reject`); continue; }
         await conn.query(
           `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
            VALUES ($1,'cost_line',$2,'proposed',$3,$4,$5,$6,$7)`,
@@ -360,6 +403,214 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     } catch (e) {
       await conn.query("ROLLBACK").catch(() => {});
       if (e.code === "23514" && /signed/.test(e.message)) return res.status(409).json({ error: e.message });
+      throw e;
+    } finally {
+      conn.release();
+    }
+  }));
+
+
+  // ── New assets ─────────────────────────────────────────────────────────────
+  //
+  // POST .../asset-register/assets   { grouping, dry_run (default true), assets: [{ entity, asset_no, name,
+  //   status, cost_account, accum_account?, parent_asset_no?, filing_date?, registration_date?, expiry_date?,
+  //   registration_no?, jurisdiction?, ipo_url?, wipo_url?, ip_category?, fields?, source_ref? }] }
+  // The CFO adds assets that came after the opening (a new filing, a new
+  // component). Accounts are codes in the grouping's own account map.
+
+  const STATUSES = ["research", "wip", "pending", "available", "registered", "impaired", "disposed", "lapsed"];
+  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  app.post(`${BASE}/assets`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO adds assets to the register" });
+    const b = req.body || {};
+    const dryRun = !(b.dry_run === false || b.dry_run === "false");
+    const grouping = String(b.grouping ?? "");
+    const list = Array.isArray(b.assets) ? b.assets : [];
+    if (!list.length) return res.status(422).json({ issues: ["assets is required"] });
+    const g = (await pool.query("SELECT enabled FROM finance.asset_groupings_client WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows[0];
+    if (!g?.enabled) return res.status(422).json({ issues: [`${grouping} is not switched on for this client`] });
+    const map = (await pool.query(
+      `SELECT m.xero_account_id, m.account_code, m.role, e.slug, e.id AS entity_id FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
+        WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
+    const held = new Set((await pool.query("SELECT entity_id, asset_no FROM finance.assets WHERE client_id = $1", [client.id])).rows.map((r) => `${r.entity_id}|${r.asset_no}`));
+    const parents = Object.fromEntries((await pool.query("SELECT id, asset_no FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows.map((r) => [r.asset_no, r.id]));
+    const issues = [];
+    const rows = list.map((a, i) => {
+      const where = `asset ${a.asset_no ?? i + 1}`;
+      const acc = (code, roles) => map.find((m) => m.slug === a.entity && String(m.account_code) === String(code) && roles.includes(m.role));
+      const cost = acc(a.cost_account, ["cost", "wip"]);
+      const accum = a.accum_account ? acc(a.accum_account, ["accumulated"]) : null;
+      if (!String(a.asset_no ?? "").trim() || !String(a.name ?? "").trim()) issues.push(`${where}: needs a number and a name`);
+      if (!map.some((m) => m.slug === a.entity)) issues.push(`${where}: ${a.entity} has no accounts in this grouping`);
+      if (!STATUSES.includes(a.status)) issues.push(`${where}: status must be one of ${STATUSES.join(", ")}`);
+      if (!cost) issues.push(`${where}: cost account ${a.cost_account} is not a cost or WIP account of this grouping for ${a.entity}`);
+      if (a.accum_account && !accum) issues.push(`${where}: accumulated account ${a.accum_account} is not in this grouping's map for ${a.entity}`);
+      if (a.parent_asset_no && !parents[a.parent_asset_no]) issues.push(`${where}: no parent ${a.parent_asset_no}`);
+      for (const k of ["filing_date", "registration_date", "expiry_date"]) if (a[k] && !DAY.test(String(a[k]))) issues.push(`${where}: ${k} must be YYYY-MM-DD`);
+      const entityId = cost?.entity_id ?? map.find((m) => m.slug === a.entity)?.entity_id;
+      if (entityId && held.has(`${entityId}|${a.asset_no}`)) issues.push(`${where}: already in the register`);
+      return { ...a, entity_id: entityId, cost_account_id: cost?.xero_account_id ?? null, accum_account_id: accum?.xero_account_id ?? null,
+        parent_asset_id: a.parent_asset_no ? parents[a.parent_asset_no] ?? null : null };
+    });
+    if (issues.length) return res.status(422).json({ issues });
+    if (dryRun) return res.json({ dry_run: true, would_add: rows.map((r) => ({ asset_no: r.asset_no, entity: r.entity, status: r.status, cost_account: r.cost_account })) });
+    const conn = await pool.connect();
+    try {
+      await conn.query("BEGIN");
+      for (const a of rows) {
+        await conn.query(
+          `INSERT INTO finance.assets (client_id, entity_id, grouping, asset_no, name, parent_asset_id, status, cost_account_id, accum_account_id,
+             filing_date, registration_date, expiry_date, registration_no, jurisdiction, ipo_url, wipo_url, ip_category, fields, source_ref, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+          [client.id, a.entity_id, grouping, a.asset_no, a.name, a.parent_asset_id, a.status, a.cost_account_id, a.accum_account_id,
+            a.filing_date ?? null, a.registration_date ?? null, a.expiry_date ?? null, a.registration_no ?? null, a.jurisdiction ?? null,
+            a.ipo_url ?? null, a.wipo_url ?? null, a.ip_category ?? null, JSON.stringify(a.fields || {}), a.source_ref ? JSON.stringify(a.source_ref) : null, who.actorEmail]);
+      }
+      await audit(conn, { actorEmail: who.actorEmail, actorRole: role, action: "asset_register_assets_added", targetType: "asset_register", targetId: grouping,
+        clientId: client.id, payload: { assets: rows.map((r) => r.asset_no) }, ip: req.get("X-Forwarded-For") || req.ip });
+      await conn.query("COMMIT");
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.status(201).json({ added: rows.length });
+  }));
+
+  // ── Preparing and signing a month ──────────────────────────────────────────
+  //
+  // POST .../asset-register/periods/prepare  { grouping, period, dry_run (default true), rules, tb_acknowledgements: [{ entity, difference, reason }] }
+  // POST .../asset-register/periods/sign     { grouping, period }
+  // Months are prepared and signed in order after the opening. A signed month
+  // refuses any change dated in it (migration 049).
+
+  const periodRows = async (db, clientId, grouping) => (await db.query(
+    "SELECT period, status, snapshot FROM finance.asset_register_periods WHERE client_id = $1 AND grouping = $2 ORDER BY period", [clientId, grouping])).rows;
+
+  app.post(`${BASE}/periods/prepare`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO prepares the asset register's month" });
+    const b = req.body || {};
+    const dryRun = !(b.dry_run === false || b.dry_run === "false");
+    const grouping = String(b.grouping ?? "");
+    const period = String(b.period ?? "");
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(422).json({ issues: ["period must be YYYY-MM"] });
+    const periods = await periodRows(pool, client.id, grouping);
+    const opening = periods.find((p) => p.snapshot?.kind === "opening_import");
+    if (!opening) return res.status(422).json({ issues: [`${grouping} has no opening; import it first`] });
+    if (period <= opening.period) return res.status(422).json({ issues: [`${period} is not after the opening (${opening.period})`] });
+    const prev = periods.find((p) => p.period === engine.addMonths(period, -1));
+    if (!prev || !["prepared", "signed"].includes(prev.status)) return res.status(422).json({ issues: [`Prepare ${engine.addMonths(period, -1)} first.`] });
+    if (periods.find((p) => p.period === period)?.status === "signed") return res.status(409).json({ error: `${period} is signed.` });
+
+    const map = (await pool.query(
+      `SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to, e.slug, e.name AS company
+         FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
+        WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
+    const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
+    const lines = (await pool.query(
+      `SELECT id, state, asset_id, owning_entity_id, amount::float AS amount, source_net::float AS source_net, line_date::text AS line_date, treatment,
+              posted_account_id, expected_account_id, source_type, xero_source_id, xero_line_id, source_ref, fields, invoice_no
+         FROM finance.asset_cost_lines WHERE client_id = $1 AND grouping = $2 AND state IN ('proposed', 'approved')`, [client.id, grouping])).rows;
+    const events = (await pool.query(
+      `SELECT id, asset_id, entity_id, kind, period, amount::float AS amount, accounts, detail, reverses_event_id
+         FROM finance.asset_events WHERE client_id = $1 AND grouping = $2`, [client.id, grouping])).rows;
+    const nameOf = Object.fromEntries(map.map((m) => [m.entity_id, m.company]));
+    const end = engine.monthEnd(period);
+    const asAt = opening.snapshot?.trial_balance_as_at ?? engine.monthEnd(opening.period);
+    const trialBalances = {};
+    const openingTrialBalances = {};
+    const lastDepreciation = {};
+    const setAside = {};
+    const months = monthLib.monthsAfter(opening.period, period);
+    for (const slug of [...new Set(map.map((m) => m.slug))]) {
+      const ctx = await xeroEntityContext(req.params.slug, slug);
+      if (!ctx || ctx.error) return res.status(503).json({ error: `Xero could not be read for ${slug}: ${ctx?.error ?? "not connected"}` });
+      const id = map.find((m) => m.slug === slug).entity_id;
+      const xeroOwned = map.some((m) => m.slug === slug && m.role === "accumulated" && m.amortised_by === "xero");
+      try {
+        const tb = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date: end });
+        trialBalances[id] = tb?.Reports?.[0] ?? tb;
+        if (xeroOwned) {
+          const otb = await xeroGet(ctx.accessToken, ctx.tenantId, "/Reports/TrialBalance", { date: asAt });
+          openingTrialBalances[id] = otb?.Reports?.[0] ?? otb;
+          const settings = await xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/Settings`, {});
+          lastDepreciation[id] = settings?.lastDepreciationDate ?? null;
+        }
+        if ((b.rules || []).length) {
+          for (const m of months) {
+            const out = intakeLib.intake({ period: m, grouping, map, assets, docs: [{ entity_id: id, ...(await readMonth(ctx, m)) }], rules: b.rules });
+            for (const s of out.set_aside) {
+              const k = `${s.entity_id}|${s.account_code}|${s.belongs_to}`;
+              setAside[k] = engine.r2((setAside[k] ?? 0) + s.amount);
+            }
+          }
+        }
+      } catch (e) {
+        return res.status(503).json({ error: `Xero could not be read for ${slug}: ${e.message}` });
+      }
+    }
+    const idOf = (slug, code) => map.find((m) => m.slug === slug && String(m.account_code) === String(code))?.xero_account_id;
+    const entityOf = (slug) => map.find((m) => m.slug === slug)?.entity_id;
+    const namedItems = (opening.snapshot?.named_items || []).map((n) => ({ entity_id: entityOf(n.entity), account_id: idOf(n.entity, n.account), label: n.label, amount: Number(n.amount) }))
+      .concat(Object.entries(setAside).map(([k, amount]) => {
+        const [entityId, code, belongs] = k.split("|");
+        return { entity_id: entityId, account_id: map.find((m) => m.entity_id === entityId && String(m.account_code) === code)?.xero_account_id,
+          label: `${belongs}'s share, set aside at intake ${months[0]} to ${period}`, amount };
+      }));
+    const acks = (b.tb_acknowledgements || []).map((t) => ({ entity_id: entityOf(t.entity), difference: Number(t.difference), reason: t.reason }));
+    const cfg = (await pool.query("SELECT rec_tolerance FROM finance.client_finance_config WHERE client_id = $1", [client.id])).rows[0];
+    const result = monthLib.prepareMonth({ period, map, assets, lines, events, trialBalances, openingTrialBalances, namedItems, lastDepreciation,
+      tbAcknowledgements: acks, tolerance: Number(cfg?.rec_tolerance ?? 0), nameOf });
+    if (!result.prepared) return res.status(422).json(result);
+    if (dryRun) return res.json({ dry_run: true, ...result });
+    await pool.query(
+      `INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, trial_balance, prepared_by, prepared_at)
+       VALUES ($1,$2,$3,'prepared',$4,$5,$6,now())
+       ON CONFLICT (client_id, grouping, period) DO UPDATE SET status = 'prepared', snapshot = EXCLUDED.snapshot, trial_balance = EXCLUDED.trial_balance,
+         prepared_by = EXCLUDED.prepared_by, prepared_at = now(), updated_at = now()
+       WHERE finance.asset_register_periods.status <> 'signed'`,
+      [client.id, grouping, period, JSON.stringify({ kind: "month", ...result, named_items: namedItems }), JSON.stringify({ as_at: end, read_at: new Date().toISOString() }), who.actorEmail]);
+    res.status(201).json({ prepared: true, ...result });
+  }));
+
+  app.post(`${BASE}/periods/sign`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const b = req.body || {};
+    const conn = await pool.connect();
+    try {
+      await conn.query("BEGIN");
+      const role = await roleOf(conn, client.id, who.actorEmail);
+      if (!isCfo(role)) { await conn.query("ROLLBACK"); return res.status(403).json({ error: "only the CFO signs the asset register's month" }); }
+      const periods = await periodRows(conn, client.id, String(b.grouping ?? ""));
+      const p = periods.find((x) => x.period === b.period);
+      if (!p) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`no ${b.period} for ${b.grouping}`] }); }
+      if (p.status !== "prepared") { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`${b.period} is ${p.status}; prepare it first`] }); }
+      const earlier = periods.filter((x) => x.period < b.period && x.status !== "signed");
+      if (earlier.length) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`Sign ${earlier.map((x) => x.period).join(", ")} first.`] }); }
+      const row = (await conn.query(
+        `UPDATE finance.asset_register_periods SET status = 'signed', signed_by = $4, signed_at = now(), updated_at = now()
+          WHERE client_id = $1 AND grouping = $2 AND period = $3 RETURNING id`, [client.id, b.grouping, b.period, who.actorEmail])).rows[0];
+      await conn.query(
+        `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason)
+         VALUES ($1,'period',$2,'prepared','signed',$3,$4,$5)`, [client.id, row.id, who.actorEmail, role, `Signed ${b.grouping} ${b.period}`]);
+      await conn.query("COMMIT");
+      res.json({ signed: true, grouping: b.grouping, period: b.period });
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
       throw e;
     } finally {
       conn.release();

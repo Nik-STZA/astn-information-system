@@ -522,6 +522,29 @@ intake reproduces every movement on the mapped accounts: 738 10,940.00 and
 lines, each with a question); and sets aside 8,418.68 and 6,013.34 on 789 as
 Software's.
 
+### 6.2 New assets, splits, and the month prepared and signed (17 November 2026)
+
+- `POST .../asset-register/assets` (CFO, dry run by default) adds assets that
+  came after the opening (a new filing, a component). Accounts are codes in
+  the grouping's own account map; an asset is added once.
+- `cost-lines/decide` also takes `split`: one proposed line into slices across
+  assets that make the line exactly. The slices are approved lines carrying
+  the same Xero ids; the original is kept, superseded by them. Example: the
+  30 Sep 2026 FSL journal of 3,226.00 on 777 is FSL-TMK-0034-CN-R3 1,270.00
+  and FSL-TMK-0036-CN 1,956.00, two marks that came after the opening.
+- A written-off asset is not offered for new cost.
+- `POST .../asset-register/periods/prepare` (CFO, dry run by default) rolls the
+  register to the month end and ties it to each company's trial balance.
+  Months are prepared in order after the opening. On accounts Xero's register
+  amortises, the register takes Xero's own movement since the opening, and
+  Xero's last depreciation date is the control: a month Xero has not run is a
+  finding, not a block. Named items are the opening's, plus a paused
+  grouping's share set aside at intake each month (Software's staff time on
+  789). Blocks: a line still waiting for a decision, a trial balance that does
+  not foot unless acknowledged, anything unexplained.
+- `POST .../asset-register/periods/sign` signs a prepared month, in order;
+  from then on nothing dated in it can change.
+
 ## 7. Excel export (pack engine)
 
 A new `pack_engine/assets.py`, following `render.py`'s rule: **typed numbers
