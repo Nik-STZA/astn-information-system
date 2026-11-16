@@ -495,3 +495,93 @@ note), IA Track next, Software last once unpaused.
    in Xero before the first transfer.
 5. **Engineers' component split** - load as child assets with cost unsplit at
    the parent, then allocate.
+
+## 11. Forecast layer and the budget feed
+
+### 11.1 How the budget gets asset figures today (V18, checked 16 Nov 2026)
+
+`Feldspar Budgeting - V18-WIP-REPAIRED.xlsx` takes every asset figure, actual
+and forecast, across the whole timeline (Jul 2023 to 2031-2036), by external
+link to a register workbook's Summary tab:
+
+| V18 tab | Linked file (Finance / Budgets and Forecasts / Capex Budgeting) | Rows read |
+|---|---|---|
+| Intangible Assets | `Feldspar  IA Track Development  V5.xlsx`, Summary | cost, acc. amortisation, charge, WIP per track |
+| Intangible Assets | `Feldspar  Software Development  V5.xlsx`, Summary | software WIP |
+| Intangible Assets | `Feldspar - IP Patents and Trademarks - V2.xlsx`, Summary 2 | patents and trade marks per entity |
+| Performance Surface Assets | `Feldspar - Performance Surface Assets - V3 - No league data.xlsx` | cost, depreciation, NBV per asset type (TBD1-TBD12) |
+
+These are **budget copies**, separate from the month-end registers in
+`Month-end/FY26/YYMM/`. Each register therefore exists twice and can drift; the
+links read fixed cell addresses, so an inserted row in a register moves the
+budget silently. V18's own closing note records a GBP 439,712.54 double count
+of 786 that inflated the modelled raise, from a mapping typo in this area.
+
+### 11.2 What changes
+
+One register serves both. The forecast lives in os.stza.io next to the actuals,
+never mixed with them:
+
+- **Planned cost lines**: the same table as actual cost lines (4.3) with
+  `kind = 'planned'`, a `scenario` and a `forecast_version`, a supplier and
+  expected invoice date, and the commitment they come from (proposal and phase,
+  contract, purchase order). A planned line is replaced, not edited, when the
+  real invoice arrives: the actual line records which planned line it settles,
+  and the remainder stays planned or is withdrawn.
+- **Forecast fields on the asset**: expected go-live (or registration, or
+  grant) date, confidence, and the evidence for it. The signed date (4.4) still
+  alone starts actual amortisation; the expected date drives forecast
+  amortisation only.
+- **Tags** on assets and cost lines: budget line code (the V19 line code
+  scheme, `V19 Line Codes - Draft.csv`) and raise bucket (`Master Mapping with
+  Raise Buckets`), so use of funds and EIS evidence come from the ledger.
+- **Cash timing** from supplier payment terms, and recoverable VAT, for the
+  cashflow refresh (capex by supplier row, never aggregated).
+
+The engine (5) runs the same roll-forward forward in time for a chosen
+scenario and version: planned additions, expected transfers, forecast
+amortisation, by month, entity and account.
+
+### 11.3 The feed into V18 (until the budget moves into os.stza.io)
+
+A generated **drop-in workbook** in long form, one row per entity, account,
+asset group, month and basis, with columns for actual or forecast, scenario,
+version, amount, line code and raise bucket. V18's Intangible Assets and
+Performance Surface Assets tabs are repointed once to `SUMIFS` over that table
+by entity, account, group and month, replacing the external links to the four
+budget copies. No cell-address links, so an inserted row cannot move the
+budget. Months up to the last signed register period read `actual`; later
+months read the chosen scenario.
+
+The drop-in carries a control row per entity and account: actual months equal
+the signed register snapshots (4.6), forecast months equal the engine's output
+for the named version. The four Capex Budgeting copies are then retired, after
+one month run in parallel shows V18 unchanged except where the copies were
+stale.
+
+### 11.4 How the FP&A agent works it
+
+Forward-looking only; it never posts and never changes actuals (FM1 owns the
+close). Monthly, after the register period is signed:
+
+1. Reforecast proposals: new proposals, invoices and supplier mail update
+   planned lines; VP and CEO status updates expected go-live dates; slippage is
+   flagged (e.g. Cardiff still calibrating). The CFO approves before anything
+   changes.
+2. Budget against actual per asset and project: spend, timing, amortisation,
+   with the variance explained from cost lines.
+3. Scenarios: "go-live slips three months" is one parameter; amortisation, cash
+   and runway follow.
+4. On CFO approval of a rebase: regenerate the drop-in and the per-company Xero
+   budget import files (the format already used for the V19 rebase, 5 Nov 2026).
+
+### 11.5 Later: the budget in os.stza.io
+
+Budget versions, drivers, people costs, revenue, funding and the Xero budget
+push move into os.stza.io as their own build. The register's forecast is then
+one input among several. The rule throughout: **the register owns asset
+numbers; the budget owns everything else; neither holds a copy of the other's.**
+
+Build order addition: planned cost lines, forecast fields and tags go in
+migration 049 (nullable, so nothing waits on them); the drop-in export comes
+after the acceptance test (9, step 4).
