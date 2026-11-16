@@ -237,6 +237,8 @@ async function scenario() {
     ok("two lines wait on the CFO: the intake and the opening's question", r.status === 200 && waiting.length === 2, waiting);
     const fromXero = waiting.find((l) => l.invoice_no === "INV-77");
     const question = waiting.find((l) => l.question);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: fromXero.id, action: "attach", asset_no: "ABC-PAT-0001", reason: "History" }] });
+    ok("a line after the opening cannot be attached as evidence", r.status === 422 && /on or before the opening/.test(r.body.issues[0]), r.body);
     r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: question.id, action: "approve", treatment: "capitalise", reason: "Search for the patent" }] });
     ok("capitalised with no asset is refused, and nothing is decided", r.status === 422 && /needs its asset/.test(r.body.issues[0]), r.body);
     r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: fromXero.id, action: "approve", reason: "Examination response" }] }, { "X-Actor-Email": BOOK });
@@ -252,6 +254,15 @@ async function scenario() {
     ok("each decision is an approval row", appr === 2, appr);
     r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: fromXero.id, action: "reject", reason: "changed my mind" }] });
     ok("a decided line is not decided again", r.status === 422 && /approved, not proposed/.test(r.body.issues[0]), r.body);
+    // A pre-opening invoice found later: kept as evidence on its asset.
+    const extra = (await pool.query(
+      `INSERT INTO finance.asset_cost_lines (client_id, grouping, source_type, billed_entity_id, owning_entity_id, invoice_no, line_date, source_net, amount, state, fields, source_ref, created_by)
+       SELECT client_id, grouping, 'workbook', billed_entity_id, owning_entity_id, '2707', '2026-02-09', 300, 300, 'proposed', '{"question":"Which asset?"}', '{"sheet":"Invoices","row":9}', 'x'
+         FROM finance.asset_cost_lines WHERE client_id = $1 AND invoice_no = 'INV-77' RETURNING id`, [CID])).rows[0].id;
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: extra, action: "attach", asset_no: "ABC-PAT-0001", reason: "Advice for the application; inside its brought-forward cost" }] });
+    const att = (await pool.query("SELECT state, superseded_by, asset_id, fields FROM finance.asset_cost_lines WHERE id = $1", [extra])).rows[0];
+    const bfLine = (await pool.query("SELECT l.id FROM finance.asset_cost_lines l JOIN finance.assets a ON a.id = l.asset_id WHERE l.client_id = $1 AND a.asset_no = 'ABC-PAT-0001' AND l.line_date = '2026-08-31'", [CID])).rows[0];
+    ok("attached as evidence, replaced by the asset's brought-forward line", r.status === 200 && att.state === "superseded" && att.superseded_by === bfLine.id && att.fields.attached_as_evidence && !att.fields.question, { body: r.body, att });
 
     await pool.query("INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, signed_by, signed_at) VALUES ($1,'ip_registered','2026-10','signed','{}',$2,now())", [CID, CFO]);
     r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-10" });
