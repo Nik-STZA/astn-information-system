@@ -35,6 +35,8 @@ const accountId = (slug, code) => `00000000-0000-0000-${slug === "alpha-ltd" ? "
 // Balances per company, by code: what Xero's trial balance says.
 let balances = {};
 let readsFail = false;
+// Documents Xero holds for the month, per company.
+let xeroDocs = {};
 const tbRow = (id, name, dr, cr) => ({ RowType: "Row", Cells: [{ Value: name, Attributes: [{ Id: "account", Value: id }] }, { Value: "0" }, { Value: "0" }, { Value: String(dr) }, { Value: String(cr) }] });
 function tbFor(slug) {
   const b = balances[slug] || {};
@@ -56,6 +58,11 @@ global.fetch = async (url, opts = {}) => {
   const slug = tenantSlug[opts.headers?.["Xero-Tenant-Id"]];
   if (u.pathname === "/api.xro/2.0/Accounts") return json({ Accounts: CODES.map((c) => ({ AccountID: accountId(slug, c), Code: c, Name: `Account ${c}`, Status: "ACTIVE" })) });
   if (u.pathname === "/api.xro/2.0/Reports/TrialBalance") return json(tbFor(slug));
+  if (u.searchParams.get("page") && u.searchParams.get("page") !== "1") return json({ Invoices: [], CreditNotes: [], BankTransactions: [], ManualJournals: [] });
+  if (u.pathname === "/api.xro/2.0/Invoices") return json({ Invoices: (xeroDocs[slug]?.bills ?? []) });
+  if (u.pathname === "/api.xro/2.0/CreditNotes") return json({ CreditNotes: [] });
+  if (u.pathname === "/api.xro/2.0/BankTransactions") return json({ BankTransactions: [] });
+  if (u.pathname === "/api.xro/2.0/ManualJournals") return json({ ManualJournals: (xeroDocs[slug]?.journals ?? []) });
   return json({}, 404);
 };
 
@@ -196,6 +203,56 @@ async function scenario() {
     ok("a second import is refused", r.status === 409, r.body);
     r = await api("GET", "asset-register");
     ok("the summary", r.status === 200 && r.body.groupings[0].assets === 3 && r.body.groupings[0].periods[0].status === "prepared", r.body);
+  });
+
+
+  await section("the month's intake from Xero, and the CFO's decisions", async () => {
+    // Beta's 774 (a pending patent) gets a September bill, VAT-inclusive; a
+    // second bill waits unapproved in Xero.
+    xeroDocs = { "beta-ltd": { bills: [
+      { InvoiceID: "11111111-0000-0000-0000-000000000001", InvoiceNumber: "INV-77", Type: "ACCPAY", Status: "PAID", DateString: "2026-09-12T00:00:00",
+        LineAmountTypes: "Inclusive", Contact: { Name: "Jo Bloggs IP" }, LineItems: [{ LineItemID: "22222222-0000-0000-0000-000000000001", AccountCode: "774", LineAmount: 600, TaxAmount: 100 }] },
+      { InvoiceID: "11111111-0000-0000-0000-000000000002", InvoiceNumber: "INV-78", Type: "ACCPAY", Status: "SUBMITTED", DateString: "2026-09-20T00:00:00",
+        LineAmountTypes: "Exclusive", LineItems: [{ LineItemID: "22222222-0000-0000-0000-000000000002", AccountCode: "774", LineAmount: 50 }] },
+    ] } };
+    let r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-09" });
+    ok("a dry run proposes the line at its net, on the only asset on 774", r.status === 200 && r.body.lines.length === 1
+      && r.body.lines[0].amount === 500 && r.body.lines[0].asset === "ABC-PAT-0001" && r.body.lines[0].treatment === "capitalise", r.body);
+    ok("the unapproved bill is reported, not taken", r.body.findings.some((f) => f.kind === "waiting_in_xero" && f.number === "INV-78"), r.body.findings);
+    ok("nothing written by the dry run", (await pool.query("SELECT count(*)::int AS n FROM finance.asset_cost_lines WHERE client_id = $1 AND xero_source_id IS NOT NULL", [CID])).rows[0].n === 0);
+    r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-09", dry_run: false });
+    ok("taken in", r.status === 201 && r.body.taken_in === 1, r.body);
+    r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-09", dry_run: false });
+    ok("a second intake takes nothing twice", r.status === 201 && r.body.taken_in === 0, r.body);
+    r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-09" }, { "X-Actor-Email": BOOK });
+    ok("only the CFO", r.status === 403, r.body);
+    r = await api("POST", "asset-register/intake", { grouping: "dev_project", period: "2026-09" });
+    ok("a grouping not switched on", r.status === 422, r.body);
+
+    r = await api("GET", "asset-register/cost-lines");
+    const waiting = r.body.lines;
+    ok("two lines wait on the CFO: the intake and the opening's question", r.status === 200 && waiting.length === 2, waiting);
+    const fromXero = waiting.find((l) => l.invoice_no === "INV-77");
+    const question = waiting.find((l) => l.question);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: question.id, action: "approve", treatment: "capitalise", reason: "Search for the patent" }] });
+    ok("capitalised with no asset is refused, and nothing is decided", r.status === 422 && /needs its asset/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: fromXero.id, action: "approve", reason: "Examination response" }] }, { "X-Actor-Email": BOOK });
+    ok("only the CFO decides", r.status === 403, r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [
+      { id: fromXero.id, action: "approve", reason: "Examination response for the pending patent" },
+      { id: question.id, action: "approve", treatment: "expense_admin", reason: "Maintenance, expensed (IAS 38.20, FRS 102 18.8)" },
+    ] });
+    ok("both decided", r.status === 200 && r.body.decided === 2, r.body);
+    const rows = (await pool.query("SELECT state, treatment, fields FROM finance.asset_cost_lines WHERE id = ANY($1)", [[fromXero.id, question.id]])).rows;
+    ok("approved, the question cleared", rows.every((x) => x.state === "approved" && !x.fields.question), rows);
+    const appr = (await pool.query("SELECT count(*)::int AS n FROM finance.asset_approvals WHERE subject_id = ANY($1) AND to_state = 'approved'", [[fromXero.id, question.id]])).rows[0].n;
+    ok("each decision is an approval row", appr === 2, appr);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: fromXero.id, action: "reject", reason: "changed my mind" }] });
+    ok("a decided line is not decided again", r.status === 422 && /approved, not proposed/.test(r.body.issues[0]), r.body);
+
+    await pool.query("INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, signed_by, signed_at) VALUES ($1,'ip_registered','2026-10','signed','{}',$2,now())", [CID, CFO]);
+    r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-10" });
+    ok("no intake into a signed month", r.status === 409, r.body);
   });
 
   if (process.env.ASSET_IMPORT_FILES) {
