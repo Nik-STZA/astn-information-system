@@ -336,6 +336,34 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
         if (!line) { issues.push(`${where}: no cost line ${d.id}`); continue; }
         if (line.state !== "proposed") { issues.push(`${where}: the line is ${line.state}, not proposed`); continue; }
         if (String(d.reason ?? "").trim().length < 3) { issues.push(`${where}: a reason is required`); continue; }
+        if (d.action === "attach") {
+          // A line dated on or before the opening is history: the opening's
+          // brought-forward cost already holds it (the opening tied to the
+          // ledger without it). It is kept as evidence on its asset, replaced
+          // by that asset's brought-forward line, never counted again.
+          const opening = (await conn.query(
+            `SELECT period FROM finance.asset_register_periods WHERE client_id = $1 AND grouping = $2 AND snapshot->>'kind' = 'opening_import'`,
+            [client.id, line.grouping])).rows[0];
+          const asAt = opening ? engine.monthEnd(opening.period) : null;
+          if (!asAt || String(line.line_date.toISOString?.().slice(0, 10) ?? line.line_date) > asAt) { issues.push(`${where}: only a line dated on or before the opening can be attached as evidence`); continue; }
+          const a = d.asset_no ? (await conn.query("SELECT id FROM finance.assets WHERE client_id = $1 AND grouping = $2 AND asset_no = $3", [client.id, line.grouping, d.asset_no])).rows[0] : null;
+          if (!a) { issues.push(`${where}: attach needs the asset it belongs to`); continue; }
+          const bf = (await conn.query(
+            `SELECT id FROM finance.asset_cost_lines WHERE client_id = $1 AND asset_id = $2 AND state = 'approved' AND source_type = 'workbook' AND line_date = $3
+              ORDER BY created_at LIMIT 1`, [client.id, a.id, asAt])).rows[0];
+          if (!bf) { issues.push(`${where}: ${d.asset_no} has no brought-forward line at ${asAt} to hold it`); continue; }
+          const treatment = d.treatment ?? "capitalise";
+          if (!TREATMENTS.includes(treatment)) { issues.push(`${where}: treatment ${treatment} is not allowed`); continue; }
+          await conn.query(
+            `UPDATE finance.asset_cost_lines SET state = 'superseded', superseded_by = $2, asset_id = $3, treatment = $4, reason_text = $5,
+               fields = (fields - 'question') || '{"attached_as_evidence": true}'::jsonb, updated_at = now() WHERE id = $1`,
+            [line.id, bf.id, a.id, treatment, String(d.reason).trim()]);
+          await conn.query(
+            `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
+             VALUES ($1,'cost_line',$2,'proposed','superseded',$3,$4,$5,$6)`,
+            [client.id, line.id, who.actorEmail, role, String(d.reason).trim(), JSON.stringify({ attached_to: d.asset_no, brought_forward_line: bf.id })]);
+          continue;
+        }
         if (d.action === "split") {
           // One line into slices across assets: the slices must make the line.
           const slices = Array.isArray(d.slices) ? d.slices : [];
@@ -390,7 +418,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
           await conn.query(
             `UPDATE finance.asset_cost_lines SET state = 'approved', treatment = $2, asset_id = $3, reason_text = $4,
                fields = fields - 'question', updated_at = now() WHERE id = $1`, [line.id, treatment, assetId, String(d.reason).trim()]);
-        } else { issues.push(`${where}: action must be approve, split or reject`); continue; }
+        } else { issues.push(`${where}: action must be approve, split, attach or reject`); continue; }
         await conn.query(
           `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
            VALUES ($1,'cost_line',$2,'proposed',$3,$4,$5,$6,$7)`,
