@@ -1465,7 +1465,14 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           const invoices = await xeroPages(ctx, "/Invoices", "Invoices", { where });
           const cnWhere = `Type=="${kind === "ap" ? "ACCPAYCREDIT" : "ACCRECCREDIT"}" AND Date <= DateTime(${dt[0]},${dt[1]},${dt[2]}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
           const creditNotes = await xeroPages(ctx, "/CreditNotes", "CreditNotes", { where: cnWhere });
-          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes });
+          // Unallocated prepayments and overpayments sit on the control account too.
+          const side = kind === "ap" ? "SPEND" : "RECEIVE";
+          const upTo = `Date <= DateTime(${dt[0]},${dt[1]},${dt[2]})`;
+          const advances = [
+            ...await xeroPages(ctx, "/Prepayments", "Prepayments", { where: `Type=="${side}-PREPAYMENT" AND ${upTo}` }),
+            ...await xeroPages(ctx, "/Overpayments", "Overpayments", { where: `Type=="${side}-OVERPAYMENT" AND ${upTo}` }),
+          ];
+          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances });
           rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "supplier bills" : "sales invoices"} outstanding at ${date}`, note: ev.note });
           said.push(`${e.name}: ${ev.note}`);
         } catch (err) {

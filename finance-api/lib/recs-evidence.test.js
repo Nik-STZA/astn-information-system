@@ -84,6 +84,23 @@ describe("automatic methods", () => {
     expect(ap.note).toMatch(/1 in another currency/);
   });
 
+  it("takes off prepayments and overpayments not allocated at the month end", () => {
+    const invs = [{ Status: "AUTHORISED", DateString: "2026-10-01T00:00:00", Total: 5000 }];
+    const advances = [
+      // A supplier overpayment on 28 Oct, still open at 31 Oct.
+      { Status: "AUTHORISED", DateString: "2026-10-28T00:00:00", Total: 3000, Allocations: [] },
+      // A prepayment allocated in November was still open at 31 Oct.
+      { Status: "PAID", DateString: "2026-10-05T00:00:00", Total: 400, Allocations: [{ DateString: "2026-11-02T00:00:00", Amount: 400 }] },
+      // One allocated in October is not.
+      { Status: "PAID", DateString: "2026-10-06T00:00:00", Total: 100, Allocations: [{ DateString: "2026-10-20T00:00:00", Amount: 100 }] },
+      { Status: "VOIDED", DateString: "2026-10-07T00:00:00", Total: 999 },
+    ];
+    const ap = ageingEvidence(invs, { date: "2026-10-31", kind: "ap", advances });
+    expect(ap.amount).toBe("-1600.00");
+    expect(ap.note).toMatch(/less 2 prepayments or overpayments not yet allocated/);
+    expect(ageingEvidence(invs, { date: "2026-09-30", kind: "ap", advances }).amount).toBe("0.00");
+  });
+
   it("suggests the intercompany twin that names this company, closest balance first", () => {
     const names = new Map([["e1", "Alpha Trading Ltd"], ["e2", "Beta Holdings Ltd"], ["e3", "Gamma Ltd"]]);
     const me = { id: "r1", rec_account_id: "a1", account_name: "Beta intercompany", entity_id: "e1", closing: 4437492, line_key: "ic_asset" };

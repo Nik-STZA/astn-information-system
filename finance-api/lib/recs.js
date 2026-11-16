@@ -271,8 +271,12 @@ function creditLeftAt(cn, date) {
   return left;
 }
 
-function ageingEvidence(invoices, { date, kind, creditNotes = [] }) {
-  let total = 0, count = 0, foreign = 0, credits = 0, creditTotal = 0;
+// Prepayments and overpayments (16 Nov 2026) sit on the control account until
+// allocated, as Xero's aged reports show them; leaving them out put Ultraspeed's
+// October payables out by a 3,000 supplier overpayment. Same shape as a credit
+// note: Total, Allocations, Payments (refunds), Status.
+function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] }) {
+  let total = 0, count = 0, foreign = 0, credits = 0, creditTotal = 0, adv = 0, advTotal = 0;
   const base = (left, rate) => Math.round(left / (rate && Number(rate) > 0 ? Number(rate) : 1));
   for (const inv of invoices || []) {
     const left = outstandingAt(inv, date);
@@ -287,12 +291,18 @@ function ageingEvidence(invoices, { date, kind, creditNotes = [] }) {
     creditTotal += base(left, cn.CurrencyRate);
     credits += 1;
   }
-  const net = total - creditTotal;
+  for (const a of advances || []) {
+    const left = creditLeftAt(a, date);
+    if (left === null || left === 0) continue;
+    advTotal += base(left, a.CurrencyRate);
+    adv += 1;
+  }
+  const net = total - creditTotal - advTotal;
   const signed = kind === "ap" ? -net : net;
   const what = kind === "ap" ? "supplier bill" : "sales invoice";
   return {
     amount: pounds(signed), count,
-    note: `${count} ${what}${count === 1 ? "" : "s"} outstanding at ${date}${credits ? `, less ${credits} credit note${credits === 1 ? "" : "s"} not yet allocated` : ""}, from their own payments and allocations${foreign ? `; ${foreign} in another currency converted at Xero's rate on the invoice` : ""}. Unallocated prepayments and overpayments are not included: a difference may be one.`,
+    note: `${count} ${what}${count === 1 ? "" : "s"} outstanding at ${date}${credits ? `, less ${credits} credit note${credits === 1 ? "" : "s"} not yet allocated` : ""}${adv ? `, less ${adv} prepayment${adv === 1 ? "" : "s"} or overpayment${adv === 1 ? "" : "s"} not yet allocated` : ""}, from their own payments and allocations${foreign ? `; ${foreign} in another currency converted at Xero's rate on the invoice` : ""}.`,
   };
 }
 
