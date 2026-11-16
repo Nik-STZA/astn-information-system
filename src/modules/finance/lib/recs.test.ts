@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, dayLabel, defaultPeriod, isRecPath, isStale, kindLabel, money, periodChoices, sideLabel } from "./recs";
+import { actorLabel, dayLabel, defaultPeriod, isRecPath, isStale, kindLabel, money, periodChoices, recGroups, sideLabel, type RecRow } from "./recs";
 
 const ID = "12345678-1234-1234-1234-123456789012";
 
@@ -54,5 +54,27 @@ describe("reconciling item wording", () => {
     expect(kindLabel("timing", true)).toMatch(/through the bank/);
     expect(kindLabel("timing", false)).not.toMatch(/bank/);
     expect(kindLabel("error", false)).toBe(kindLabel("error", true));
+  });
+});
+
+describe("the month's list grouped and filtered", () => {
+  const row = (id: string, name: string, line_key: string | null, by: Array<[string, string]>) => ({
+    id, account_name: name, line_key, ledger: "100.00", support: "100.00", difference: "0.00", ties: true, mixed_currency: false, companies: by.length,
+    by_entity: by.map(([entity_id, ledger]) => ({ entity_id, ledger, support: ledger, difference: "0.00", ties: true })),
+  }) as unknown as RecRow;
+  const lines = [{ key: "cash", line: "Cash and bank" }, { key: "ap", line: "Trade creditors" }];
+  const rows = [row("1", "Accounts payable", "ap", [["e1", "40.00"], ["e2", "60.00"]]), row("2", "Business account", "cash", [["e1", "100.00"]]), row("3", "Suspense", null, [["e2", "5.00"]])];
+
+  it("groups by line in the pack's order, unplaced last", () => {
+    expect(recGroups(rows, lines, { order: "line", entity: "" }).map((g) => [g.label, g.rows.map((r) => r.id)])).toEqual([
+      ["Cash and bank", ["2"]], ["Trade creditors", ["1"]], ["Not placed", ["3"]],
+    ]);
+    expect(recGroups(rows, lines, { order: "name", entity: "" })).toEqual([expect.objectContaining({ label: null, rows })]);
+  });
+
+  it("shows one company's own figures and leaves out what it does not hold", () => {
+    const g = recGroups(rows, lines, { order: "line", entity: "e2" });
+    expect(g.map((x) => x.label)).toEqual(["Trade creditors", "Not placed"]);
+    expect(g[0].rows[0]).toMatchObject({ ledger: "60.00", companies: 1 });
   });
 });

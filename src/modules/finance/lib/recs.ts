@@ -30,6 +30,7 @@ export interface RecRow {
   prior_status: RecStatus | null;
   ledger_now?: string;
   moved?: string;
+  by_entity?: Array<{ entity_id: string; ledger: string | null; support: string | null; difference: string | null; ties: boolean | null }>;
 }
 
 export interface EntityError { entity_id: string; entity: string; error: string }
@@ -55,8 +56,8 @@ export interface RecList {
 export interface IntercompanySide { rec_id: string; account_name: string; entity_id: string; entity: string; closing: string; status: RecStatus }
 export interface IntercompanyView {
   pairs: Array<{ a: IntercompanySide; b: IntercompanySide; difference: string; ties: boolean }>;
-  unpaired: Array<IntercompanySide & { suggested: { account_name: string; entity: string; difference: string } | null }>;
-  grid: { entities: Array<{ id: string; name: string }>; cells: Array<{ from: string; to: string; amount: string }> };
+  unpaired: Array<IntercompanySide & { paired_elsewhere?: boolean; suggested: { account_name: string; entity: string; difference: string } | null }>;
+  grid: { entities: Array<{ id: string; name: string }>; cells: Array<{ from: string; to: string; amount: string; ties?: boolean }> };
   ties: boolean;
 }
 
@@ -364,3 +365,21 @@ export const fetchRecs = (slug: string, period: string) =>
 
 export const fetchRec = (slug: string, id: string) =>
   read<RecDetail>(`/api/finance/clients/${encodeURIComponent(slug)}/recs/${encodeURIComponent(id)}`);
+
+// The month's list as shown (16 Nov 2026): grouped by its line on the balance
+// sheet in the pack's order (unplaced last) or one list by account name, and
+// to one company, with that company's own figures. A rec the company does not
+// hold is left out.
+export type RecOrder = "line" | "name";
+export function recGroups(rows: RecRow[], lines: Array<{ key: string; line: string }>, { order, entity }: { order: RecOrder; entity: string }): Array<{ key: string; label: string | null; rows: RecRow[] }> {
+  const shown = rows.flatMap((r) => {
+    if (!entity) return [r];
+    const mine = r.by_entity?.find((b) => b.entity_id === entity);
+    if (!mine) return [];
+    return [{ ...r, ledger: mine.ledger, support: mine.support, difference: mine.difference, ties: Boolean(mine.ties), mixed_currency: false, companies: 1, ledger_now: undefined, moved: undefined }];
+  });
+  if (order === "name") return shown.length ? [{ key: "all", label: null, rows: shown }] : [];
+  const out = lines.map((l) => ({ key: l.key, label: l.line, rows: shown.filter((r) => r.line_key === l.key) }));
+  out.push({ key: "unplaced", label: "Not placed", rows: shown.filter((r) => !r.line_key || !lines.some((l) => l.key === r.line_key)) });
+  return out.filter((g) => g.rows.length > 0);
+}
