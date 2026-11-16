@@ -28,6 +28,8 @@ export interface RecRow {
   workable: boolean;
   companies: number;
   prior_status: RecStatus | null;
+  ledger_now?: string;
+  moved?: string;
 }
 
 export interface EntityError { entity_id: string; entity: string; error: string }

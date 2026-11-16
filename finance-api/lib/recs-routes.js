@@ -243,6 +243,11 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           proof: r.proof, status: r.status, owner: r.owner, challenge: r.challenge, class: r.class, with: holder(r),
           ledger: money(c.group.gl), support: money(c.group.schedule), difference: money(c.group.variance), ties: c.ties, mixed_currency: c.mixed_currency,
           sole_reviewer: r.sole_reviewer, recheck_reason: r.recheck_reason, workable: recs.workable(r.line_key, r.proof), companies: balances.length,
+          // A signed rec flagged to re-check: Xero's figure now, beside what was signed.
+          ...(signed && r.recheck_reason && !c.mixed_currency ? (() => {
+            const now = r.balances.reduce((t, b) => t + recs.pence(b.closing), 0);
+            return { ledger_now: money(now), moved: money(now - (c.group.gl ?? 0)) };
+          })() : {}),
           prior_status: priorBy.get(r.rec_account_id) ?? null,
         };
       });

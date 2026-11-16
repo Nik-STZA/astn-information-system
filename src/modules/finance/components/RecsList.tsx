@@ -119,6 +119,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                   <div className={styles.fig}><div className={styles.figLabel}>Difference</div><div className={styles.figValue}>{money(r.difference)}</div></div>
                 </div>
                 {r.mixed_currency && <div className={styles.small}>Mixed currencies: no group total. Open it for each company.</div>}
+                <MovedLine r={r} />
                 {r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}
                 <div className={styles.rowMeta}><span>{PROOF_LABEL[r.proof]}</span><span>{r.placed || r.with ? `With ${ownerOf(r)}` : "Not placed"}</span>{r.class && <span>Class {r.class}</span>}</div>
               </Link>
@@ -142,7 +143,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                     <td className={`${styles.num} ${r.difference && !r.ties ? styles.strong : ""}`}>{money(r.difference)}</td>
                     <td>{r.class ?? "-"}</td>
                     <td>{ownerOf(r)}</td>
-                    <td><StatusPill r={r} />{r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}</td>
+                    <td><StatusPill r={r} />{r.sole_reviewer && <div className={styles.small}>Sole reviewer</div>}<MovedLine r={r} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -153,6 +154,12 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
       <Tolerance slug={slug} value={data.tolerance ?? "0.00"} />
     </div>
   );
+}
+
+// On a signed rec flagged to re-check: Xero's figure now, against what was signed.
+function MovedLine({ r }: { r: RecRow }) {
+  if (r.ledger_now === undefined || r.moved === undefined) return null;
+  return <div className={styles.small}>Xero now {money(r.ledger_now)} · moved {money(r.moved)} since sign-off</div>;
 }
 
 // The client's rounding tolerance: a difference this size or smaller, per
