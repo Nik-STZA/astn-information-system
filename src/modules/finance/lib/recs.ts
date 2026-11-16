@@ -371,6 +371,8 @@ export const fetchRec = (slug: string, id: string) =>
 // to one company, with that company's own figures. A rec the company does not
 // hold is left out.
 export type RecOrder = "line" | "name";
+export const isIntercompany = (r: Pick<RecRow, "line_key" | "account_name">) =>
+  r.line_key === "ic_asset" || r.line_key === "ic_liab" || (r.line_key === "loans" && /inter.?company/i.test(r.account_name));
 export function recGroups(rows: RecRow[], lines: Array<{ key: string; line: string }>, { order, entity }: { order: RecOrder; entity: string }): Array<{ key: string; label: string | null; rows: RecRow[] }> {
   const shown = rows.flatMap((r) => {
     if (!entity) return [r];
@@ -379,7 +381,11 @@ export function recGroups(rows: RecRow[], lines: Array<{ key: string; line: stri
     return [{ ...r, ledger: mine.ledger, support: mine.support, difference: mine.difference, ties: Boolean(mine.ties), mixed_currency: false, companies: 1, ledger_now: undefined, moved: undefined }];
   });
   if (order === "name") return shown.length ? [{ key: "all", label: null, rows: shown }] : [];
-  const out = lines.map((l) => ({ key: l.key, label: l.line, rows: shown.filter((r) => r.line_key === l.key) }));
+  // Intercompany receivables, payables and intercompany loans are one group,
+  // where the receivables line sits, as the pack reconciles them together.
+  const out = lines.filter((l) => l.key !== "ic_liab").map((l) => l.key === "ic_asset"
+    ? { key: "intercompany", label: "Intercompany", rows: shown.filter(isIntercompany) }
+    : { key: l.key, label: l.line, rows: shown.filter((r) => r.line_key === l.key && !isIntercompany(r)) });
   out.push({ key: "unplaced", label: "Not placed", rows: shown.filter((r) => !r.line_key || !lines.some((l) => l.key === r.line_key)) });
   return out.filter((g) => g.rows.length > 0);
 }

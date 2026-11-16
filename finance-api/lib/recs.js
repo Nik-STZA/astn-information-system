@@ -219,7 +219,9 @@ function autoMethod(rec) {
   if (rec.line_key === "deferred") return "contracts";
   if (rec.line_key === "ar") return "ageing_ar";
   if (rec.line_key === "ap") return "ageing_ap";
-  if (rec.line_key === "ic_asset" || (rec.line_key === "loans" && /intercompany|inter.company/i.test(rec.account_name ?? ""))) return "counterpart";
+  // Intercompany payables too (16 Nov 2026): a balance owed to a group company is
+  // proved by the same pair as one owed by it.
+  if (rec.line_key === "ic_asset" || rec.line_key === "ic_liab" || (rec.line_key === "loans" && /intercompany|inter.company/i.test(rec.account_name ?? ""))) return "counterpart";
   if (["sharecap", "premium", "reserves"].includes(rec.line_key)) return "carry_forward";
   return null;
 }
@@ -319,7 +321,7 @@ function counterpartCandidates(rec, others, names) {
   const mine = new Set(words(names.get(rec.entity_id)));
   return others
     .filter((o) => o.rec_account_id !== rec.rec_account_id && o.entity_id && o.entity_id !== rec.entity_id
-      && (o.line_key === null || o.line_key === "ic_asset" || o.line_key === "loans"))
+      && (o.line_key === null || o.line_key === "ic_asset" || o.line_key === "ic_liab" || o.line_key === "loans"))
     .map((o) => {
       const names_me = words(o.account_name).some((w) => mine.has(w));
       const names_them = words(rec.account_name).some((w) => new Set(words(names.get(o.entity_id))).has(w));
