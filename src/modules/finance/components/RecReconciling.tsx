@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { Upload } from "lucide-react";
-import { KIND_LABEL, SIDE_LABEL, dayLabel, money, type RecDetail, type RecEvidence, type ReconcilingItem, type ReconcilingKind } from "@/modules/finance/lib/recs";
+import { dayLabel, kindLabel, sideLabel, money, type RecDetail, type RecEvidence, type ReconcilingItem, type ReconcilingKind } from "@/modules/finance/lib/recs";
 import styles from "./Recs.module.css";
 
 type Send = (path: string, body?: unknown, method?: string) => Promise<boolean>;
@@ -34,6 +34,7 @@ export default function RecReconciling({ data, ev, preparing, busy, send }: { da
   const [localError, setLocalError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ side: "xero_only", kind: "timing", txn_date: "", description: "", amount: "", note: "" });
+  const bank = !!ev.statement_upload;
   const items = ev.reconciling ?? [];
   const open = items.filter((i) => i.state === "open");
   const cleared = items.filter((i) => i.state === "cleared");
@@ -49,8 +50,10 @@ export default function RecReconciling({ data, ev, preparing, busy, send }: { da
   return (
     <section className={`${styles.card} ${styles.section}`}>
       <div className={styles.cardHead}>
-        <h2 className={styles.h2}>Bank statement and reconciling items</h2>
-        <span className={styles.small}>Statement balance, plus what is in Xero but not yet on the statement, less what is on the statement but not in Xero, equals the ledger.</span>
+        <h2 className={styles.h2}>{bank ? "Bank statement and reconciling items" : "Reconciling items"}</h2>
+        <span className={styles.small}>{bank
+          ? "Statement balance, plus what is in Xero but not yet on the statement, less what is on the statement but not in Xero, equals the ledger."
+          : "Evidence balance, plus what is in Xero but not in the evidence, less what is in the evidence but not in Xero, equals the ledger."}</span>
       </div>
 
       {(ev.statements ?? []).map((st) => (
@@ -66,9 +69,9 @@ export default function RecReconciling({ data, ev, preparing, busy, send }: { da
       {(ev.bridge ?? []).filter((b) => b.evidence !== null || b.open > 0).map((b) => (
         <div key={b.entity_id} className={styles.pad} style={{ borderBottom: "1px solid var(--bd)" }}>
           {(ev.bridge ?? []).length > 1 && <div className={styles.sub}><strong>{b.entity}</strong></div>}
-          <Line label="Statement balance" value={signed(b.evidence)} />
-          <Line label="Add: in Xero, not on the statement" value={signed(b.xero_only)} />
-          <Line label="Less: on the statement, not in Xero" value={signed(b.bank_only)} />
+          <Line label={bank ? "Statement balance" : "Evidence balance"} value={signed(b.evidence)} />
+          <Line label={bank ? "Add: in Xero, not on the statement" : "Add: in Xero, not in the evidence"} value={signed(b.xero_only)} />
+          <Line label={bank ? "Less: on the statement, not in Xero" : "Less: in the evidence, not in Xero"} value={signed(b.bank_only)} />
           <Line label="Comes to" value={signed(b.adjusted)} strong />
           <Line label="Ledger in Xero" value={signed(b.ledger)} />
           <Line label="Difference" value={signed(b.difference)} strong warn={b.difference !== null && Number(b.difference) !== 0} />
@@ -101,11 +104,11 @@ export default function RecReconciling({ data, ev, preparing, busy, send }: { da
       <div className={styles.pad}>
         {open.length === 0
           ? <span className={styles.sub}>No open reconciling items.</span>
-          : open.map((it) => <Item key={it.id ?? `${it.txn_date}${it.amount}`} it={it} preparing={preparing} busy={busy} send={send} many={companies.length > 1} />)}
+          : open.map((it) => <Item key={it.id ?? `${it.txn_date}${it.amount}`} it={it} bank={bank} preparing={preparing} busy={busy} send={send} many={companies.length > 1} />)}
         {cleared.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <button type="button" className="btn-text" onClick={() => setShowCleared(!showCleared)}>{showCleared ? "Hide" : "Show"} {cleared.length} cleared</button>
-            {showCleared && cleared.map((it) => <Item key={it.id ?? `${it.txn_date}${it.amount}`} it={it} preparing={preparing} busy={busy} send={send} many={companies.length > 1} />)}
+            {showCleared && cleared.map((it) => <Item key={it.id ?? `${it.txn_date}${it.amount}`} it={it} bank={bank} preparing={preparing} busy={busy} send={send} many={companies.length > 1} />)}
           </div>
         )}
       </div>
@@ -121,11 +124,11 @@ export default function RecReconciling({ data, ev, preparing, busy, send }: { da
                 </select>
               )}
               <select className={styles.pick} value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })} aria-label="Where it is">
-                <option value="xero_only">{SIDE_LABEL.xero_only}</option>
-                <option value="bank_only">{SIDE_LABEL.bank_only}</option>
+                <option value="xero_only">{sideLabel("xero_only", bank)}</option>
+                <option value="bank_only">{sideLabel("bank_only", bank)}</option>
               </select>
               <select className={styles.pick} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} aria-label="Kind">
-                {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+                {KINDS.map((k) => <option key={k} value={k}>{kindLabel(k, bank)}</option>)}
               </select>
               <input className={styles.input} type="date" value={form.txn_date} onChange={(e) => setForm({ ...form, txn_date: e.target.value })} aria-label="Date" />
               <input className={styles.input} placeholder="What it is" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} aria-label="Description" />
@@ -152,7 +155,7 @@ function Line({ label, value, strong = false, warn = false }: { label: string; v
   );
 }
 
-function Item({ it, preparing, busy, send, many }: { it: ReconcilingItem; preparing: boolean; busy: boolean; send: Send; many: boolean }) {
+function Item({ it, bank, preparing, busy, send, many }: { it: ReconcilingItem; bank: boolean; preparing: boolean; busy: boolean; send: Send; many: boolean }) {
   const [clearing, setClearing] = useState(false);
   const [why, setWhy] = useState("");
   const live = preparing && it.id && it.state === "open";
@@ -161,17 +164,17 @@ function Item({ it, preparing, busy, send, many }: { it: ReconcilingItem; prepar
       <div className={styles.evMain}>
         <div><strong>{signed(it.amount)}</strong> · {it.txn_date ? dayLabel(it.txn_date) : "no date"}{many ? ` · ${it.entity}` : ""}</div>
         <div className={styles.small}>{it.description ?? "-"}</div>
-        <div className={styles.small}>{SIDE_LABEL[it.side]}{it.source === "keyed" && it.added_by ? ` · added by ${it.added_by.startsWith("agent:") ? it.added_by.slice(6).toUpperCase() : it.added_by}` : " · from the statement"}</div>
+        <div className={styles.small}>{sideLabel(it.side, bank)}{it.source === "keyed" && it.added_by ? ` · added by ${it.added_by.startsWith("agent:") ? it.added_by.slice(6).toUpperCase() : it.added_by}` : " · from the statement"}</div>
         {it.note && <div className={styles.small}>{it.note}</div>}
         {it.state === "cleared" && <div className={styles.small}>Cleared{it.cleared_at ? ` ${dayLabel(it.cleared_at)}` : ""}{it.cleared_note ? `: ${it.cleared_note}` : ""}</div>}
         {live ? (
           <select className={styles.pick} style={{ marginTop: 6 }} value={it.kind} disabled={busy} onChange={(e) => void send(`reconciling/${it.id}`, { kind: e.target.value }, "PATCH")} aria-label="Kind">
-            {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            {KINDS.map((k) => <option key={k} value={k}>{kindLabel(k, bank)}</option>)}
           </select>
-        ) : <div className={styles.small}>{KIND_LABEL[it.kind]}</div>}
+        ) : <div className={styles.small}>{kindLabel(it.kind, bank)}</div>}
         {clearing && (
           <div className={styles.actions} style={{ marginTop: 6 }}>
-            <input className={styles.input} placeholder="Why it is cleared: through the bank on a date, fixed in Xero, explained" value={why} onChange={(e) => setWhy(e.target.value)} aria-label="Why it is cleared" />
+            <input className={styles.input} placeholder={bank ? "Why it is cleared: through the bank on a date, fixed in Xero, explained" : "Why it is cleared: paid on a date, fixed in Xero, explained"} value={why} onChange={(e) => setWhy(e.target.value)} aria-label="Why it is cleared" />
             <button type="button" className="btn-primary" disabled={busy || why.trim().length < 5}
               onClick={async () => { if (await send(`reconciling/${it.id}`, { state: "cleared", cleared_note: why }, "PATCH")) setClearing(false); }}>Clear</button>
           </div>

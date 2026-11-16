@@ -172,6 +172,13 @@ export const KIND_LABEL: Record<ReconcilingKind, string> = {
   query: "Query for the client",
 };
 export const SIDE_LABEL = { bank_only: "On the statement, not in Xero", xero_only: "In Xero, not on the statement" } as const;
+// The same card serves a bank rec and any other rec proved by outside evidence
+// (PAYE, VAT, pensions). Off a bank account it talks about the evidence, not a
+// bank statement (16 Nov 2026).
+export const OTHER_SIDE_LABEL = { bank_only: "In the evidence, not in Xero", xero_only: "In Xero, not in the evidence" } as const;
+export const sideLabel = (side: keyof typeof SIDE_LABEL, bank: boolean) => (bank ? SIDE_LABEL : OTHER_SIDE_LABEL)[side];
+export const kindLabel = (kind: ReconcilingKind, bank: boolean) =>
+  !bank && kind === "timing" ? "Timing: clears after the month end" : KIND_LABEL[kind];
 
 export interface RecEvidence {
   statement_upload?: boolean;
