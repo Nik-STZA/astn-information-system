@@ -498,13 +498,16 @@ note), IA Track next, Software last once unpaused.
 
 ## 11. Forecast layer and the budget feed
 
-### 11.1 How the budget gets asset figures today (V18, checked 16 Nov 2026)
+### 11.1 How the budget gets asset figures today (checked 16 Nov 2026)
 
-`Feldspar Budgeting - V18-WIP-REPAIRED.xlsx` takes every asset figure, actual
-and forecast, across the whole timeline (Jul 2023 to 2031-2036), by external
-link to a register workbook's Summary tab:
+The budget in use is **V17** (`Feldspar Budgeting - V17 - Rev, logistics and
+CDP Update with League exclusion.xlsx`). V18 and V19 are rebuilds in progress
+and **not in use** (CFO, 16 Nov 2026); both inherit the same links.
 
-| V18 tab | Linked file (Finance / Budgets and Forecasts / Capex Budgeting) | Rows read |
+V17 takes every asset figure, actual and forecast, across the whole timeline
+(Jul 2023 to 2031-2036), by external link to a register workbook's Summary tab:
+
+| Budget tab | Linked file (Finance / Budgets and Forecasts / Capex Budgeting) | Rows read |
 |---|---|---|
 | Intangible Assets | `Feldspar  IA Track Development  V5.xlsx`, Summary | cost, acc. amortisation, charge, WIP per track |
 | Intangible Assets | `Feldspar  Software Development  V5.xlsx`, Summary | software WIP |
@@ -514,7 +517,7 @@ link to a register workbook's Summary tab:
 These are **budget copies**, separate from the month-end registers in
 `Month-end/FY26/YYMM/`. Each register therefore exists twice and can drift; the
 links read fixed cell addresses, so an inserted row in a register moves the
-budget silently. V18's own closing note records a GBP 439,712.54 double count
+budget silently. The V18 rebuild's closing note records a GBP 439,712.54 double count
 of 786 that inflated the modelled raise, from a mapping typo in this area.
 
 ### 11.2 What changes
@@ -534,7 +537,7 @@ never mixed with them:
   amortisation only.
 - **Tags** on assets and cost lines: budget line code (the V19 line code
   scheme, `V19 Line Codes - Draft.csv`) and raise bucket (`Master Mapping with
-  Raise Buckets`), so use of funds and EIS evidence come from the ledger.
+  Raise Buckets`, built for the V19 rebuild), so use of funds and EIS evidence come from the ledger.
 - **Cash timing** from supplier payment terms, and recoverable VAT, for the
   cashflow refresh (capex by supplier row, never aggregated).
 
@@ -542,22 +545,23 @@ The engine (5) runs the same roll-forward forward in time for a chosen
 scenario and version: planned additions, expected transfers, forecast
 amortisation, by month, entity and account.
 
-### 11.3 The feed into V18 (until the budget moves into os.stza.io)
+### 11.3 The feed into the budget model (until the budget moves into os.stza.io)
 
 A generated **drop-in workbook** in long form, one row per entity, account,
 asset group, month and basis, with columns for actual or forecast, scenario,
 version, amount, line code and raise bucket. V18's Intangible Assets and
 Performance Surface Assets tabs are repointed once to `SUMIFS` over that table
 by entity, account, group and month, replacing the external links to the four
-budget copies. No cell-address links, so an inserted row cannot move the
+budget copies. V17 is left as it is: the repoint is built into whichever
+rebuild (V18 or V19) goes live, so a live budget is not re-plumbed mid-year. No cell-address links, so an inserted row cannot move the
 budget. Months up to the last signed register period read `actual`; later
 months read the chosen scenario.
 
 The drop-in carries a control row per entity and account: actual months equal
 the signed register snapshots (4.6), forecast months equal the engine's output
 for the named version. The four Capex Budgeting copies are then retired, after
-one month run in parallel shows V18 unchanged except where the copies were
-stale.
+one month run in parallel shows the live model unchanged except where the
+copies were stale.
 
 ### 11.4 How the FP&A agent works it
 
