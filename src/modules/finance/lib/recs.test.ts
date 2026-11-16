@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, dayLabel, defaultPeriod, isRecPath, isStale, money, periodChoices } from "./recs";
+import { actorLabel, dayLabel, defaultPeriod, isRecPath, isStale, kindLabel, money, periodChoices, sideLabel } from "./recs";
 
 const ID = "12345678-1234-1234-1234-123456789012";
 
@@ -43,5 +43,16 @@ describe("what the screens show", () => {
     expect(isStale(null, now)).toBe(true);
     expect(isStale("2026-11-01T11:30:00Z", now)).toBe(false);
     expect(isStale("2026-11-01T10:30:00Z", now)).toBe(true);
+  });
+});
+
+describe("reconciling item wording", () => {
+  it("talks about the bank statement only on a bank rec", () => {
+    expect(sideLabel("bank_only", true)).toBe("On the statement, not in Xero");
+    expect(sideLabel("bank_only", false)).toBe("In the evidence, not in Xero");
+    expect(sideLabel("xero_only", false)).toBe("In Xero, not in the evidence");
+    expect(kindLabel("timing", true)).toMatch(/through the bank/);
+    expect(kindLabel("timing", false)).not.toMatch(/bank/);
+    expect(kindLabel("error", false)).toBe(kindLabel("error", true));
   });
 });

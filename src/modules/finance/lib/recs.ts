@@ -28,6 +28,8 @@ export interface RecRow {
   workable: boolean;
   companies: number;
   prior_status: RecStatus | null;
+  ledger_now?: string;
+  moved?: string;
 }
 
 export interface EntityError { entity_id: string; entity: string; error: string }
@@ -46,6 +48,16 @@ export interface RecList {
   counts: { total: number; signed_off: number; recheck: number };
   lines: Array<{ key: string; line: string }>;
   recs: RecRow[];
+  intercompany?: IntercompanyView | null;
+}
+
+// The group's intercompany position for the month (16 Nov 2026).
+export interface IntercompanySide { rec_id: string; account_name: string; entity_id: string; entity: string; closing: string; status: RecStatus }
+export interface IntercompanyView {
+  pairs: Array<{ a: IntercompanySide; b: IntercompanySide; difference: string; ties: boolean }>;
+  unpaired: Array<IntercompanySide & { suggested: { account_name: string; entity: string; difference: string } | null }>;
+  grid: { entities: Array<{ id: string; name: string }>; cells: Array<{ from: string; to: string; amount: string }> };
+  ties: boolean;
 }
 
 export interface CoverRow {
@@ -162,6 +174,13 @@ export const KIND_LABEL: Record<ReconcilingKind, string> = {
   query: "Query for the client",
 };
 export const SIDE_LABEL = { bank_only: "On the statement, not in Xero", xero_only: "In Xero, not on the statement" } as const;
+// The same card serves a bank rec and any other rec proved by outside evidence
+// (PAYE, VAT, pensions). Off a bank account it talks about the evidence, not a
+// bank statement (16 Nov 2026).
+export const OTHER_SIDE_LABEL = { bank_only: "In the evidence, not in Xero", xero_only: "In Xero, not in the evidence" } as const;
+export const sideLabel = (side: keyof typeof SIDE_LABEL, bank: boolean) => (bank ? SIDE_LABEL : OTHER_SIDE_LABEL)[side];
+export const kindLabel = (kind: ReconcilingKind, bank: boolean) =>
+  !bank && kind === "timing" ? "Timing: clears after the month end" : KIND_LABEL[kind];
 
 export interface RecEvidence {
   statement_upload?: boolean;

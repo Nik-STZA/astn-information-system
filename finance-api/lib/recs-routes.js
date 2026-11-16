@@ -214,6 +214,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         pool.query(
           `SELECT r.id, r.rec_account_id, r.period, r.status, r.owner, r.challenge, r.class, r.artefact, r.proof, r.recheck_reason,
                   r.sole_reviewer, r.signed_snapshot, r.line_key, a.account_name,
+                  to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id,
                   COALESCE(json_agg(json_build_object('entity_id', b.entity_id, 'closing', b.closing, 'code', b.account_code, 'currency', b.currency)) FILTER (WHERE b.rec_id IS NOT NULL), '[]') AS balances
              FROM finance.recs r
              JOIN finance.rec_accounts a ON a.id = r.rec_account_id
@@ -242,11 +243,29 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           proof: r.proof, status: r.status, owner: r.owner, challenge: r.challenge, class: r.class, with: holder(r),
           ledger: money(c.group.gl), support: money(c.group.schedule), difference: money(c.group.variance), ties: c.ties, mixed_currency: c.mixed_currency,
           sole_reviewer: r.sole_reviewer, recheck_reason: r.recheck_reason, workable: recs.workable(r.line_key, r.proof), companies: balances.length,
+          // A signed rec flagged to re-check: Xero's figure now, beside what was signed.
+          ...(signed && r.recheck_reason && !c.mixed_currency ? (() => {
+            const now = r.balances.reduce((t, b) => t + recs.pence(b.closing), 0);
+            return { ledger_now: money(now), moved: money(now - (c.group.gl ?? 0)) };
+          })() : {}),
           prior_status: priorBy.get(r.rec_account_id) ?? null,
         };
       });
+      // Across the group: the intercompany recs, one company each, as the
+      // figures the list shows (a signed rec, what was signed).
+      const names = new Map(entities.map((e) => [e.id, e.name]));
+      const icAccounts = [];
+      for (const r of rows.rows) {
+        if (recs.autoMethod(r) !== "counterpart") continue;
+        const bals = r.status === "signed_off" && r.signed_snapshot ? r.signed_snapshot.balances : r.balances;
+        if (bals.length !== 1) continue;
+        icAccounts.push({ rec_id: r.id, rec_account_id: r.rec_account_id, account_name: r.account_name, entity_id: bals[0].entity_id,
+          closing: recs.pence(bals[0].closing), counterpart_account_id: r.counterpart_account_id, status: r.status });
+      }
+      const intercompany = icAccounts.length ? recs.intercompanyGrid(icAccounts, names, tol) : null;
       const errors = run.rows[0]?.entity_errors ?? [];
       res.json({
+        intercompany,
         ...base,
         prior: { ...base.prior, open: priorRecs.rows.some((r) => r.recheck_reason || (r.status !== "signed_off" && !r.dropped_at)) },
         tolerance: money(tol),
@@ -1465,7 +1484,14 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           const invoices = await xeroPages(ctx, "/Invoices", "Invoices", { where });
           const cnWhere = `Type=="${kind === "ap" ? "ACCPAYCREDIT" : "ACCRECCREDIT"}" AND Date <= DateTime(${dt[0]},${dt[1]},${dt[2]}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
           const creditNotes = await xeroPages(ctx, "/CreditNotes", "CreditNotes", { where: cnWhere });
-          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes });
+          // Unallocated prepayments and overpayments sit on the control account too.
+          const side = kind === "ap" ? "SPEND" : "RECEIVE";
+          const upTo = `Date <= DateTime(${dt[0]},${dt[1]},${dt[2]})`;
+          const advances = [
+            ...await xeroPages(ctx, "/Prepayments", "Prepayments", { where: `Type=="${side}-PREPAYMENT" AND ${upTo}` }),
+            ...await xeroPages(ctx, "/Overpayments", "Overpayments", { where: `Type=="${side}-OVERPAYMENT" AND ${upTo}` }),
+          ];
+          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances });
           rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "supplier bills" : "sales invoices"} outstanding at ${date}`, note: ev.note });
           said.push(`${e.name}: ${ev.note}`);
         } catch (err) {
