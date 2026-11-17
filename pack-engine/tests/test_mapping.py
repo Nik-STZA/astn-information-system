@@ -135,6 +135,22 @@ def test_management_ebitda_sits_after_cash_overheads_and_before_depreciation(tmp
         assert f"F{labels['Depreciation and amortisation']}" not in ws.cell(labels["Total overheads"], 6).value
 
 
+def test_sublines_group_a_category_and_its_total_is_theirs(tmp_path, profile):
+    data = saved(overrides={"a-sal": {"subline": "Salaries"}, "a-pen": {"subline": "Pensions & benefits"}})
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)
+    assert res.failed == []
+    ws = openpyxl.load_workbook(res.path)["Profit and loss"]
+    labels = rows_labelled(ws)
+    sal_head, pen_head, staff = labels["Salaries"], labels["Pensions & benefits"], labels["Staff costs"]
+    assert staff < sal_head < labels["477 - Salaries"] < pen_head < labels["481 - Pension"]
+    assert ws.cell(staff, 6).value == f"=F{sal_head}+F{pen_head}"
+    assert ws.cell(sal_head, 6).value == f"=SUM(F{sal_head + 1}:F{sal_head + 1})"
+    assert ws.row_dimensions[sal_head].outlineLevel == 1 and ws.row_dimensions[labels["477 - Salaries"]].outlineLevel == 2
+    # A category with no sub-lines draws as before.
+    rent = labels["Establishment costs"]
+    assert ws.cell(rent, 6).value.startswith("=SUM(")
+
+
 def test_a_cash_flow_override_moves_one_account(tmp_path, profile):
     data = saved(overrides={"a-cred": {"cashFlow": "loans"}})
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)

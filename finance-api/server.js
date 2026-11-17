@@ -2898,7 +2898,7 @@ async function loadCategories(db, clientId) {
 
 async function loadStoredMappings(db, entityId) {
   const { rows } = await db.query(
-    `SELECT xero_account_id, account_code, account_name, account_class, category_key, cash_flow,
+    `SELECT xero_account_id, account_code, account_name, account_class, category_key, cash_flow, subline,
             status, source, reason, proposed_by_email, proposed_at, approved_by_email,
             approved_role, approved_at, updated_at
      FROM finance.account_mappings WHERE entity_id = $1`,
@@ -3099,6 +3099,7 @@ app.post("/api/finance/clients/:slug/coa-mapping/:entity", route(async (req, res
   const changed = writes.filter((w) => {
     const s = stored.get(w.accountId);
     return !s || s.category_key !== w.category || s.status !== w.status || (s.cash_flow ?? null) !== w.cashFlow
+      || (s.subline ?? null) !== (w.subline ?? null)
       || (s.account_code ?? null) !== w.code || s.account_name !== w.name;
   });
 
@@ -3112,8 +3113,8 @@ app.post("/api/finance/clients/:slug/coa-mapping/:entity", route(async (req, res
         `INSERT INTO finance.account_mappings AS m
            (client_id, entity_id, xero_account_id, account_code, account_name, account_class,
             category_key, cash_flow, status, source, reason, proposed_by_email,
-            approved_by_email, approved_role, approved_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CASE WHEN $9 = 'approved' THEN now() END)
+            approved_by_email, approved_role, approved_at, subline)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CASE WHEN $9 = 'approved' THEN now() END, $15)
          ON CONFLICT (entity_id, xero_account_id) DO UPDATE SET
            account_code = EXCLUDED.account_code,
            account_name = EXCLUDED.account_name,
@@ -3131,11 +3132,12 @@ app.post("/api/finance/clients/:slug/coa-mapping/:entity", route(async (req, res
            reason = EXCLUDED.reason,
            approved_by_email = EXCLUDED.approved_by_email,
            approved_role = EXCLUDED.approved_role,
-           approved_at = EXCLUDED.approved_at`,
+           approved_at = EXCLUDED.approved_at,
+           subline = EXCLUDED.subline`,
         [
           client.id, entity.id, w.accountId, w.code, w.name, w.klass,
           w.category, w.cashFlow, w.status, w.source, w.reason, actorEmail,
-          approved ? actorEmail : null, approved ? role : null,
+          approved ? actorEmail : null, approved ? role : null, w.subline ?? null,
         ]
       );
     }
@@ -3196,6 +3198,7 @@ app.get("/api/finance/clients/:slug/entities/:entity/account-mapping", route(asy
       class: s.account_class,
       category: s.category_key,
       cashFlow: s.cash_flow,
+      subline: s.subline ?? null,
       status: s.status,
       source: s.source,
       reason: s.reason,

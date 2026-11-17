@@ -32,6 +32,8 @@ export interface CoaAccountRow {
   mapping: {
     category: string;
     cashFlow: string | null;
+    // The line within a P&L category (a master file's P&L Mapping 2), migration 054.
+    subline?: string | null;
     status: "proposed" | "approved";
     source: string;
     reason: string | null;
@@ -66,6 +68,7 @@ export interface MappingChange {
   accountId: string;
   category?: string;
   cashFlow?: string | null;
+  subline?: string | null;
   approve?: boolean;
 }
 

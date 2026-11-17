@@ -71,6 +71,7 @@ ROW_STYLES = {
     "section":       dict(font=font(9, bold=True)),
     "detail":        dict(font=font(8, color=GREY_TEXT), fill=fill(ZEBRA)),
     "subtotal":      dict(font=font(9, bold=True), border=Border(top=thin)),
+    "subline":       dict(font=font(8, bold=True)),
     "section_total": dict(font=font(9, bold=True), border=Border(top=thin, bottom=medium)),
     "grand_total":   dict(font=font(9, bold=True), border=Border(top=thin, bottom=double)),
     "check":         dict(font=font(8, italic=True), border=Border(top=thin, bottom=double)),

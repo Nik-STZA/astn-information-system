@@ -182,7 +182,7 @@ class _Writer:
         ws.sheet_view.showGridLines = False
 
     def row(self, label: str, role: str, cells: dict[str, object], indent: int = 0,
-            formula_required=False, grouped=False):
+            formula_required=False, grouped=False, level: int = 1):
         r = self.r
         self.ws.cell(r, 1, ("  " * indent) + label)
         for c, v in cells.items():
@@ -194,7 +194,7 @@ class _Writer:
         style.apply_row(self.ws, r, role, 1, self.last_col, skip_cols=self.skip)
         if grouped:
             dim = self.ws.row_dimensions[r]
-            dim.outlineLevel = 1
+            dim.outlineLevel = level
             dim.hidden = True
         self.r += 1
         return r
@@ -205,6 +205,19 @@ class _Writer:
 
 # --- profit and loss ----------------------------------------------------------------------
 
+def _sublines(lines):
+    """A category's lines grouped by sub-line, in the order of their lowest
+    account code; lines with none go last under "Other". None when no line in
+    the category has a sub-line, so it draws as before."""
+    if not any(l.subline for l in lines):
+        return None
+    groups: dict[str, list] = {}
+    for l in lines:
+        groups.setdefault(l.subline or "Other", []).append(l)
+    key = lambda item: (item[0] == "Other" and not any(l.subline == "Other" for l in item[1]),
+                        min((l.account.code or "zzz") for l in item[1]))
+    return sorted(groups.items(), key=key)
+
 def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: date):
     ws = out.workbook.create_sheet(PNL)
     cols = out.columns
@@ -213,18 +226,42 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
     pcol = cols.months[period_month]
     vcols = cols.value_cols(model)
 
+    def account_row(line, indent, level):
+        r = w.r
+        cells = {cols.months[d]: f"=-{_src(model, out, line.account.id, 'movement', d)}" for d in model.months}
+        for ye, c in cols.prior.items():
+            cells[c] = f"=-{_src(model, out, line.account.id, 'year_end', ye)}"
+        cells[cols.ytd] = f"=SUM({cols.first_month}{r}:{pcol}{r})"
+        w.row(line.account.label, "detail", cells, indent=indent, grouped=True, level=level)
+
     def block(b):
         top = w.r
-        first, last = top + 1, top + len(b.lines)
-        w.row(b.label, "subtotal", {c: f"=SUM({c}{first}:{c}{last})" for c in vcols}, formula_required=True)
-        ws.row_dimensions[top].collapsed = True
-        for line in b.lines:
-            r = w.r
-            cells = {cols.months[d]: f"=-{_src(model, out, line.account.id, 'movement', d)}" for d in model.months}
-            for ye, c in cols.prior.items():
-                cells[c] = f"=-{_src(model, out, line.account.id, 'year_end', ye)}"
-            cells[cols.ytd] = f"=SUM({cols.first_month}{r}:{pcol}{r})"
-            w.row(line.account.label, "detail", cells, indent=1, grouped=True)
+        groups = _sublines(b.lines)
+        if groups is None:
+            first, last = top + 1, top + len(b.lines)
+            w.row(b.label, "subtotal", {c: f"=SUM({c}{first}:{c}{last})" for c in vcols}, formula_required=True)
+            ws.row_dimensions[top].collapsed = True
+            for line in b.lines:
+                account_row(line, 1, 1)
+        else:
+            # Sub-lines (a master file's P&L Mapping 2, 18 Nov 2026): each a
+            # total of its accounts, and the category the total of its sub-lines.
+            w.r += 1
+            heads = []
+            for name, lines in groups:
+                head = w.r
+                heads.append(head)
+                first, last = head + 1, head + len(lines)
+                w.row(name, "subline", {c: f"=SUM({c}{first}:{c}{last})" for c in vcols}, indent=1,
+                      formula_required=True, grouped=True, level=1)
+                ws.row_dimensions[head].collapsed = True
+                for line in lines:
+                    account_row(line, 2, 2)
+            end = w.r
+            w.r = top
+            w.row(b.label, "subtotal", {c: "=" + "+".join(f"{c}{h}" for h in heads) for c in vcols}, formula_required=True)
+            ws.row_dimensions[top].collapsed = True
+            w.r = end
         out.pnl_category_rows[b.category] = top
 
     def total(label, parts: list, role, key):

@@ -30,6 +30,7 @@ class Line:
     priors: dict[date, float]            # year end -> full year (P&L) or balance (BS)
     opening: float = 0.0                 # at the year end before the oldest comparative
     cash_flow: str | None = None         # balance sheet lines: where the movement goes on the cash flow
+    subline: str | None = None           # P&L lines: the sub-line within the category, if the mapping gives one
 
     def at(self, d: date) -> float:
         return self.values[d] if d in self.values else self.priors.get(d, 0.0)
@@ -119,7 +120,7 @@ def build_model(ledger: Ledger, mapping: dict[str, Mapping],
         opening = round(sign * ledger.closing(a.id, ledger.opening_year_end), 2) if ledger.opening_year_end else 0.0
         blocks = pnl_blocks if cat.statement == "pnl" else bs_blocks
         blocks.setdefault(cat.key, Block(cat.key, cat.label)).lines.append(
-            Line(a, cat.key, values, priors, opening, cash_flow))
+            Line(a, cat.key, values, priors, opening, cash_flow, m.subline if cat.statement == "pnl" else None))
 
     order = {k: c.order for k, c in cats.items()}
     for b in (*pnl_blocks.values(), *bs_blocks.values()):

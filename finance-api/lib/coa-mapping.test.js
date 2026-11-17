@@ -117,6 +117,22 @@ describe("planMappingChanges", () => {
     expect(writes[0].before).toEqual({ category: "intangible_assets", status: "proposed", cashFlow: null });
   });
 
+  it("keeps a P&L account's sub-line, tidied, and keeps a saved one when none is sent (migration 054)", () => {
+    let { errors, writes } = planMappingChanges({ changes: [{ accountId: "a-wage", category: "staff_costs", subline: "  Salaries   and wages ", approve: true }], accounts: ACCOUNTS, categories: cats, stored: none });
+    expect(errors).toEqual([]);
+    expect(writes[0].subline).toBe("Salaries and wages");
+    const stored = new Map([["a-wage", { category_key: "staff_costs", status: "approved", source: "upload", reason: "x", cash_flow: null, subline: "Salaries" }]]);
+    ({ writes } = planMappingChanges({ changes: [{ accountId: "a-wage", approve: true }], accounts: ACCOUNTS, categories: cats, stored }));
+    expect(writes[0].subline).toBe("Salaries");
+    ({ writes } = planMappingChanges({ changes: [{ accountId: "a-wage", subline: "", approve: true }], accounts: ACCOUNTS, categories: cats, stored }));
+    expect(writes[0].subline).toBeNull();
+  });
+
+  it("refuses a sub-line on a balance sheet account", () => {
+    const { errors } = planMappingChanges({ changes: [{ accountId: "a-bank", category: "cash", subline: "Main" }], accounts: ACCOUNTS, categories: cats, stored: none });
+    expect(errors[0]).toMatch(/only profit and loss accounts take a sub-line/);
+  });
+
   it("refuses the whole request when any change is wrong", () => {
     const { errors, writes } = planMappingChanges({
       changes: [
