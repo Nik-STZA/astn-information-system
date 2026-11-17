@@ -232,6 +232,21 @@ def build(export: dict) -> Built:
         _put(cv, tot, c, None, fill=TOTAL)
     for c in "DEFGH":
         _put(cv, tot, " DEFGH".index(c) + 3, f"=SUM({c}6:{c}{tot - 1})", bold=True, fmt=NUM, fill=TOTAL)
+    # The per-asset schedules and the cover reconcile on the face of the
+    # sheet: Xero's own amortisation (accounts Xero amortises) is charged at
+    # account level, so it is on the cover but against no asset.
+    nbv_col = get_column_letter(2 + len(months))
+    nbv_tot = len(assets) + 3
+    rec = tot + 2
+    _put(cv, rec, 1, "Schedules against the cover", bold=True)
+    _put(cv, rec + 1, 3, "Net book value of the assets at the month end (NBV tab)")
+    _put(cv, rec + 1, 4, f"='NBV'!{nbv_col}{nbv_tot}", fmt=NUM)
+    _put(cv, rec + 2, 3, "Charged by Xero at account level, against no asset")
+    _put(cv, rec + 2, 4, f"=SUM({gr('G')})", fmt=NUM)
+    _put(cv, rec + 3, 3, "Register on the cover", bold=True, fill=TOTAL)
+    _put(cv, rec + 3, 4, f"=D{rec + 1}+D{rec + 2}", bold=True, fmt=NUM, fill=TOTAL)
+    _put(cv, rec + 4, 3, "Agrees with the register total above")
+    _put(cv, rec + 4, 4, f'=IF(ABS(D{rec + 3}-D{tot})<0.005,"Yes","No")')
     _widths(cv, [14, 9, 44, 16, 16, 14, 14, 14, 7])
 
     # ── Controls: computed here from the same data, checked against the
@@ -255,6 +270,10 @@ def build(export: dict) -> Built:
             out.failures.append(f"{k[0]} {k[1]}: {unexplained:,.2f} unexplained")
         if g.get("register") is not None and _r2(g["register"]) != reg.get(k, 0):
             out.failures.append(f"{k[0]} {k[1]}: the workbook's register {reg.get(k, 0):,.2f} differs from the prepared month's {_r2(g['register']):,.2f}")
+    by_asset = sum(float(l.get("amount") or 0) for l in lines if l.get("treatment") == "capitalise" and l.get("asset_no"))         + sum(float(e.get("amount") or 0) for e in events if e.get("asset_no") and e.get("side") == "accumulated")
+    by_xero = sum(float(g.get("by_xero") or 0) for g in ledger)
+    if _r2(by_asset + by_xero) != _r2(sum(reg.values())):
+        out.failures.append(f"schedules: the assets' net book value {by_asset:,.2f} and Xero's own charge {by_xero:,.2f} do not make the register {sum(reg.values()):,.2f}")
     sources = {}
     for l in lines:
         sk = l.get("source_key")
@@ -270,6 +289,7 @@ def build(export: dict) -> Built:
     rows = [("Register ties to the ledger after named items, every account", not any("unexplained" in f for f in out.failures)),
             ("Workbook register equals the prepared month's register", not any("differs" in f for f in out.failures)),
             ("Every source line's slices make its net", not any(f.startswith("source ") for f in out.failures)),
+            ("The assets' schedules and Xero's own charge make the register", not any(f.startswith("schedules:") for f in out.failures)),
             ("Every schedule and cover figure is a formula", True)]
     for i, (name, ok) in enumerate(rows, start=3):
         _put(ct, i, 1, name)
@@ -289,6 +309,7 @@ def write(export: dict, out_dir: Path) -> Path:
     name = f"{export.get('file_stem') or ('Asset register - ' + export['grouping'] + ' - ' + export['period'])}"
     if not built.ok:
         name += " - FAILED CONTROLS"
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
     path = Path(out_dir) / f"{name}.xlsx"
     built.workbook.save(path)
     return path

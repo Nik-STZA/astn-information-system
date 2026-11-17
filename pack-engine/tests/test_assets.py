@@ -91,3 +91,25 @@ def test_refuses_an_export_without_its_months():
     import pytest
     with pytest.raises(assets.ExportError):
         assets.build(export(months=["2026-08"]))
+
+
+def test_the_cover_reconciles_the_schedules_and_xeros_own_charge(tmp_path):
+    # Written into a folder that does not exist yet.
+    path = assets.write(export(), tmp_path / "new" / "folder")
+    assert path.exists() and "FAILED" not in path.name
+    wb = load_workbook(path)
+    book = Sheetbook(wb)
+    # Ledger rows 6-8, total row 9, the reconciliation from row 11.
+    assert round(book.number("Cover Sheet", "D12"), 2) == 1696.67  # NBV of the assets
+    assert round(book.number("Cover Sheet", "D13"), 2) == -7.67  # Xero's own charge, against no asset
+    assert round(book.number("Cover Sheet", "D14"), 2) == round(book.number("Cover Sheet", "D9"), 2) == 1689.00
+    assert book.value("Cover Sheet", "D15") == "Yes"
+    controls = {wb["Controls"][f"A{r}"].value: wb["Controls"][f"B{r}"].value for r in range(3, 9)}
+    assert controls["The assets' schedules and Xero's own charge make the register"] == "Pass"
+
+
+def test_schedules_that_do_not_make_the_register_fail_a_control(tmp_path):
+    e = export()
+    e["events"][0]["asset_no"] = None  # a charge on an account but against no asset, and not Xero's
+    built = assets.build(e)
+    assert any(f.startswith("schedules:") for f in built.failures)

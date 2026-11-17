@@ -544,6 +544,15 @@ Software's.
   not foot unless acknowledged, anything unexplained.
 - `POST .../asset-register/periods/sign` signs a prepared month, in order;
   from then on nothing dated in it can change.
+- `withdraw` (18 November 2026), a decide action: when a document is changed
+  in Xero after its line was taken in (recoded, credited, voided), the CFO
+  withdraws the line, with a reason of at least 10 characters. It is kept for
+  the record (an approval row from its old state to `withdrawn`), and the next
+  intake takes the document in again as it now stands, to be decided afresh.
+  All slices of a split source line are withdrawn together. Only lines taken
+  in from Xero can be withdrawn (workbook lines are history), and never in a
+  signed month: reopen first. Until it is withdrawn, the month's tie fails on
+  the old and new accounts, so a recode can't go unnoticed.
 
 ## 7. Excel export (pack engine)
 

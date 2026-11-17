@@ -258,8 +258,11 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
          FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
         WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
     const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
+    // A Xero line is held while a line for it is proposed, approved or
+    // rejected. Once withdrawn (with a split's original, superseded), it is
+    // taken in again as it now stands in Xero.
     const existing = new Set((await pool.query(
-      "SELECT source_type, xero_source_id, xero_line_id FROM finance.asset_cost_lines WHERE client_id = $1 AND xero_source_id IS NOT NULL", [client.id])).rows
+      "SELECT source_type, xero_source_id, xero_line_id FROM finance.asset_cost_lines WHERE client_id = $1 AND xero_source_id IS NOT NULL AND state IN ('proposed', 'approved', 'rejected')", [client.id])).rows
       .map((r) => `${r.source_type}|${r.xero_source_id}|${r.xero_line_id}`));
     const docs = [];
     for (const slug of [...new Set(map.map((m) => m.slug))]) {
@@ -313,7 +316,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
   // ── Deciding cost lines ────────────────────────────────────────────────────
   //
   // POST .../asset-register/cost-lines/decide
-  //   { decisions: [{ id, action: "approve" | "reject", asset_no?, treatment?, reason }] }
+  //   { decisions: [{ id, action: "approve" | "reject" | "split" | "attach" | "withdraw", asset_no?, treatment?, reason }] }
   // The CFO decides proposed lines: approve (with the asset and treatment, and
   // a reason), or reject. All or none; every decision is an approval row.
 
@@ -331,10 +334,30 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
       const role = await roleOf(conn, client.id, who.actorEmail);
       if (!isCfo(role)) { await conn.query("ROLLBACK"); return res.status(403).json({ error: "only the CFO decides cost lines" }); }
       const issues = [];
+      const withdrawn = [];
       for (const [i, d] of decisions.entries()) {
         const where = `decision ${i + 1}`;
         const line = (await conn.query("SELECT * FROM finance.asset_cost_lines WHERE client_id = $1 AND id = $2 FOR UPDATE", [client.id, d.id])).rows[0];
         if (!line) { issues.push(`${where}: no cost line ${d.id}`); continue; }
+        if (d.action === "withdraw") {
+          // The source document changed in Xero after the line was taken in
+          // (recoded, credited, voided). The line leaves the register, kept
+          // for the record; the next intake takes the document in again as it
+          // now stands. Every slice of the source line goes together, so no
+          // part of a split is left behind. A signed month refuses it (the
+          // period lock): reopen first.
+          if (!["proposed", "approved"].includes(line.state)) { issues.push(`${where}: the line is ${line.state}; only a proposed or approved line can be withdrawn`); continue; }
+          if (!line.xero_source_id) { issues.push(`${where}: only a line taken in from Xero can be withdrawn; a workbook line is history`); continue; }
+          if (String(d.reason ?? "").trim().length < 10) { issues.push(`${where}: say what changed in Xero (at least 10 characters)`); continue; }
+          await conn.query("UPDATE finance.asset_cost_lines SET state = 'withdrawn', updated_at = now() WHERE id = $1", [line.id]);
+          await conn.query(
+            `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
+             VALUES ($1,'cost_line',$2,$3,'withdrawn',$4,$5,$6,$7)`,
+            [client.id, line.id, line.state, who.actorEmail, role, String(d.reason).trim(),
+              JSON.stringify({ source_type: line.source_type, xero_source_id: line.xero_source_id, xero_line_id: line.xero_line_id })]);
+          withdrawn.push(line);
+          continue;
+        }
         if (line.state !== "proposed") { issues.push(`${where}: the line is ${line.state}, not proposed`); continue; }
         if (String(d.reason ?? "").trim().length < 3) { issues.push(`${where}: a reason is required`); continue; }
         if (d.action === "attach") {
@@ -419,12 +442,19 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
           await conn.query(
             `UPDATE finance.asset_cost_lines SET state = 'approved', treatment = $2, asset_id = $3, reason_text = $4,
                fields = fields - 'question', updated_at = now() WHERE id = $1`, [line.id, treatment, assetId, String(d.reason).trim()]);
-        } else { issues.push(`${where}: action must be approve, split, attach or reject`); continue; }
+        } else { issues.push(`${where}: action must be approve, split, attach, reject or withdraw`); continue; }
         await conn.query(
           `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason, detail)
            VALUES ($1,'cost_line',$2,'proposed',$3,$4,$5,$6,$7)`,
           [client.id, line.id, d.action === "approve" ? "approved" : "rejected", who.actorEmail, role, String(d.reason).trim(),
             JSON.stringify({ asset_no: d.asset_no ?? null, treatment: d.treatment ?? null })]);
+      }
+      for (const w of withdrawn) {
+        const left = (await conn.query(
+          `SELECT id FROM finance.asset_cost_lines WHERE client_id = $1 AND source_type = $2 AND xero_source_id = $3
+              AND xero_line_id IS NOT DISTINCT FROM $4 AND state IN ('proposed', 'approved')`,
+          [client.id, w.source_type, w.xero_source_id, w.xero_line_id])).rows;
+        if (left.length) issues.push(`withdrawing ${w.id} leaves ${left.length} other slice(s) of the same Xero line in the register (${left.map((x) => x.id).join(", ")}): withdraw them together`);
       }
       if (issues.length) { await conn.query("ROLLBACK"); return res.status(422).json({ issues }); }
       await conn.query("COMMIT");
