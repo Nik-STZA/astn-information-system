@@ -67,7 +67,9 @@ export interface ScheduleLine {
 
 export interface ScheduleGrouping {
   grouping: string;
+  // The client's own name for the register (Settings), else the standard one.
   name: string;
+  catalogue_name?: string;
   paused: boolean;
   month: { period: string; status: "open" | "prepared" | "signed"; opening: boolean; prepared_by: Person | null; prepared_at: string | null; signed_by: Person | null; signed_at: string | null } | null;
   months: Array<{ period: string; status: string }>;

@@ -1,6 +1,6 @@
 // Asset register: passes the portal's decisions through to finance-api as the
 // signed-in person. Only the paths in isAssetRegisterPath are reachable
-// (deciding lines, signing and reopening months). finance-api checks that the
+// (deciding lines, signing and reopening months, naming a register). finance-api checks that the
 // person is the client's CFO, the reason, and the period lock.
 
 import { NextResponse } from "next/server";

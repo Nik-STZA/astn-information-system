@@ -367,6 +367,19 @@ async function scenario() {
       x776?.xero_charge_bf === 0 && x776.xero_charge_in_month === 0 && x774?.xero_charge_bf === null && x774.xero_charge_in_month === null, { x776, x774 });
     ok("and every line behind each asset, with its asset", sg?.lines.some((l) => l.invoice_no === "INV-77" && l.amount === 500 && l.asset_id === sPat.id && l.account === "774")
       && sg.lines.filter((l) => l.asset_id === sNew.id).length === 1, sg?.lines);
+    r = await api("POST", "asset-register/groupings/name", { grouping: "ip_registered", name: "Brand  and IP" }, { "X-Actor-Email": BOOK });
+    ok("only the CFO names a register", r.status === 403, r);
+    r = await api("POST", "asset-register/groupings/name", { grouping: "ip_registered", name: "x".repeat(61) });
+    ok("a name is kept to 60 characters", r.status === 422, r.body);
+    r = await api("POST", "asset-register/groupings/name", { grouping: "dev_project", name: "Projects" });
+    ok("a register the client does not keep cannot be named", r.status === 404, r.body);
+    r = await api("POST", "asset-register/groupings/name", { grouping: "ip_registered", name: "Brand  and IP " });
+    const named = (await api("GET", "asset-register/schedule?period=2026-09")).body.groupings?.find((g) => g.grouping === "ip_registered");
+    const listed = (await api("GET", "asset-register")).body.groupings?.find((g) => g.grouping === "ip_registered");
+    ok("the CFO names it, and the page and the list show the client's name with the standard one underneath", r.status === 200 && r.body.name === "Brand and IP"
+      && named?.name === "Brand and IP" && named.catalogue_name !== "Brand and IP" && listed?.display_name === "Brand and IP", { r: r.body, named: named?.name, listed });
+    r = await api("POST", "asset-register/groupings/name", { grouping: "ip_registered", name: "" });
+    ok("an empty name goes back to the standard one", r.status === 200 && r.body.display_name === null && r.body.name === r.body.catalogue_name, r.body);
     r = await api("GET", "asset-register/schedule");
     ok("with no month asked, the latest prepared or signed", r.status === 200 && r.body.period === "2026-10" && r.body.months.includes("2026-08"), r.body.period);
     r = await api("GET", "asset-register/view");
