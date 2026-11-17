@@ -1,7 +1,7 @@
 ---
 name: fixed-assets
 title: Fixed assets
-version: 1.2.0
+version: 1.3.0
 summary: Proving tangible and intangible assets and lease balances to a register: additions, disposals and depreciation rolled forward and tied to the ledger.
 roles: fm1,fc
 ---
@@ -25,9 +25,20 @@ accumulated depreciation are separate GL accounts, so each is its own rec.
 ## What proves the balance
 
 **A schedule: the fixed asset register**, cost and accumulated depreciation, by class.
-Normally this is Xero's register, read with `get_fixed_assets`. Where a client keeps
-a register outside Xero, it reaches you as an attachment or from a person, and you
-say so. The register is proved by a roll-forward: opening, additions, disposals,
+On the reconciliation, `fetch_rec_evidence` takes it for you as evidence, per company:
+
+- **An account the os.stza.io asset register keeps** (Fixed assets page): the register's
+  figure for that company and account, from the month **signed** by the CFO. A month
+  only prepared is not evidence yet; say so, leave it for the CFO to sign, and do not
+  key the figure in its place. A difference between the register and the ledger is
+  worked on the register (its named items), not on the rec.
+- **An account Xero's own register keeps**: its cost from the assets on it at the month
+  end, for any month. Its accumulated depreciation only when Xero's depreciation was
+  run to that month end; otherwise record Xero's Fixed Asset Reconciliation report
+  for the month as outside evidence, with the report as its document.
+
+Otherwise, where a client keeps a register outside both, it reaches you as an
+attachment or from a person, and you say so. The register is proved by a roll-forward: opening, additions, disposals,
 depreciation, closing, for cost and for depreciation separately.
 
 Xero's depreciation is posted by Xero and is not a manual journal, so you will not
@@ -149,3 +160,4 @@ still open. The FC recomputes the depreciation for a class itself.
 |---|---|---|
 | 1.0.0 | 1 November 2026 | First version. |
 | 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |
+| 1.3.0 | 18 November 2026 | The signed os.stza.io asset register, or Xero's own register, is fetched onto the rec as its evidence. |

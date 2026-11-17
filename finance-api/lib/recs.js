@@ -189,7 +189,10 @@ const EVIDENCE_PROOFS = new Set(["outside_evidence", "ledger_review"]);
 // Deferred income is proved by a schedule, and its schedule is the contracts
 // register (migration 047): the register's held amounts come onto the rec as
 // evidence per company, so it is worked as an evidence rec (15 Nov 2026).
-const REGISTER_SCHEDULED = new Set(["deferred"]);
+// Tangible and intangible assets likewise (18 Nov 2026): their schedule is the
+// asset register, signed for the month in os.stza.io, or Xero's own register
+// for the accounts Xero keeps (lib/rec-asset-evidence.js).
+const REGISTER_SCHEDULED = new Set(["deferred", "ppe", "intangible"]);
 const usesEvidence = (lineKey, proof) => Boolean(lineKey)
   && (EVIDENCE_PROOFS.has(proof) || (proof === "schedule" && REGISTER_SCHEDULED.has(lineKey)));
 // The kind an evidence row is held as (rec_evidence allows the two evidence
@@ -233,8 +236,10 @@ const blockingItems = (reconciling = []) => (reconciling || []).filter((it) => i
 //   counterpart            an intercompany account against the paired account in the other company
 //   carry_forward          an account that did not move: last month's signed evidence, carried
 //   contracts              deferred income against the contracts register's held amounts
+//   asset_register         tangible and intangible assets against the signed asset register (or Xero's)
 function autoMethod(rec) {
   if (rec.line_key === "deferred") return "contracts";
+  if (rec.line_key === "ppe" || rec.line_key === "intangible") return "asset_register";
   if (rec.line_key === "ar") return "ageing_ar";
   if (rec.line_key === "ap") return "ageing_ap";
   // Intercompany payables too (16 Nov 2026): a balance owed to a group company is
@@ -250,6 +255,7 @@ const METHOD_LABEL = {
   counterpart: "The paired account in the other company, reversed",
   carry_forward: "Last month's signed evidence, carried where the account did not move",
   contracts: "The contracts register: what each customer contract holds on the account at the month end",
+  asset_register: "The asset register signed for the month (Xero's own register for the accounts Xero keeps)",
 };
 
 // A Xero date as YYYY-MM-DD, or null. Xero sends "2026-10-18T00:00:00" in a

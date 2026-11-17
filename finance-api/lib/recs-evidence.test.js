@@ -11,9 +11,13 @@ describe("which recs can be worked", () => {
     expect(workable("ar", "outside_evidence")).toBe(true);
     expect(workable("reserves", "ledger_review")).toBe(true);
     expect(workable(null, "ledger_review")).toBe(false);
-    expect(workable("ppe", "schedule")).toBe(false);
+    // Asset accounts are proved by the asset register as evidence (18 Nov 2026).
+    expect(workable("ppe", "schedule")).toBe(true);
+    expect(workable("intangible", "schedule")).toBe(true);
+    expect(autoMethod({ line_key: "ppe" })).toBe("asset_register");
+    expect(workable("provisions", "schedule")).toBe(false);
     expect(notWorkableReason(null, "ledger_review")).toMatch(/Place this account/);
-    expect(notWorkableReason("ppe", "schedule")).toMatch(/schedule, which is not built/);
+    expect(notWorkableReason("provisions", "schedule")).toMatch(/schedule, which is not built/);
     expect(usesEvidence("prepay", "schedule")).toBe(false);
   });
 });

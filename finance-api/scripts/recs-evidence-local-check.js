@@ -26,6 +26,9 @@ const row = (id, name, code, dr, cr, ydr, ycr) => ({ RowType: "Row", Cells: [
   { Value: `${name} (${code})`, Attributes: [{ Id: "account", Value: id }] }, { Value: String(dr) }, { Value: String(cr) }, { Value: String(ydr) }, { Value: String(ycr) }] });
 const accounts = (rows) => rows.map(([AccountID, Code, Name, Class, Type, SystemAccount]) => ({ AccountID, Code, Name, Class, Type, SystemAccount, Status: "ACTIVE" }));
 
+const TM = "aaaaaaaa-0000-4000-8000-000000000775", CE = "aaaaaaaa-0000-4000-8000-000000000720", CD = "aaaaaaaa-0000-4000-8000-000000000721";
+const assetRows = () => [row(TM, "Trade Marks (Registered)", "775", 0, 0, 1500, 0), row(CE, "Computer Equipment", "720", 0, 0, 800, 0),
+  row(CD, "Less Accumulated Depreciation on Computer Equipment", "721", 0, 0, 0, 100)];
 const CHART = {
   a: accounts([
     ["a-ar", "610", "Accounts Receivable", "ASSET", "CURRENT", "DEBTORS"],
@@ -33,6 +36,10 @@ const CHART = {
     ["a-cap", "950", "Capital - Ordinary Shares", "EQUITY", "EQUITY"],
     ["a-bank", "090", "HSBC Innovation", "ASSET", "BANK"],
     ["a-dla", "835", "Directors' Loan Account", "LIABILITY", "CURRLIAB"],
+    // Asset accounts (18 Nov 2026): 775 kept by the os.stza.io register, 720/721 by Xero's.
+    [TM, "775", "Trade Marks (Registered)", "ASSET", "FIXED"],
+    [CE, "720", "Computer Equipment", "ASSET", "FIXED"],
+    [CD, "721", "Less Accumulated Depreciation on Computer Equipment", "ASSET", "FIXED"],
   ]),
   b: accounts([
     ["b-ap", "800", "Accounts Payable", "LIABILITY", "CURRLIAB", "CREDITORS"],
@@ -43,11 +50,11 @@ const CHART = {
 // The bank account in October, and what Xero holds on it (bank statement checks).
 const bankState = { oct: 3888.40, currency: "GBP", txns: [], pays: [] };
 const tbs = {
-  "a:2026-10-31": () => [row("a-ar", "Accounts Receivable", "610", 300, 0, 300, 0), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0),
+  "a:2026-10-31": () => [...assetRows(), row("a-ar", "Accounts Receivable", "610", 300, 0, 300, 0), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0),
     row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100), row("a-bank", "HSBC Innovation", "090", 0, 0, bankState.oct, 0), row("a-dla", "Directors' Loan Account", "835", 0, 0, 0, 5000)],
-  "a:2026-09-30": () => [row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0), row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100),
+  "a:2026-09-30": () => [...assetRows(), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0), row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100),
     row("a-bank", "HSBC Innovation", "090", 0, 0, 3888.40, 0), row("a-dla", "Directors' Loan Account", "835", 0, 0, 0, 5000)],
-  "a:2026-11-30": () => [row("a-ar", "Accounts Receivable", "610", 0, 0, 300, 0), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0),
+  "a:2026-11-30": () => [...assetRows(), row("a-ar", "Accounts Receivable", "610", 0, 0, 300, 0), row("a-ic", "Beta intercompany", "615", 0, 0, 44374.92, 0),
     row("a-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 100), row("a-bank", "HSBC Innovation", "090", 0, 0, 3888.40, 0), row("a-dla", "Directors' Loan Account", "835", 0, 0, 0, 5000)],
   "b:2026-10-31": () => [row("b-ap", "Accounts Payable", "800", 0, 250, 0, 250), row("b-ic", "Alpha intercompany", "816", 0, 0, 0, 43704.92), row("b-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 2)],
   "b:2026-09-30": () => [row("b-ic", "Alpha intercompany", "816", 0, 0, 0, 43704.92), row("b-cap", "Capital - Ordinary Shares", "950", 0, 0, 0, 2)],
@@ -88,6 +95,11 @@ global.fetch = async (url, opts = {}) => {
     return json({ Invoices: page === 1 ? INVOICES[t].filter((i) => i.Type === type) : [] });
   }
   if (u.pathname.endsWith("/CreditNotes")) return json({ CreditNotes: page === 1 ? CREDIT_NOTES[t] : [] });
+  // Xero's fixed asset register for company a: one computer, depreciated to 30 September.
+  if (u.pathname.endsWith("/AssetTypes")) return json(t === "a" ? [{ assetTypeId: "t1", fixedAssetAccountId: CE, accumulatedDepreciationAccountId: CD }] : []);
+  if (u.pathname.endsWith("/Settings") && u.pathname.includes("assets.xro")) return json({ lastDepreciationDate: "2026-09-30T00:00:00" });
+  if (u.pathname.endsWith("/Assets")) return json({ items: t === "a" && u.searchParams.get("status") === "REGISTERED" && page === 1
+    ? [{ assetTypeId: "t1", assetStatus: "Registered", purchaseDate: "2026-05-01T00:00:00", purchasePrice: 800, accountingBookValue: 700 }] : [] });
   if (u.pathname.endsWith("/Organisation")) return json({ Organisations: [{ BaseCurrency: "GBP" }] });
   return json({}, 404);
 };
@@ -340,6 +352,29 @@ async function scenario() {
     const relay = await realFetch(`${base}/api/finance/agent-runs/relay`, { method: "POST", headers: { "X-API-Key": "k" } });
     const rb = await relay.json();
     ok("the relay sees the queue (no cloud runner here, so it stays queued)", relay.status === 200 && rb.queued >= q.length && rb.runner === "queued", rb);
+  });
+
+  await section("asset accounts: the signed register is their evidence, or Xero's register", async () => {
+    const tm = byName(list, "Trade Marks"), ce = byName(list, "Computer Equipment"), cd = byName(list, "Less Accumulated Depreciation");
+    ok("asset accounts are on Tangible assets and can be worked", [tm, ce, cd].every((x) => x?.line_key === "ppe" && x.workable), [tm, ce, cd]);
+    await pool.query(`INSERT INTO finance.asset_groupings_client (client_id, grouping, enabled, enabled_by, enabled_at, created_by, display_name) VALUES ($1, 'ip_registered', true, $2, now(), $2, 'IP Patents and Trademarks')`, [CID, CFO]);
+    await pool.query(`INSERT INTO finance.asset_account_map (client_id, entity_id, grouping, role, xero_account_id, account_code, amortised_by, effective_from, set_by)
+      VALUES ($1, $2, 'ip_registered', 'cost', $3, '775', 'register', '2026-08-31', $4)`, [CID, EA, TM, CFO]);
+    await pool.query(`INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, prepared_by, prepared_at)
+      VALUES ($1, 'ip_registered', '2026-10', 'prepared', $2, $3, now())`, [CID, JSON.stringify({ accounts: [{ entity_id: EA, account_id: TM, register: 1500, named_items: [] }] }), CFO]);
+    let r = await api("POST", `recs/${tm.id}/evidence/fetch`, {}, fm1);
+    ok("a register month only prepared is not evidence", r.status === 200 && r.body.fetched === 0 && /IP Patents and Trademarks is prepared for October 2026, so it is not evidence yet/.test(r.body.said.join(" ")), r.body);
+    await pool.query("UPDATE finance.asset_register_periods SET status = 'signed', signed_by = $2, signed_at = now() WHERE client_id = $1", [CID, CFO]);
+    r = await api("POST", `recs/${tm.id}/evidence/fetch`, {}, fm1);
+    let v = (await api("GET", `recs/${tm.id}`)).body;
+    ok("signed, FM1 takes the register's 1,500.00 for Alpha's 775 and it ties", r.status === 200 && r.body.fetched === 1 && v.cover.rows[0].schedule === "1500.00" && v.cover.ties
+      && /IP Patents and Trademarks, signed for October 2026 by cfo@example.com: account 775/.test(v.evidence.rows[0].source), { said: r.body.said, cover: v.cover, ev: v.evidence.rows });
+    r = await api("POST", `recs/${ce.id}/evidence/fetch`, {}, fm1);
+    v = (await api("GET", `recs/${ce.id}`)).body;
+    ok("Xero keeps 720: cost of the assets on it at the month end, 800.00, ties", r.status === 200 && v.cover.rows[0].schedule === "800.00" && v.cover.ties, { said: r.body.said, cover: v.cover });
+    r = await api("POST", `recs/${cd.id}/evidence/fetch`, {}, fm1);
+    ok("721: Xero's depreciation was run to September, not October, so it says to record the report instead", r.status === 200 && r.body.fetched === 0
+      && /depreciated to 2026-09-30, not as at 2026-10-31/.test(r.body.said.join(" ")), r.body);
   });
 
   await section("an account with no automatic source", async () => {
