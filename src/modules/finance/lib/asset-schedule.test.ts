@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountSubject, fig, lineWhat, monthEndName, monthName, passes, roll, type ScheduleAsset, type ThreadEntry } from "./asset-schedule";
+import { accountSubject, fig, lineWhat, monthEndName, monthName, passes, roll, addRolls, chargedInXero, xeroRoll, type ScheduleAsset, type ThreadEntry } from "./asset-schedule";
 
 const asset = (over: Partial<ScheduleAsset>): ScheduleAsset => ({
   id: "a", asset_no: "A-1", name: "A", status: "wip", company: "Alpha", jurisdiction: null, parent_asset_no: null, account: "780", accumulated_account: null,
@@ -57,5 +57,28 @@ describe("the Activity filters", () => {
     expect(passes(done, "holds")).toBe(true);
     expect(passes(q, "agents")).toBe(true);
     expect(passes(d, "agents")).toBe(false);
+  });
+});
+
+describe("Xero's own amortisation in the roll-forward", () => {
+  const fsl = { xero_charge_bf: -8577.43 + -366.25, xero_charge_in_month: -366.25 };
+  const fgh = { xero_charge_bf: -45.47, xero_charge_in_month: -45.48 };
+  it("adds the accounts Xero keeps as accumulated figures, with no cost", () => {
+    const x = xeroRoll([fsl, fgh]);
+    expect(x.cost_bf).toBe(0);
+    expect(x.accumulated_bf).toBe(-8989.15);
+    expect(x.charge).toBe(-411.73);
+    expect(x.accumulated_cf).toBe(-9400.88);
+    expect(x.nbv_cf).toBe(-9400.88);
+  });
+  it("so the total ties: the assets' roll plus Xero's", () => {
+    const t = addRolls(roll([asset({ cost_bf: 102683.74, additions: 670, accumulated_bf: -8577.43 })]), xeroRoll([fgh]));
+    expect(t.cost_cf).toBe(103353.74);
+    expect(t.accumulated_cf).toBe(-8668.38);
+    expect(t.nbv_cf).toBe(94685.36);
+  });
+  it("knows which accounts Xero charges", () => {
+    expect(chargedInXero({ xero_charge_in_month: 0 })).toBe(true);
+    expect(chargedInXero({ xero_charge_in_month: null })).toBe(false);
   });
 });

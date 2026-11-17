@@ -19,6 +19,9 @@ export interface ScheduleAccount {
   named_items: Array<{ label: string; amount: number }>;
   unexplained: number;
   ties: boolean;
+  // Accounts Xero amortises itself: its charge since the opening to last
+  // month end, and in the month. Null on accounts the register amortises.
+  xero_charge_bf: number | null;
   xero_charge_in_month: number | null;
   amortised_by: "register" | "xero" | null;
 }
@@ -128,6 +131,27 @@ export function roll(xs: ScheduleAsset[]): Roll {
   return { cost_bf, additions, cost_cf: r(cost_bf + additions), accumulated_bf, charge, accumulated_cf: r(accumulated_bf + charge),
     nbv_bf: r(cost_bf + accumulated_bf), nbv_cf: r(cost_bf + additions + accumulated_bf + charge) };
 }
+
+// Xero's own amortisation on the accounts it keeps, as roll-forward figures:
+// no cost, accumulated brought forward, the month's charge, carried forward.
+// Added to the assets' roll so the roll-forward ties to the ledger.
+export function xeroRoll(xs: Array<Pick<ScheduleAccount, "xero_charge_bf" | "xero_charge_in_month">>): Roll {
+  const r = (n: number) => Math.round(n * 100) / 100;
+  const accumulated_bf = r(xs.reduce((t, a) => t + (a.xero_charge_bf ?? 0), 0));
+  const charge = r(xs.reduce((t, a) => t + (a.xero_charge_in_month ?? 0), 0));
+  const accumulated_cf = r(accumulated_bf + charge);
+  return { cost_bf: 0, additions: 0, cost_cf: 0, accumulated_bf, charge, accumulated_cf, nbv_bf: accumulated_bf, nbv_cf: accumulated_cf };
+}
+
+export function addRolls(a: Roll, b: Roll): Roll {
+  const r = (n: number) => Math.round(n * 100) / 100;
+  const out = { ...a };
+  for (const k of Object.keys(a) as Array<keyof Roll>) out[k] = r(a[k] + b[k]);
+  return out;
+}
+
+// Accounts whose charge Xero runs (they carry a Xero charge figure).
+export const chargedInXero = (a: Pick<ScheduleAccount, "xero_charge_in_month">) => a.xero_charge_in_month !== null && a.xero_charge_in_month !== undefined;
 
 // What a line is for: Xero's description, else the workbook phase, else the
 // reason it was capitalised.
