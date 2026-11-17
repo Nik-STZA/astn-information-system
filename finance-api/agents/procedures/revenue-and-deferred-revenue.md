@@ -1,7 +1,7 @@
 ---
 name: revenue-and-deferred-revenue
 title: Revenue and deferred revenue
-version: 1.2.0
+version: 1.3.0
 summary: Rolling deferred income forward by contract from the contracts register, the standard revenue patterns, tying billing to revenue, proving accrued income, and applying the client's reporting framework, including the FRS 102 changes from 2026.
 roles: fm1,fc
 ---
@@ -36,7 +36,17 @@ customer contract there carries its pattern, its payment schedule and milestones
 what it has billed into and released from its balance sheet account. On the Deferred
 income rec, fetch the evidence (`fetch_rec_evidence`): it takes what each contract holds
 on the account at the month end, per company. A balance with no contract behind it is a
-finding: name it, and ask for the contract. Only a person adds or changes contracts.
+finding: name it, and ask for the contract. Only a person adds a contract, changes its
+terms or confirms how it becomes revenue.
+
+**Keep the register complete yourself.** Before you fetch, compare each contract's
+billings (`list_contracts`) with the sales invoices posted to its account in the month
+and before (`get_account_activity` on the account, `get_invoice` for the lines). For each
+approved invoice on the account that the register does not hold, record it with
+`record_contract_billing` (the invoice number): it takes the net on the account, on the
+invoice date. Then fetch the evidence. Do not stop at a note that the register is
+incomplete, and do not ask the CFO to key it: that is your work. A release is not yours
+to record: it waits for its journal in Xero and the CFO.
 
 ## The standard patterns
 
@@ -72,7 +82,8 @@ the ledger, as the AR Clerk's work should show.
    the invoice and its attachments. What was promised, and when is it delivered?
 3. **Add billings.** `get_invoices` and `get_invoice` for the month, ACCREC, with
    `get_credit_notes`. Each line either belongs to the month, or goes on the schedule.
-   Look for invoices coded to revenue covering a later period.
+   Look for invoices coded to revenue covering a later period. Each invoice on a
+   contract's account goes into the register with `record_contract_billing`.
 4. **Release.** Work out what was earned in the month on the contract's basis.
    Check the release posted in `get_manual_journals`. Xero does not let us read
    repeating journals, so if you rely on a pattern of posted journals, say you
@@ -171,3 +182,4 @@ reads the contract itself where it can.
 | 1.0.0 | 1 November 2026 | First version. |
 | 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |
 | 1.2.0 | 15 November 2026 | The contracts register is the deferred income schedule (evidence fetched from it); the standard revenue patterns, including sponsorship, events, grants and media rights. |
+| 1.3.0 | 18 November 2026 | FM1 keeps the register complete: it records each billing from its Xero invoice (`record_contract_billing`) before fetching, rather than leaving it to the CFO. |

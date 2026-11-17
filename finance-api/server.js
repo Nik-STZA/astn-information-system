@@ -6693,7 +6693,7 @@ require("./lib/outstanding-docs-routes").mountOutstandingDocs(app, {
 // Gemini in London, as bills are, and deleted once read. The Deferred income
 // reconciliation takes its evidence from this register.
 require("./lib/contracts-routes").mountContracts(app, {
-  route, pool, audit, clientIdFromSlug, express, viaInput: work.viaInput, generate: (body) => vertex.generate(body),
+  route, pool, audit, clientIdFromSlug, express, viaInput: work.viaInput, generate: (body) => vertex.generate(body), xeroEntityContext, xeroGet,
 });
 
 // ── Asset register ──────────────────────────────────────────────────────────
