@@ -340,6 +340,22 @@ async function scenario() {
     ok("prepared again", r.status === 201 && r.body.prepared, r.body.issues ?? r.body);
     r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-09" });
     ok("and signed again", r.status === 200 && r.body.signed, r.body);
+    // The workbook's export of the signed September.
+    r = await api("GET", "asset-register/export?grouping=ip_registered&period=2026-09");
+    ok("the export answers for a signed month", r.status === 200 && r.body.status === "signed" && r.body.months.join() === "2026-08,2026-09", r.body.issues ?? r.body.months);
+    ok("with its assets, lines and the month's ledger by account code", r.body.assets.length === 5 && r.body.lines.filter((l) => l.treatment === "capitalise").every((l) => l.account)
+      && r.body.ledger.length > 0 && r.body.ledger.every((g) => g.account), r.body.ledger);
+    ok("events as ledger effects, accumulated negative", r.body.events.some((e) => e.kind === "opening" && e.side === "accumulated" && e.amount === -120.5), r.body.events);
+    if (process.env.ASSET_EXPORT_PYTHON) {
+      const fs = require("fs"); const os = require("os"); const path = require("path"); const { execFileSync } = require("child_process");
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "asset-export-"));
+      fs.writeFileSync(path.join(dir, "export.json"), JSON.stringify(r.body));
+      const made = execFileSync(process.env.ASSET_EXPORT_PYTHON, ["-m", "pack_engine.assets", path.join(dir, "export.json"), dir],
+        { cwd: path.join(__dirname, "..", "..", "pack-engine"), encoding: "utf8" }).trim();
+      ok("the workbook builds from the real export and its controls pass", /\.xlsx$/.test(made) && !/FAILED CONTROLS/.test(made), made);
+    }
+    r = await api("GET", "asset-register/export?grouping=ip_registered&period=2026-11");
+    ok("no export for a month that does not exist", r.status === 422, r.body);
     const stillWaiting = (await api("GET", "asset-register/cost-lines")).body.lines;
     ok("nothing left waiting", stillWaiting.length === 0, stillWaiting);
   });

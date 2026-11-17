@@ -1,7 +1,7 @@
 """A small formula evaluator, so tests read back what Excel will show.
 
 openpyxl keeps formulas, not results, and CI has no LibreOffice. This handles the
-formulas the pack writes (references, ranges, SUM, SUMIF, IF, ABS, arithmetic) and
+formulas the pack writes (references, ranges, SUM, SUMIF, SUMIFS, IF, ABS, arithmetic) and
 raises on anything else, so an unknown formula is a test failure, never a guess.
 """
 
@@ -55,7 +55,7 @@ class Sheetbook:
             return f"__R{len(refs) - 1}__"
 
         expr = re.sub(REF, swap, expr)
-        unknown = set(re.findall(r"[A-Z]{2,}", re.sub(r"__[Rs]\d+__", "", expr))) - {"SUM", "SUMIF", "IF", "ABS"}
+        unknown = set(re.findall(r"[A-Z]{2,}", re.sub(r"__[Rs]\d+__", "", expr))) - {"SUM", "SUMIF", "SUMIFS", "IF", "ABS"}
         if unknown:
             raise ValueError(f"recalc cannot evaluate {formula!r}")
 
@@ -66,7 +66,11 @@ class Sheetbook:
 
         def cell_or_range(i):
             r = refs[i]
-            return r if isinstance(r, list) else self.number(*r)
+            if isinstance(r, list):
+                return r
+            v = self.value(*r)
+            # A text cell used as a criterion (SUMIFS(..., $A5)) stays text.
+            return v if isinstance(v, str) else self.number(*r)
 
         def sum_(*args):
             total = 0.0
@@ -80,6 +84,12 @@ class Sheetbook:
                 wanted = re.sub(r"~([~*?])", lambda m: m.group(1), wanted[1:])
             return sum(self.number(*v) for k, v in zip(keys, values) if self.value(*k) == wanted)
 
+        def sumifs(values, *pairs):
+            keep_rows = range(len(values))
+            for keys, wanted in zip(pairs[::2], pairs[1::2]):
+                keep_rows = [i for i in keep_rows if self.value(*keys[i]) == wanted]
+            return sum(self.number(*values[i]) for i in keep_rows)
+
         expr = re.sub(r"__R(\d+)__", lambda m: f"R({m.group(1)})", expr)
         expr = re.sub(r"__s(\d+)__", lambda m: repr(strings[int(m.group(1))]), expr)
-        return eval(expr, {"__builtins__": {}}, {"R": cell_or_range, "SUM": sum_, "SUMIF": sumif, "ABS": abs})
+        return eval(expr, {"__builtins__": {}}, {"R": cell_or_range, "SUM": sum_, "SUMIF": sumif, "SUMIFS": sumifs, "ABS": abs, "IF": lambda c, a, b=0: a if c else b})

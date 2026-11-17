@@ -24,6 +24,7 @@ const monthLib = require("./asset-month");
 const engine = require("./asset-register");
 
 const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
+const groupingNames = Object.fromEntries(Object.values(require("./asset-groupings").GROUPINGS).map((g) => [g.key, g.name]));
 const { isCfo } = require("./contracts");
 
 const MISSING = "The asset register is waiting for migration 049 to be applied.";
@@ -686,6 +687,79 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     } finally {
       conn.release();
     }
+  }));
+
+  // ── Export for the workbook ────────────────────────────────────────────────
+  //
+  // GET .../asset-register/export?grouping=&period=   the register for one
+  // grouping at a prepared or signed month, in the shape pack_engine/assets.py
+  // writes: assets, approved cost lines and event effects up to the month end,
+  // and the month's ledger, named items and Xero's own movement from its
+  // snapshot. Read only.
+  app.get(`${BASE}/export`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const grouping = String(req.query.grouping ?? "");
+    const period = String(req.query.period ?? "");
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(422).json({ issues: ["period must be YYYY-MM"] });
+    const periods = (await pool.query(
+      `SELECT period, status, snapshot, signed_by, signed_at, prepared_at FROM finance.asset_register_periods
+        WHERE client_id = $1 AND grouping = $2 ORDER BY period`, [client.id, grouping])).rows;
+    const opening = periods.find((p) => p.snapshot?.kind === "opening_import");
+    const row = periods.find((p) => p.period === period);
+    if (!opening || !row) return res.status(422).json({ issues: [`${grouping} has no ${period}`] });
+    if (!["prepared", "signed"].includes(row.status)) return res.status(422).json({ issues: [`${period} is ${row.status}: prepare it first`] });
+    const end = engine.monthEnd(period);
+    const months = [opening.period, ...monthLib.monthsAfter(opening.period, period)];
+
+    const map = (await pool.query(
+      `SELECT m.entity_id, m.xero_account_id, m.account_code, e.name AS company FROM finance.asset_account_map m
+         JOIN finance.entities e ON e.id = m.entity_id WHERE m.client_id = $1 AND m.grouping = $2`, [client.id, grouping])).rows;
+    const codeOf = (entityId, accountId) => map.find((m) => m.entity_id === entityId && String(m.xero_account_id).toLowerCase() === String(accountId ?? "").toLowerCase())?.account_code ?? null;
+    const companyOf = Object.fromEntries((await pool.query("SELECT id, name FROM finance.entities WHERE client_id = $1", [client.id])).rows.map((e) => [e.id, e.name]));
+    const assets = (await pool.query(
+      `SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id, registration_date::text AS registration_date,
+              expiry_date::text AS expiry_date, available_for_use_date::text AS available_for_use_date, jurisdiction
+         FROM finance.assets WHERE client_id = $1 AND grouping = $2 ORDER BY asset_no`, [client.id, grouping])).rows;
+    const assetById = new Map(assets.map((a) => [a.id, a]));
+    const lines = (await pool.query(
+      `SELECT id, owning_entity_id, asset_id, line_date::text AS line_date, supplier, invoice_no, amount::float AS amount, source_net::float AS source_net,
+              treatment, reason_text, posted_account_id, posted_account_code, source_type, xero_source_id, xero_line_id, source_ref, fields
+         FROM finance.asset_cost_lines WHERE client_id = $1 AND grouping = $2 AND state = 'approved' AND line_date <= $3
+        ORDER BY line_date, invoice_no`, [client.id, grouping, end])).rows;
+    const events = (await pool.query(
+      `SELECT id, asset_id, entity_id, kind, period, event_date::text AS event_date, amount::float AS amount, accounts, detail, reverses_event_id, reason
+         FROM finance.asset_events WHERE client_id = $1 AND grouping = $2 AND period <= $3 ORDER BY event_date`, [client.id, grouping, period])).rows;
+    const eventById = new Map(events.map((e) => [e.id, e]));
+
+    const snapshotRows = row.snapshot?.accounts
+      ? row.snapshot.accounts.map((a) => ({ company: a.company, account: codeOf(a.entity_id, a.account_id) ?? (/\((\w+)\)\s*$/.exec(a.account ?? "")?.[1] ?? null),
+          account_name: a.account, ledger: a.ledger, register: a.register, named: (a.named_items || []).reduce((s, n) => s + Number(n.amount), 0),
+          named_labels: (a.named_items || []).map((n) => n.label), by_xero: a.by_xero ?? 0 }))
+      : (row.snapshot?.tie || []).map((t) => ({ company: t.company, account: /\((\w+)\)\s*$/.exec(t.account ?? "")?.[1] ?? null, account_name: t.account,
+          ledger: t.ledger, register: t.register, named: (t.named_items || []).reduce((s, n) => s + Number(n.amount), 0),
+          named_labels: (t.named_items || []).map((n) => n.label), by_xero: 0 }));
+
+    res.json({
+      client: req.params.slug, grouping, grouping_name: groupingNames[grouping] ?? grouping, period, months,
+      status: row.status, signed_by: row.signed_by, signed_at: row.signed_at, read_at: new Date().toISOString(),
+      assets: assets.map((a) => ({ asset_no: a.asset_no, name: a.name, company: companyOf[a.entity_id], status: a.status,
+        cost_account: codeOf(a.entity_id, a.cost_account_id), accum_account: codeOf(a.entity_id, a.accum_account_id),
+        registration_date: a.registration_date, available_for_use_date: a.available_for_use_date, expiry_date: a.expiry_date, jurisdiction: a.jurisdiction })),
+      lines: lines.map((l) => {
+        const a = assetById.get(l.asset_id);
+        return { id: l.id, date: l.line_date, period: l.line_date.slice(0, 7), company: companyOf[l.owning_entity_id], asset_no: a?.asset_no ?? null,
+          account: l.posted_account_code ?? codeOf(l.owning_entity_id, l.posted_account_id ?? a?.cost_account_id),
+          supplier: l.supplier, invoice_no: l.invoice_no, amount: l.amount, treatment: l.treatment, reason: l.reason_text,
+          source: l.xero_source_id ? `Xero ${l.source_type} ${l.xero_source_id}` : (l.source_ref ? `${l.source_ref.sheet ?? ""} row ${l.source_ref.row ?? ""}`.trim() : null),
+          source_key: l.fields?.source_key ?? (l.xero_source_id ? `${l.xero_source_id}|${l.xero_line_id}` : null), source_net: l.source_net };
+      }),
+      events: events.flatMap((e) => engine.eventEffects(e, assetById.get(e.asset_id), eventById).map((x) => ({
+        date: e.event_date, period: e.period, company: companyOf[e.entity_id], asset_no: assetById.get(e.asset_id)?.asset_no ?? null, kind: e.kind,
+        account: codeOf(e.entity_id, x.account), side: x.side, amount: x.amount, reason: e.reason }))),
+      ledger: snapshotRows,
+      file_stem: `Asset register - ${groupingNames[grouping] ?? grouping} - ${period}`,
+    });
   }));
 
   // GET .../asset-register/cost-lines?state=proposed   lines waiting on the CFO.
