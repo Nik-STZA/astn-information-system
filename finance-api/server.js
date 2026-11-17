@@ -2552,7 +2552,9 @@ async function xeroFetch(accessToken, tenantId, url, params = {}, { accept = "ap
     if (r.status === 401 && isTokenRejection(r.headers.get("www-authenticate"), body)) {
       invalidateAccessToken(accessToken);
     }
-    const err = new Error(`Xero ${path} returned ${r.status}: ${body.slice(0, 300)}`);
+    // A 429 says which limit (18 Nov 2026: the message was "returned 429:" and nothing else).
+    const why = r.status === 429 ? require("./lib/xero-limit").limitProblem(r) : null;
+    const err = new Error(why ? `Xero ${path} returned 429: ${why}. Try again in a minute` : `Xero ${path} returned ${r.status}: ${body.slice(0, 300)}`);
     // Same reasoning as the token refresh: the caller is a server holding an
     // API key, and Xero's body is the difference between "it broke" and
     // knowing which account code it objected to.

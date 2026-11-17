@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-const { xeroLimiter, retryWait } = require("./xero-limit");
+const { xeroLimiter, retryWait, limitProblem } = require("./xero-limit");
 
-const res = (status, retryAfter) => ({ status, headers: { get: () => retryAfter ?? null } });
+const res = (status, retryAfter, problem) => ({ status, headers: { get: (h) => (h === "retry-after" ? retryAfter ?? null : h === "x-rate-limit-problem" ? problem ?? null : null) } });
 
 describe("retryWait", () => {
   it("waits as Xero says", () => {
@@ -53,5 +53,32 @@ describe("xeroLimiter", () => {
     const limited = xeroLimiter({ maxAtOnce: 1 });
     await expect(limited("org", async () => { throw new Error("down"); })).rejects.toThrow("down");
     expect((await limited("org", async () => res(200))).status).toBe(200);
+  });
+});
+
+describe("the minute limit (18 Nov 2026)", () => {
+  it("waits up to a minute when Xero says the minute limit, not for the daily one", () => {
+    expect(retryWait(res(429, "45", "minute"), 1)).toBe(45);
+    expect(retryWait(res(429, "45"), 1)).toBeNull();
+    expect(retryWait(res(429, "45", "day"), 1)).toBeNull();
+  });
+  it("names the limit for the person reading the error", () => {
+    expect(limitProblem(res(429, "45", "minute"))).toMatch(/60 calls a minute/);
+    expect(limitProblem(res(429, "9999", "day"))).toMatch(/daily limit/);
+    expect(limitProblem(res(429))).toBe("Xero's rate limit");
+  });
+  it("keeps one organisation's calls within its minute budget", async () => {
+    let clock = 0;
+    const waits = [];
+    const limited = xeroLimiter({ perMinute: 3, now: () => clock, sleep: async (s) => { waits.push(s); clock += s * 1000; } });
+    const at = [];
+    for (let i = 0; i < 5; i++) await limited("org", async () => { at.push(clock); return res(200); });
+    expect(at.slice(0, 3)).toEqual([0, 0, 0]);
+    expect(at[3]).toBeGreaterThanOrEqual(60000);
+    expect(waits.length).toBeGreaterThan(0);
+    // Another organisation has its own budget.
+    const other = [];
+    await limited("other", async () => { other.push(clock); return res(200); });
+    expect(other[0]).toBe(clock);
   });
 });
