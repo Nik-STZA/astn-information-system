@@ -58,6 +58,8 @@ vertex.generate = async (body) => {
   return { text: JSON.stringify(reading), model: "gemini-test", location: "europe-west2" };
 };
 
+// The fake Xero has no rate limit: do not pace calls to it.
+process.env.XERO_READS_PER_MINUTE = "100000";
 const { app, pool } = require("../server.js");
 
 const SLUG = "sample-docs";

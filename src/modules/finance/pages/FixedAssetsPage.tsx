@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 
 export default async function FixedAssetsPage({ params: paramsPromise, searchParams: searchParamsPromise, actorEmail = null }: {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<{ company?: string; period?: string }>;
+  searchParams?: Promise<{ company?: string; period?: string; account?: string }>;
   actorEmail?: string | null;
 }) {
   const { slug } = await paramsPromise;
@@ -59,7 +59,7 @@ export default async function FixedAssetsPage({ params: paramsPromise, searchPar
       <PageHeader title="Fixed assets"
         sub="Every asset from its first invoice to the end of its life, rolled forward each month and tied to Xero. Select any figure to see what makes it up." />
       <FixedAssetsView slug={slug} schedule={s.data} threads={threads.ok ? threads.data.threads : []} threadsError={threads.ok ? null : threads.error}
-        waiting={w.ok ? w.data.lines : []} me={me} xeroTab={xero} />
+        waiting={w.ok ? w.data.lines : []} me={me} xeroTab={xero} initialAccount={typeof q.account === "string" ? q.account : null} />
     </div>
   );
 }

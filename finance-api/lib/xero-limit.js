@@ -34,7 +34,8 @@ function retryWait(response, attempt) {
 
 function xeroLimiter({
   sleep = (s) => new Promise((done) => setTimeout(done, s * 1000)),
-  maxAtOnce = MAX_AT_ONCE, perMinute = PER_MINUTE, now = () => Date.now(),
+  // XERO_READS_PER_MINUTE: the local checks, which call a fake Xero, raise it.
+  maxAtOnce = MAX_AT_ONCE, perMinute = Number(process.env.XERO_READS_PER_MINUTE) || PER_MINUTE, now = () => Date.now(),
 } = {}) {
   const orgs = new Map();
   const org = (tenantId) => {
