@@ -162,7 +162,7 @@ export const TREATMENT_LABEL: Record<string, string> = {
 };
 
 // The paths the portal may call through to finance-api.
-const PATH = /^asset-register\/(?:cost-lines\/decide|periods\/sign|periods\/reopen)$/;
+const PATH = /^asset-register\/(?:cost-lines\/decide|periods\/sign|periods\/reopen|groupings\/name)$/;
 export const isAssetRegisterPath = (path: string) => PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────
@@ -183,6 +183,13 @@ export function fetchRegisterView(slug: string, grouping?: string, period?: stri
   if (grouping) q.set("grouping", grouping);
   if (period) q.set("period", period);
   return read<RegisterView>(`/api/finance/clients/${encodeURIComponent(slug)}/asset-register/view${q.size ? `?${q}` : ""}`);
+}
+
+// Every register the client has set up, with its name: the client's own
+// (Settings > Financial) or the catalogue's.
+export interface RegisterSetting { grouping: string; enabled: boolean; paused: boolean; name: string; display_name: string | null; catalogue_name: string; assets: number }
+export function fetchRegisterSettings(slug: string) {
+  return read<{ groupings: RegisterSetting[] }>(`/api/finance/clients/${encodeURIComponent(slug)}/asset-register`);
 }
 
 export function fetchWaitingLines(slug: string) {

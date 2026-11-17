@@ -145,8 +145,8 @@ export default function FixedAssetsView({ slug, schedule, threads, threadsError,
 
       <div className={styles.filters}>
         <div role="group" aria-label="Register" className={`seg ${styles.pills}`}>
-          {[{ key: "all", name: "All registers" }, ...groups.map((g) => ({ key: g.grouping, name: g.name })), { key: "xero", name: "Kept by Xero" }].map((t) => (
-            <button key={t.key} type="button" className={t.key === tab ? "seg-on" : undefined} aria-pressed={t.key === tab}
+          {[{ key: "all", name: "All registers", hint: undefined as string | undefined }, ...groups.map((g) => ({ key: g.grouping, name: g.name, hint: g.catalogue_name && g.catalogue_name !== g.name ? g.catalogue_name : undefined })), { key: "xero", name: "Kept by Xero", hint: undefined }].map((t) => (
+            <button key={t.key} type="button" className={t.key === tab ? "seg-on" : undefined} aria-pressed={t.key === tab} title={t.hint}
               onClick={() => { setTab(t.key); setStack([]); }}>{t.name}</button>
           ))}
         </div>

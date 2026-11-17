@@ -347,10 +347,10 @@ export default function Sidebar({ userEmail, groups, clients }: {
 
         <div className={styles.foot}>
           <ThemeToggle compact={collapsed} />
-          <div className={styles.user}>
+          <Link prefetch={false} href="/profile" className={styles.user} style={{ color: "inherit", textDecoration: "none" }} title="Your profile">
             <span className={styles.ava} title={userEmail}>{initials(userEmail)}</span>
             <span className={`${styles.email} ${styles.lbl}`}>{userEmail}</span>
-          </div>
+          </Link>
           <button type="button" className={`${styles.nav} ${styles.plain}`} onClick={signOut} title={collapsed ? "Sign out" : undefined}>
             <LogOut size={18} aria-hidden="true" />
             <span className={styles.lbl}>Sign out</span>

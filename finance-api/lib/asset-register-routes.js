@@ -52,20 +52,46 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     return { actorEmail };
   }
 
+  // A register's name: the client's own (migration 052), else the catalogue's.
+  const nameOf = (g) => (g?.display_name && String(g.display_name).trim()) || groupingNames[g?.grouping] || g?.grouping;
+
   const roleOf = async (db, clientId, email) => (await db.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [clientId, email])).rows[0].role;
 
   app.get(BASE, tolerant(async (req, res) => {
     const client = await clientIdFromSlug(req.params.slug);
     if (!client) return res.status(404).json({ error: "client not found" });
     const rows = (await pool.query(
-      `SELECT g.grouping, g.enabled, g.paused,
+      `SELECT g.grouping, g.enabled, g.paused, g.display_name,
               (SELECT count(*)::int FROM finance.assets a WHERE a.client_id = g.client_id AND a.grouping = g.grouping) AS assets,
               (SELECT count(*)::int FROM finance.asset_cost_lines l WHERE l.client_id = g.client_id AND l.grouping = g.grouping) AS cost_lines,
               (SELECT count(*)::int FROM finance.asset_events e WHERE e.client_id = g.client_id AND e.grouping = g.grouping) AS events,
               (SELECT json_agg(json_build_object('period', p.period, 'status', p.status) ORDER BY p.period)
                  FROM finance.asset_register_periods p WHERE p.client_id = g.client_id AND p.grouping = g.grouping) AS periods
          FROM finance.asset_groupings_client g WHERE g.client_id = $1 ORDER BY g.grouping`, [client.id])).rows;
-    res.json({ groupings: rows });
+    res.json({ groupings: rows.map((g) => ({ ...g, name: nameOf(g), catalogue_name: groupingNames[g.grouping] ?? g.grouping })) });
+  }));
+
+  // POST .../asset-register/groupings/name   { grouping, name }   the client's
+  // own name for a register (migration 052), set by the CFO in Settings. An
+  // empty name goes back to the catalogue's.
+  app.post(`${BASE}/groupings/name`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const b = req.body || {};
+    const grouping = String(b.grouping ?? "");
+    const name = String(b.name ?? "").replace(/\s+/g, " ").trim();
+    if (name.length > 60) return res.status(422).json({ issues: ["keep the name to 60 characters"] });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO names the client's registers" });
+    const row = (await pool.query(
+      `UPDATE finance.asset_groupings_client SET display_name = $3, display_name_by = $4, display_name_at = now(), updated_at = now()
+        WHERE client_id = $1 AND grouping = $2 AND enabled RETURNING grouping, display_name`, [client.id, grouping, name || null, who.actorEmail])).rows[0];
+    if (!row) return res.status(404).json({ error: `this client does not keep a ${grouping || "(no grouping)"} register` });
+    await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "asset_register_named", targetType: "asset_register", targetId: grouping, clientId: client.id,
+      payload: { grouping, display_name: row.display_name }, ip: req.get("X-Forwarded-For") || req.ip });
+    res.json({ grouping, name: nameOf(row), display_name: row.display_name, catalogue_name: groupingNames[grouping] ?? grouping });
   }));
 
   // GET .../asset-register/schedule?period=YYYY-MM   the Fixed assets page for
@@ -79,7 +105,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     const client = await clientIdFromSlug(req.params.slug);
     if (!client) return res.status(404).json({ error: "client not found" });
     const groups = (await pool.query(
-      "SELECT grouping, paused FROM finance.asset_groupings_client WHERE client_id = $1 AND enabled ORDER BY grouping", [client.id])).rows;
+      "SELECT grouping, paused, display_name FROM finance.asset_groupings_client WHERE client_id = $1 AND enabled ORDER BY grouping", [client.id])).rows;
     const periods = (await pool.query(
       `SELECT grouping, period, status, snapshot, prepared_by, prepared_at, signed_by, signed_at FROM finance.asset_register_periods
         WHERE client_id = $1 ORDER BY period`, [client.id])).rows;
@@ -127,7 +153,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
       const gAssets = assets.filter((a) => a.grouping === g.grouping);
       const gLines = lines.filter((l) => l.grouping === g.grouping);
       return {
-        grouping: g.grouping, name: groupingNames[g.grouping] ?? g.grouping, paused: g.paused,
+        grouping: g.grouping, name: nameOf(g), catalogue_name: groupingNames[g.grouping] ?? g.grouping, paused: g.paused,
         month: row ? { period, status: row.status, opening: row.snapshot?.kind === "opening_import", prepared_by: person(row.prepared_by), prepared_at: row.prepared_at,
           signed_by: person(row.signed_by), signed_at: row.signed_at } : null,
         months: mine.map((p) => ({ period: p.period, status: p.status })),
@@ -157,14 +183,14 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     const client = await clientIdFromSlug(req.params.slug);
     if (!client) return res.status(404).json({ error: "client not found" });
     const groupings = (await pool.query(
-      `SELECT g.grouping, g.enabled, g.paused,
+      `SELECT g.grouping, g.enabled, g.paused, g.display_name,
               (SELECT count(*)::int FROM finance.assets a WHERE a.client_id = g.client_id AND a.grouping = g.grouping) AS assets,
               (SELECT count(*)::int FROM finance.asset_cost_lines l WHERE l.client_id = g.client_id AND l.grouping = g.grouping AND l.state = 'proposed') AS waiting,
               coalesce((SELECT json_agg(json_build_object('period', p.period, 'status', p.status, 'opening', p.snapshot->>'kind' = 'opening_import',
                          'prepared_by', p.prepared_by, 'prepared_at', p.prepared_at, 'signed_by', p.signed_by, 'signed_at', p.signed_at) ORDER BY p.period)
                  FROM finance.asset_register_periods p WHERE p.client_id = g.client_id AND p.grouping = g.grouping), '[]') AS periods
          FROM finance.asset_groupings_client g WHERE g.client_id = $1 AND g.enabled ORDER BY g.grouping`, [client.id])).rows
-      .map((g) => ({ ...g, name: groupingNames[g.grouping] ?? g.grouping }));
+      .map((g) => ({ ...g, name: nameOf(g) }));
     const g = groupings.find((x) => x.grouping === req.query.grouping) ?? groupings.find((x) => x.assets > 0) ?? groupings[0];
     if (!g) return res.json({ groupings, grouping: null, month: null, assets: [] });
     const done = g.periods.filter((p) => ["prepared", "signed"].includes(p.status));
@@ -858,6 +884,8 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     const periods = (await pool.query(
       `SELECT period, status, snapshot, signed_by, signed_at, prepared_at FROM finance.asset_register_periods
         WHERE client_id = $1 AND grouping = $2 ORDER BY period`, [client.id, grouping])).rows;
+    const own = (await pool.query("SELECT grouping, display_name FROM finance.asset_groupings_client WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows[0];
+    const registerName = nameOf(own ?? { grouping });
     const opening = periods.find((p) => p.snapshot?.kind === "opening_import");
     const row = periods.find((p) => p.period === period);
     if (!opening || !row) return res.status(422).json({ issues: [`${grouping} has no ${period}`] });
@@ -894,7 +922,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
           named_labels: (t.named_items || []).map((n) => n.label), by_xero: 0 }));
 
     res.json({
-      client: req.params.slug, grouping, grouping_name: groupingNames[grouping] ?? grouping, period, months,
+      client: req.params.slug, grouping, grouping_name: registerName, period, months,
       status: row.status, signed_by: row.signed_by, signed_at: row.signed_at, read_at: new Date().toISOString(),
       assets: assets.map((a) => ({ asset_no: a.asset_no, name: a.name, company: companyOf[a.entity_id], status: a.status,
         cost_account: codeOf(a.entity_id, a.cost_account_id), accum_account: codeOf(a.entity_id, a.accum_account_id),
@@ -911,7 +939,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
         date: e.event_date, period: e.period, company: companyOf[e.entity_id], asset_no: assetById.get(e.asset_id)?.asset_no ?? null, kind: e.kind,
         account: codeOf(e.entity_id, x.account), side: x.side, amount: x.amount, reason: e.reason }))),
       ledger: snapshotRows,
-      file_stem: `Asset register - ${groupingNames[grouping] ?? grouping} - ${period}`,
+      file_stem: `Asset register - ${registerName} - ${period}`,
     });
   }));
 

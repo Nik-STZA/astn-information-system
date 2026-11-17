@@ -67,3 +67,14 @@ export async function fetchThreads(slug: string, opts: { subjects?: string[]; pe
   if (!res.ok) return { ok: false, error: body.error ?? `upstream ${res.status}`, status: res.status };
   return { ok: true, data: body };
 }
+
+// A person's own profile: how they appear on threads and sign-offs. They
+// set it themselves; finance-api refuses an agent or someone else.
+export async function saveProfile(actorEmail: string, body: unknown) {
+  const key = process.env.FINANCE_API_KEY;
+  if (!key) return { status: 500, body: { error: "FINANCE_API_KEY is not configured" } };
+  const res = await fetch(`${BASE_URL}/api/finance/people/me`, {
+    method: "PUT", headers: { "X-API-Key": key, "X-Actor-Email": actorEmail, "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store",
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
