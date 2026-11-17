@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { STATUS_LABEL, PROOF_LABEL, isStale, money, periodChoices, periodLong, recGroups, type RecList, type RecOrder, type RecRow } from "@/modules/finance/lib/recs";
-import IntercompanyGrid from "./IntercompanyGrid";
+import IntercompanyPairs from "./IntercompanyPairs";
 import styles from "./Recs.module.css";
 
 async function post(slug: string, path: string, body: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
@@ -85,6 +85,11 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
   const anyOpen = data.recs.some((r) => r.workable && ["not_started", "sent_back"].includes(r.status));
   const company = data.entities.some((e) => e.id === entity) ? entity : "";
   const groups = recGroups(data.recs, data.lines, { order, entity: company });
+  // The Intercompany line's accounts show in the pairs table, once; any other
+  // account on that line (one held by more than one company) stays in the table.
+  const icIds = new Set(data.intercompany ? [...data.intercompany.pairs, ...(data.intercompany.suggested_pairs ?? [])]
+    .flatMap((p) => [p.a.rec_id, p.b.rec_id]).concat(data.intercompany.unpaired.map((u) => u.rec_id)) : []);
+  const rowsOf = (g: (typeof groups)[number]) => (g.key === "intercompany" ? g.rows.filter((r) => !icIds.has(r.id)) : g.rows);
 
   return (
     <div>
@@ -115,7 +120,12 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
         <div className={styles.alert} role="status">{data.counts.recheck === 1 ? "1 reconciliation needs" : `${data.counts.recheck} reconciliations need`} re-checking: a figure moved after it was prepared.</div>
       )}
 
-      {data.intercompany && !groups.some((g) => g.key === "intercompany") && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
+      {data.intercompany && !groups.some((g) => g.key === "intercompany") && (
+        <section style={{ marginBottom: 16 }}>
+          <h2 className={styles.h2} style={{ margin: "8px 0" }}>Intercompany across the group</h2>
+          <IntercompanyPairs slug={slug} ic={data.intercompany} recs={data.recs} />
+        </section>
+      )}
 
       {data.recs.length > 0 && (
         <div className={styles.bar}>
@@ -141,10 +151,11 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
           {groups.map((g) => (
             <section key={g.key} style={{ marginBottom: 16 }}>
               {g.label && <h2 className={styles.h2} style={{ margin: "8px 0" }}>{g.label} <span className={styles.sub} style={{ fontWeight: 400 }}>· {g.rows.length}</span></h2>}
-              {/* The group's pairs and grid sit with its recs. */}
-              {g.key === "intercompany" && data.intercompany && <IntercompanyGrid slug={slug} ic={data.intercompany} />}
+              {/* Intercompany shows one row per pair instead of its accounts (CFO, 18 Nov 2026). */}
+              {g.key === "intercompany" && data.intercompany && <IntercompanyPairs slug={slug} ic={data.intercompany} recs={data.recs} />}
+              {rowsOf(g).length > 0 && (<>
               <div className={styles.cards}>
-                {g.rows.map((r) => <RecCard key={r.id} slug={slug} r={r} />)}
+                {rowsOf(g).map((r) => <RecCard key={r.id} slug={slug} r={r} />)}
               </div>
               <div className={`${styles.card} ${styles.tableWrap}`}>
                 <table className={styles.table} style={{ tableLayout: "fixed" }}>
@@ -160,7 +171,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                     </tr>
                   </thead>
                   <tbody>
-                    {g.rows.map((r) => (
+                    {rowsOf(g).map((r) => (
                       <tr key={r.id}>
                         <td style={{ overflowWrap: "anywhere" }}><Link className={styles.link} href={`/finance/clients/${slug}/reconciliations/${r.id}`}>{accountOf(r)}</Link></td>
                         <td className={styles.sub} style={{ whiteSpace: "normal" }}>{PROOF_LABEL[r.proof]}</td>
@@ -175,6 +186,7 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
                   </tbody>
                 </table>
               </div>
+              </>)}
             </section>
           ))}
         </>

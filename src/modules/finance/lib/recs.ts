@@ -53,9 +53,12 @@ export interface RecList {
 }
 
 // The group's intercompany position for the month (16 Nov 2026).
-export interface IntercompanySide { rec_id: string; account_name: string; entity_id: string; entity: string; closing: string; status: RecStatus }
+export interface IntercompanySide { rec_id: string; rec_account_id?: string; account_name: string; entity_id: string; entity: string; closing: string; status: RecStatus }
+export interface IntercompanyPair { a: IntercompanySide; b: IntercompanySide; difference: string; ties: boolean }
 export interface IntercompanyView {
-  pairs: Array<{ a: IntercompanySide; b: IntercompanySide; difference: string; ties: boolean }>;
+  pairs: IntercompanyPair[];
+  // Unpaired accounts matched into likely pairs, to confirm with one tap.
+  suggested_pairs?: IntercompanyPair[];
   unpaired: Array<IntercompanySide & { paired_elsewhere?: boolean; suggested: { account_name: string; entity: string; difference: string } | null }>;
   grid: { entities: Array<{ id: string; name: string }>; cells: Array<{ from: string; to: string; amount: string; ties?: boolean }> };
   ties: boolean;
