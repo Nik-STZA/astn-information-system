@@ -86,6 +86,8 @@ global.fetch = async (url, opts = {}) => {
   return json({}, 404);
 };
 
+// The fake Xero has no rate limit: do not pace calls to it.
+process.env.XERO_READS_PER_MINUTE = "100000";
 const { app, pool } = require("../server.js");
 const { approvalFromThread } = require("../lib/draft-approval");
 

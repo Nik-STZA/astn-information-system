@@ -31,19 +31,26 @@ type Panel =
   | { type: "account"; key: string };
 
 
-export default function FixedAssetsView({ slug, schedule, threads, threadsError, waiting, me, xeroTab }: {
+export default function FixedAssetsView({ slug, schedule, threads, threadsError, waiting, me, xeroTab, initialAccount = null }: {
   slug: string; schedule: Schedule; threads: ThreadEntry[]; threadsError: string | null; waiting: WaitingLine[]; me: Me; xeroTab: ReactNode;
+  // Opened from a reconciliation (18 Nov 2026): <company id>:<account code>.
+  initialAccount?: string | null;
 }) {
   const router = useRouter();
   const period = schedule.period!;
-  const [tab, setTab] = useState<string>("all");
+  // From a reconciliation: the register that keeps the account, its panel open;
+  // an account no register here keeps is Xero's.
+  const startGroup = initialAccount
+    ? schedule.groupings.find((g) => g.accounts.some((a) => accountSubject(a) === initialAccount))?.grouping ?? "xero"
+    : "all";
+  const [tab, setTab] = useState<string>(startGroup);
   const [co, setCo] = useState<string>("all");
   const [view, setView] = useState<View>("rf");
-  const [stack, setStack] = useState<Panel[]>([]);
+  const [stack, setStack] = useState<Panel[]>(initialAccount && startGroup !== "xero" ? [{ type: "account", key: initialAccount }] : []);
   const [scope, setScope] = useState<"month" | "all">("month");
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const panelRef = useRef<HTMLElement | null>(null);
-  const scrollNext = useRef(false);
+  const scrollNext = useRef(Boolean(initialAccount));
   const panel = stack[stack.length - 1] ?? null;
   const open = (p: Panel) => { setStack((s) => [...s, p]); setScope("month"); scrollNext.current = true; };
   useEffect(() => {

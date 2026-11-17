@@ -166,14 +166,15 @@ export default function RecView({ slug, data, thread, me }: {
           <h2 className={styles.h2}>By company</h2>
           <span className={styles.small}>{PROOF_LABEL[rec.proof]}{rec.class ? ` · Class ${rec.class}` : ""}{rec.owner ? ` · Owner ${rec.owner}` : ""}{rec.challenge ? ` · Challenge ${rec.challenge}` : ""}</span>
         </div>
-        <Cover rows={cover.rows} group={cover.group} canComment={preparing} busy={busy} send={send} label={rec.proof === "schedule" ? "Schedule" : "Evidence"} />
+        <Cover rows={cover.rows} group={cover.group} canComment={preparing} busy={busy} send={send} label={rec.proof === "schedule" ? "Schedule" : "Evidence"}
+          href={data.evidence?.method === "asset_register" ? (r) => registerHref(slug, rec.period, r) : undefined} />
       </section>
 
       {!rec.workable && rec.line_key && (
         <div className={styles.note}>This line is on the list so it cannot be missed. It is proved by a schedule that is not built here yet; only the Prepayments schedule is.</div>
       )}
 
-      {data.evidence && <Evidence data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />}
+      {data.evidence && <Evidence slug={slug} data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />}
       {data.evidence && (data.evidence.statement_upload || (data.evidence.reconciling ?? []).length > 0 || preparing) && (
         <RecReconciling data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />
       )}
@@ -350,7 +351,7 @@ function Releases({ slug, data, busy, send, preparing }: { slug: string; data: R
 // The evidence behind a rec proved by outside evidence or a ledger review:
 // what is held per company, how more can be fetched from Xero, the pair for
 // an intercompany account, and a form to key evidence with its document.
-function Evidence({ data, ev, preparing, busy, send }: { data: RecDetail; ev: RecEvidence; preparing: boolean; busy: boolean; send: Send }) {
+function Evidence({ slug, data, ev, preparing, busy, send }: { slug: string; data: RecDetail; ev: RecEvidence; preparing: boolean; busy: boolean; send: Send }) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ entity_id: data.cover.rows[0]?.entity_id ?? "", amount: "", source: "", document_ref: "", note: "" });
   const [pick, setPick] = useState(ev.candidates[0]?.rec_account_id ?? "");
@@ -360,6 +361,9 @@ function Evidence({ data, ev, preparing, busy, send }: { data: RecDetail; ev: Re
         <h2 className={styles.h2}>Evidence</h2>
         <span className={styles.small}>
           {ev.method_label ? `Fetched from: ${ev.method_label}` : "Outside evidence for each company: a statement, a return, a register or a confirmation, with its document"}
+          {ev.method === "asset_register" && data.cover.rows.map((r) => registerHref(slug, data.rec.period, r) && (
+            <span key={r.entity_id}> · <Link className={styles.link} href={registerHref(slug, data.rec.period, r)!}>Open {r.entity} {r.code} in the register</Link></span>
+          ))}
         </span>
       </div>
       {ev.method === "counterpart" && (
@@ -454,8 +458,15 @@ function Tile({ label, value, off = false }: { label: string; value: string; off
   );
 }
 
-function Cover({ rows, group, canComment, busy, send, label = "Schedule" }: {
+// The asset register behind an asset rec's evidence: the Fixed assets page for
+// the month, with the company's account open (18 Nov 2026).
+function registerHref(slug: string, period: string, r: Pick<CoverRow, "entity_id" | "code">): string | null {
+  return r.code ? `/finance/clients/${encodeURIComponent(slug)}/fixed-assets?period=${encodeURIComponent(period)}&account=${encodeURIComponent(`${r.entity_id}:${r.code}`)}` : null;
+}
+
+function Cover({ rows, group, canComment, busy, send, label = "Schedule", href }: {
   rows: CoverRow[]; group: RecDetail["cover"]["group"]; canComment: boolean; busy: boolean; send: Send; label?: string;
+  href?: (r: CoverRow) => string | null;
 }) {
   return (
     <>
@@ -465,7 +476,7 @@ function Cover({ rows, group, canComment, busy, send, label = "Schedule" }: {
             <div className={styles.rowTop}><span className={styles.rowName}>{r.entity}</span><span className={styles.small}>{r.no_ledger ? "Nothing in the ledger" : `${r.code ?? ""}${r.currency ? ` ${r.currency}` : ""}`}</span></div>
             <div className={styles.rowFigs}>
               <div className={styles.fig}><div className={styles.figLabel}>Ledger</div><div className={styles.figValue}>{money(r.gl)}</div></div>
-              <div className={styles.fig}><div className={styles.figLabel}>{label}</div><div className={styles.figValue}>{money(r.schedule)}</div></div>
+              <div className={styles.fig}><div className={styles.figLabel}>{label}</div><div className={styles.figValue}>{href?.(r) ? <Link className={styles.link} href={href(r)!} title="Open in the asset register">{money(r.schedule)}</Link> : money(r.schedule)}</div></div>
               <div className={styles.fig}><div className={styles.figLabel}>Variance</div><div className={styles.figValue}>{money(r.variance)}</div></div>
             </div>
             <Comment row={r} canComment={canComment} busy={busy} send={send} />
@@ -489,7 +500,7 @@ function Cover({ rows, group, canComment, busy, send, label = "Schedule" }: {
                 <td>{r.entity}</td>
                 <td className={styles.sub}>{r.no_ledger ? "Nothing in the ledger" : `${r.code ? `${r.code} ` : ""}${r.gl_name}${r.currency ? ` (${r.currency})` : ""}`}</td>
                 <td className={styles.num}>{money(r.gl)}</td>
-                <td className={styles.num}>{money(r.schedule)}</td>
+                <td className={styles.num}>{href?.(r) ? <Link className={styles.link} href={href(r)!} title="Open in the asset register">{money(r.schedule)}</Link> : money(r.schedule)}</td>
                 <td className={`${styles.num} ${r.ties === false ? styles.strong : ""}`}>{money(r.variance)}</td>
                 <td><Comment row={r} canComment={canComment} busy={busy} send={send} /></td>
               </tr>

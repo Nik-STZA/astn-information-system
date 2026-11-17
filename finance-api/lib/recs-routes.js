@@ -369,7 +369,16 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       if (r.error) errors.push({ entity_id: e.id, entity: e.name, error: r.error });
       else read.push({ ...e, lines: r.lines, currency: r.currency, unidentified: r.unidentified });
     }
-    const { accounts, notes } = recs.composeAccounts(read);
+    // The chart of accounts' approved categories place fixed asset accounts.
+    let mapped = new Map();
+    try {
+      mapped = new Map((await pool.query(
+        "SELECT entity_id, xero_account_id, category_key FROM finance.account_mappings WHERE client_id = $1 AND status = 'approved'", [client.id])).rows
+        .map((m) => [`${m.entity_id}|${String(m.xero_account_id).toLowerCase()}`, m.category_key]));
+    } catch (e) {
+      if (e?.code !== "42P01") throw e;
+    }
+    const { accounts, notes } = recs.composeAccounts(read, mapped);
     for (const e of read) {
       for (const label of new Set(e.unidentified)) notes.push(`${e.name}: the trial balance has a row with no account id, so it is not on this list: ${label}.`);
     }
@@ -423,8 +432,20 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           `INSERT INTO finance.rec_accounts (client_id, account_key, account_name, line_key, proof)
            VALUES ($1,$2,$3,$4,$5)
            ON CONFLICT (client_id, account_key) DO UPDATE SET account_name = EXCLUDED.account_name
-           RETURNING id, line_key, proof`,
+           RETURNING id, line_key, proof, placed_by`,
           [client.id, a.key, a.name, a.line_key, a.proof])).rows[0];
+        // The chart of accounts moved it: follow, unless a person placed it on
+        // the matrix by hand, which stands until they place it again.
+        if (a.chart_line_key && a.chart_line_key !== ra.line_key) {
+          if (ra.placed_by) {
+            notes.push(`${a.name}: the chart of accounts puts it under ${lineFor(a.chart_line_key).line}, but ${ra.placed_by} placed it under ${lineFor(ra.line_key)?.line ?? "another line"}. Place it again to follow the chart.`);
+          } else {
+            await conn.query("UPDATE finance.rec_accounts SET line_key = $2, proof = $3 WHERE id = $1", [ra.id, a.chart_line_key, a.proof]);
+            notes.push(`${a.name}: moved to ${lineFor(a.chart_line_key).line}, as the chart of accounts has it.`);
+            ra.line_key = a.chart_line_key;
+            ra.proof = a.proof;
+          }
+        }
         const rec = await monthRec(ra);
         const here = new Map();
         for (const b of a.by_entity) {

@@ -91,6 +91,25 @@ describe("a group rec joins companies by account name", () => {
   });
 });
 
+describe("the chart of accounts places fixed asset accounts (18 Nov 2026)", () => {
+  const tm = (id, entity, acc) => ({ id: entity, name: entity, lines: [{ key: "asset:trademarksregistered", code: "775", name: "Trade Marks (Registered)", opening: 0, closing: 100, movement: 100,
+    account_id: acc, chart: { Name: "Trade Marks (Registered)", Type: "FIXED" } }] });
+  it("guesses Tangible assets from the name and type when the chart says nothing", () => {
+    expect(composeAccounts([tm(1, A, "X1")]).accounts[0]).toMatchObject({ line_key: "ppe" });
+  });
+  it("follows an approved Intangible assets category over the guess", () => {
+    const mapped = new Map([[`${A}|x1`, "intangible_assets"]]);
+    const out = composeAccounts([tm(1, A, "X1")], mapped).accounts[0];
+    expect(out).toMatchObject({ line_key: "intangible", chart_line_key: "intangible", proof: "schedule" });
+  });
+  it("leaves it, and says so, when the companies' charts disagree", () => {
+    const mapped = new Map([[`${A}|x1`, "intangible_assets"], [`${B}|x2`, "tangible_assets"]]);
+    const { accounts, notes } = composeAccounts([tm(1, A, "X1"), tm(2, B, "X2")], mapped);
+    expect(accounts[0].chart_line_key).toBeUndefined();
+    expect(notes.join(" ")).toMatch(/different categories/);
+  });
+});
+
 describe("H6: keys never lose a balance", () => {
   const l = (key, code, name, closing) => ({ key, code, name, closing, opening: 0, movement: closing, account_id: code });
   it("keeps two accounts in one company that reduce to one key, and says so", () => {

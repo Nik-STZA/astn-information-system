@@ -139,6 +139,25 @@ function entityLines({ accounts, closeTb, openTb }) {
   return out;
 }
 
+// The chart of accounts' categories that say which matrix line an account is
+// on (18 Nov 2026: the CFO moved Feldspar's patents and trade marks to
+// Intangible assets in the chart, and the recs kept the name-based guess,
+// Tangible assets). Only the fixed asset categories map one to one.
+const CATEGORY_LINE = { intangible_assets: "intangible", tangible_assets: "ppe", investments: "investments" };
+
+// The line the chart of accounts gives a group account: the approved category
+// of each company's account, when they agree. mapped: Map "entity_id|account_id"
+// (account id lower case) -> category_key. Returns { line_key | null, conflict }.
+function chartLine(byEntity, mapped) {
+  const lines = new Set();
+  for (const b of byEntity) {
+    const cat = mapped?.get(`${b.entity_id}|${String(b.account_id ?? "").toLowerCase()}`);
+    if (cat && CATEGORY_LINE[cat]) lines.add(CATEGORY_LINE[cat]);
+  }
+  if (lines.size === 1) return { line_key: [...lines][0], conflict: false };
+  return { line_key: null, conflict: lines.size > 1 };
+}
+
 // Every company's lines joined into group accounts, with the line of the matrix
 // each belongs to. An account Xero or its name cannot place stays unplaced, for
 // a person to place; it is listed all the same.
@@ -148,7 +167,7 @@ function entityLines({ accounts, closeTb, openTb }) {
 //
 // Two accounts in ONE company can reduce to the same key. Each company has one
 // row per rec, so those two must never share a rec: each gets its own, by code.
-function composeAccounts(entities) {
+function composeAccounts(entities, mapped = null) {
   const groups = new Map();
   const notes = new Set();
   for (const e of entities) {
@@ -167,8 +186,19 @@ function composeAccounts(entities) {
         groups.set(key, { key, name, line_key: line?.key ?? null, proof: line?.proof ?? "ledger_review", by_entity: [] });
       }
       groups.get(key).by_entity.push({
-        entity_id: e.id, code: l.code, name: l.name, currency: e.currency ?? null, opening: l.opening, closing: l.closing, movement: l.movement,
+        entity_id: e.id, account_id: l.account_id, code: l.code, name: l.name, currency: e.currency ?? null, opening: l.opening, closing: l.closing, movement: l.movement,
       });
+    }
+  }
+  // The chart of accounts, where approved, places the account over its name.
+  for (const g of groups.values()) {
+    const c = chartLine(g.by_entity, mapped);
+    if (c.conflict) notes.add(`${g.name}: the companies' charts of accounts put it in different categories, so it stays where it is. Make them agree.`);
+    if (c.line_key) {
+      const line = lineFor(c.line_key);
+      g.chart_line_key = line.key;
+      g.line_key = line.key;
+      g.proof = line.proof;
     }
   }
   return { accounts: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name)), notes: [...notes] };
@@ -1105,6 +1135,7 @@ function sendBackInstruction(rec, note, by) {
 }
 
 module.exports = {
+  CATEGORY_LINE, chartLine,
   ACCEPT_MIN, AUTO_RESTARTS, autoRestartsInARow, sendBackInstruction,
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
