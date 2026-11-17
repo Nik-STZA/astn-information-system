@@ -1,9 +1,10 @@
-// Fixed assets, client scoped (Nik, 6 Nov 2026): each company's register as
-// Xero holds it. Read only. Shows where depreciation stands, totals by asset
-// type with the accounts each type posts to, the drafts waiting in Xero, and
-// any asset an agent has proposed that waits on the CFO, and the tie to the
-// ledger: each cost and accumulated depreciation account against today's
-// trial balance, differences shown as found (Nik, 8 Nov 2026).
+// Fixed assets, client scoped. One page for every register the client keeps
+// (CFO design, 18 Nov 2026, mock-up v5): the asset registers os.stza.io keeps
+// (projects, IP, self-built assets), a month at a time, with the roll-forward,
+// the tie to Xero, every asset and its invoices, and threads; and, under
+// "Kept by Xero", each company's register as Xero's fixed asset register holds
+// it (Nik, 6 Nov 2026), tied to the ledger. A client with no asset register
+// switched on sees Xero's view only, as before.
 
 import Link from "next/link";
 import PageHeader from "@/shared/ui/PageHeader";
@@ -11,32 +12,57 @@ import {
   DEPRECIATION_LABEL, DEPRECIATION_TONE, dateText, fetchFixedAssets, methodText, money, pickCompany, tieSummary,
   type AssetRow, type CompanyRegister, type LedgerTie,
 } from "@/modules/finance/lib/fixed-assets";
+import { fetchMonthThreads, fetchPeople, fetchSchedule } from "@/modules/finance/lib/asset-schedule";
+import { fetchWaitingLines } from "@/modules/finance/lib/asset-register";
 import { proposerLabel } from "@/modules/finance/lib/xero-changes";
+import FixedAssetsView from "@/modules/finance/components/FixedAssetsView";
 import page from "@/modules/finance/components/Page.module.css";
 import styles from "@/modules/finance/components/FixedAssets.module.css";
 
 export const dynamic = "force-dynamic";
 
-export default async function FixedAssetsPage({ params: paramsPromise, searchParams: searchParamsPromise }: {
+// Initials from an email when the person has not set a profile yet.
+const emailInitials = (email: string) => email.split("@")[0].split(/[._-]+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 3).toUpperCase() || "?";
+
+export default async function FixedAssetsPage({ params: paramsPromise, searchParams: searchParamsPromise, actorEmail = null }: {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<{ company?: string }>;
+  searchParams?: Promise<{ company?: string; period?: string }>;
+  actorEmail?: string | null;
 }) {
   const { slug } = await paramsPromise;
   const q = (await searchParamsPromise) ?? {};
-  const r = await fetchFixedAssets(slug);
   const base = `/finance/clients/${encodeURIComponent(slug)}`;
+  const [r, s, w, people] = await Promise.all([fetchFixedAssets(slug), fetchSchedule(slug, q.period), fetchWaitingLines(slug), fetchPeople()]);
 
+  const xero = !r.ok ? (
+    <div className={styles.error} role="alert">Could not load Xero&apos;s fixed asset register: {/Cannot GET/i.test(r.error) ? "the endpoint is not deployed on finance-api yet." : r.error}</div>
+  ) : !r.data.companies.length ? (
+    <div className={`${styles.card} ${styles.pad} ${styles.sub}`}>No company of this client is connected to Xero.</div>
+  ) : (
+    <Register base={base} companies={r.data.companies} company={pickCompany(r.data.companies, q.company)!} />
+  );
+
+  const registers = s.ok && s.data.period && s.data.groupings.some((g) => g.assets.length || g.accounts.length);
+  if (!registers) {
+    return (
+      <div>
+        <PageHeader title="Fixed assets" sub="Each company's asset register as Xero holds it, tied to the ledger. Read only: changes are made in Xero." />
+        {!s.ok && s.status !== 404 && s.status !== 503 && <div className={styles.error} role="alert">Could not load the asset registers: {s.error}</div>}
+        {xero}
+      </div>
+    );
+  }
+
+  const threads = await fetchMonthThreads(slug, s.data.period!);
+  const email = (actorEmail ?? "").toLowerCase();
+  const profile = people.ok ? people.data.people.find((p) => p.email === email) : undefined;
+  const me = { initials: profile?.initials ?? (email ? emailInitials(email) : "?"), name: profile?.display_name ?? (email || "You") };
   return (
     <div>
       <PageHeader title="Fixed assets"
-        sub="Each company's asset register as Xero holds it, tied to the ledger. Read only: changes are made in Xero." />
-      {!r.ok ? (
-        <div className={styles.error} role="alert">Could not load the fixed assets: {/Cannot GET/i.test(r.error) ? "the endpoint is not deployed on finance-api yet." : r.error}</div>
-      ) : !r.data.companies.length ? (
-        <div className={`${styles.card} ${styles.pad} ${styles.sub}`}>No company of this client is connected to Xero.</div>
-      ) : (
-        <Register base={base} companies={r.data.companies} company={pickCompany(r.data.companies, q.company)!} />
-      )}
+        sub="Every asset from its first invoice to the end of its life, rolled forward each month and tied to Xero. Select any figure to see what makes it up." />
+      <FixedAssetsView slug={slug} schedule={s.data} threads={threads.ok ? threads.data.threads : []} threadsError={threads.ok ? null : threads.error}
+        waiting={w.ok ? w.data.lines : []} me={me} xeroTab={xero} />
     </div>
   );
 }

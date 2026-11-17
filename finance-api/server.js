@@ -6705,6 +6705,14 @@ require("./lib/asset-register-routes").mountAssetRegister(app, {
   route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
 });
 
+// ── Threads and people ──────────────────────────────────────────────────────
+
+// One thread per thing the work is about (an account at a month end, an asset,
+// a cost line, a reconciliation, a register month), shown wherever it appears
+// and read by the agents; and each person's initials for the audit trail
+// (lib/threads-routes.js, migration 050).
+require("./lib/threads-routes").mountThreads(app, { route, pool, audit, clientIdFromSlug, viaInput: work.viaInput });
+
 // ── Review ──────────────────────────────────────────────────────────────────
 
 // Everything waiting on a person for a client, from Bills, Reconciliations,

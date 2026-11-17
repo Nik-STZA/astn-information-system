@@ -352,6 +352,20 @@ async function scenario() {
     ok("the page's view: September signed, the tie and each asset from the month's snapshot", r.status === 200 && r.body.grouping === "ip_registered"
       && r.body.month.status === "signed" && r.body.month.signed_by === CFO && v777?.ties && v777.register === 300
       && v4?.cost === 200 && v4.name === "ABC CN characters" && v4.company && r.body.groupings[0].periods.length >= 2, r.body);
+    r = await api("GET", "asset-register/schedule?period=2026-09");
+    const sg = r.body.groupings?.find((g) => g.grouping === "ip_registered");
+    const sPat = sg?.assets.find((a) => a.asset_no === "ABC-PAT-0001");
+    const sTmk = sg?.assets.find((a) => a.asset_no === "ABC-TMK-0001");
+    const sNew = sg?.assets.find((a) => a.asset_no === "ABC-TMK-0004");
+    ok("the month's schedule: cost and accumulated brought forward and in the month, by asset", r.status === 200 && r.body.period === "2026-09"
+      && sPat?.cost_bf === 2500 && sPat.additions === 500 && sPat.cost_cf === 3000 && sTmk?.accumulated_bf === -120.5 && sTmk.nbv_cf === 879.5
+      && sNew?.additions === 200 && sNew.account === "777", { period: r.body.period, sPat, sTmk, sNew });
+    ok("with the month signed, by whom, and the tie from its snapshot", sg?.month?.status === "signed" && sg.month.signed_by?.email === CFO
+      && sg.accounts.some((a) => a.code === "774" && a.ties && a.register === 3000), sg?.month);
+    ok("and every line behind each asset, with its asset", sg?.lines.some((l) => l.invoice_no === "INV-77" && l.amount === 500 && l.asset_id === sPat.id && l.account === "774")
+      && sg.lines.filter((l) => l.asset_id === sNew.id).length === 1, sg?.lines);
+    r = await api("GET", "asset-register/schedule");
+    ok("with no month asked, the latest prepared or signed", r.status === 200 && r.body.period === "2026-10" && r.body.months.includes("2026-08"), r.body.period);
     r = await api("GET", "asset-register/view");
     ok("with no month asked, the latest prepared or signed month", r.status === 200 && r.body.month?.period === "2026-10", r.body.month?.period);
     const signedLine = (await api("GET", "asset-register/cost-lines?state=approved")).body.lines.find((l) => l.invoice_no === "INV-77");
