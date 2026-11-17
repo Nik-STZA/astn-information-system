@@ -67,6 +67,48 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     res.json({ groupings: rows });
   }));
 
+  // GET .../asset-register/view?grouping=&period=   what the portal page shows:
+  // every grouping with its months, and for the chosen grouping and month
+  // (default: the latest prepared or signed) the tie and each asset as the
+  // month was prepared, from its snapshot. Plus the grouping's assets, for
+  // deciding lines. Read only.
+  app.get(`${BASE}/view`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const groupings = (await pool.query(
+      `SELECT g.grouping, g.enabled, g.paused,
+              (SELECT count(*)::int FROM finance.assets a WHERE a.client_id = g.client_id AND a.grouping = g.grouping) AS assets,
+              (SELECT count(*)::int FROM finance.asset_cost_lines l WHERE l.client_id = g.client_id AND l.grouping = g.grouping AND l.state = 'proposed') AS waiting,
+              coalesce((SELECT json_agg(json_build_object('period', p.period, 'status', p.status, 'opening', p.snapshot->>'kind' = 'opening_import',
+                         'prepared_by', p.prepared_by, 'prepared_at', p.prepared_at, 'signed_by', p.signed_by, 'signed_at', p.signed_at) ORDER BY p.period)
+                 FROM finance.asset_register_periods p WHERE p.client_id = g.client_id AND p.grouping = g.grouping), '[]') AS periods
+         FROM finance.asset_groupings_client g WHERE g.client_id = $1 AND g.enabled ORDER BY g.grouping`, [client.id])).rows
+      .map((g) => ({ ...g, name: groupingNames[g.grouping] ?? g.grouping }));
+    const g = groupings.find((x) => x.grouping === req.query.grouping) ?? groupings.find((x) => x.assets > 0) ?? groupings[0];
+    if (!g) return res.json({ groupings, grouping: null, month: null, assets: [] });
+    const done = g.periods.filter((p) => ["prepared", "signed"].includes(p.status));
+    const pick = g.periods.find((p) => p.period === req.query.period) ?? done[done.length - 1] ?? null;
+    const assets = (await pool.query(
+      `SELECT a.asset_no, a.name, a.status, a.jurisdiction, e.name AS company, pa.asset_no AS parent_asset_no
+         FROM finance.assets a JOIN finance.entities e ON e.id = a.entity_id LEFT JOIN finance.assets pa ON pa.id = a.parent_asset_id
+        WHERE a.client_id = $1 AND a.grouping = $2 ORDER BY a.asset_no`, [client.id, g.grouping])).rows;
+    let month = null;
+    if (pick) {
+      const snap = (await pool.query(
+        "SELECT snapshot FROM finance.asset_register_periods WHERE client_id = $1 AND grouping = $2 AND period = $3", [client.id, g.grouping, pick.period])).rows[0]?.snapshot ?? {};
+      const byNo = new Map(assets.map((a) => [a.asset_no, a]));
+      const accounts = snap.accounts
+        ? snap.accounts.map((a) => ({ company: a.company, account: a.account, opening: a.opening ?? null, additions: a.additions ?? 0,
+            amortisation: a.amortisation ?? 0, impairment: a.impairment ?? 0, by_xero: a.by_xero ?? null, register: a.register, ledger: a.ledger,
+            difference: a.difference, named_items: a.named_items || [], unexplained: a.unexplained ?? 0, ties: !!a.ties }))
+        : (snap.tie || []).map((t) => ({ company: t.company, account: t.account, opening: null, additions: 0, amortisation: 0, impairment: 0, by_xero: null,
+            register: t.register, ledger: t.ledger, difference: t.difference, named_items: t.named_items || [], unexplained: t.unexplained ?? 0, ties: !!t.ties }));
+      month = { ...pick, accounts, findings: snap.findings || [],
+        assets: (snap.assets || []).map((x) => ({ ...byNo.get(x.asset_no), asset_no: x.asset_no, cost: x.cost, accumulated: x.accumulated, additions: x.additions ?? 0 })) };
+    }
+    res.json({ groupings, grouping: g.grouping, month, assets });
+  }));
+
   app.post(`${BASE}/import`, tolerant(async (req, res) => {
     const who = person(req, res);
     if (!who) return;
