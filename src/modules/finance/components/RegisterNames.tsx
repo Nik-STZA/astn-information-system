@@ -34,7 +34,7 @@ function Row({ slug, g }: { slug: string; g: RegisterSetting }) {
           style={{ height: 36, padding: "0 10px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pg)", color: "var(--tx)", font: "inherit", fontSize: 14 }} />
       </label>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" className="btn-primary" disabled={busy || !changed} onClick={save}>{name.trim() ? "Save name" : "Use the standard name"}</button>
+        <button type="button" className="btn-primary" disabled={busy || !changed} onClick={save}>{g.display_name && !name.trim() ? "Use the standard name" : "Save name"}</button>
         {msg && <span className={msg.ok ? styles.small : styles.error} role={msg.ok ? "status" : "alert"}>{msg.text}</span>}
       </div>
     </div>
