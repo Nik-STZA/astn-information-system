@@ -118,6 +118,23 @@ def test_a_client_only_category_is_drawn_in_its_section_and_the_statements_still
     assert f"F{labels['Pension costs']}" in toh
 
 
+def test_management_ebitda_sits_after_cash_overheads_and_before_depreciation(tmp_path, profile):
+    rows = standard_rows() + [{"key": "capitalised_dev", "label": "Capitalised Development", "statement": "pnl",
+                               "section": "overheads", "sortOrder": 45, "cashFlow": None, "active": True}]
+    data = saved(categories=rows, overrides={"a-pen": {"category": "capitalised_dev"}})
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)
+    assert res.failed == []
+    ws = openpyxl.load_workbook(res.path)["Profit and loss"]
+    labels = rows_labelled(ws)
+    assert labels["Capitalised Development"] < labels["Total overheads"] < labels["Management EBITDA"] < labels["Operating profit"]
+    ebitda = ws.cell(labels["Management EBITDA"], 6).value
+    assert f"F{labels['Gross profit']}" in ebitda and f"F{labels['Total overheads']}" in ebitda
+    if "Depreciation and amortisation" in labels:
+        assert labels["Management EBITDA"] < labels["Depreciation and amortisation"] < labels["Operating profit"]
+        assert f"F{labels['Depreciation and amortisation']}" in ws.cell(labels["Operating profit"], 6).value
+        assert f"F{labels['Depreciation and amortisation']}" not in ws.cell(labels["Total overheads"], 6).value
+
+
 def test_a_cash_flow_override_moves_one_account(tmp_path, profile):
     data = saved(overrides={"a-cred": {"cashFlow": "loans"}})
     res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)

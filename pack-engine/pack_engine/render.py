@@ -244,11 +244,20 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
     for b in trading:
         block(b)
     gp = total("Gross profit", [b.category for b in trading], "section_total", "gross_profit")
+    # Overheads that are cash come first, then Management EBITDA, then the
+    # non-cash ones (depreciation and amortisation), then operating profit
+    # (CFO, 18 Nov 2026: Feldspar reads its costs, including capitalised
+    # development, before EBITDA, and D&A after it).
     overheads = by_section.get("overheads", [])
-    for b in overheads:
+    non_cash = [b for b in overheads if model.categories[b.category].cash_flow == "non_cash"]
+    cash = [b for b in overheads if b not in non_cash]
+    for b in cash:
         block(b)
-    toh = total("Total overheads", [b.category for b in overheads], "subtotal", "total_overheads")
-    op = total("Operating profit", [gp, toh], "section_total", "operating_profit")
+    toh = total("Total overheads", [b.category for b in cash], "subtotal", "total_overheads")
+    ebitda = total("Management EBITDA", [gp, toh], "section_total", "management_ebitda")
+    for b in non_cash:
+        block(b)
+    op = total("Operating profit", [ebitda, *[b.category for b in non_cash]], "section_total", "operating_profit")
     finance = by_section.get("finance", [])
     for b in finance:
         block(b)
