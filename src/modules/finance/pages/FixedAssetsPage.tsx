@@ -13,6 +13,7 @@ import {
   type AssetRow, type CompanyRegister, type LedgerTie,
 } from "@/modules/finance/lib/fixed-assets";
 import { fetchMonthThreads, fetchPeople, fetchSchedule } from "@/modules/finance/lib/asset-schedule";
+import { meFrom } from "@/modules/finance/lib/threads";
 import { fetchWaitingLines } from "@/modules/finance/lib/asset-register";
 import { proposerLabel } from "@/modules/finance/lib/xero-changes";
 import FixedAssetsView from "@/modules/finance/components/FixedAssetsView";
@@ -21,8 +22,6 @@ import styles from "@/modules/finance/components/FixedAssets.module.css";
 
 export const dynamic = "force-dynamic";
 
-// Initials from an email when the person has not set a profile yet.
-const emailInitials = (email: string) => email.split("@")[0].split(/[._-]+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 3).toUpperCase() || "?";
 
 export default async function FixedAssetsPage({ params: paramsPromise, searchParams: searchParamsPromise, actorEmail = null }: {
   params: Promise<{ slug: string }>;
@@ -54,9 +53,7 @@ export default async function FixedAssetsPage({ params: paramsPromise, searchPar
   }
 
   const threads = await fetchMonthThreads(slug, s.data.period!);
-  const email = (actorEmail ?? "").toLowerCase();
-  const profile = people.ok ? people.data.people.find((p) => p.email === email) : undefined;
-  const me = { initials: profile?.initials ?? (email ? emailInitials(email) : "?"), name: profile?.display_name ?? (email || "You") };
+  const me = meFrom(actorEmail, people.ok ? people.data.people : null);
   return (
     <div>
       <PageHeader title="Fixed assets"

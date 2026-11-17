@@ -11,6 +11,9 @@ import { fetchJournals } from "@/modules/finance/lib/journals";
 import { fetchReview } from "@/modules/finance/lib/review";
 import { fetchTasks, type Task } from "@/modules/finance/lib/work";
 import { carriedAt, fetchOutstandingDocs, monthLabel, pounds } from "@/modules/finance/lib/outstanding-docs";
+import { fetchPeople, fetchSchedule } from "@/modules/finance/lib/asset-schedule";
+import { accountKey, fetchThreads, meFrom, subjectHref, type ThreadEntry } from "@/modules/finance/lib/threads";
+import { Entry } from "@/modules/finance/components/Threads";
 import Link from "next/link";
 import styles from "@/modules/finance/components/Page.module.css";
 
@@ -26,12 +29,14 @@ export default async function ClosePage({ params: paramsPromise, searchParams: s
   const period = isPeriod(asked) ? asked as string : defaultPeriod();
 
   const errors: string[] = [];
-  const [tasks, recs, journals, review, docs] = await Promise.all([
+  const [tasks, recs, journals, review, docs, open, people] = await Promise.all([
     fetchTasks(slug).catch((e: unknown) => e instanceof Error ? e : new Error("the tasks could not be read")),
     fetchRecs(slug, period).catch(() => null),
     fetchJournals(slug, period).catch(() => null),
     fetchReview(slug, actorEmail).catch(() => null),
     fetchOutstandingDocs(slug).catch(() => null),
+    fetchThreads(slug, { period, open: true }).catch(() => null),
+    fetchPeople().catch(() => null),
   ]);
 
   if (tasks instanceof Error) {
@@ -62,9 +67,45 @@ export default async function ClosePage({ params: paramsPromise, searchParams: s
     today,
   });
 
+  // What waits on a decision in the month's threads, answered here in place.
+  // A thread that cannot be read is named; migration 050 not applied is quiet.
+  const waiting = open?.ok ? open.data.threads : [];
+  if (open && !open.ok && open.status !== 503) errors.push(`Threads could not be read: ${open.error}, so what waits on your decision is not shown.`);
+  const me = meFrom(actorEmail, people?.ok ? people.data.people : null);
+  const entities = new Map((recs?.ok ? recs.data.entities : []).map((e) => [e.id, e.name]));
+  // An account's thread opens the month's reconciliation that covers it.
+  const recByAccount = new Map<string, string>();
+  for (const r of recs?.ok ? recs.data.recs : []) {
+    for (const b of r.by_entity ?? []) for (const c of r.codes) { const k = accountKey(b.entity_id, c); if (k && !recByAccount.has(k)) recByAccount.set(k, r.id); }
+  }
+  const recName = new Map((recs?.ok ? recs.data.recs : []).map((r) => [r.id, r.account_name]));
+  // Assets are named from the month's register, read only when one waits.
+  const assetNames = new Map<string, string>();
+  if (waiting.some((e) => e.subject_kind === "asset")) {
+    const sch = await fetchSchedule(slug, period).catch(() => null);
+    for (const g of sch?.ok ? sch.data.groupings : []) for (const a of g.assets) assetNames.set(a.id, `${a.asset_no} ${a.name}`);
+  }
+  const label = (e: ThreadEntry) => {
+    if (e.subject_kind === "account") { const [id, code] = e.subject_key.split(":"); return `${entities.get(id) ?? "Account"} ${code}`; }
+    if (e.subject_kind === "reconciliation") return recName.get(e.subject_key) ?? "A reconciliation";
+    if (e.subject_kind === "asset") return assetNames.get(e.subject_key) ?? "An asset";
+    if (e.subject_kind === "register_month") return "Asset register";
+    return "A cost line";
+  };
+
   return (
     <div>
       <PageHeader title="Close" sub="One month's close: each step, what it waits for, and what is left before sign-off. Open a step to work on it." />
+      {waiting.length > 0 && (
+        <section className={`${styles.card} ${styles.pad} ${styles.wide}`} style={{ marginBottom: 16 }} aria-label="Waiting on your decision">
+          <div className={styles.rowHead}>
+            <span className={styles.rowTitle}>Waiting on your decision</span>
+            <span className={`${styles.status} ${styles["s-amber"]}`}><span className={styles.dot} />{waiting.length} open</span>
+          </div>
+          <div className={styles.small}>Questions and holds from the month&apos;s threads. Reply or decide here; the thread is the same on the reconciliation, the Fixed assets page and for the agents.</div>
+          {waiting.map((e) => <Entry key={e.id} slug={slug} e={e} me={me} subject={label(e)} subjectHref={subjectHref(slug, e, recByAccount)} />)}
+        </section>
+      )}
       <CloseView slug={slug} view={view} today={today} errors={errors} />
       {carried && carried.count > 0 && (
         <div className={`${styles.card} ${styles.pad} ${styles.wide}`} style={{ marginTop: 16 }}>
