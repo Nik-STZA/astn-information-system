@@ -395,6 +395,7 @@ function buildTools(clientSlug, entities, agent, clientRules) {
       },
     },
     ...work.tools(entityEnum),
+    ...threadTools.tools(),
     ...reconciliations.tools(entityEnum),
     // FM1 and the FC only; a general session is not offered it either.
     ...(journalsRegister.roles.includes(agent) ? journalsRegister.tools(entityEnum) : []),
@@ -606,6 +607,13 @@ async function billsTool(job, name, input) {
 
 const work = require("./lib/agent-work").agentWork({ apiCall, apiRequest, requesterOf });
 
+// ── Threads ──────────────────────────────────────────────────────────────────
+//
+// The notes, questions, holds and decisions on an account, asset or
+// reconciliation in os.stza.io: lib/agent-threads.js.
+
+const threadTools = require("./lib/agent-threads").agentThreads({ apiCall, apiRequest, requesterOf });
+
 // ── Reconciliations ──────────────────────────────────────────────────────────
 //
 // The month's balance sheet recs in os.stza.io: lib/agent-recs.js.
@@ -699,7 +707,12 @@ Documents:
 Work (the client's task list in os.stza.io):
 - When you find something that needs doing later (a break to clear, a document to chase, a journal to review), read list_tasks, then add_task if it is not already there. One task per thing, with the evidence in the notes.
 - When you finish or progress a task in Work, update_task with a note of what you did. Mark it done only when you have checked it is done; use review when a person should check it.
-- You cannot delete tasks. At the end, list any tasks you added or changed.`;
+- You cannot delete tasks. At the end, list any tasks you added or changed.
+
+Threads (what people have said on an account, asset or reconciliation in os.stza.io):
+- Before you work on an account, asset or reconciliation, read_threads on it. A hold binds you until it is decided; a decision there is the CFO's instruction.
+- Record what you find on the thing it is about with add_thread_entry (kind finding, with the figures and their source). When a person must decide something, add a question with needs_decision rather than guessing.
+- You cannot record a decision or change an entry. At the end, list any entries you added.`;
 
 // Each role's instructions, its tools and the procedures it can open are files
 // in agents/, with the client's approved rules merged in: lib/agent-procedures.js.
@@ -797,7 +810,9 @@ async function executeJob(job) {
   const clientContext = `You are working on client: ${job.client.name} (slug: ${job.client.slug}).
 Reporting currency: ${currency ?? "not recorded; label every amount with the currency code Xero returns"}.
 Connected entities: ${connectedEntities.map((e) => `${e.name} (${e.slug}, year-end: ${e.yearEnd || "not set"})`).join("; ")}.
-Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`;
+Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.${await threadTools.context(job).then((t) => (t ? `
+
+${t}` : ""))}`;
 
   // 3. Agentic loop
   let messages = [
@@ -866,6 +881,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long
           result = await billsTool(job, tu.name, tu.input);
           if (tu.name === "recommend_bill_coding") console.log(`    Recommendation: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
           if (tu.name === "submit_bill") console.log(`    Submit: ${result.submitted ? "at Awaiting Approval" : `stayed (${result.status ?? result.error}): ${JSON.stringify(result.stays_with_cfo ?? "").slice(0, 300)}`}`);
+        } else if (threadTools.names.includes(tu.name)) {
+          result = await threadTools.call(job, tu.name, tu.input);
+          if (tu.name === "add_thread_entry") console.log(`    Thread: ${result.saved ? "added" : `refused (${result.status ?? result.error})`}`);
         } else if (work.names.includes(tu.name)) {
           result = await work.call(job, connectedEntities, tu.name, tu.input);
           if (tu.name !== "list_tasks") console.log(`    Work: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);

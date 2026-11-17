@@ -1,0 +1,28 @@
+/* Threads, wherever they show: Fixed assets, a reconciliation, the Close page. */
+
+.sub { color: var(--sub); font-size: 12px; line-height: 1.5; }
+.h3 { margin: 4px 0 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.count { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--cardhover); color: var(--label-text); font-size: 12px; font-weight: 500; }
+.min { min-width: 0; }
+.grow { flex: 1; }
+.buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+.chip { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--bd); background: var(--pnl); color: var(--tx); font: inherit; font-size: 12px; cursor: pointer; text-decoration: none; }
+.chip:hover { background: var(--cardhover); }
+.chip:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.chipOn { border-color: var(--accent-text); background: var(--accent-bg); font-weight: 500; }
+.tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--bd); color: var(--sub); font-size: 12px; }
+
+.thread { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--bd); padding-top: 10px; }
+.entry { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bd); }
+.entryBody { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.entryMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.text { font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply { display: flex; gap: 8px; margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--cardhover); }
+.av { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; border-radius: 50%; font-size: 11px; font-weight: 600; }
+.avSmall { width: 24px; height: 24px; font-size: 10px; }
+.avPerson { background: var(--tx); color: var(--pnl); }
+.avAgent { background: var(--accent-bg); color: var(--accent-text); }
+.composer { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.composer textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--bd); background: var(--pg); color: var(--tx); font: inherit; font-size: 14px; resize: vertical; }
+.composer textarea:focus { outline: 2px solid var(--accent-text); outline-offset: 1px; }

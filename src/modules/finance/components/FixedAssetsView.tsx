@@ -21,6 +21,7 @@ import {
 import type { WaitingLine } from "@/modules/finance/lib/asset-register";
 import { reopenable, signable, type RegisterPeriod } from "@/modules/finance/lib/asset-register";
 import { MonthActions, WaitingLineCard } from "./AssetRegisterActions";
+import { Entry, Thread, type Me } from "./Threads";
 
 type View = "rf" | "tie" | "as" | "act";
 type Panel =
@@ -29,9 +30,6 @@ type Panel =
   | { type: "asset"; id: string }
   | { type: "account"; key: string };
 
-interface Me { initials: string; name: string }
-
-const KINDS = [["note", "Note"], ["question", "Question"], ["hold", "Hold"], ["decision", "Decision"]] as const;
 
 export default function FixedAssetsView({ slug, schedule, threads, threadsError, waiting, me, xeroTab }: {
   slug: string; schedule: Schedule; threads: ThreadEntry[]; threadsError: string | null; waiting: WaitingLine[]; me: Me; xeroTab: ReactNode;
@@ -421,96 +419,6 @@ function Lines({ ls, assetById, open }: { ls: ScheduleLine[]; assetById: Map<str
         );
       })}
       <div className={`${styles.tr} ${styles.tt} ${styles.ln}`}><span>Total</span><span /><span /><span /><span className={styles.sub}>{ls.length} lines</span><span className={styles.r}>{fig(ls.reduce((s, l) => s + l.amount, 0))}</span></div>
-    </div>
-  );
-}
-
-async function postEntry(slug: string, body: unknown): Promise<string | null> {
-  const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/threads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (res.ok) return null;
-  const out = (await res.json().catch(() => ({}))) as { issues?: string[]; error?: string };
-  return out.issues?.join(" ") ?? out.error ?? `That did not work (${res.status})`;
-}
-
-function Composer({ slug, me, subject, parentId, initialKind = "note", onDone, onCancel }: {
-  slug: string; me: Me; subject: { subject_kind: string; subject_key: string; period: string | null }; parentId?: string;
-  initialKind?: string; onDone: () => void; onCancel?: () => void;
-}) {
-  const router = useRouter();
-  const [text, setText] = useState("");
-  const [kind, setKind] = useState(initialKind);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  async function post() {
-    setBusy(true); setError(null);
-    const err = await postEntry(slug, { ...subject, parent_id: parentId, kind, body: text, needs_decision: !parentId && (kind === "question" || kind === "hold") });
-    setBusy(false);
-    if (err) setError(err); else { setText(""); onDone(); router.refresh(); }
-  }
-  return (
-    <div className={styles.composer}>
-      <textarea aria-label={parentId ? "Reply" : "Add to this thread"} rows={2} value={text} onChange={(e) => setText(e.target.value)} disabled={busy}
-        placeholder={parentId ? "Reply, ask, hold or decide" : "A note, a question for the agent working on it, a hold, or a decision"} />
-      {error && <p className={page.error} role="alert">{error}</p>}
-      <div className={styles.buttons}>
-        {KINDS.map(([k, l]) => <button key={k} type="button" className={`${styles.chip} ${kind === k ? styles.chipOn : ""}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{l}</button>)}
-        <span className={styles.grow} />
-        {onCancel && <button type="button" className="btn-text" onClick={onCancel} disabled={busy}>Cancel</button>}
-        <button type="button" className="btn-primary" onClick={post} disabled={busy || !text.trim()}>Post as {me.initials}</button>
-      </div>
-    </div>
-  );
-}
-
-function Avatar({ e, small = false }: { e: ThreadEntry; small?: boolean }) {
-  return <span className={`${styles.av} ${e.via_agent ? styles.avAgent : styles.avPerson} ${small ? styles.avSmall : ""}`} title={`${e.by.name}${e.by.role ? `, ${e.by.role}` : ""}`}>{e.by.initials}</span>;
-}
-
-const KIND_TONE: Record<string, string> = { decision: "s-green", question: "s-amber", hold: "s-amber", finding: "s-blue", note: "s-neutral" };
-const KIND_LABEL: Record<string, string> = { decision: "Decision", question: "Question", hold: "Hold", finding: "Finding", note: "Note" };
-
-function Entry({ slug, e, me, subject, onSubject }: { slug: string; e: ThreadEntry; me: Me; subject?: string; onSubject?: () => void }) {
-  const [replying, setReplying] = useState<null | string>(null);
-  return (
-    <div className={styles.entry}>
-      <Avatar e={e} />
-      <div className={styles.entryBody}>
-        <div className={styles.entryMeta}>
-          <span className={`${page.status} ${page[KIND_TONE[e.kind]]}`}>{KIND_LABEL[e.kind]}</span>
-          {e.needs_decision && <span className={`${page.status} ${page[e.open ? "s-amber" : "s-green"]}`}>{e.open ? "Needs your decision" : "Decided"}</span>}
-          {subject && onSubject && <button type="button" className={styles.chip} onClick={onSubject}>{subject}</button>}
-          <span className={styles.sub}>{dayName(e.created_at)}{e.by.on_behalf_of ? ` · for ${e.by.on_behalf_of}` : ""}</span>
-        </div>
-        <div className={styles.text}>{e.body}</div>
-        {(e.replies ?? []).map((r) => (
-          <div key={r.id} className={styles.reply}>
-            <Avatar e={r} small />
-            <div className={styles.min}><div className={styles.entryMeta}><span className={`${page.status} ${page[KIND_TONE[r.kind]]}`}>{KIND_LABEL[r.kind]}</span><span className={styles.sub}>{dayName(r.created_at)}</span></div><div className={styles.text}>{r.body}</div></div>
-          </div>
-        ))}
-        {replying ? (
-          <Composer slug={slug} me={me} subject={{ subject_kind: e.subject_kind, subject_key: e.subject_key, period: e.period }} parentId={e.id} initialKind={replying}
-            onDone={() => setReplying(null)} onCancel={() => setReplying(null)} />
-        ) : (
-          <div className={styles.buttons}>
-            <button type="button" className={styles.chip} onClick={() => setReplying("note")}>Reply</button>
-            {e.open && <button type="button" className={styles.chip} onClick={() => setReplying("decision")}>Decide</button>}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Thread({ slug, me, title, entries, subject }: { slug: string; me: Me; title: string; entries: ThreadEntry[]; subject: { subject_kind: string; subject_key: string; period: string | null } }) {
-  const seen = new Set<string>();
-  const list = entries.filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)));
-  return (
-    <div className={styles.thread}>
-      <h3 className={styles.h3}>{title} <span className={styles.count}>{list.length}</span></h3>
-      <p className={styles.sub}>Shared with the reconciliation, the Close page and any agent working on this. Entries are permanent.</p>
-      {list.map((e) => <Entry key={e.id} slug={slug} e={e} me={me} />)}
-      <Composer slug={slug} me={me} subject={subject} onDone={() => {}} />
     </div>
   );
 }

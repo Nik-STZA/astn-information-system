@@ -13,10 +13,14 @@ import { EVENT_LABEL, PROOF_LABEL, actorLabel, dayLabel, money, monthLabel, type
 import { StatusPill } from "./RecsList";
 import RecReconciling from "./RecReconciling";
 import styles from "./Recs.module.css";
+import { Thread } from "./Threads";
+import { accountKey, type Me, type ThreadEntry } from "@/modules/finance/lib/threads";
 
 type Send = (path: string, body?: unknown, method?: string) => Promise<boolean>;
 
-export default function RecView({ slug, data }: { slug: string; data: RecDetail }) {
+export default function RecView({ slug, data, thread, me }: {
+  slug: string; data: RecDetail; thread?: { entries: ThreadEntry[]; error: string | null }; me?: Me;
+}) {
   const router = useRouter();
   const { rec, cover, schedule, checks, journals, prior, agent_run: run } = data;
   const working = Boolean(run?.live);
@@ -272,6 +276,19 @@ export default function RecView({ slug, data }: { slug: string; data: RecDetail 
           <div className={styles.actions} style={{ marginTop: 8 }}>
             <button type="button" className="btn-secondary" disabled={busy || !note.trim()} title={note.trim() ? undefined : "Say what needs changing first"} onClick={async () => { if (await send("send-back", { note })) setNote(""); }}>Send back</button>
           </div>
+        </section>
+      )}
+
+      {thread && me && (
+        <section className={`${styles.card} ${styles.pad} ${styles.section}`} aria-label="Thread">
+          {thread.error && <div className={styles.err} role="alert">The thread could not be read: {thread.error}</div>}
+          <Thread slug={slug} me={me} title="Thread" entries={thread.entries}
+            subject={{ subject_kind: "reconciliation", subject_key: rec.id, period: rec.period }}
+            labelOf={(e) => {
+              if (e.subject_kind !== "account") return null;
+              const row = cover.rows.find((r) => accountKey(r.entity_id, r.code) === e.subject_key);
+              return row ? `${row.entity} ${row.code}` : "An account";
+            }} />
         </section>
       )}
 

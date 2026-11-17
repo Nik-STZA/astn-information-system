@@ -7,6 +7,7 @@ import { agentXeroReads } from "./agent-xero-reads";
 import { NAMES as CHANGE_TOOLS } from "./agent-xero-changes";
 import { NAMES as DOCUMENT_TOOLS } from "./agent-documents";
 import { agentWork } from "./agent-work";
+import { agentThreads } from "./agent-threads";
 import { NAMES as REC_TOOLS } from "./agent-recs";
 import { NAMES as JOURNAL_TOOLS, ROLES as JOURNAL_ROLES } from "./agent-journals";
 import { NAMES as OUTSTANDING_TOOLS } from "./agent-outstanding-docs";
@@ -24,6 +25,7 @@ const buildTools = runnerSrc.slice(runnerSrc.indexOf("function buildTools"), run
 const ALL_TOOLS = new Set([
   ...[...buildTools.matchAll(/^\s+name: "([a-z_]+)"/gm)].map((m) => m[1]),
   ...agentWork({}).names,
+  ...agentThreads({}).names,
   ...agentLedger({}).names,
   ...agentXeroReads({}).names,
   ...CHANGE_TOOLS,
