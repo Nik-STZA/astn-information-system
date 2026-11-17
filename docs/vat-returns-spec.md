@@ -1,8 +1,9 @@
 # VAT returns and VAT group clearing - build spec
 
 Status: draft for CFO review, 17 November 2026. Nothing here is built yet.
-Built with Claude Code. Client neutral: any client with a VAT registration,
-single company or VAT group. Pilot client: Feldspar Sport Group (UDL is the
+Built with Claude Code. Client neutral within the UK: any client with a **UK
+VAT registration** (HMRC, Making Tax Digital, the nine-box return), single
+company or VAT group. Other countries' indirect taxes are out of scope (13). Pilot client: Feldspar Sport Group (UDL is the
 representative member; FSL and FGH are members; VAT number 493735845).
 
 ## 1. Why
@@ -53,7 +54,8 @@ arithmetic, keep the record, and stop a month being signed off until it ties.
 
 `finance.vat_registrations`, one row per VAT registration:
 
-- client, VAT number, type `single` or `group`
+- client, **jurisdiction** (`GB` only at launch), VAT number, type `single` or
+  `group`
 - representative entity (for a group) and member entities, effective dated, so
   a company joining or leaving the group is recorded, not overwritten
 - return frequency and stagger (monthly, or the quarter months), effective
@@ -67,6 +69,15 @@ arithmetic, keep the record, and stop a month being signed off until it ties.
 
 A single-company registration uses everything except the group build, the
 import file and the clearing journals.
+
+**UK only.** Everything here is built for HMRC: the nine boxes, MTD submission
+through Xero, Xero UK's VAT return export, UK VAT group rules (a representative
+member files for the group), pre-registration and late-claim rules. Switching
+on a registration with any other jurisdiction is **refused, with the reason**,
+in the same way the asset register refuses a framework it has no template for.
+The registration carries the jurisdiction from the start so another country can
+be added later as its own template (return layout, parser, payment matching),
+without changing the tables.
 
 ## 4. Data model
 
@@ -243,7 +254,14 @@ the clearing journals the system would have proposed equal the 21 posted on
 8. Pages: Returns list, a return (members, checks, import, submission,
    journals, payment), Outstanding refunds.
 
-## 13. Open questions for the CFO
+## 13. Scope and open questions
+
+**Out of scope:** indirect tax outside the UK, for example South Africa VAT
+(VAT201), UAE VAT, or Australian GST (BAS). Each would be a separate template
+on the same tables. Note that Xero does expose the Australian and New Zealand
+returns through its reporting API, so those would not need the upload step.
+
+**Open questions for the CFO:**
 
 1. Box 5 in the import file (6): confirm how Xero treats it.
 2. Folder pattern for the client drive export (Feldspar: under the client's
