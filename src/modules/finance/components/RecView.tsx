@@ -367,7 +367,8 @@ function Evidence({ data, ev, preparing, busy, send }: { data: RecDetail; ev: Re
           {ev.counterpart && !ev.counterpart.missing
             ? <span className={styles.small}>Paired with <strong>{ev.counterpart.account_name}</strong> in {ev.counterpart.entity} ({money(ev.counterpart.closing ?? null)}). Its balance, reversed, is the evidence.</span>
             : <span className={styles.small}>Choose the matching account in the other company. It is kept for every month.</span>}
-          {preparing && ev.candidates.length > 0 && (
+          {/* A pair is set-up kept for every month, not preparation: it can be set at any stage before sign-off (18 Nov 2026). */}
+          {data.rec.status !== "signed_off" && ev.candidates.length > 0 && (
             <div className={styles.actions} style={{ marginTop: 8 }}>
               <select className={styles.pick} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Paired account">
                 {ev.candidates.map((c) => <option key={c.rec_account_id} value={c.rec_account_id}>{c.account_name} ({c.entity}), difference {c.difference}</option>)}

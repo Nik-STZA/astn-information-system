@@ -327,38 +327,52 @@ function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] 
   };
 }
 
+// Words that name a company, for matching an account to the company it is
+// with: the company's display name, legal name, slug and Xero name (18 Nov
+// 2026: Feldspar's companies are named FGH, FSL and UDL, so the display name
+// alone matched nothing and no pair was ever suggested).
+const nameWords = (s) => String(s ?? "").toLowerCase().replace(/(limited|ltd|plc|group|holdings?)/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+
+// How well two intercompany accounts in different companies look like a
+// pair: 0 when each names the other's company, 1 or 2 when one does, 3 when
+// neither does. Amounts decide between equals.
+function pairScore(a, b, names, aliases) {
+  const of = (id) => new Set(nameWords(aliases?.get(id) ?? names.get(id)));
+  const namesA = nameWords(b.account_name).some((w) => of(a.entity_id).has(w));
+  const namesB = nameWords(a.account_name).some((w) => of(b.entity_id).has(w));
+  return (namesA ? 0 : 2) + (namesB ? 0 : 1);
+}
+
 // Counterparts an intercompany rec could pair with: another rec in the month,
-// in a different single company, that is intercompany or unplaced and names
-// this rec's company (or whose balance is closest to the reverse of this one).
+// in a different single company, that is intercompany or unplaced. Those that
+// name each other's companies come first, then the balance closest to the
+// reverse of this one. None is ruled out on its name: the person chooses.
 //   rec        { id, rec_account_id, account_name, entity_id, closing (pence) }
 //   others     the same shape, for the month's other recs
 //   names      Map entity id -> company name
+//   aliases    Map entity id -> every name the company goes by (optional)
 // Returns candidates best first: [{ rec_account_id, account_name, entity_id, difference }]
-function counterpartCandidates(rec, others, names) {
-  const words = (s) => String(s ?? "").toLowerCase().replace(/\b(limited|ltd|plc|group|holdings?)\b/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-  const mine = new Set(words(names.get(rec.entity_id)));
+function counterpartCandidates(rec, others, names, aliases = null) {
   return others
     .filter((o) => o.rec_account_id !== rec.rec_account_id && o.entity_id && o.entity_id !== rec.entity_id
-      && (o.line_key === null || o.line_key === "ic_asset" || o.line_key === "ic_liab" || o.line_key === "loans"))
-    .map((o) => {
-      const names_me = words(o.account_name).some((w) => mine.has(w));
-      const names_them = words(rec.account_name).some((w) => new Set(words(names.get(o.entity_id))).has(w));
-      return { ...o, score: (names_me ? 0 : 2) + (names_them ? 0 : 1), difference: rec.closing + o.closing };
-    })
-    .filter((o) => o.score < 3)
+      && (o.line_key === null || o.line_key === undefined || o.line_key === "ic_asset" || o.line_key === "ic_liab" || o.line_key === "loans"))
+    .map((o) => ({ ...o, score: pairScore(rec, o, names, aliases), difference: rec.closing + o.closing }))
     .sort((a, b) => a.score - b.score || Math.abs(a.difference) - Math.abs(b.difference))
     .map(({ rec_account_id, account_name, entity_id, difference }) => ({ rec_account_id, account_name, entity_id, difference: pounds(difference) }));
 }
 
-// The group's intercompany position for a month (16 Nov 2026), as the
-// management pack shows it: each pair of accounts side by side, and a grid of
-// what each company says about each other company. A pair ties when the two
-// balances, a debit and a credit, sum to nil within tolerance.
+// The group's intercompany position for a month (16 Nov 2026; one row per
+// pair, CFO 18 Nov 2026): each pair of accounts side by side, the unpaired
+// accounts matched into suggested pairs to confirm with one tap, and a grid
+// of what each company says about each other company (kept for the pack).
+// A pair ties when the two balances, a debit and a credit, sum to nil within
+// tolerance.
 //   accounts  [{ rec_id, rec_account_id, account_name, entity_id, closing (pence), counterpart_account_id, status }]
 //             one company each; the intercompany recs of the month
 //   names     Map entity id -> company name
-// Returns { pairs, unpaired, grid: { entities, cells }, ties }
-function intercompanyGrid(accounts, names, tol = 0) {
+//   aliases   Map entity id -> every name the company goes by (optional)
+// Returns { pairs, suggested_pairs, unpaired, grid: { entities, cells }, ties }
+function intercompanyGrid(accounts, names, tol = 0, aliases = null) {
   const by = new Map(accounts.map((a) => [a.rec_account_id, a]));
   const seen = new Set();
   // A pair set from either side counts, and an account is in one pair only:
@@ -368,28 +382,38 @@ function intercompanyGrid(accounts, names, tol = 0) {
     if (named && !seen.has(named.rec_account_id) && named.entity_id !== a.entity_id) return named;
     return accounts.find((o) => !seen.has(o.rec_account_id) && o.counterpart_account_id === a.rec_account_id && o.entity_id !== a.entity_id) ?? null;
   };
-  const side = (a) => ({ rec_id: a.rec_id, account_name: a.account_name, entity_id: a.entity_id, entity: names.get(a.entity_id) ?? "A company", closing: pounds(a.closing), status: a.status });
-  // Candidates are all intercompany here, whatever line they were filed on.
-  const asIc = (a) => ({ ...a, line_key: "ic_asset" });
-  const pairs = [], unpaired = [];
+  const side = (a) => ({ rec_id: a.rec_id, rec_account_id: a.rec_account_id, account_name: a.account_name, entity_id: a.entity_id,
+    entity: names.get(a.entity_id) ?? "A company", closing: pounds(a.closing), status: a.status });
+  const pairs = [], lone = [];
   const cells = new Map();
   const add = (from, to, p) => { const k = `${from}|${to}`; cells.set(k, (cells.get(k) ?? 0) + p); };
   for (const a of accounts) {
     if (seen.has(a.rec_account_id)) continue;
     seen.add(a.rec_account_id);
     const b = twinOf(a);
-    if (!b) {
-      const best = counterpartCandidates(asIc(a), accounts.filter((o) => !seen.has(o.rec_account_id)).map(asIc), names)[0] ?? null;
-      unpaired.push({ ...side(a), paired_elsewhere: Boolean(a.counterpart_account_id),
-        suggested: best ? { account_name: best.account_name, entity: names.get(best.entity_id) ?? "A company", difference: best.difference } : null });
-      continue;
-    }
+    if (!b) { lone.push(a); continue; }
     seen.add(b.rec_account_id);
     const diff = a.closing + b.closing;
     pairs.push({ a: side(a), b: side(b), difference: pounds(diff), ties: Math.abs(diff) <= tol });
     add(a.entity_id, b.entity_id, a.closing);
     add(b.entity_id, a.entity_id, b.closing);
   }
+  // The unpaired, matched best first: names, then the smallest difference.
+  const options = [];
+  for (let i = 0; i < lone.length; i++) for (let j = i + 1; j < lone.length; j++) {
+    const a = lone[i], b = lone[j];
+    if (a.entity_id === b.entity_id) continue;
+    options.push({ a, b, score: Math.min(pairScore(a, b, names, aliases), pairScore(b, a, names, aliases)), diff: a.closing + b.closing });
+  }
+  options.sort((x, y) => x.score - y.score || Math.abs(x.diff) - Math.abs(y.diff));
+  const used = new Set();
+  const suggested_pairs = [];
+  for (const o of options) {
+    if (used.has(o.a.rec_account_id) || used.has(o.b.rec_account_id)) continue;
+    used.add(o.a.rec_account_id); used.add(o.b.rec_account_id);
+    suggested_pairs.push({ a: side(o.a), b: side(o.b), difference: pounds(o.diff), ties: Math.abs(o.diff) <= tol });
+  }
+  const unpaired = lone.filter((a) => !used.has(a.rec_account_id)).map((a) => ({ ...side(a), paired_elsewhere: Boolean(a.counterpart_account_id), suggested: null }));
   const ids = [...new Set(accounts.map((a) => a.entity_id))].sort((x, y) => String(names.get(x)).localeCompare(String(names.get(y))));
   const grid = {
     entities: ids.map((id) => ({ id, name: names.get(id) ?? "A company" })),
@@ -400,7 +424,7 @@ function intercompanyGrid(accounts, names, tol = 0) {
       return { from, to, amount: pounds(p), ties: mirror === undefined ? true : Math.abs(p + mirror) <= tol };
     }),
   };
-  return { pairs, unpaired, grid, ties: unpaired.length === 0 && pairs.every((p) => p.ties) };
+  return { pairs, suggested_pairs, unpaired, grid, ties: unpaired.length === 0 && suggested_pairs.length === 0 && pairs.every((p) => p.ties) };
 }
 
 // Evidence carried from the prior month: each company's signed evidence rows,

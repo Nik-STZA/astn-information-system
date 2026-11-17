@@ -91,6 +91,9 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return recs.pence(r.rows[0]?.rec_tolerance ?? 0);
   };
 
+  // Every name a company goes by, for matching intercompany accounts to it.
+  const aliasesOf = (entities) => new Map(entities.map((e) => [e.id, [e.name, e.legal_name, e.slug, e.accounting_system_config?.tenant_name].filter(Boolean).join(" ")]));
+
   const companies = async (db, clientId) => (await db.query(
     `SELECT id, slug, name, legal_name, accounting_system_config FROM finance.entities
       WHERE client_id = $1 AND retired_at IS NULL ORDER BY name`, [clientId])).rows;
@@ -268,7 +271,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         icAccounts.push({ rec_id: r.id, rec_account_id: r.rec_account_id, account_name: r.account_name, entity_id: bals[0].entity_id,
           closing: recs.pence(bals[0].closing), counterpart_account_id: r.counterpart_account_id, status: r.status });
       }
-      const intercompany = icAccounts.length ? recs.intercompanyGrid(icAccounts, names, tol) : null;
+      const intercompany = icAccounts.length ? recs.intercompanyGrid(icAccounts, names, tol, aliasesOf(entities)) : null;
       const errors = run.rows[0]?.entity_errors ?? [];
       res.json({
         intercompany,
@@ -1164,7 +1167,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const month = await monthRecs(client, rec.period);
       const me = month.find((m) => m.id === rec.id);
       if (rec.counterpart_account_id) out.counterpart = month.find((m) => m.rec_account_id === rec.counterpart_account_id) ?? { rec_account_id: rec.counterpart_account_id, missing: true };
-      if (me && me.entity_id) out.candidates = recs.counterpartCandidates(me, month, names).slice(0, 5).map((c) => ({ ...c, entity: names.get(c.entity_id) ?? "A company" }));
+      const aliases = aliasesOf(await companies(pool, client.id));
+      if (me && me.entity_id) out.candidates = recs.counterpartCandidates(me, month, names, aliases).slice(0, 5).map((c) => ({ ...c, entity: names.get(c.entity_id) ?? "A company" }));
       if (out.counterpart && !out.counterpart.missing) out.counterpart = { ...out.counterpart, entity: names.get(out.counterpart.entity_id), closing: money(out.counterpart.closing) };
     }
     return out;

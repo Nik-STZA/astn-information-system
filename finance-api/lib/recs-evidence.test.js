@@ -129,7 +129,10 @@ describe("automatic methods", () => {
     const acc = (id, name, entity, closing, twin = null) => ({ rec_id: `r-${id}`, rec_account_id: id, account_name: name, entity_id: entity, closing, counterpart_account_id: twin, status: "in_progress" });
     // No line_key on these, as the route builds them.
     const lone = intercompanyGrid([acc("u1", "Beta Holdings intercompany", "u", 1000), acc("h1", "Alpha intercompany", "h", -1000)], names, 0);
-    expect(lone.unpaired[0].suggested).toMatchObject({ account_name: "Alpha intercompany", entity: "Beta Holdings Ltd", difference: "0.00" });
+    expect(lone.unpaired).toEqual([]);
+    expect(lone.suggested_pairs).toEqual([expect.objectContaining({ a: expect.objectContaining({ account_name: "Beta Holdings intercompany" }),
+      b: expect.objectContaining({ account_name: "Alpha intercompany", entity: "Beta Holdings Ltd", rec_account_id: "h1" }), difference: "0.00", ties: true })]);
+    expect(lone.ties).toBe(false);
     // Two accounts naming the same twin: the second is not paired again.
     const twice = intercompanyGrid([acc("u1", "Beta trading", "u", 1000, "h1"), acc("u2", "Beta loan", "u", 500, "h1"), acc("h1", "Alpha", "h", -1000)], names, 0);
     expect(twice.pairs).toHaveLength(1);
@@ -141,6 +144,27 @@ describe("automatic methods", () => {
     expect(near.pairs[0].ties).toBe(true);
     expect(near.grid.cells.every((c) => c.ties)).toBe(true);
     expect(intercompanyGrid([acc("u1", "x", "u", 1000040, "h1"), acc("h1", "y", "h", -1000000)], names, 0).grid.cells.every((c) => !c.ties)).toBe(true);
+  });
+
+  it("matches pairs when the companies go by short names, from every name they have, by amount between equals", () => {
+    // As Feldspar (18 Nov 2026): companies shown as three-letter codes, so the
+    // display name alone matched no account and nothing was ever suggested.
+    const names = new Map([["h", "HCO"], ["s", "SCO"], ["d", "DCO"]]);
+    const aliases = new Map([["h", "HCO Alpha Group Holdings Limited alpha-group-holdings"], ["s", "SCO Alpha Ltd alpha-ltd"], ["d", "DCO Delta Digital Ltd delta-digital"]]);
+    const acc = (id, name, entity, closing) => ({ rec_id: `r-${id}`, rec_account_id: id, account_name: name, entity_id: entity, closing, counterpart_account_id: null, status: "in_progress" });
+    const month = [
+      acc("d641", "Alpha Group Holdings", "d", 70108917), acc("s804", "Alpha Group Holdings intercompany", "s", -4437492),
+      acc("d640", "Alpha Intercompany Loan", "d", 85017758), acc("h662", "Alpha Ltd intercompany", "h", 4437492),
+      acc("h621", "Delta Intercompany Account", "h", -70008917), acc("s802", "Delta Intercompany Loan", "s", -84862782),
+    ];
+    const out = intercompanyGrid(month, names, 0, aliases);
+    const got = out.suggested_pairs.map((p) => [p.a.rec_account_id, p.b.rec_account_id, p.difference].join(" ")).sort();
+    expect(got).toEqual(["d640 s802 1549.76", "d641 h621 1000.00", "s804 h662 0.00"]);
+    expect(out.unpaired).toEqual([]);
+    // Without the other names, amounts still find them: nothing is ruled out on its name.
+    expect(intercompanyGrid(month, names, 0).suggested_pairs).toHaveLength(3);
+    expect(counterpartCandidates({ ...month[0], line_key: "ic_asset" }, month.map((m) => ({ ...m, line_key: "ic_asset" })), names, aliases)[0])
+      .toMatchObject({ rec_account_id: "h621", difference: "1000.00" });
   });
 
   it("counts a foreign prepayment or overpayment in the note", () => {
