@@ -17,6 +17,9 @@ const work = require("./work");
 const bank = require("./bank-statement");
 const sheetRead = require("./sheet-read");
 const contractsLib = require("./contracts");
+const assetEvidence = require("./rec-asset-evidence");
+
+const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
 const crypto = require("crypto");
 
 const MISSING = "Reconciliations are waiting for migration 032 to be applied.";
@@ -1568,6 +1571,52 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const ev = contractsLib.deferredEvidence(balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), held, date);
       rows.push(...ev.rows);
       said.push(...ev.said);
+    } else if (method === "asset_register") {
+      // The signed asset register for the month, per company and account
+      // (lib/rec-asset-evidence.js); Xero's own register for an account no
+      // register here keeps.
+      let map = [], periods = [], named = {};
+      try {
+        map = (await pool.query("SELECT entity_id, grouping, role, xero_account_id, account_code, effective_from::text, effective_to::text, ended_at FROM finance.asset_account_map WHERE client_id = $1", [who.client.id])).rows;
+        periods = (await pool.query(
+          "SELECT grouping, status, snapshot, signed_by, signed_at FROM finance.asset_register_periods WHERE client_id = $1 AND period = $2", [who.client.id, rec.period])).rows;
+        const own = (await pool.query("SELECT grouping, display_name FROM finance.asset_groupings_client WHERE client_id = $1", [who.client.id])).rows;
+        const catalogue = Object.fromEntries(Object.values(require("./asset-groupings").GROUPINGS).map((g) => [g.key, g.name]));
+        named = { ...catalogue, ...Object.fromEntries(own.filter((g) => g.display_name).map((g) => [g.grouping, g.display_name])) };
+      } catch (e) {
+        if (e?.code !== "42P01" && e?.code !== "42703") throw e;
+      }
+      const reg = assetEvidence.registerEvidence({ balances, map, periods, names: named, period: rec.period, date });
+      rows.push(...reg.rows);
+      said.push(...reg.said);
+      for (const b of reg.xero) {
+        const e = entities.find((x) => x.id === b.entity_id);
+        try {
+          const ctx = await xeroEntityContext(who.client.slug, e.slug);
+          if (!ctx || ctx.error) throw new Error(ctx?.error ?? "not connected to Xero");
+          const [types, settings, accounts] = await Promise.all([
+            xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/AssetTypes`, {}),
+            xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/Settings`, {}),
+            xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts", {}),
+          ]);
+          const accountId = (accounts?.Accounts ?? []).find((a) => String(a.Code ?? "") === String(b.account_code ?? ""))?.AccountID ?? null;
+          const assets = [];
+          for (const status of ["REGISTERED", "DISPOSED"]) {
+            for (let page = 1; page <= 5; page++) {
+              const got = await xeroGet(ctx.accessToken, ctx.tenantId, `${XERO_ASSETS_API}/Assets`, { status, page, pageSize: 200 });
+              const items = got?.items ?? [];
+              assets.push(...items);
+              if (items.length < 200) break;
+            }
+          }
+          const x = assetEvidence.xeroEvidence({ balance: { ...b, entity_name: names.get(b.entity_id) }, accountId, types: Array.isArray(types) ? types : [],
+            assets, lastRun: settings?.lastDepreciationDate, date, period: rec.period });
+          if (x.row) rows.push(x.row);
+          said.push(x.said);
+        } catch (err) {
+          said.push(`${e?.name ?? "A company"}: Xero's fixed asset register could not be read (${String(err.message || err).slice(0, 200)}). Nothing was taken for it.`);
+        }
+      }
     } else if (method === "carry_forward") {
       const prior = (await pool.query(
         "SELECT id, status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2", [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
