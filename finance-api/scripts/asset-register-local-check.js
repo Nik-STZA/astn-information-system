@@ -300,6 +300,30 @@ async function scenario() {
     const orig = (await pool.query("SELECT state, superseded_by FROM finance.asset_cost_lines WHERE id = $1", [j.id])).rows[0];
     ok("two approved slices, the original kept and replaced", parts.length === 2 && parts.every((x) => x.state === "approved") && orig.state === "superseded" && orig.superseded_by, { parts, orig });
 
+    // The journal is changed in Xero after approval: its slices are withdrawn
+    // together and the next intake takes it in again, to be decided afresh.
+    const sliceIds = (await pool.query("SELECT id FROM finance.asset_cost_lines WHERE client_id = $1 AND fields->>'split_from' = $2 ORDER BY amount", [CID, j.id])).rows.map((x) => x.id);
+    const bf = (await pool.query("SELECT id FROM finance.asset_cost_lines WHERE client_id = $1 AND source_type = 'workbook' AND state = 'approved' LIMIT 1", [CID])).rows[0].id;
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: bf, action: "withdraw", reason: "Recoded in Xero to another account" }] });
+    ok("a workbook line cannot be withdrawn", r.status === 422 && /only a line taken in from Xero/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: sliceIds[0], action: "withdraw", reason: "Recoded" }] });
+    ok("withdrawing needs a reason of substance", r.status === 422 && /at least 10 characters/.test(r.body.issues[0]), r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: sliceIds[0], action: "withdraw", reason: "Journal recoded in Xero after approval" }] });
+    ok("one slice alone cannot be withdrawn, and nothing changes", r.status === 422 && /other slice\(s\) of the same Xero line/.test(r.body.issues[0])
+      && (await pool.query("SELECT count(*)::int AS n FROM finance.asset_cost_lines WHERE id = ANY($1) AND state = 'approved'", [sliceIds])).rows[0].n === 2, r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: sliceIds[0], action: "withdraw", reason: "Journal recoded in Xero after approval" }] }, { "X-Actor-Email": BOOK });
+    ok("only the CFO withdraws", r.status === 403, r.body);
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: sliceIds.map((id) => ({ id, action: "withdraw", reason: "Journal recoded in Xero after approval" })) });
+    const wrows = (await pool.query("SELECT state FROM finance.asset_cost_lines WHERE id = ANY($1)", [sliceIds])).rows;
+    const wappr = (await pool.query("SELECT from_state, to_state FROM finance.asset_approvals WHERE subject_id = ANY($1) AND to_state = 'withdrawn'", [sliceIds])).rows;
+    ok("both slices withdrawn, each an approval row from approved", r.status === 200 && wrows.every((x) => x.state === "withdrawn") && wappr.length === 2 && wappr.every((x) => x.from_state === "approved"), { body: r.body, wrows, wappr });
+    r = await api("POST", "asset-register/intake", { grouping: "ip_registered", period: "2026-09", dry_run: false });
+    ok("the next intake takes the journal in again, as it now stands", r.status === 201 && r.body.taken_in === 1 && r.body.lines[0].amount === 300, r.body);
+    const again = (await api("GET", "asset-register/cost-lines")).body.lines.find((l) => l.posted_account_code === "777");
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: again.id, action: "split", reason: "Two new filings, per the register", slices: [
+      { asset_no: "ABC-TMK-0003", amount: 100 }, { asset_no: "ABC-TMK-0004", amount: 200 }] }] });
+    ok("decided afresh", r.status === 200, r.body);
+
     // Month end: Beta's 774 up by the 500 bill; Alpha's 777 holds the 300.
     balancesAt = { "2026-09-30": { "alpha-ltd": { 775: 1000, 776: -120, 777: 300 }, "beta-ltd": { 774: 3000 } } };
     r = await api("POST", "asset-register/periods/prepare", { grouping: "ip_registered", period: "2026-10" });
@@ -322,6 +346,10 @@ async function scenario() {
     ok("August signed", r.status === 200 && r.body.signed, r.body);
     r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-09" });
     ok("then September", r.status === 200 && r.body.signed, r.body);
+    const signedLine = (await api("GET", "asset-register/cost-lines?state=approved")).body.lines.find((l) => l.invoice_no === "INV-77");
+    r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: signedLine.id, action: "withdraw", reason: "Bill credited in Xero after sign-off" }] });
+    ok("nothing is withdrawn from a signed month: reopen first", r.status === 409 && /signed for 2026-09/.test(JSON.stringify(r.body))
+      && (await pool.query("SELECT state FROM finance.asset_cost_lines WHERE id = $1", [signedLine.id])).rows[0].state === "approved", r.body);
     r = await api("POST", "asset-register/periods/reopen", { grouping: "ip_registered", period: "2026-08", reason: "Correction needed in August" });
     ok("an earlier month cannot be reopened while later ones are signed, latest first", r.status === 422 && /Reopen 2026-10, 2026-09 first/.test(r.body.issues[0]), r.body);
     r = await api("POST", "asset-register/periods/reopen", { grouping: "ip_registered", period: "2026-10", reason: "Reopened to reach September" });
