@@ -130,6 +130,7 @@ class Mapping:
     reason: str
     status: str = "rule"            # approved | proposed | rule
     cash_flow: str | None = None    # an approved per-account cash flow override
+    subline: str | None = None      # P&L: the line within the category (a master file's P&L Mapping 2)
 
     @property
     def is_gap(self) -> bool:
@@ -185,7 +186,7 @@ def _saved(account: Account, s: dict) -> Mapping:
         reason = f"approved by {s.get('approvedBy')}" + (f" on {when}" if when else "")
     else:
         reason = f"saved, not approved ({s.get('source')}: {s.get('reason') or 'no reason given'})"
-    return Mapping(account, s["category"], reason, s["status"], s.get("cashFlow"))
+    return Mapping(account, s["category"], reason, s["status"], s.get("cashFlow"), (s.get("subline") or "").strip() or None)
 
 
 def resolve_mapping(accounts: list[Account], categories: dict[str, Category] | None = None,

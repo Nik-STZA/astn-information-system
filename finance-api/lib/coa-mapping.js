@@ -255,6 +255,12 @@ function planMappingChanges({ changes, accounts, categories, stored, source = "m
       return errors.push(`${label}: ${cat.label} is a ${cat.statement === "pnl" ? "profit and loss" : "balance sheet"} category but this is a ${account.Class} account`);
     }
 
+    // The sub-line within a P&L category (migration 054): kept unless sent.
+    let subline = ch.subline !== undefined ? ch.subline : saved?.subline ?? null;
+    subline = subline === null ? null : String(subline).replace(/\s+/g, " ").trim() || null;
+    if (subline && statement !== "pnl") return errors.push(`${label}: only profit and loss accounts take a sub-line`);
+    if (subline && subline.length > 80) return errors.push(`${label}: keep the sub-line to 80 characters`);
+
     let cashFlow = ch.cashFlow !== undefined ? ch.cashFlow : saved?.cash_flow ?? null;
     if (cashFlow === "") cashFlow = null;
     if (cashFlow !== null) {
@@ -271,6 +277,7 @@ function planMappingChanges({ changes, accounts, categories, stored, source = "m
       klass: account.Class ?? "",
       category,
       cashFlow,
+      subline,
       status: ch.approve === true ? "approved" : "proposed",
       source: from,
       reason,
@@ -309,6 +316,7 @@ function accountRows({ accounts, stored, categories }) {
         ? {
             category: saved.category_key,
             cashFlow: saved.cash_flow ?? null,
+            subline: saved.subline ?? null,
             status: saved.status,
             source: saved.source,
             reason: saved.reason,

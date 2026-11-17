@@ -51,7 +51,7 @@ const th: CSSProperties = {
 const td: CSSProperties = { fontSize: 13, padding: "8px 10px", borderBottom: "1px solid var(--bd)", verticalAlign: "top", color: "var(--tx)" };
 const note: CSSProperties = { fontSize: 11, color: "var(--sub)", marginTop: 2 };
 
-type Edit = { category?: string; cashFlow?: string | null };
+type Edit = { category?: string; cashFlow?: string | null; subline?: string | null };
 type Filter = "attention" | "all" | "approved";
 type Message = { kind: "ok" | "error"; text: string; errors?: string[] };
 
@@ -83,6 +83,8 @@ export default function CoaMappingPanel({
     edits[r.accountId]?.category ?? r.mapping?.category ?? r.proposal?.category ?? "";
   const flowOf = (r: CoaAccountRow) =>
     edits[r.accountId] && "cashFlow" in edits[r.accountId] ? edits[r.accountId].cashFlow ?? null : r.mapping?.cashFlow ?? null;
+  const sublineOf = (r: CoaAccountRow) =>
+    edits[r.accountId] && "subline" in edits[r.accountId] ? edits[r.accountId].subline ?? "" : r.mapping?.subline ?? "";
   const isEdited = (r: CoaAccountRow) => Boolean(edits[r.accountId]);
   const approved = (r: CoaAccountRow) => r.mapping?.status === "approved" && !r.flags.length && !isEdited(r);
 
@@ -154,6 +156,7 @@ export default function CoaMappingPanel({
       accountId: r.accountId,
       ...(e?.category ? { category: e.category } : {}),
       ...(e && "cashFlow" in e ? { cashFlow: e.cashFlow ?? null } : {}),
+      ...(e && "subline" in e ? { subline: e.subline?.trim() || null } : {}),
       approve,
     };
   };
@@ -370,6 +373,11 @@ export default function CoaMappingPanel({
                     </select>
                     {!r.mapping && r.proposal?.category && !isEdited(r) && (
                       <div style={note}>Suggestion</div>
+                    )}
+                    {r.statement === "pnl" && (
+                      <input type="text" value={sublineOf(r)} maxLength={80} placeholder="Sub-line (optional)" aria-label={`Sub-line for ${r.name}`}
+                        className={styles.select} style={{ ...input, maxWidth: 260, marginTop: 4 }}
+                        onChange={(e) => setEdit(r, { subline: e.target.value })} />
                     )}
                   </td>
                   <td style={td}>
