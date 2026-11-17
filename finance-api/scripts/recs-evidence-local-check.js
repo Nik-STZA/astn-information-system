@@ -187,6 +187,20 @@ async function scenario() {
     r = await api("POST", `recs/${id}/evidence/fetch`, {}, fm1);
     v = (await api("GET", `recs/${id}`)).body;
     ok("evidence is Beta's balance reversed: 43,704.92 against 44,374.92, out by 670.00", v.cover.rows[0].schedule === "43704.92" && v.cover.rows[0].variance === "670.00" && v.evidence.counterpart?.account_name === "Alpha intercompany", { cover: v.cover, cp: v.evidence.counterpart });
+    // Prepared before the pair existed (Feldspar, September 2026): the twin's
+    // balance keyed by hand, now with the CFO. The CFO fetches it through the
+    // pair in place; an agent cannot, and nothing else about the rec moves.
+    await pool.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1", [id]);
+    await pool.query(`INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, added_by, method)
+      SELECT $1, entity_id, 'ledger_review', -closing, 'Twin keyed by hand from its trial balance', 'fm1', NULL FROM finance.rec_balances WHERE rec_id = $1`, [id]);
+    await pool.query("UPDATE finance.recs SET status = 'with_cfo' WHERE id = $1", [id]);
+    r = await api("POST", `recs/${id}/evidence/fetch`, {}, fm1);
+    ok("past preparation, an agent cannot fetch it again", r.status === 409, r.body);
+    r = await api("POST", `recs/${id}/evidence/fetch`, {});
+    const after = (await pool.query("SELECT status FROM finance.recs WHERE id = $1", [id])).rows[0];
+    const methods = (await pool.query("SELECT method FROM finance.rec_evidence WHERE rec_id = $1 ORDER BY method NULLS LAST", [id])).rows.map((x) => x.method);
+    ok("with the CFO, a person fetches the paired balance in place: it is recorded as fetched through the pair, the hand-keyed row stays, the rec stays with the CFO",
+      r.status === 200 && after.status === "with_cfo" && methods[0] === "counterpart" && methods.includes(null), { r: r.body, after, methods });
   });
 
   await section("keyed evidence: share capital, and the rules on it", async () => {

@@ -673,6 +673,15 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   const editable = (rec) => (["not_started", "in_progress", "sent_back"].includes(rec.status)
     ? null : { status: 409, body: { error: "This is past preparation. Reopen it to change the schedule." } });
 
+  // Intercompany evidence is a read of the paired account through the pair,
+  // with no judgement in it, so a person may fetch it again at review or
+  // sign-off without reopening (CFO, 18 Nov 2026: September was prepared
+  // before the pair existed, FM1 keyed the twin's balance by hand, and the
+  // sign-off rule rightly refuses hand-keyed evidence). The rule is unchanged:
+  // at sign-off the evidence must still equal the twin, read then, reversed.
+  const fetchStop = (rec, method, via) =>
+    (method === "counterpart" && ["with_fc", "with_cfo"].includes(rec.status) && !via ? null : editable(rec));
+
   // POST /recs/:id/place   body: { line_key }   a person places an account on the
   // matrix. Owner, Challenge and Class then come from the matrix, on this rec and
   // from now on.
@@ -1491,7 +1500,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (!rec) return res.status(404).json({ error: "reconciliation not found" });
     const method = recs.autoMethod(rec);
     if (!method) return res.status(409).json({ error: "There is no automatic source for this account. Record the outside evidence with its document." });
-    if (editable(rec)) return res.status(409).json(editable(rec).body);
+    const blocked = fetchStop(rec, method, origin.via);
+    if (blocked) return res.status(409).json(blocked.body);
     const balances = await balancesOf(pool, rec.id);
     const entities = await companies(pool, who.client.id);
     const names = new Map(entities.map((e) => [e.id, e.name]));
@@ -1568,8 +1578,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       for (const v of carried) rows.push({ entity_id: v.entity_id, amount: v.amount, source: `${v.source} (carried from ${recs.periodLabel(recs.priorPeriod(rec.period))}, no movement)`, document_ref: v.document_ref ?? null });
       for (const b of balances) if (!carried.some((v) => v.entity_id === b.entity_id)) said.push(`${names.get(b.entity_id)}: the account moved this month, so last month's evidence was not carried. Record what explains the movement.`);
     }
-    return recTx(req, res, (conn, { client, actor }) => withRec(conn, client, req.params.id, async (r2) => {
-      const stop = editable(r2);
+    return recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (r2) => {
+      const stop = fetchStop(r2, method, via);
       if (stop) return stop;
       await conn.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND method IS NOT NULL", [r2.id]);
       for (const v of rows) {
