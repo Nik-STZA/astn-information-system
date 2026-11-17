@@ -30,6 +30,12 @@ const TB = {
   "2026-09-30": [row("a-iia", "Income in Advance", "810", 0, 250000, 0, 250000)],
   "2026-10-31": [row("a-iia", "Income in Advance", "810", 0, 0, 0, 250000)],
 };
+const INVOICES = [
+  { InvoiceNumber: "INV-0009", Type: "ACCREC", Status: "AUTHORISED", DateString: "2026-10-12T00:00:00", LineAmountTypes: "Exclusive",
+    LineItems: [{ AccountCode: "811", LineAmount: 1200, TaxAmount: 240 }] },
+  { InvoiceNumber: "INV-0010", Type: "ACCREC", Status: "DRAFT", DateString: "2026-10-20T00:00:00", LineAmountTypes: "Exclusive",
+    LineItems: [{ AccountCode: "811", LineAmount: 50 }] },
+];
 const realFetch = global.fetch;
 const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 global.fetch = async (url, opts = {}) => {
@@ -41,6 +47,11 @@ global.fetch = async (url, opts = {}) => {
   if (u.pathname.endsWith("/Accounts")) return json({ Accounts: CHART });
   if (u.pathname.endsWith("/Reports/TrialBalance")) return json({ Reports: [{ Rows: [{ RowType: "Section", Rows: TB[u.searchParams.get("date")] ?? [] }] }] });
   if (u.pathname.endsWith("/Organisation")) return json({ Organisations: [{ BaseCurrency: "GBP" }] });
+  // Sales invoices FM1 records billings from (18 Nov 2026).
+  if (u.pathname.endsWith("/Invoices")) {
+    const number = /InvoiceNumber=="([^"]+)"/.exec(u.searchParams.get("where") ?? "")?.[1];
+    return json({ Invoices: INVOICES.filter((i) => i.InvoiceNumber === number) });
+  }
   return json({}, 404);
 };
 
@@ -169,6 +180,29 @@ async function scenario() {
     r = await api("POST", `recs/${rec.id}/releases`, { on: true });
     const rel = await api("PUT", `recs/${rec.id}/releases`, { on: true });
     ok("Prepayments' monthly releases are not offered on deferred income", rel.status === 409, rel);
+  });
+
+  await section("FM1 records a billing from its Xero invoice; the rest stays with a person", async () => {
+    let r = await api("POST", "contracts", { entity: "alpha-holdings", side: "customer", counterparty: "Sample Club Ltd", pattern: "subscription",
+      total_value: 1200, account_code: "811", confirm_pattern: true });
+    ok("a second contract on 811, nothing billed yet", r.status === 201, r.body);
+    const cid = r.body.id;
+    const run = (await pool.query("INSERT INTO finance.agent_runs (client_id, requested_by_email, agent, instruction, status) VALUES ($1,$2,'fm1','Prepare','running') RETURNING id", [CID, CFO])).rows[0].id;
+    const fm1 = { "X-Work-Via": `agent:fm1:${run}` };
+    r = await api("POST", `contracts/${cid}/movements`, { kind: "billed", on_date: "2026-10-12", amount: 1200, ref: "INV-0009" }, fm1);
+    ok("FM1 still cannot key a movement by hand", r.status === 403, r);
+    r = await api("POST", `contracts/${cid}/billed-from-invoice`, { invoice_number: "INV-0009" }, { "X-Work-Via": "claude" });
+    ok("other callers cannot record from an invoice either", r.status === 403 || r.status === 400, r);
+    r = await api("POST", `contracts/${cid}/billed-from-invoice`, { invoice_number: "INV-0010" }, fm1);
+    ok("a draft invoice is refused", r.status === 422 && /draft in Xero, not approved/.test(r.body.issues.join()), r.body);
+    r = await api("POST", `contracts/${cid}/billed-from-invoice`, { invoice_number: "INV-0009" }, fm1);
+    ok("FM1 records INV-0009: net 1,200.00 on 811, on the invoice date", r.status === 201 && r.body.amount === 1200 && r.body.on_date === "2026-10-12", r.body);
+    r = await api("POST", `contracts/${cid}/billed-from-invoice`, { invoice_number: "INV-0009" }, fm1);
+    ok("the same invoice twice is refused", r.status === 409, r.body);
+    const d = (await api("GET", `contracts/${cid}`)).body;
+    ok("the register holds it, recorded by FM1 for the CFO", d.held === 1200 && d.movements[0].ref === "INV-0009" && d.movements[0].added_by === "agent:fm1", d.movements);
+    const audit = (await pool.query("SELECT actor_email, payload FROM finance.audit_log WHERE client_id = $1 AND action = 'contract_movement_added' ORDER BY occurred_at DESC LIMIT 1", [CID])).rows[0];
+    ok("audited as the person who asked, via FM1", audit?.actor_email === CFO && audit.payload.via_agent === "fm1" && audit.payload.from_invoice === true, audit);
   });
 
   await section("a supplier contract raises a notice-deadline task", async () => {

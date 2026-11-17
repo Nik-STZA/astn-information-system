@@ -21,7 +21,7 @@ const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 const STALE_READ_MINUTES = 10;
 const REVENUE_PROCEDURE = "revenue-and-deferred-revenue";
 
-function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, express, viaInput }) {
+function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, express, viaInput, xeroEntityContext = null, xeroGet = null }) {
   const BASE = "/api/finance/clients/:slug/contracts";
   const rawBody = express.raw({ type: () => true, limit: k.MAX_UPLOAD_BYTES + 1024 });
 
@@ -466,6 +466,48 @@ function mountContracts(app, { route, pool, audit, clientIdFromSlug, generate, e
     await log(conn, req, { client, ...w, action: "contract_movement_added", targetType: "contract_movement", id: row.id, payload: { contract: c.id, ...set } });
     return { status: 201, body: { id: row.id } };
   })));
+
+  // POST /contracts/:id/billed-from-invoice   body: { invoice_number }
+  // A billing recorded from the Xero sales invoice that raised it: the net of
+  // its lines on the contract's account, on the invoice date (18 Nov 2026).
+  // FM1 or the FC may record it, as the person who asked, as well as a person:
+  // it is read from Xero, not judged. Releases, the pattern and the terms stay
+  // with a person. A billing already recorded from the same invoice is refused.
+  app.post(`${BASE}/:id/billed-from-invoice`, tolerant(async (req, res) => {
+    const actorEmail = (req.get("X-Actor-Email") || "").trim();
+    if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+    const origin = viaInput(req.get("X-Work-Via"), req.get("X-Work-Ref"));
+    if (origin.issues.length) return res.status(400).json({ issues: origin.issues });
+    if (origin.via && !(origin.via.kind === "agent" && ["fm1", "fc"].includes(origin.via.agent))) {
+      return res.status(403).json({ error: "FM1, the FC or a person records a billing from its invoice" });
+    }
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    if (!k.isGuid(req.params.id)) return res.status(404).json({ error: "no such contract" });
+    const number = String(req.body?.invoice_number ?? "").trim();
+    if (!number || number.length > 50 || /["\\]/.test(number)) return res.status(422).json({ issues: ["invoice_number is the Xero invoice number, e.g. INV-0003"] });
+    const c = await loadContract(pool, client.id, req.params.id);
+    if (!c) return res.status(404).json({ error: "no such contract" });
+    if (c.side !== "customer") return res.status(422).json({ issues: ["only a customer contract is billed"] });
+    if (c.status !== "active") return res.status(422).json({ issues: [`this contract is ${c.status}`] });
+    if (!c.account_code) return res.status(422).json({ issues: ["set the balance sheet account this contract holds money on first"] });
+    if (!xeroEntityContext || !xeroGet) return res.status(503).json({ error: "Xero is not available here" });
+    const ctx = await xeroEntityContext(req.params.slug, c.entity_slug);
+    if (!ctx || ctx.error) return res.status(502).json({ error: `Xero could not be read for ${c.entity_name}: ${ctx?.error ?? "not connected"}` });
+    const got = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", { where: `InvoiceNumber=="${number}" AND Type=="ACCREC"` });
+    const { set, issues } = k.billingFromInvoice((got?.Invoices ?? [])[0] ?? null, c.account_code);
+    if (issues.length) return res.status(422).json({ issues });
+    send(res, await tx(client, { actorEmail }, async (conn, w) => {
+      const again = (await conn.query("SELECT id FROM finance.contract_movements WHERE contract_id = $1 AND kind = 'billed' AND ref = $2 AND withdrawn_at IS NULL", [c.id, set.ref])).rows[0];
+      if (again) return { status: 409, body: { error: `${set.ref} is already recorded on this contract`, id: again.id } };
+      const row = (await conn.query(
+        "INSERT INTO finance.contract_movements (client_id, contract_id, kind, on_date, amount, ref, note, added_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
+        [client.id, c.id, set.kind, set.on_date, set.amount, set.ref, set.note, origin.via ? `agent:${origin.via.agent}` : w.actorEmail])).rows[0];
+      await log(conn, req, { client, ...w, action: "contract_movement_added", targetType: "contract_movement", id: row.id,
+        payload: { contract: c.id, ...set, from_invoice: true, via_agent: origin.via?.agent ?? null } });
+      return { status: 201, body: { id: row.id, ...set } };
+    }));
+  }));
 
   // POST /contracts/:id/movements/:movementId/withdraw   a line keyed in error
   app.post(`${BASE}/:id/movements/:movementId/withdraw`, tolerant(async (req, res) => onContract(req, res, async (conn, w, { client, c }) => {

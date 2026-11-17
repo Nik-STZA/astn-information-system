@@ -396,6 +396,7 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     },
     ...work.tools(entityEnum),
     ...threadTools.tools(),
+    ...contractTools.tools(),
     ...reconciliations.tools(entityEnum),
     // FM1 and the FC only; a general session is not offered it either.
     ...(journalsRegister.roles.includes(agent) ? journalsRegister.tools(entityEnum) : []),
@@ -613,6 +614,10 @@ const work = require("./lib/agent-work").agentWork({ apiCall, apiRequest, reques
 // reconciliation in os.stza.io: lib/agent-threads.js.
 
 const threadTools = require("./lib/agent-threads").agentThreads({ apiCall, apiRequest, requesterOf });
+
+// The contracts register: FM1 and the FC record a billing from its Xero
+// invoice (lib/agent-contracts.js).
+const contractTools = require("./lib/agent-contracts").agentContracts({ apiCall, apiRequest, requesterOf });
 
 // ── Reconciliations ──────────────────────────────────────────────────────────
 //
@@ -881,6 +886,9 @@ ${t}` : ""))}`;
           result = await billsTool(job, tu.name, tu.input);
           if (tu.name === "recommend_bill_coding") console.log(`    Recommendation: ${result.saved ? "saved" : `refused (${result.status ?? result.error})`}`);
           if (tu.name === "submit_bill") console.log(`    Submit: ${result.submitted ? "at Awaiting Approval" : `stayed (${result.status ?? result.error}): ${JSON.stringify(result.stays_with_cfo ?? "").slice(0, 300)}`}`);
+        } else if (contractTools.names.includes(tu.name)) {
+          result = await contractTools.call(job, tu.name, tu.input);
+          if (tu.name === "record_contract_billing") console.log(`    Contract billing: ${result.saved ? "recorded" : `refused (${result.status ?? result.error})`}`);
         } else if (threadTools.names.includes(tu.name)) {
           result = await threadTools.call(job, tu.name, tu.input);
           if (tu.name === "add_thread_entry") console.log(`    Thread: ${result.saved ? "added" : `refused (${result.status ?? result.error})`}`);

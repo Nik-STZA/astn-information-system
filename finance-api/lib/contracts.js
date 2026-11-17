@@ -371,6 +371,33 @@ function movementInput(body = {}) {
   };
 }
 
+// A billing on a customer contract, read from the Xero sales invoice that
+// raised it (18 Nov 2026: FM1 records it, so the CFO only reviews): the net of
+// the invoice's lines on the contract's account, on the invoice date, with the
+// invoice number as its reference. Only an approved sales invoice counts.
+//   invoice      a Xero invoice (Type, Status, InvoiceNumber, DateString, LineAmountTypes, LineItems)
+//   accountCode  the balance sheet account the contract holds money on
+// Returns { set: { kind, on_date, amount, ref, note }, issues }
+function billingFromInvoice(invoice, accountCode) {
+  const issues = [];
+  if (!invoice) return { set: null, issues: ["the invoice was not found in Xero"] };
+  const name = invoice.InvoiceNumber ?? "the invoice";
+  if (invoice.Type !== "ACCREC") issues.push(`${name} is not a sales invoice`);
+  if (!["AUTHORISED", "PAID"].includes(invoice.Status)) issues.push(`${name} is ${String(invoice.Status ?? "not approved").toLowerCase()} in Xero, not approved`);
+  const inclusive = invoice.LineAmountTypes === "Inclusive";
+  const lines = (invoice.LineItems || []).filter((l) => String(l.AccountCode ?? "").trim() === String(accountCode ?? "").trim());
+  const net = lines.reduce((s, l) => s + pence(l.LineAmount) - (inclusive ? pence(l.TaxAmount) : 0), 0);
+  if (!lines.length) issues.push(`${name} has no line on account ${accountCode}`);
+  else if (net <= 0) issues.push(`${name} puts nothing on account ${accountCode}`);
+  const on_date = String(invoice.DateString ?? "").slice(0, 10);
+  if (!isDate(on_date)) issues.push("the invoice has no date");
+  return {
+    set: { kind: "billed", on_date, amount: net / 100, ref: clean(invoice.InvoiceNumber, 100),
+      note: clean(`From Xero sales invoice ${name}, ${lines.length} line${lines.length === 1 ? "" : "s"} on ${accountCode}, net of VAT.`, 500) },
+    issues,
+  };
+}
+
 // What a contract holds on its account at a date, in pence: billed less
 // released, up to and including the date. Withdrawn lines do not count.
 function heldAt(movements = [], date) {
@@ -601,7 +628,7 @@ function parseRead(text, entities = []) {
 
 const isPdf = (bytes) => Buffer.isBuffer(bytes) && bytes.length > 4 && bytes.subarray(0, 5).toString("latin1") === "%PDF-";
 
-module.exports = {
+module.exports = { billingFromInvoice,
   MAX_UPLOAD_BYTES, PATTERNS, PATTERN, RENEWALS, NOTICE_LEAD_DAYS, COMING_UP_DAYS,
   clean, isDate, amountOf, pence, pounds, isGuid, isCfo, addDays, day,
   contractInput, sideIssues, datesIssues, scheduleInput, scheduleIssues, movementInput,
