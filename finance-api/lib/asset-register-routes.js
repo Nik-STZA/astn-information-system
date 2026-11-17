@@ -119,6 +119,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
         return {
           company: a.company, entity_id: a.entity_id ?? null, account_id: a.account_id ?? null, code, name: String(a.account ?? "").replace(/\s*\(\w+\)\s*$/, ""),
           register: a.register, ledger: a.ledger, difference: a.difference, named_items: a.named_items || [], unexplained: a.unexplained ?? 0, ties: !!a.ties,
+          xero_charge_bf: a.by_xero == null ? null : Number(lastBy.get(`${a.entity_id}|${String(a.account_id).toLowerCase()}`) ?? 0),
           xero_charge_in_month: a.by_xero == null ? null : scheduleLib.xeroMonthCharge(a.by_xero, lastBy.get(`${a.entity_id}|${String(a.account_id).toLowerCase()}`)),
           amortised_by: map.find((m) => m.grouping === g.grouping && m.entity_id === a.entity_id && String(m.xero_account_id).toLowerCase() === String(a.account_id ?? "").toLowerCase())?.amortised_by ?? null,
         };

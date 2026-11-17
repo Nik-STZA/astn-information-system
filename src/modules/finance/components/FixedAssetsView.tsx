@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "./FixedAssetsView.module.css";
 import page from "./Page.module.css";
 import {
-  STATUS_TONE, accountSubject, dayName, fig, lineWhat, monthEndName, monthName, passes, roll,
+  STATUS_TONE, accountSubject, addRolls, chargedInXero, dayName, fig, lineWhat, monthEndName, monthName, passes, roll, xeroRoll,
   type ActivityFilter, type Schedule, type ScheduleAccount, type ScheduleAsset, type ScheduleGrouping, type ScheduleLine, type ThreadEntry,
 } from "@/modules/finance/lib/asset-schedule";
 import type { WaitingLine } from "@/modules/finance/lib/asset-register";
@@ -61,7 +61,11 @@ export default function FixedAssetsView({ slug, schedule, threads, threadsError,
   const accounts = shown.flatMap((g) => g.accounts.filter((a) => inCo(a.company)).map((a) => ({ ...a, group: g })));
   const allLines = groups.flatMap((g) => g.lines);
   const assetById = new Map(allAssets.map((a) => [a.id, a]));
-  const total = roll(assets);
+  // Accounts Xero amortises itself: its charge is on the account, not against
+  // each asset, so the roll-forward carries it as its own row and the total
+  // ties to the ledger.
+  const xeroAccounts = accounts.filter(chargedInXero);
+  const total = addRolls(roll(assets), xeroRoll(xeroAccounts));
 
   // Threads: by subject, for the panels and the counts.
   const bySubject = new Map<string, ThreadEntry[]>();
@@ -98,6 +102,11 @@ export default function FixedAssetsView({ slug, schedule, threads, threadsError,
         return { key: k, label: code, sub: acc?.name ?? "", company, xs, onLabel: () => acc && accountSubject(acc) && open({ type: "account", key: accountSubject(acc)! }) };
       });
     })();
+  const xeroRows = tab === "all"
+    ? shown.map((g) => ({ key: `x-${g.grouping}`, label: "Charged in Xero", sub: g.name, company: co === "all" ? "" : co,
+      r: xeroRoll(g.accounts.filter((a) => chargedInXero(a) && inCo(a.company))), n: g.accounts.filter((a) => chargedInXero(a) && inCo(a.company)).length, key2: null as string | null }))
+      .filter((x) => x.n)
+    : xeroAccounts.map((a) => ({ key: `x-${a.company}-${a.code}`, label: a.code ?? "", sub: `${a.name}, charged in Xero`, company: a.company, r: xeroRoll([a]), n: 1, key2: accountSubject(a) }));
   const reg = accounts.reduce((s, a) => s + a.register, 0);
   const recDiff = Math.round((reg - total.nbv_cf) * 100) / 100;
 
@@ -188,13 +197,24 @@ export default function FixedAssetsView({ slug, schedule, threads, threadsError,
                     </div>
                   );
                 })}
+                {xeroRows.map((x) => (
+                  <div key={x.key} className={`${styles.tr} ${styles.rf}`}>
+                    <span><button type="button" className={styles.lnk} onClick={() => (x.key2 ? open({ type: "account", key: x.key2 }) : setView("tie"))}>{x.label}</button> <span className={styles.sub}>{x.sub}</span></span>
+                    <span>{x.company}</span>
+                    <span className={styles.r}>-</span><span className={styles.r}>-</span><span className={styles.r}>-</span>
+                    <span className={styles.r}>{fig(x.r.accumulated_bf)}</span>
+                    <span className={styles.r}><button type="button" className={styles.num} onClick={() => (x.key2 ? open({ type: "account", key: x.key2 }) : setView("tie"))}>{fig(x.r.charge)}</button></span>
+                    <span className={styles.r}>{fig(x.r.accumulated_cf)}</span>
+                    <span className={styles.r}>{fig(x.r.nbv_bf)}</span><span className={styles.r}>{fig(x.r.nbv_cf)}</span>
+                  </div>
+                ))}
                 <div className={`${styles.tr} ${styles.tt} ${styles.rf}`}><span>Total</span><span />
                   <span className={styles.r}>{fig(total.cost_bf)}</span><span className={styles.r}>{fig(total.additions)}</span><span className={styles.r}>{fig(total.cost_cf)}</span>
                   <span className={styles.r}>{fig(total.accumulated_bf)}</span><span className={styles.r}>{fig(total.charge)}</span><span className={styles.r}>{fig(total.accumulated_cf)}</span>
                   <span className={styles.r}>{fig(total.nbv_bf)}</span><span className={styles.r}>{fig(total.nbv_cf)}</span></div>
               </div>
               {accounts.some((a) => a.amortised_by === "xero") && (
-                <p className={styles.foot}>Where Xero amortises an account itself, its charge is on the account (Tie to Xero), not against each asset here.</p>
+                <p className={styles.foot}>Where Xero amortises an account itself, it charges the account, not each asset. That charge is the &ldquo;Charged in Xero&rdquo; row, so the total ties to Xero.</p>
               )}
             </section>
           )}
@@ -218,7 +238,7 @@ export default function FixedAssetsView({ slug, schedule, threads, threadsError,
                 })}
               </div>
               {Math.abs(recDiff) >= 0.005 && (
-                <p className={styles.foot}>The assets&apos; net book value {fig(total.nbv_cf)} and the register on the ledger {fig(reg)} differ by {fig(recDiff)}: Xero&apos;s own amortisation runs on the accounts it keeps, taken at account level, not against each asset.</p>
+                <p className={styles.foot}>The roll-forward&apos;s net book value {fig(total.nbv_cf)} and the register on the ledger {fig(reg)} differ by {fig(recDiff)}.</p>
               )}
             </section>
           )}

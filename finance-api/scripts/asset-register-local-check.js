@@ -362,6 +362,9 @@ async function scenario() {
       && sNew?.additions === 200 && sNew.account === "777", { period: r.body.period, sPat, sTmk, sNew });
     ok("with the month signed, by whom, and the tie from its snapshot", sg?.month?.status === "signed" && sg.month.signed_by?.email === CFO
       && sg.accounts.some((a) => a.code === "774" && a.ties && a.register === 3000), sg?.month);
+    const x776 = sg?.accounts.find((a) => a.code === "776"), x774 = sg?.accounts.find((a) => a.code === "774");
+    ok("an account Xero amortises carries its charge brought forward and in the month; the register's accounts carry none",
+      x776?.xero_charge_bf === 0 && x776.xero_charge_in_month === 0 && x774?.xero_charge_bf === null && x774.xero_charge_in_month === null, { x776, x774 });
     ok("and every line behind each asset, with its asset", sg?.lines.some((l) => l.invoice_no === "INV-77" && l.amount === 500 && l.asset_id === sPat.id && l.account === "774")
       && sg.lines.filter((l) => l.asset_id === sNew.id).length === 1, sg?.lines);
     r = await api("GET", "asset-register/schedule");
