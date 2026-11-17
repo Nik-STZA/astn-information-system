@@ -371,7 +371,7 @@ function Evidence({ data, ev, preparing, busy, send }: { data: RecDetail; ev: Re
           {data.rec.status !== "signed_off" && ev.candidates.length > 0 && (
             <div className={styles.actions} style={{ marginTop: 8 }}>
               <select className={styles.pick} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Paired account">
-                {ev.candidates.map((c) => <option key={c.rec_account_id} value={c.rec_account_id}>{c.account_name} ({c.entity}), difference {c.difference}</option>)}
+                {ev.candidates.map((c) => <option key={c.rec_account_id} value={c.rec_account_id}>{c.account_name} ({c.entity}), difference {money(c.difference)}</option>)}
               </select>
               <button type="button" className="btn-secondary" disabled={busy || !pick} onClick={() => send("counterpart", { rec_account_id: pick })}>
                 {ev.counterpart ? "Change the pair" : "Pair"}
@@ -399,6 +399,17 @@ function Evidence({ data, ev, preparing, busy, send }: { data: RecDetail; ev: Re
             {ev.missing.length > 0 && <div className={styles.small} style={{ marginTop: 6 }}>Still needed for {ev.missing.join(", ")}.</div>}
           </div>
         )}
+      {/* Past preparation, an intercompany rec's evidence can still be fetched through its pair (18 Nov 2026). */}
+      {!preparing && ev.method === "counterpart" && ev.counterpart && !ev.counterpart.missing && ["with_fc", "with_cfo"].includes(data.rec.status) && (
+        <div className={styles.pad} style={{ borderTop: "1px solid var(--bd)" }}>
+          {!ev.rows.some((r) => r.method === "counterpart") && (
+            <p className={styles.small} style={{ marginTop: 0 }}>
+              This evidence was keyed by hand, not fetched through the pair, so it cannot be signed off yet. Fetch the paired balance; nothing else changes.
+            </p>
+          )}
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void send("evidence/fetch")}>Fetch the paired balance</button>
+        </div>
+      )}
       {preparing && (
         <div className={styles.pad} style={{ borderTop: "1px solid var(--bd)" }}>
           <div className={styles.actions}>
