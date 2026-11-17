@@ -612,6 +612,48 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     res.status(201).json({ prepared: true, ...result });
   }));
 
+  // POST .../asset-register/periods/reopen   { grouping, period, reason }
+  // The CFO reopens a signed month: only the latest signed one (a later
+  // signed month would stand on it), with a reason, audited. It goes back to
+  // open, keeping its last snapshot for comparison; it is then prepared and
+  // signed again as any month.
+  app.post(`${BASE}/periods/reopen`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const b = req.body || {};
+    const reason = String(b.reason ?? "").trim();
+    const conn = await pool.connect();
+    try {
+      await conn.query("BEGIN");
+      const role = await roleOf(conn, client.id, who.actorEmail);
+      if (!isCfo(role)) { await conn.query("ROLLBACK"); return res.status(403).json({ error: "only the CFO reopens a signed month" }); }
+      if (reason.length < 10) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: ["Say why the month is reopened, in at least 10 characters"] }); }
+      const periods = await periodRows(conn, client.id, String(b.grouping ?? ""));
+      const p = periods.find((x) => x.period === b.period);
+      if (!p) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`no ${b.period} for ${b.grouping}`] }); }
+      if (p.status !== "signed") { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`${b.period} is ${p.status}, not signed`] }); }
+      const later = periods.filter((x) => x.period > b.period && x.status === "signed");
+      if (later.length) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`Reopen ${later.map((x) => x.period).reverse().join(", ")} first: a later signed month stands on this one.`] }); }
+      const row = (await conn.query(
+        `UPDATE finance.asset_register_periods SET status = 'open', reopened_by = $4, reopened_at = now(), reopen_reason = $5, updated_at = now()
+          WHERE client_id = $1 AND grouping = $2 AND period = $3 RETURNING id`, [client.id, b.grouping, b.period, who.actorEmail, reason])).rows[0];
+      await conn.query(
+        `INSERT INTO finance.asset_approvals (client_id, subject_kind, subject_id, from_state, to_state, actor, role, reason)
+         VALUES ($1,'period',$2,'signed','open',$3,$4,$5)`, [client.id, row.id, who.actorEmail, role, reason]);
+      await audit(conn, { actorEmail: who.actorEmail, actorRole: role, action: "asset_register_period_reopened", targetType: "asset_register", targetId: `${b.grouping} ${b.period}`,
+        clientId: client.id, payload: { reason }, ip: req.get("X-Forwarded-For") || req.ip });
+      await conn.query("COMMIT");
+      res.json({ reopened: true, grouping: b.grouping, period: b.period });
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+  }));
+
   app.post(`${BASE}/periods/sign`, tolerant(async (req, res) => {
     const who = person(req, res);
     if (!who) return;
@@ -626,7 +668,8 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
       const periods = await periodRows(conn, client.id, String(b.grouping ?? ""));
       const p = periods.find((x) => x.period === b.period);
       if (!p) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`no ${b.period} for ${b.grouping}`] }); }
-      if (p.status !== "prepared") { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`${b.period} is ${p.status}; prepare it first`] }); }
+      const reopenedOpening = p.status === "open" && p.snapshot?.kind === "opening_import";
+      if (p.status !== "prepared" && !reopenedOpening) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`${b.period} is ${p.status}; prepare it first`] }); }
       const earlier = periods.filter((x) => x.period < b.period && x.status !== "signed");
       if (earlier.length) { await conn.query("ROLLBACK"); return res.status(422).json({ issues: [`Sign ${earlier.map((x) => x.period).join(", ")} first.`] }); }
       const row = (await conn.query(
