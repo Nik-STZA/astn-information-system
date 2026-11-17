@@ -346,6 +346,14 @@ async function scenario() {
     ok("August signed", r.status === 200 && r.body.signed, r.body);
     r = await api("POST", "asset-register/periods/sign", { grouping: "ip_registered", period: "2026-09" });
     ok("then September", r.status === 200 && r.body.signed, r.body);
+    r = await api("GET", "asset-register/view?grouping=ip_registered&period=2026-09");
+    const v777 = r.body.month?.accounts?.find((a) => /777/.test(a.account));
+    const v4 = r.body.month?.assets?.find((a) => a.asset_no === "ABC-TMK-0004");
+    ok("the page's view: September signed, the tie and each asset from the month's snapshot", r.status === 200 && r.body.grouping === "ip_registered"
+      && r.body.month.status === "signed" && r.body.month.signed_by === CFO && v777?.ties && v777.register === 300
+      && v4?.cost === 200 && v4.name === "ABC CN characters" && v4.company && r.body.groupings[0].periods.length >= 2, r.body);
+    r = await api("GET", "asset-register/view");
+    ok("with no month asked, the latest prepared or signed month", r.status === 200 && r.body.month?.period === "2026-10", r.body.month?.period);
     const signedLine = (await api("GET", "asset-register/cost-lines?state=approved")).body.lines.find((l) => l.invoice_no === "INV-77");
     r = await api("POST", "asset-register/cost-lines/decide", { decisions: [{ id: signedLine.id, action: "withdraw", reason: "Bill credited in Xero after sign-off" }] });
     ok("nothing is withdrawn from a signed month: reopen first", r.status === 409 && /signed for 2026-09/.test(JSON.stringify(r.body))
