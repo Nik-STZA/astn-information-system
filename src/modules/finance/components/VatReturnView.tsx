@@ -383,6 +383,12 @@ function Clearing({ data, post, failed, onDone }: {
     setBusy(false);
     if (!x.ok) setErr(failed(x)); else onDone();
   }
+  async function inXero() {
+    setBusy(true); setErr(null);
+    const x = await post("clearing/in-xero", {});
+    setBusy(false);
+    if (!x.ok) setErr(failed(x)); else onDone();
+  }
   const period = live[0]?.period;
   return (
     <div className={page.stack} style={{ borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
@@ -399,6 +405,14 @@ function Clearing({ data, post, failed, onDone }: {
       )}
       {live.length === 0 && (
         <button className="btn-secondary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={propose}>{busy ? "Proposing..." : "Propose the clearing journals"}</button>
+      )}
+      {live.some((j) => j.state === "proposed") && (
+        <>
+          <span style={{ fontSize: 12, color: "var(--sub)" }}>
+            Already cleared by hand in Xero? Do not approve these: link them to the journals in Xero instead. (From now on this is checked when the submission is recorded.)
+          </span>
+          <button className="btn-text" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={inXero}>{busy ? "Looking in Xero..." : "Already in Xero: find and link them"}</button>
+        </>
       )}
       {err && <div className={page.error} role="alert">{err}</div>}
     </div>

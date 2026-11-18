@@ -71,4 +71,16 @@ function clearingJournals({ ret, columns = [], pairs = [], vatCode = {}, codes =
   return { journals, issues };
 }
 
-module.exports = { clearingJournals, returnLabel };
+// A proposal already posted in Xero (a return filed before os.stza.io, cleared
+// by hand): the posted manual journal with the same lines, account by account
+// and amount by amount. xeroJournals: Xero ManualJournals with their lines.
+// Returns the match or null.
+function sameLines(a, b) {
+  const key = (lines) => lines.map((l) => `${String(l.account_code ?? l.AccountCode).trim()}|${pence(l.amount ?? l.LineAmount)}`).sort().join(",");
+  return key(a) === key(b);
+}
+function findPosted(proposal, xeroJournals) {
+  return (xeroJournals || []).find((j) => String(j.Status).toUpperCase() === "POSTED" && sameLines(proposal.lines, j.JournalLines || [])) ?? null;
+}
+
+module.exports = { clearingJournals, returnLabel, findPosted, sameLines };

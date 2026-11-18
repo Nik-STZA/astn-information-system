@@ -19,7 +19,13 @@ const SLUG = "sample-vat";
 const CFO = "cfo@example.com";
 const FM = "fm@example.com";
 let xeroWrites = 0;
-let hmrcPays = null;   // the HMRC receipt in the representative's bank feed, once the test puts it there
+let hmrcPays = null;
+let clearedByHand = false;   // the clearing journals already posted in Xero, once the test says so
+const HAND = {
+  "tenant-m1": [{ AccountCode: "621", LineAmount: 120 }, { AccountCode: "820", LineAmount: -120 }],
+  "tenant-m2": [{ AccountCode: "820", LineAmount: -120 }, { AccountCode: "802", LineAmount: 120 }],
+  "tenant-rep": [{ AccountCode: "820", LineAmount: 240 }, { AccountCode: "641", LineAmount: -120 }, { AccountCode: "640", LineAmount: -120 }],
+};   // the HMRC receipt in the representative's bank feed, once the test puts it there
 const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 const realFetch = global.fetch;
 // Each company's VAT control: 200.00 debit at 30 Sep, 320.00 at 31 Oct, with a
@@ -40,6 +46,7 @@ global.fetch = async (url, opts = {}) => {
   if (u.pathname.endsWith("/ManualJournals")) {
     const paged = u.searchParams.has("page");
     if (u.searchParams.get("page") > "1") return json({ ManualJournals: [] });
+    if (clearedByHand && paged) return json({ ManualJournals: [{ ManualJournalID: `hand-${t}`, Status: "POSTED", Narration: "VAT group clearing (by hand)", JournalLines: HAND[t] }] });
     return json({ ManualJournals: t === "tenant-rep" ? [{ Narration: "VAT group clearing", ...(paged ? { JournalLines: [{ AccountCode: "820", LineAmount: -100 }] } : {}) }] : [] });
   }
   if (u.pathname.endsWith("/BankTransactions")) {
@@ -179,6 +186,24 @@ async function scenario() {
   ok("the clearing is proposed once", r.status === 409, r.body);
   v = (await api("GET", `vat/returns/${RID}`)).body;
   ok("the return lists its clearing journals", v.clearing?.length === 3 && v.clearing.every((j) => j.state === "proposed" && j.jnl), v.clearing);
+
+  // A return cleared by hand in Xero before os.stza.io: link, do not post again.
+  r = await api("POST", `vat/returns/${RID}/clearing/in-xero`, {});
+  ok("with nothing in Xero yet, nothing is linked and it says which", r.status === 422 && /No posted journal/.test(r.body.issues?.[0]), r.body);
+  clearedByHand = true;
+  r = await api("POST", `vat/returns/${RID}/clearing/in-xero`, {}, FM);
+  ok("only the CFO links them", r.status === 403, r.body);
+  r = await api("POST", `vat/returns/${RID}/clearing/in-xero`, {});
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("each proposal is linked to its hand-posted journal and shown as posted, nothing written to Xero",
+    r.status === 200 && r.body.matched?.length === 3 && v.clearing.every((j) => j.state === "posted") && xeroWrites === 0, { r: r.body, clearing: v.clearing });
+  const linked = (await pool.query("SELECT xero_journal_id FROM finance.journals WHERE vat_return_id = $1 ORDER BY xero_journal_id", [RID])).rows.map((x) => x.xero_journal_id).join();
+  ok("with Xero's own journal ids", linked === "hand-tenant-m1,hand-tenant-m2,hand-tenant-rep", linked);
+  // From now on the platform looks first: proposing again with the journals in Xero links them and proposes nothing.
+  await pool.query("UPDATE finance.journals SET state = 'superseded', xero_journal_id = NULL WHERE vat_return_id = $1", [RID]);
+  r = await api("POST", `vat/returns/${RID}/clearing`, {});
+  ok("journals already posted in Xero are linked when the clearing is proposed, and none goes to the CFO", r.status === 201 && r.body.linked?.length === 3 && r.body.proposed?.length === 0, r.body);
+  clearedByHand = false;
 
   // HMRC's payment
   ok("the return expects HMRC's repayment of box 5", v.payment?.expected === 360 && v.payment.matched.length === 0, v.payment);

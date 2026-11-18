@@ -12,6 +12,7 @@ describe("VAT helpers", () => {
     expect(isVatPath(`vat/returns/${id}/payments/find`)).toBe(true);
     expect(isVatPath(`vat/returns/${id}/payments/${id}/withdraw`)).toBe(true);
     expect(isVatPath(`vat/returns/${id}/payments/${id}`)).toBe(false);
+    expect(isVatPath(`vat/returns/${id}/clearing/in-xero`)).toBe(true);
   });
 
   it("names a calendar month as the month, anything else as dates", () => {

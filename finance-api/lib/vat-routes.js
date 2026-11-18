@@ -8,6 +8,7 @@
 //   POST /clients/:slug/vat/returns/:id/imports     record the import file generated now
 //   POST /clients/:slug/vat/returns/:id/submit      { submitted_on, hmrc_receipt_ref }   CFO
 //   POST /clients/:slug/vat/returns/:id/clearing    propose the group clearing journals again   CFO
+//   POST /clients/:slug/vat/returns/:id/clearing/in-xero   link proposals to journals already posted   CFO
 //   POST /clients/:slug/vat/returns/:id/payments/find   HMRC's payment candidates in the bank feed
 //   POST /clients/:slug/vat/returns/:id/payments    { xero_bank_txn_id, set_off_reason }   CFO
 //   POST /clients/:slug/vat/returns/:id/payments/:pid/withdraw                               CFO
@@ -26,7 +27,7 @@ const { buildGroup, confirmImport, importTemplateRows } = require("./vat-group")
 const { trialBalanceByAccountId } = require("./journal");
 const { isCfo } = require("./contracts");
 const { metadataToken } = require("./pack-job");
-const { clearingJournals } = require("./vat-clearing");
+const { clearingJournals, findPosted } = require("./vat-clearing");
 const vatPay = require("./vat-payments");
 const { jnlRef } = require("./journals");
 
@@ -310,6 +311,21 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
   // for the CFO to approve, dated the day the return was submitted. Once per
   // return: while any of its journals is proposed, approved or in Xero,
   // nothing more is proposed. Returns { proposed: [jnl], issues }.
+  // The posted manual journal in a company's Xero with the same lines as a
+  // clearing journal, dated within 60 days of it and not already linked to
+  // another journal here, or null.
+  async function postedInXero(client, slug, lines, date, taken) {
+    const ctx = await xeroEntityContext(client.slug, slug);
+    if (!ctx || ctx.error) throw new Error(ctx?.error ?? "not connected to Xero");
+    const shift = (d, n) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+    const xs = (await pagedList(ctx, "/ManualJournals", "ManualJournals",
+      `Date >= DateTime(${xeroDate(shift(date, -60))}) AND Date <= DateTime(${xeroDate(shift(date, 60))}) AND Status=="POSTED"`))
+      .filter((x) => !taken.has(x.ManualJournalID));
+    return findPosted({ lines }, xs);
+  }
+  const linkedIds = async (clientId) => new Set((await pool.query(
+    "SELECT xero_journal_id FROM finance.journals WHERE client_id = $1 AND xero_journal_id IS NOT NULL", [clientId])).rows.map((r) => r.xero_journal_id));
+
   async function proposeClearing(client, ret, actorEmail, role, ip) {
     if (ret.registration_kind !== "group" || !ret.submitted_on) return { proposed: [], issues: [] };
     const open = (await pool.query(
@@ -336,18 +352,33 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     const codes = Object.fromEntries(members.map((m) => [m.entity_id, companyCode(m)]));
     const built = clearingJournals({ ret, columns: group.columns, pairs, vatCode, codes });
     if (built.issues.length) return { proposed: [], issues: built.issues };
+    // A return filed before os.stza.io was cleared by hand: a clearing journal
+    // already posted in Xero is linked, never proposed again (CFO, 19 Nov 2026).
+    const taken = await linkedIds(client.id);
+    const inXero = new Map();
+    for (const j of built.journals) {
+      const m = members.find((x) => x.entity_id === j.entity_id);
+      const hit = await postedInXero(client, m.slug, j.lines, j.journal_date, taken);
+      if (hit) { inXero.set(j, hit); taken.add(hit.ManualJournalID); }
+    }
     const proposed = [];
+    const linked = [];
     const conn = await pool.connect();
     try {
       await conn.query("BEGIN");
       for (const j of built.journals) {
+        const hit = inXero.get(j);
         const row = (await conn.query(
-          `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, vat_return_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'vat',$8,$9) RETURNING id, jnl_no`,
-          [client.id, j.entity_id, j.journal_date.slice(0, 7), j.journal_date, j.narration, JSON.stringify(j.lines), j.reason, actorEmail, ret.id])).rows[0];
-        await audit(conn, { actorEmail, actorRole: role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id, ip,
-          payload: { jnl: jnlRef(row.jnl_no), from: "vat_clearing", vat_return: ret.id, entity: j.entity_id, date: j.journal_date, narration: j.narration, lines: j.lines } });
-        proposed.push(jnlRef(row.jnl_no));
+          `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, vat_return_id,
+             state, xero_journal_id, xero_status, xero_checked_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'vat',$8,$9,$10,$11,$12,$13) RETURNING id, jnl_no`,
+          [client.id, j.entity_id, j.journal_date.slice(0, 7), j.journal_date, j.narration, JSON.stringify(j.lines),
+            hit ? `${j.reason} Already posted in Xero by hand (${String(hit.Narration ?? "").slice(0, 80)}): linked, not posted again.` : j.reason,
+            actorEmail, ret.id, hit ? "posted" : "proposed", hit?.ManualJournalID ?? null, hit ? "POSTED" : null, hit ? new Date() : null])).rows[0];
+        await audit(conn, { actorEmail, actorRole: role, action: hit ? "journal_found_in_xero" : "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id, ip,
+          payload: { jnl: jnlRef(row.jnl_no), from: "vat_clearing", vat_return: ret.id, entity: j.entity_id, date: j.journal_date, narration: j.narration, lines: j.lines,
+            ...(hit ? { xero_manual_journal_id: hit.ManualJournalID } : {}) } });
+        (hit ? linked : proposed).push(jnlRef(row.jnl_no));
       }
       await conn.query("COMMIT");
     } catch (e) {
@@ -356,7 +387,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     } finally {
       conn.release();
     }
-    return { proposed, issues: [] };
+    return { proposed, linked, issues: [] };
   }
 
   // The company whose bank HMRC pays into or is paid from: the representative,
@@ -613,6 +644,60 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_payment_withdrawn", targetType: "vat_return", targetId: ret.id, clientId: client.id,
       payload: { payment: gone.id }, ip: req.get("X-Forwarded-For") || req.ip });
     res.json({ withdrawn: true });
+  }));
+
+  // POST /vat/returns/:id/clearing/in-xero   CFO
+  // A return filed before os.stza.io was cleared by hand in Xero: each waiting
+  // proposal is matched to the posted manual journal with the same lines, in
+  // that company, dated within 60 days of the filing, and recorded as posted
+  // with Xero's id. Nothing is written to Xero. All or nothing: a proposal with
+  // no match leaves every one waiting, and says which.
+  app.post(`${BASE}/returns/:id/clearing/in-xero`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO records clearing journals as already in Xero" });
+    const waiting = (await pool.query(
+      `SELECT j.id, j.jnl_no, j.entity_id, j.lines, j.journal_date::text AS journal_date, e.slug, e.name
+         FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
+        WHERE j.vat_return_id = $1 AND j.state = 'proposed' ORDER BY j.created_at`, [ret.id])).rows;
+    if (!waiting.length) return res.status(409).json({ error: "No clearing journal of this return is waiting." });
+    const found = [];
+    const missing = [];
+    const taken = await linkedIds(client.id);
+    for (const j of waiting) {
+      let m;
+      try {
+        m = await postedInXero(client, j.slug, j.lines, j.journal_date, taken);
+      } catch (e) {
+        return res.status(503).json({ error: `Xero could not be read for ${j.name}: ${String(e.message || e).slice(0, 200)}` });
+      }
+      if (m) { found.push({ j, m }); taken.add(m.ManualJournalID); } else missing.push(`${jnlRef(j.jnl_no)} (${j.name})`);
+    }
+    if (missing.length) return res.status(422).json({ issues: [`No posted journal with the same lines found in Xero within 60 days of filing for ${missing.join(", ")}. Nothing was changed.`] });
+    const conn = await pool.connect();
+    try {
+      await conn.query("BEGIN");
+      for (const { j, m } of found) {
+        await conn.query(
+          `UPDATE finance.journals SET state = 'posted', xero_journal_id = $2, xero_status = 'POSTED', xero_checked_at = now(), updated_at = now(),
+             reason = coalesce(reason, '') || $3 WHERE id = $1 AND state = 'proposed'`,
+          [j.id, m.ManualJournalID, ` Already posted in Xero by hand (${String(m.Narration ?? "").slice(0, 80)}), recorded by the CFO; not posted again.`]);
+        await audit(conn, { actorEmail: who.actorEmail, actorRole: role, action: "journal_found_in_xero", targetType: "journal", targetId: j.id, clientId: client.id,
+          payload: { jnl: jnlRef(j.jnl_no), vat_return: ret.id, xero_manual_journal_id: m.ManualJournalID, narration: m.Narration }, ip: req.get("X-Forwarded-For") || req.ip });
+      }
+      await conn.query("COMMIT");
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.json({ matched: found.map(({ j, m }) => ({ jnl: jnlRef(j.jnl_no), company: j.name, xero_manual_journal_id: m.ManualJournalID, narration: m.Narration ?? null })) });
   }));
 
   // POST /vat/returns/:id/workbook   builds the workbook in the pack engine and saves it to the client's drive

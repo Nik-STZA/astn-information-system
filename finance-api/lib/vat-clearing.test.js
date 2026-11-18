@@ -53,3 +53,17 @@ describe("VAT group clearing journals", () => {
     expect(returnLabel("2025-12-01", "2026-02-28")).toBe("Dec 2025-Feb 2026");
   });
 });
+
+describe("a clearing proposal already posted in Xero", () => {
+  const { findPosted } = require("./vat-clearing");
+  const proposal = { lines: [{ account_code: "621", amount: 3057.75 }, { account_code: "820", amount: -3057.75 }] };
+  it("finds the posted journal with the same lines, in any order", () => {
+    const xs = [
+      { ManualJournalID: "draft", Status: "DRAFT", JournalLines: [{ AccountCode: "820", LineAmount: -3057.75 }, { AccountCode: "621", LineAmount: 3057.75 }] },
+      { ManualJournalID: "other", Status: "POSTED", JournalLines: [{ AccountCode: "621", LineAmount: 3057.70 }, { AccountCode: "820", LineAmount: -3057.70 }] },
+      { ManualJournalID: "it", Status: "POSTED", JournalLines: [{ AccountCode: "820", LineAmount: -3057.75 }, { AccountCode: "621", LineAmount: 3057.75 }] },
+    ];
+    expect(findPosted(proposal, xs).ManualJournalID).toBe("it");
+    expect(findPosted(proposal, xs.slice(0, 2))).toBeNull();
+  });
+});
