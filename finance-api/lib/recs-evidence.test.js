@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  workable, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, outstandingAt, creditLeftAt, paidAheadAt, ageingEvidence, intercompanyGrid,
+  workable, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, outstandingAt, creditLeftAt, paidAheadAt, paidAheadItems, ageingEvidence, intercompanyGrid,
   counterpartCandidates, carryForward, stepIssues, prepareInstruction, cover,
 } from "./recs";
 import { classify } from "./bs-matrix";
@@ -99,11 +99,16 @@ describe("automatic methods", () => {
     expect(paidAheadAt(later[0], "2026-09-30")).toBe(1873200);
     expect(paidAheadAt(later[2], "2026-09-30")).toBe(0);
     expect(paidAheadAt({ ...later[0], DateString: "2026-09-15T00:00:00" }, "2026-09-30")).toBe(0);   // not after: it is outstandingAt's
+    // The evidence stays the ageing; each payment ahead is a timing item, signed as the ledger.
     const invs = [{ Status: "AUTHORISED", DateString: "2026-09-10T00:00:00", Total: 1000 }];
-    const ap = ageingEvidence(invs, { date: "2026-09-30", kind: "ap", later });
-    // Ledger: credit 1,000 for the open bill, debit 36,732 for the payments ahead.
-    expect(ap.amount).toBe("35732.00");
-    expect(ap.note).toMatch(/less 36732\.00 paid by then on 2 supplier bills dated after it/);
+    expect(ageingEvidence(invs, { date: "2026-09-30", kind: "ap" }).amount).toBe("-1000.00");
+    const items = paidAheadItems(later.map((x, i) => ({ ...x, InvoiceNumber: `LTD-${i}`, Contact: { Name: "Sample Supplier Ltd" } })), { date: "2026-09-30", kind: "ap" });
+    expect(items).toEqual([
+      expect.objectContaining({ side: "xero_only", kind: "timing", txn_date: "2026-09-29", amount: "18732.00", xero_ref: "LTD-0" }),
+      expect.objectContaining({ amount: "18000.00", xero_ref: "LTD-1" }),
+    ]);
+    expect(items[0].description).toMatch(/Paid 2026-09-29 on Sample Supplier Ltd LTD-0 dated 2026-10-01/);
+    expect(paidAheadItems([later[0]], { date: "2026-09-30", kind: "ar" })[0].amount).toBe("-18732.00");
   });
 
   it("takes off prepayments and overpayments not allocated at the month end", () => {
