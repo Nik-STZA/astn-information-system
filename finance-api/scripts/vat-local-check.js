@@ -35,7 +35,12 @@ global.fetch = async (url, opts = {}) => {
     const bal = u.searchParams.get("date") === "2026-10-31" ? (t === "tenant-rep" ? 220 : 320) : 200;
     return json({ Reports: [{ Rows: [{ RowType: "Section", Rows: [{ RowType: "Row", Cells: [{ Value: "VAT (820)", Attributes: [{ Id: "account", Value: `vat-${t}` }] }, { Value: "0" }, { Value: "0" }, { Value: String(bal) }, { Value: "0" }] }] }] }] });
   }
-  if (u.pathname.endsWith("/ManualJournals")) return json({ ManualJournals: t === "tenant-rep" ? [{ Narration: "VAT group clearing", JournalLines: [{ AccountCode: "820", LineAmount: -100 }] }] : [] });
+  // As Xero does: lines only on a paged read.
+  if (u.pathname.endsWith("/ManualJournals")) {
+    const paged = u.searchParams.has("page");
+    if (u.searchParams.get("page") > "1") return json({ ManualJournals: [] });
+    return json({ ManualJournals: t === "tenant-rep" ? [{ Narration: "VAT group clearing", ...(paged ? { JournalLines: [{ AccountCode: "820", LineAmount: -100 }] } : {}) }] : [] });
+  }
   if (u.pathname.endsWith("/BankTransactions")) return json({ BankTransactions: [] });
   return json({}, 404);
 };
