@@ -90,6 +90,7 @@ const {
 } = require("./lib/coa-mapping");
 const { DEFAULT_TEMPLATE, TEMPLATE_KEYS, layoutOf, templateList, templateOf, templateRows } = require("./lib/pack-templates");
 const { isCfo } = require("./lib/contracts");
+const { readMasterTable, planMaster, changesToApply } = require("./lib/master-mapping");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -3158,6 +3159,155 @@ app.get("/api/finance/clients/:slug/coa-mapping", route(async (req, res) => {
   res.json({ ...base, entity: { slug: entity.slug, name: entity.name }, xeroError, rows, orphans: xeroError ? [] : orphans });
 }));
 
+// Writes planned mapping changes for one entity inside the caller's
+// transaction, with one audit row. Used by the page's save and the master upload.
+async function saveMappingWrites(conn, { client, entity, changed, actorEmail, role, source, note, ip }) {
+  for (const w of changed) {
+    const approved = w.status === "approved";
+    await conn.query(
+      `INSERT INTO finance.account_mappings AS m
+         (client_id, entity_id, xero_account_id, account_code, account_name, account_class,
+          category_key, cash_flow, status, source, reason, proposed_by_email,
+          approved_by_email, approved_role, approved_at, subline)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CASE WHEN $9 = 'approved' THEN now() END, $15)
+       ON CONFLICT (entity_id, xero_account_id) DO UPDATE SET
+         account_code = EXCLUDED.account_code,
+         account_name = EXCLUDED.account_name,
+         account_class = EXCLUDED.account_class,
+         proposed_by_email = CASE WHEN m.category_key IS DISTINCT FROM EXCLUDED.category_key
+                                    OR m.cash_flow IS DISTINCT FROM EXCLUDED.cash_flow
+                                  THEN EXCLUDED.proposed_by_email ELSE m.proposed_by_email END,
+         proposed_at = CASE WHEN m.category_key IS DISTINCT FROM EXCLUDED.category_key
+                              OR m.cash_flow IS DISTINCT FROM EXCLUDED.cash_flow
+                            THEN now() ELSE m.proposed_at END,
+         category_key = EXCLUDED.category_key,
+         cash_flow = EXCLUDED.cash_flow,
+         status = EXCLUDED.status,
+         source = EXCLUDED.source,
+         reason = EXCLUDED.reason,
+         approved_by_email = EXCLUDED.approved_by_email,
+         approved_role = EXCLUDED.approved_role,
+         approved_at = EXCLUDED.approved_at,
+         subline = EXCLUDED.subline`,
+      [
+        client.id, entity.id, w.accountId, w.code, w.name, w.klass,
+        w.category, w.cashFlow, w.status, w.source, w.reason, actorEmail,
+        approved ? actorEmail : null, approved ? role : null, w.subline ?? null,
+      ]
+    );
+  }
+  if (changed.length) {
+    await audit(conn, {
+      actorEmail,
+      actorRole: role,
+      action: "map_accounts",
+      targetType: "account_mapping",
+      targetId: entity.slug,
+      clientId: client.id,
+      payload: {
+        entity: entity.slug,
+        source,
+        note,
+        changes: changed.map((w) => ({
+          accountId: w.accountId, code: w.code, name: w.name, before: w.before,
+          after: { category: w.category, status: w.status, cashFlow: w.cashFlow, subline: w.subline ?? null },
+        })),
+      },
+      ip: normaliseIp(ip),
+    });
+  }
+}
+
+// ── Master mapping file (part 3 of docs/management-pack-templates-plan.md) ──
+//
+// The browser reads the file into a table (rows of cells); finance-api plans it
+// against every company's Xero chart of accounts, through the client's pack
+// template. Preview shows the plan; apply plans again from the same table (the
+// browser's view of the changes is never trusted), drops what the CFO unticked
+// and saves every company in one transaction, recorded as from that file.
+//   body: { fileName, table: [[cell, ...], ...], exclude?: ["<entity>:<accountId>"], approve? }
+
+async function masterPlan(client, body, { approve }) {
+  const fileName = String(body?.fileName ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!fileName) return { status: 422, error: "fileName is required" };
+  const { rows, errors } = readMasterTable(body?.table);
+  if (errors.length) return { status: 422, error: errors.join("; ") };
+  const { rows: ents } = await pool.query(
+    "SELECT id, slug, name FROM finance.entities WHERE client_id = $1 AND retired_at IS NULL ORDER BY name", [client.id]
+  );
+  const entities = [];
+  const contexts = new Map();
+  for (const e of ents) {
+    const ctx = await xeroEntityContext(client.slug, e.slug);
+    if (!ctx) continue;   // not connected to Xero: nothing to match
+    if (ctx.error) return { status: 503, error: `${e.name}: ${ctx.error}` };
+    const accounts = (await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts")).Accounts ?? [];
+    const stored = await loadStoredMappings(pool, e.id);
+    contexts.set(e.slug, { entity: e, accounts, stored });
+    entities.push({ slug: e.slug, name: e.name, accounts, stored });
+  }
+  if (!entities.length) return { status: 409, error: "No company of this client is connected to Xero" };
+  const template = await packTemplateOf(pool, client.id);
+  const categories = await loadCategories(pool, client.id);
+  const plan = planMaster({ rows, template, categories, entities, approve });
+  return { plan: { ...plan, fileName, template }, contexts, categories, fileName };
+}
+
+app.post("/api/finance/clients/:slug/coa-mapping-master/preview", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const r = await masterPlan(client, req.body, { approve: req.body?.approve !== false });
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json(r.plan);
+}));
+
+app.post("/api/finance/clients/:slug/coa-mapping-master/apply", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const approve = req.body?.approve !== false;
+  const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+  if (!role) return res.status(403).json({ error: "you have no role on this client" });
+  if (approve && !isCfo(role)) return res.status(403).json({ error: "only the CFO approves a master file; save it unapproved instead" });
+
+  const r = await masterPlan(client, req.body, { approve });
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  const note = r.fileName.slice(0, 200);
+  const perEntity = [];
+  const errors = [];
+  for (const ep of r.plan.entities) {
+    const changes = changesToApply(ep, req.body?.exclude, approve);
+    if (!changes.length) continue;
+    const { entity, accounts, stored } = r.contexts.get(ep.slug);
+    const planned = planMappingChanges({ changes, accounts, categories: r.categories, stored, source: "upload", note });
+    if (planned.errors.length) errors.push(...planned.errors.map((x) => `${ep.name}: ${x}`));
+    else perEntity.push({ entity, stored, writes: planned.writes });
+  }
+  if (errors.length) return res.status(422).json({ error: `Nothing was saved: ${errors.length} problem(s)`, errors });
+
+  const conn = await pool.connect();
+  const saved = [];
+  try {
+    await conn.query("BEGIN");
+    for (const { entity, stored, writes } of perEntity) {
+      const changed = writes.filter((w) => {
+        const s = stored.get(w.accountId);
+        return !s || s.category_key !== w.category || s.status !== w.status || (s.subline ?? null) !== (w.subline ?? null);
+      });
+      await saveMappingWrites(conn, { client, entity, changed, actorEmail, role, source: "upload", note, ip: req.get("X-Forwarded-For") || req.ip });
+      saved.push({ entity: entity.slug, saved: changed.length, approved: changed.filter((w) => w.status === "approved").length });
+    }
+    await conn.query("COMMIT");
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+  res.json({ ok: true, fileName: r.fileName, saved, excluded: (req.body?.exclude || []).length });
+}));
+
 // Save, change or approve mappings for one entity. All or nothing.
 //   body: { changes: [{ accountId, category?, cashFlow?, approve? }], source?: manual|upload|rule, note? }
 app.post("/api/finance/clients/:slug/coa-mapping/:entity", route(async (req, res) => {
@@ -3192,60 +3342,7 @@ app.post("/api/finance/clients/:slug/coa-mapping/:entity", route(async (req, res
   try {
     await conn.query("BEGIN");
     const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
-    for (const w of changed) {
-      const approved = w.status === "approved";
-      await conn.query(
-        `INSERT INTO finance.account_mappings AS m
-           (client_id, entity_id, xero_account_id, account_code, account_name, account_class,
-            category_key, cash_flow, status, source, reason, proposed_by_email,
-            approved_by_email, approved_role, approved_at, subline)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CASE WHEN $9 = 'approved' THEN now() END, $15)
-         ON CONFLICT (entity_id, xero_account_id) DO UPDATE SET
-           account_code = EXCLUDED.account_code,
-           account_name = EXCLUDED.account_name,
-           account_class = EXCLUDED.account_class,
-           proposed_by_email = CASE WHEN m.category_key IS DISTINCT FROM EXCLUDED.category_key
-                                      OR m.cash_flow IS DISTINCT FROM EXCLUDED.cash_flow
-                                    THEN EXCLUDED.proposed_by_email ELSE m.proposed_by_email END,
-           proposed_at = CASE WHEN m.category_key IS DISTINCT FROM EXCLUDED.category_key
-                                OR m.cash_flow IS DISTINCT FROM EXCLUDED.cash_flow
-                              THEN now() ELSE m.proposed_at END,
-           category_key = EXCLUDED.category_key,
-           cash_flow = EXCLUDED.cash_flow,
-           status = EXCLUDED.status,
-           source = EXCLUDED.source,
-           reason = EXCLUDED.reason,
-           approved_by_email = EXCLUDED.approved_by_email,
-           approved_role = EXCLUDED.approved_role,
-           approved_at = EXCLUDED.approved_at,
-           subline = EXCLUDED.subline`,
-        [
-          client.id, entity.id, w.accountId, w.code, w.name, w.klass,
-          w.category, w.cashFlow, w.status, w.source, w.reason, actorEmail,
-          approved ? actorEmail : null, approved ? role : null, w.subline ?? null,
-        ]
-      );
-    }
-    if (changed.length) {
-      await audit(conn, {
-        actorEmail,
-        actorRole: role,
-        action: "map_accounts",
-        targetType: "account_mapping",
-        targetId: entity.slug,
-        clientId: client.id,
-        payload: {
-          entity: entity.slug,
-          source,
-          note: noteText,
-          changes: changed.map((w) => ({
-            accountId: w.accountId, code: w.code, name: w.name, before: w.before,
-            after: { category: w.category, status: w.status, cashFlow: w.cashFlow },
-          })),
-        },
-        ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
-      });
-    }
+    await saveMappingWrites(conn, { client, entity, changed, actorEmail, role, source, note: noteText, ip: req.get("X-Forwarded-For") || req.ip });
     await conn.query("COMMIT");
   } catch (e) {
     await conn.query("ROLLBACK").catch(() => {});

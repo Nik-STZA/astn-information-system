@@ -19,6 +19,10 @@
 //   headings    a master file's P&L Mapping 1 words -> category key, so a
 //               master file can be read (part 3). A heading not here is shown
 //               as having no category, never guessed.
+//   bsHeadings  the same for the master's BS Mapping. A value may list more
+//               than one line where the heading alone does not decide it (loan
+//               notes due within or after a year): the first is the default,
+//               and an account already on one of them keeps it.
 //
 // The client picks one (shared.clients.pack_template, migration 055). The
 // categories a client sees are: the standard set, then the template's, then the
@@ -56,6 +60,25 @@ const STANDARD_HEADINGS = {
   "Taxation": "taxation",
 };
 
+// The standard balance sheet lines by their own labels.
+const STANDARD_BS_HEADINGS = {
+  "Intangible assets": "intangible_assets",
+  "Tangible assets": "tangible_assets",
+  "Investments": "investments",
+  "Stock": "stock",
+  "Debtors": "debtors",
+  "Cash at bank and in hand": "cash",
+  "Cash": "cash",
+  "Creditors: amounts falling due within one year": "creditors_lt1y",
+  "Creditors: amounts falling due after more than one year": "creditors_gt1y",
+  "Provisions for liabilities": "provisions",
+  "Called up share capital": "share_capital",
+  "Share capital": "share_capital",
+  "Profit and loss account": "retained_earnings",
+  "Retained earnings": "retained_earnings",
+  "Other reserves": "other_reserves",
+};
+
 const pnl = (key, label, section, sortOrder, cashFlow = null) =>
   ({ key, label, statement: "pnl", section, sortOrder, cashFlow, active: true });
 
@@ -70,6 +93,7 @@ const TEMPLATES = {
     categories: [],
     sublines: {},
     headings: { ...STANDARD_HEADINGS },
+    bsHeadings: { ...STANDARD_BS_HEADINGS },
   },
 
   standard_statutory: {
@@ -82,6 +106,7 @@ const TEMPLATES = {
     categories: [],
     sublines: {},
     headings: { ...STANDARD_HEADINGS },
+    bsHeadings: { ...STANDARD_BS_HEADINGS },
   },
 
   // From the Feldspar master (Master Mapping with Raise Buckets, 10 Nov 2026)
@@ -152,6 +177,39 @@ const TEMPLATES = {
       "Taxes": "taxation",
       "Capitalised Development": "capitalised_dev",
     },
+    // The 10 Nov master's BS Mapping, as applied on 18 Nov 2026.
+    bsHeadings: {
+      "Cash": "cash",
+      "Trade Debtors": "debtors",
+      "Other Debtors": "debtors",
+      "Prepayments": "debtors",
+      "Deposits": "debtors",
+      "Inter Company Debtor": "debtors",
+      "VAT Debtor": "debtors",
+      "Inventory": "stock",
+      "Internally Developed Intellectual Property": "intangible_assets",
+      "Patents and Trademarks": "intangible_assets",
+      "Software": "intangible_assets",
+      "Computer Equipment": "tangible_assets",
+      "Buildings": "tangible_assets",
+      "Leasehold Improvements": "tangible_assets",
+      "Motor Vehicle": "tangible_assets",
+      "Office Equipment": "tangible_assets",
+      "Plant and Machinery": "tangible_assets",
+      "Performance Surface Assets": "tangible_assets",
+      "Trade Creditors": "creditors_lt1y",
+      "Accruals": "creditors_lt1y",
+      "Deferred Income": "creditors_lt1y",
+      "Net Wages Payable": "creditors_lt1y",
+      "PAYE/NI": "creditors_lt1y",
+      "Inter Company Creditor": ["creditors_lt1y", "debtors"],
+      "Provisions": ["creditors_lt1y", "provisions"],
+      "Loan Notes": ["creditors_gt1y", "creditors_lt1y"],
+      "Deferred Tax": "provisions",
+      "Share Capital": "share_capital",
+      "Retained Earnings": "retained_earnings",
+      "Current Year Earnings": "retained_earnings",
+    },
   },
 };
 
@@ -194,6 +252,17 @@ function categoryForHeading(key, heading) {
   return hit ? hit[1] : null;
 }
 
+// The lines a master heading allows, first the default; [] when the template
+// does not know the heading. statement: "pnl" reads headings, "bs" bsHeadings.
+function categoriesForHeading(key, statement, heading) {
+  const want = normHeading(heading);
+  if (!want) return [];
+  const map = statement === "bs" ? templateOf(key).bsHeadings || {} : templateOf(key).headings;
+  const hit = Object.entries(map).find(([h]) => normHeading(h) === want);
+  if (!hit) return [];
+  return Array.isArray(hit[1]) ? [...hit[1]] : [hit[1]];
+}
+
 // For the Settings picker.
 function templateList() {
   return TEMPLATE_KEYS.map((k) => {
@@ -204,5 +273,5 @@ function templateList() {
 
 module.exports = {
   TEMPLATES, TEMPLATE_KEYS, DEFAULT_TEMPLATE, SUBTOTALS,
-  templateOf, templateRows, layoutOf, categoryForHeading, templateList,
+  templateOf, templateRows, layoutOf, categoryForHeading, categoriesForHeading, templateList,
 };

@@ -161,3 +161,34 @@ export function savePackTemplate(opts: { slug: string; template: string; actorEm
     actorEmail: opts.actorEmail, ip: opts.ip, body: { template: opts.template },
   });
 }
+
+// Master mapping file upload (finance-api lib/master-mapping.js).
+export type MasterChange = {
+  accountId: string; code: string | null; name: string; statement: "pnl" | "bs"; heading: string; row: number;
+  from: { category: string; subline: string | null; status: string } | null;
+  to: { category: string; label: string; subline: string | null };
+  kind: "new" | "category" | "subline" | "approve";
+};
+type MasterAccount = { accountId: string; code: string | null; name: string };
+export type MasterEntityPlan = {
+  slug: string; name: string; changes: MasterChange[]; unchanged: number;
+  nameDiffers: { accountId: string; code: string; xeroName: string; masterName: string }[];
+  noHeading: (MasterAccount & { statement: string; row: number })[];
+  unknownHeading: (MasterAccount & { statement: string; heading: string; row: number; why?: string })[];
+  notInMaster: (MasterAccount & { class: string })[];
+};
+export type MasterPlan = {
+  fileName: string; template: string; rows: number; entities: MasterEntityPlan[];
+  unmatched: { code: string | null; name: string; row: number }[];
+  duplicates: { code: string; name: string; rows: number[] }[];
+};
+export type MasterBody = { fileName: string; table: string[][]; exclude?: string[]; approve?: boolean };
+
+export function previewMaster(opts: { slug: string; actorEmail: string; body: MasterBody }) {
+  return call<MasterPlan>("POST", `${clientPath(opts.slug)}/coa-mapping-master/preview`, { actorEmail: opts.actorEmail, body: opts.body });
+}
+
+export function applyMaster(opts: { slug: string; actorEmail: string; ip?: string; body: MasterBody }) {
+  return call<{ ok: true; fileName: string; saved: { entity: string; saved: number; approved: number }[]; excluded: number }>(
+    "POST", `${clientPath(opts.slug)}/coa-mapping-master/apply`, { actorEmail: opts.actorEmail, ip: opts.ip, body: opts.body });
+}
