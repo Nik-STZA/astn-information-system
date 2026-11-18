@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { readXlsx } from "./xlsx-read";
+import { readXlsx, readXlsxAll } from "./xlsx-read";
 
 const fixture = new URL("./__fixtures__/master-sample.xlsx", import.meta.url);
 
@@ -30,5 +30,18 @@ describe("readXlsx", () => {
     const head = rows.findIndex((r) => r.includes("P&L Mapping 1"));
     expect(head).toBeGreaterThanOrEqual(0);
     console.log(`header at row ${head + 1}, ${rows.length} rows; sample:`, rows[head + 1]);
+  });
+});
+
+describe("readXlsxAll", () => {
+  // A local check against a real Xero VAT return export, when one is named:
+  // every tab is read, and the two the parser needs stay well under 1 MB.
+  const real = process.env.VAT_XLSX;
+  it.skipIf(!real || !existsSync(real))("reads every tab of a real VAT export", async () => {
+    const all = await readXlsxAll(readFileSync(real!));
+    const sent = JSON.stringify({ "VAT Return": all["VAT Return"], "Transactions by VAT Box": all["Transactions by VAT Box"] });
+    console.log(Object.entries(all).map(([k, v]) => `${k}: ${v.length} rows`).join("; "), `| sent ${sent.length} bytes`);
+    expect(all["VAT Return"]).toBeDefined();
+    expect(sent.length).toBeLessThan(1_000_000);
   });
 });

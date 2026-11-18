@@ -246,7 +246,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     }
     const imports = (await pool.query("SELECT id, kind, boxes, generated_by, generated_at, confirmed_at FROM finance.vat_imports WHERE return_id = $1 ORDER BY generated_at", [ret.id])).rows;
     res.json({
-      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind },
+      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind, representative_id: ret.representative_id },
       members, uploads: uploads.map(({ parsed, ...u }) => ({ ...u, boxes: parsed?.boxes, period_start: parsed?.period_start, period_end: parsed?.period_end })),
       checks, group, confirmation, imports, ledger,
     });
