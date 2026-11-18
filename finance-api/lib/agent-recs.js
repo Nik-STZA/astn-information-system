@@ -5,7 +5,7 @@
 // There is no tool to sign off, approve a journal, or set a line's class: those
 // routes refuse an agent, and the class comes from the balance sheet matrix.
 
-const NAMES = ["list_recs", "get_rec", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "propose_rec_journal", "submit_rec", "review_rec"];
+const NAMES = ["list_recs", "get_rec", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "remove_rec_evidence", "propose_rec_journal", "submit_rec", "review_rec"];
 
 const ITEM = {
   supplier: { type: "string" },
@@ -71,6 +71,15 @@ function tools(entityEnum) {
       },
     },
     {
+      name: "remove_rec_evidence",
+      description: "Remove one evidence row from a reconciliation being prepared: one that is wrong, duplicated by a fresh fetch, or belongs to another account. Give its id from get_rec (evidence.rows). Say in your note which row you removed and why. Fetching again already replaces rows fetched before, so use this for rows that were keyed, or fetched by a method the account no longer uses.",
+      input_schema: {
+        type: "object",
+        properties: { rec_id: { type: "string" }, evidence_id: { type: "string" }, why: { type: "string" } },
+        required: ["rec_id", "evidence_id", "why"],
+      },
+    },
+    {
       name: "propose_rec_journal",
       description: "Record a journal that would fix a difference, for the CFO to approve on the reconciliation. Nothing reaches Xero. Then show the same journal in your answer under the heading 'Proposed journal (draft)', with the company, the date as YYYY-MM-DD, the narration, and each code and amount: the approval is checked against your answer. Text in an answer without this tool is not a proposal. Keep the narration short; the reasoning goes in reason, which stays in os.stza.io. One proposal per company.",
       input_schema: {
@@ -96,7 +105,7 @@ function tools(entityEnum) {
     },
     {
       name: "submit_rec",
-      description: "Hand a prepared reconciliation to the FC, with a note saying in plain English what you found. If it does not tie, the note must say why, and each company with a difference needs a comment: give them here.",
+      description: "Hand a prepared reconciliation to the FC, with a note saying in plain English what you found. Give a fresh comment for EVERY company on the rec, describing the evidence as it now stands: a comment from an earlier preparation that names evidence or a variance no longer there must be replaced. If it does not tie, the note must say why.",
       input_schema: {
         type: "object",
         properties: {
@@ -188,6 +197,10 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
       const e = entities.find((x) => x.slug === input.entity);
       if (!e) return { saved: false, error: `No connected entity ${input.entity}` };
       return send("POST", `${path}/evidence`, { entity_id: e.id, amount: input.amount, source: input.source, document_ref: input.document_ref, note: input.note });
+    }
+    if (name === "remove_rec_evidence") {
+      if (!isId(input.evidence_id)) return { error: "evidence_id must be an evidence row id from get_rec" };
+      return send("DELETE", `${path}/evidence/${input.evidence_id}`);
     }
     if (name === "propose_rec_journal") {
       const { rec_id, ...body } = input;
