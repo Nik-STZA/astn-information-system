@@ -147,6 +147,7 @@ function sourceOf(row) {
   if (row.kind === "rec") return "rec";
   if (row.source === "person") return "person";
   if (row.source === "schedule") return "schedule";
+  if (row.source === "vat") return "vat";
   const m = /^agent:(.+)$/.exec(String(row.proposed_by ?? ""));
   return m ? m[1] : "agent";
 }

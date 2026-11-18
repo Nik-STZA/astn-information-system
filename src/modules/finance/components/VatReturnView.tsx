@@ -339,6 +339,7 @@ function Submission({ data, post, failed, onDone }: {
             Box 5: <strong>{money(Math.abs(s.boxes["5"] ?? 0))}</strong>{" "}
             {(s.boxes["4"] ?? 0) > (s.boxes["3"] ?? 0) ? "to reclaim from HMRC" : "to pay HMRC"}. The figures are fixed.
           </span>
+          {data.clearing && <Clearing data={data} post={post} failed={failed} onDone={onDone} />}
         </div>
       ) : (
         <div className={`${page.pad} ${page.stack}`}>
@@ -355,6 +356,51 @@ function Submission({ data, post, failed, onDone }: {
         </div>
       )}
     </section>
+  );
+}
+
+// The group clearing journals, proposed when the submission was recorded and
+// approved on the Journals page. Rejected ones can be proposed again here.
+const JOURNAL_STATE: Record<string, string> = {
+  proposed: "waiting for your approval", approved: "approved, going to Xero", draft_created: "draft in Xero",
+  posted: "posted in Xero", rejected: "rejected", superseded: "replaced",
+};
+
+function Clearing({ data, post, failed, onDone }: {
+  data: View;
+  post: (path: string, body: unknown) => Promise<{ ok: boolean; status: number; body: { error?: string; issues?: string[] } }>;
+  failed: (x: { status: number; body: { error?: string; issues?: string[] } }) => string;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const list = data.clearing ?? [];
+  const live = list.filter((j) => j.state !== "rejected");
+  async function propose() {
+    setBusy(true); setErr(null);
+    const x = await post("clearing", {});
+    setBusy(false);
+    if (!x.ok) setErr(failed(x)); else onDone();
+  }
+  const period = live[0]?.period;
+  return (
+    <div className={page.stack} style={{ borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+      <strong style={{ fontSize: 13 }}>Group clearing journals</strong>
+      {list.length === 0 && <span className={page.small}>None proposed yet.</span>}
+      {list.map((j) => (
+        <span key={j.id} className={page.small}>
+          {j.jnl ?? "Journal"}, {j.entity}, {money(j.total)}, dated {longDate(j.journal_date)}: {JOURNAL_STATE[j.state] ?? j.state}{j.xero_journal_no ? ` (Xero #${j.xero_journal_no})` : ""}
+        </span>
+      ))}
+      {period && live.some((j) => j.state === "proposed") && (
+        <Link prefetch={false} className={page.miniBtn} style={{ alignSelf: "flex-start" }}
+          href={`../journals?period=${period}`}>Approve on the Journals page</Link>
+      )}
+      {live.length === 0 && (
+        <button className="btn-secondary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={propose}>{busy ? "Proposing..." : "Propose the clearing journals"}</button>
+      )}
+      {err && <div className={page.error} role="alert">{err}</div>}
+    </div>
   );
 }
 

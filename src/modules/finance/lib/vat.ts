@@ -95,8 +95,20 @@ export interface VatSubmission {
   signed_at: string | null;
 }
 
+export interface VatClearingJournal {
+  id: string;
+  jnl: string | null;
+  entity: string;
+  journal_date: string;
+  period: string;
+  state: "proposed" | "approved" | "draft_created" | "posted" | "rejected" | "superseded";
+  xero_journal_no: string | null;
+  total: number;
+}
+
 export interface VatReturnView {
   workbook: VatWorkbook;
+  clearing: VatClearingJournal[] | null;
   submission: VatSubmission | null;
   can_submit: boolean;
   return: { id: string; period_start: string; period_end: string; status: VatStatus; vat_number: string; kind: "single" | "group"; representative_id: string | null };
@@ -160,7 +172,7 @@ export const importFileName = (periodEnd: string, n: number) => `VAT Return Impo
 
 // The paths the portal may call through to finance-api.
 const GUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook|submit))?$`, "i");
+const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook|submit|clearing))?$`, "i");
 export const isVatPath = (path: string) => PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

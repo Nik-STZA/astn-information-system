@@ -5,7 +5,7 @@ describe("VAT helpers", () => {
   it("lets through only the VAT paths the portal posts to", () => {
     const id = "6e437bfe-1111-4222-8333-444455556666";
     expect(isVatPath("vat/returns")).toBe(true);
-    for (const p of ["uploads", "adjustments", "imports", "workbook", "submit"]) expect(isVatPath(`vat/returns/${id}/${p}`)).toBe(true);
+    for (const p of ["uploads", "adjustments", "imports", "workbook", "submit", "clearing"]) expect(isVatPath(`vat/returns/${id}/${p}`)).toBe(true);
     expect(isVatPath(`vat/returns/${id}`)).toBe(false);
     expect(isVatPath(`vat/returns/${id}/payments`)).toBe(false);
     expect(isVatPath("vat/returns/not-an-id/uploads")).toBe(false);
