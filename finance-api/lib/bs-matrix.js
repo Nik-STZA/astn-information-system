@@ -69,6 +69,9 @@ const BY_NAME = [
   [/share premium/i, "premium"],
   [/share capital|ordinary shares/i, "sharecap"],
   [/corporation tax|deferred tax/i, "tax"],
+  // A pension contributions creditor is a payroll control, proved by the
+  // pension provider's schedule, not a provision (18 Nov 2026).
+  [/pension/i, "payroll"],
   [/provision/i, "provisions"],
   [/payroll|wages payable|paye|nic /i, "payroll"],
   [/investment in|shares in (subsidiar|associate)/i, "investments"],

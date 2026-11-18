@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  workable, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, outstandingAt, creditLeftAt, ageingEvidence, intercompanyGrid,
+  workable, usesEvidence, notWorkableReason, evidenceTotals, autoMethod, outstandingAt, creditLeftAt, paidAheadAt, ageingEvidence, intercompanyGrid,
   counterpartCandidates, carryForward, stepIssues, prepareInstruction, cover,
 } from "./recs";
 import { classify } from "./bs-matrix";
@@ -87,6 +87,23 @@ describe("automatic methods", () => {
     const ap = ageingEvidence(invs, { date: "2026-10-31", kind: "ap" });
     expect(ap.amount).toBe("-400.00");
     expect(ap.note).toMatch(/1 in another currency/);
+  });
+
+  it("counts payments made by the month end against bills dated after it", () => {
+    // Two bills dated 1 Oct, paid 29 Sep; one paid in October is not counted.
+    const later = [
+      { Status: "PAID", DateString: "2026-10-01T00:00:00", Total: 18732, Payments: [{ DateString: "2026-09-29T00:00:00", Amount: 18732 }] },
+      { Status: "PAID", DateString: "2026-10-01T00:00:00", Total: 18000, Payments: [{ Date: "/Date(1790640000000+0000)/", Amount: 18000 }] },
+      { Status: "PAID", DateString: "2026-10-05T00:00:00", Total: 500, Payments: [{ DateString: "2026-10-06T00:00:00", Amount: 500 }] },
+    ];
+    expect(paidAheadAt(later[0], "2026-09-30")).toBe(1873200);
+    expect(paidAheadAt(later[2], "2026-09-30")).toBe(0);
+    expect(paidAheadAt({ ...later[0], DateString: "2026-09-15T00:00:00" }, "2026-09-30")).toBe(0);   // not after: it is outstandingAt's
+    const invs = [{ Status: "AUTHORISED", DateString: "2026-09-10T00:00:00", Total: 1000 }];
+    const ap = ageingEvidence(invs, { date: "2026-09-30", kind: "ap", later });
+    // Ledger: credit 1,000 for the open bill, debit 36,732 for the payments ahead.
+    expect(ap.amount).toBe("35732.00");
+    expect(ap.note).toMatch(/less 36732\.00 paid by then on 2 supplier bills dated after it/);
   });
 
   it("takes off prepayments and overpayments not allocated at the month end", () => {
