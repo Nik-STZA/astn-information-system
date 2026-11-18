@@ -78,6 +78,8 @@ async function scenario() {
   }
   reg = (await pool.query("INSERT INTO finance.vat_registrations (client_id, vat_number, kind, representative_id, created_by) VALUES ($1,'123456789','group',$2,'check') RETURNING id", [CID, ENT["rep-ltd"]])).rows[0].id;
   for (const id of Object.values(ENT)) await pool.query("INSERT INTO finance.vat_registration_members (registration_id, entity_id, effective_from) VALUES ($1,$2,'2026-01-01')", [reg, id]);
+  // m1's intercompany accounts with the representative are set; m2's are not, at first.
+  await pool.query("INSERT INTO finance.vat_ic_pairs (registration_id, member_entity_id, member_account_code, representative_account_code, effective_from) VALUES ($1,$2,'621','641','2026-01-01')", [reg, ENT["m1-ltd"]]);
 
   let r = await api("POST", "vat/returns", { period_start: "2026-10-01", period_end: "2026-10-31" });
   ok("a return is opened for the period", r.status === 201, r.body);
@@ -156,6 +158,23 @@ async function scenario() {
     r = await api("POST", `vat/returns/${RID}/submit`, { submitted_on: new Date().toISOString().slice(0, 10), hmrc_receipt_ref: "123456789012" });
   }
   ok("the CFO records it submitted with the representative's boxes", r.status === 201 && r.body.boxes?.[4] === 360, r.body);
+  ok("no clearing is proposed while a member's intercompany accounts are missing", r.body.clearing?.proposed?.length === 0 && /no intercompany accounts/.test(r.body.clearing?.issues?.[0]), r.body.clearing);
+  await pool.query("INSERT INTO finance.vat_ic_pairs (registration_id, member_entity_id, member_account_code, representative_account_code, effective_from) VALUES ($1,$2,'802','640','2026-01-01')", [reg, ENT["m2-ltd"]]);
+  r = await api("POST", `vat/returns/${RID}/clearing`, {}, FM);
+  ok("only the CFO proposes the clearing", r.status === 403, r.body);
+  r = await api("POST", `vat/returns/${RID}/clearing`, {});
+  ok("then one clearing journal per company is proposed", r.status === 201 && r.body.proposed?.length === 3, r.body);
+  const js = (await pool.query("SELECT e.slug, j.source, j.state, j.lines, j.journal_date::text AS d, j.narration FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id WHERE j.vat_return_id = $1 ORDER BY e.slug", [RID])).rows;
+  const by = Object.fromEntries(js.map((j) => [j.slug, j]));
+  ok("each member clears its reclaim to the representative over its intercompany account",
+    by["m1-ltd"]?.lines?.map((l) => `${l.account_code}:${l.amount}`).join() === "621:120,820:-120"
+      && by["m2-ltd"]?.lines?.map((l) => `${l.account_code}:${l.amount}`).join() === "802:120,820:-120", js.map((j) => [j.slug, j.lines]));
+  ok("the representative takes both into its VAT account", by["rep-ltd"]?.lines?.map((l) => `${l.account_code}:${l.amount}`).join() === "820:240,641:-120,640:-120", by["rep-ltd"]?.lines);
+  ok("they are VAT journals, proposed, dated the day filed", js.every((j) => j.source === "vat" && j.state === "proposed" && j.d === new Date().toISOString().slice(0, 10) && /^VAT group clearing: Oct 2026 return$/.test(j.narration)), js);
+  r = await api("POST", `vat/returns/${RID}/clearing`, {});
+  ok("the clearing is proposed once", r.status === 409, r.body);
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("the return lists its clearing journals", v.clearing?.length === 3 && v.clearing.every((j) => j.state === "proposed" && j.jnl), v.clearing);
   v = (await api("GET", `vat/returns/${RID}`)).body;
   ok("the return shows the submission, fixed", v.return.status === "submitted" && v.submission?.hmrc_receipt_ref === "123456789012" && !v.can_submit, v.submission);
   r = await api("POST", `vat/returns/${RID}/uploads`, { entity_id: ENT["m1-ltd"], kind: "member_export", file_name: "late.xlsx", sheets: exportOf("m1-ltd") });

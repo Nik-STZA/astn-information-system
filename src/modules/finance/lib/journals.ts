@@ -79,6 +79,7 @@ export function sourceLabel(j: Pick<JournalRow, "source">): string {
   if (j.source === "person") return "Person";
   if (j.source === "rec") return "From a reconciliation";
   if (j.source === "schedule") return "Monthly release";
+  if (j.source === "vat") return "VAT clearing";
   return j.source.toUpperCase();
 }
 

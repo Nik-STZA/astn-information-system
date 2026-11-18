@@ -7,6 +7,7 @@
 //   POST /clients/:slug/vat/returns/:id/adjustments { key, reason, evidence_ref }   CFO
 //   POST /clients/:slug/vat/returns/:id/imports     record the import file generated now
 //   POST /clients/:slug/vat/returns/:id/submit      { submitted_on, hmrc_receipt_ref }   CFO
+//   POST /clients/:slug/vat/returns/:id/clearing    propose the group clearing journals again   CFO
 //   POST /clients/:slug/vat/returns/:id/workbook    build the workbook and save it to the drive
 //   GET  /clients/:slug/vat/returns/:id/workbook-data   for the pack engine (migration 059)
 //   POST /clients/:slug/vat/returns/:id/workbook-saved  the pack engine reports back
@@ -22,6 +23,8 @@ const { buildGroup, confirmImport, importTemplateRows } = require("./vat-group")
 const { trialBalanceByAccountId } = require("./journal");
 const { isCfo } = require("./contracts");
 const { metadataToken } = require("./pack-job");
+const { clearingJournals } = require("./vat-clearing");
+const { jnlRef } = require("./journals");
 
 // The tabs of Xero's export kept with an upload, for the workbook.
 const KEEP_TABS = ["VAT Return", "Transactions by VAT Box", "Transactions by Tax Rate"];
@@ -299,6 +302,66 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     return { members, uploads, exports, checks, group, confirmation, accepted };
   }
 
+  // The group clearing journals (migration 061), proposed on the Journals page
+  // for the CFO to approve, dated the day the return was submitted. Once per
+  // return: while any of its journals is proposed, approved or in Xero,
+  // nothing more is proposed. Returns { proposed: [jnl], issues }.
+  async function proposeClearing(client, ret, actorEmail, role, ip) {
+    if (ret.registration_kind !== "group" || !ret.submitted_on) return { proposed: [], issues: [] };
+    const open = (await pool.query(
+      "SELECT count(*)::int AS n FROM finance.journals WHERE vat_return_id = $1 AND state IN ('proposed','approved','draft_created','posted')", [ret.id])).rows[0].n;
+    if (open) return { proposed: [], issues: [], already: true };
+    const { members, group } = await viewOf(ret);
+    if (!group) return { proposed: [], issues: ["the group return could not be built from the uploads"] };
+    const pairs = (await pool.query(
+      `SELECT member_entity_id, member_account_code, representative_account_code FROM finance.vat_ic_pairs
+        WHERE registration_id = $1 AND effective_from <= $2 AND (effective_to IS NULL OR effective_to >= $2)`, [ret.registration_id, ret.submitted_on])).rows;
+    const vatCode = {};
+    const issues = [];
+    for (const m of members) {
+      try {
+        const ctx = await xeroEntityContext(client.slug, m.slug);
+        if (!ctx || ctx.error) throw new Error(ctx?.error ?? "not connected to Xero");
+        const acc = ((await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts", { where: 'SystemAccount=="GST"' }))?.Accounts ?? [])[0];
+        if (acc?.Code) vatCode[m.entity_id] = String(acc.Code);
+      } catch (e) {
+        issues.push(`${companyCode(m)}: Xero could not be read (${String(e.message || e).slice(0, 120)})`);
+      }
+    }
+    if (issues.length) return { proposed: [], issues };
+    const codes = Object.fromEntries(members.map((m) => [m.entity_id, companyCode(m)]));
+    const built = clearingJournals({ ret, columns: group.columns, pairs, vatCode, codes });
+    if (built.issues.length) return { proposed: [], issues: built.issues };
+    const proposed = [];
+    const conn = await pool.connect();
+    try {
+      await conn.query("BEGIN");
+      for (const j of built.journals) {
+        const row = (await conn.query(
+          `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, vat_return_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'vat',$8,$9) RETURNING id, jnl_no`,
+          [client.id, j.entity_id, j.journal_date.slice(0, 7), j.journal_date, j.narration, JSON.stringify(j.lines), j.reason, actorEmail, ret.id])).rows[0];
+        await audit(conn, { actorEmail, actorRole: role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id, ip,
+          payload: { jnl: jnlRef(row.jnl_no), from: "vat_clearing", vat_return: ret.id, entity: j.entity_id, date: j.journal_date, narration: j.narration, lines: j.lines } });
+        proposed.push(jnlRef(row.jnl_no));
+      }
+      await conn.query("COMMIT");
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    return { proposed, issues: [] };
+  }
+
+  const clearingOf = async (ret) => (await pool.query(
+    `SELECT j.id, j.jnl_no, e.name AS entity_name, j.journal_date::text AS journal_date, j.state, j.lines, j.period, j.xero_journal_no
+       FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
+      WHERE j.vat_return_id = $1 AND j.state <> 'superseded' ORDER BY j.created_at`, [ret.id])).rows
+    .map((j) => ({ id: j.id, jnl: jnlRef(j.jnl_no), entity: j.entity_name, journal_date: j.journal_date, period: j.period, state: j.state, xero_journal_no: j.xero_journal_no,
+      total: (j.lines || []).reduce((s, l) => s + Math.max(Number(l.amount) || 0, 0), 0) }));
+
   const workbookOf = (ret) => ({
     requested_at: ret.workbook_requested_at, requested_by: ret.workbook_requested_by, name: ret.workbook_name,
     link: ret.workbook_link, saved_at: ret.workbook_saved_at, error: ret.workbook_error,
@@ -335,6 +398,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
       workbook: { ...workbookOf(ret), drive_set: Boolean(ret.drive_id) },
       submission: ret.submitted_on ? { submitted_on: ret.submitted_on, hmrc_receipt_ref: ret.hmrc_receipt_ref, boxes: ret.submitted_boxes, signed_by: ret.signed_by, signed_at: ret.signed_at } : null,
       can_submit: submittable(ret, uploads, checks, group, confirmation).ok,
+      clearing: ret.registration_kind === "group" ? await clearingOf(ret) : null,
       members, uploads: uploads.map(({ parsed, ...u }) => ({ ...u, boxes: parsed?.boxes, period_start: parsed?.period_start, period_end: parsed?.period_end })),
       checks, group, confirmation, imports, ledger,
     });
@@ -419,7 +483,34 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     }
     await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_return_submitted", targetType: "vat_return", targetId: ret.id, clientId: client.id,
       payload: { submitted_on: b.submitted_on, hmrc_receipt_ref: ref, boxes, from_upload: can.upload.id }, ip: req.get("X-Forwarded-For") || req.ip });
-    res.status(201).json({ status: "submitted", boxes });
+    // The clearing journals follow at once; if they cannot be proposed now, the
+    // return stays recorded and the page says why, with a button to try again.
+    let clearing;
+    try {
+      clearing = await proposeClearing(client, { ...ret, submitted_on: b.submitted_on }, who.actorEmail, role, req.get("X-Forwarded-For") || req.ip);
+    } catch (e) {
+      clearing = { proposed: [], issues: [`the clearing journals could not be proposed: ${String(e.message || e).slice(0, 200)}`] };
+    }
+    res.status(201).json({ status: "submitted", boxes, clearing });
+  }));
+
+  // POST /vat/returns/:id/clearing   proposes the clearing journals again (after
+  // the intercompany accounts are set, or after the CFO rejected them)
+  app.post(`${BASE}/returns/:id/clearing`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO proposes the VAT clearing journals" });
+    if (!FILED.includes(ret.status)) return res.status(409).json({ error: "Record the return as submitted first: the clearing is dated the day it was filed." });
+    if (ret.registration_kind !== "group") return res.status(409).json({ error: "A single registration has nothing to clear." });
+    const out = await proposeClearing(client, ret, who.actorEmail, role, req.get("X-Forwarded-For") || req.ip);
+    if (out.already) return res.status(409).json({ error: "This return's clearing journals are already on the Journals page." });
+    if (out.issues.length) return res.status(422).json({ issues: out.issues });
+    res.status(201).json(out);
   }));
 
   // POST /vat/returns/:id/workbook   builds the workbook in the pack engine and saves it to the client's drive
