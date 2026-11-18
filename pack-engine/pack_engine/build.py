@@ -23,7 +23,7 @@ from . import ENGINE_VERSION, controls as ctl, outstanding, recs, style, supplie
 from .api import FinanceApi
 from .fiscal import FiscalCalendar, date_label, month_end, parse_period
 from .ledger import fetch_ledger
-from .mapping import categories_from_api, resolve_mapping
+from .mapping import categories_from_api, layout_from_api, resolve_mapping
 from .model import build_model
 from .render import BS, CF, PNL, SRC, render_statements
 
@@ -168,7 +168,8 @@ def build(client: str, period: str, out_dir: Path, api: FinanceApi | None = None
     by_account = {m["accountId"]: m for m in (saved or {}).get("mappings", [])}
     mapping = resolve_mapping(ledger.active_accounts(), categories, by_account)
     model = build_model(ledger, mapping, categories)
-    rendered = render_statements(model, ledger, client_label=profile["legal_name"], period_month=month_end(y, m))
+    rendered = render_statements(model, ledger, client_label=profile["legal_name"], period_month=month_end(y, m),
+                                 layout=layout_from_api((saved or {}).get("layout")))
     supplier_controls = suppliers.add_to_pack(rendered, api, client, profile, ledger, model)
     outstanding_controls = (outstanding.add_to_pack(rendered, api, client, profile, month_end(y, m))
                             if hasattr(api, "outstanding_documents") else [])

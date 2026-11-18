@@ -141,10 +141,13 @@ function categoryFromRow(r, scope) {
   };
 }
 
-// Standard rows (client_id null) overlaid with the client's own rows.
+// Standard rows (client_id null), then the client's template's rows
+// (lib/pack-templates.js templateRows, marked template: true), then the
+// client's own rows.
 function effectiveCategories(rows) {
   const out = new Map();
-  for (const r of rows.filter((r) => !r.client_id)) out.set(r.key, categoryFromRow(r, "standard"));
+  for (const r of rows.filter((r) => !r.client_id && !r.template)) out.set(r.key, categoryFromRow(r, "standard"));
+  for (const r of rows.filter((r) => r.template)) out.set(r.key, categoryFromRow(r, "template"));
   for (const r of rows.filter((r) => r.client_id)) {
     out.set(r.key, categoryFromRow(r, out.has(r.key) ? "override" : "client"));
   }

@@ -16,7 +16,7 @@ export interface ReportingCategory {
   sortOrder: number;
   cashFlow: string | null;
   active: boolean;
-  scope: "standard" | "override" | "client";
+  scope: "standard" | "template" | "override" | "client";
   accounts?: number;
 }
 
@@ -146,4 +146,18 @@ export function removeCategory(opts: { slug: string; key: string; actorEmail: st
     `${clientPath(opts.slug)}/reporting-categories/${encodeURIComponent(opts.key)}`,
     { actorEmail: opts.actorEmail, ip: opts.ip }
   );
+}
+
+// The client's management pack template (finance-api lib/pack-templates.js).
+export type PackTemplate = { key: string; name: string; description: string; version: number; ebitda: boolean };
+export type PackTemplateView = { current: string; templates: PackTemplate[]; ownLines: { key: string; label: string }[] };
+
+export function fetchPackTemplate(slug: string) {
+  return call<PackTemplateView>("GET", `${clientPath(slug)}/pack-template`);
+}
+
+export function savePackTemplate(opts: { slug: string; template: string; actorEmail: string; ip?: string }) {
+  return call<{ current: string }>("PUT", `${clientPath(opts.slug)}/pack-template`, {
+    actorEmail: opts.actorEmail, ip: opts.ip, body: { template: opts.template },
+  });
 }

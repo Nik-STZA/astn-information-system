@@ -74,6 +74,41 @@ CATEGORIES: list[Category] = [
 BY_KEY = {c.key: c for c in CATEGORIES}
 
 
+@dataclass(frozen=True)
+class Layout:
+    """How the P&L is drawn: the client's pack template (finance-api
+    lib/pack-templates.js). The default draws what the pack drew before
+    templates: Management EBITDA on, standard labels, sub-lines by account code."""
+    template: str = "standard_management"
+    ebitda: bool = True
+    labels: tuple[tuple[str, str], ...] = (
+        ("gross_profit", "Gross profit"),
+        ("total_overheads", "Total overheads"),
+        ("management_ebitda", "Management EBITDA"),
+        ("operating_profit", "Operating profit"),
+        ("profit_before_tax", "Profit before taxation"),
+        ("net_profit", "Profit for the financial period"),
+    )
+    subline_order: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def label(self, key: str) -> str:
+        return dict(self.labels)[key]
+
+    def sublines_of(self, category: str) -> tuple[str, ...]:
+        return dict(self.subline_order).get(category, ())
+
+
+def layout_from_api(d: dict | None) -> Layout:
+    """finance-api's layout for a client, or the default."""
+    if not d:
+        return Layout()
+    base = dict(Layout().labels)
+    labels = {**base, **{k: v for k, v in (d.get("labels") or {}).items() if k in base and v}}
+    order = tuple((k, tuple(v)) for k, v in (d.get("sublineOrder") or {}).items())
+    return Layout(d.get("template") or "standard_management", bool(d.get("ebitda", True)),
+                  tuple(labels.items()), order)
+
+
 def categories_from_api(rows: list[dict] | None) -> dict[str, Category]:
     """finance-api's effective categories for a client, or the standard set."""
     if not rows:
