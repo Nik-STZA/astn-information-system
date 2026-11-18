@@ -3,6 +3,7 @@
 
 import PageHeader from "@/shared/ui/PageHeader";
 import CoaMappingPanel from "@/modules/finance/components/CoaMappingPanel";
+import MasterUpload from "@/modules/finance/components/MasterUpload";
 import { fetchCoaMapping, fetchReportingCategories } from "@/modules/finance/lib/coa";
 import styles from "@/modules/finance/components/Page.module.css";
 
@@ -45,7 +46,10 @@ export default async function CoaPage({ params: paramsPromise, searchParams: sea
           {error}
         </div>
       ) : (
+        <>
+        <MasterUpload slug={slug} categories={meta.data.data} />
         <CoaMappingPanel key={view.data.entity?.slug ?? "none"} slug={slug} initialView={view.data} initialMeta={meta.data} />
+        </>
       )}
     </div>
   );
