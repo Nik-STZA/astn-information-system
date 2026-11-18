@@ -725,6 +725,51 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     res.json(await recView(client, rec));
   }));
 
+  // GET /recs/:id/history?months=3   how this account was reconciled in the
+  // months before (CFO, 19 Nov 2026): each month starts clear, and the preparer
+  // reads how it was done, what was said and decided, then follows or improves
+  // it. Per earlier month, newest first: status, who prepared, reviewed and
+  // signed it and their notes, each company's ledger and comment, the evidence
+  // with its sources, the reconciling items and the thread.
+  app.get(`${BASE}/:id/history`, tolerant(async (req, res) => {
+    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a reconciliation id" });
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const rec = await loadRec(pool, client.id, req.params.id);
+    if (!rec) return res.status(404).json({ error: "reconciliation not found" });
+    const months = Math.min(Math.max(Number(req.query.months) || 3, 1), 12);
+    const ids = (await pool.query(
+      "SELECT id FROM finance.recs WHERE rec_account_id = $1 AND period < $2 ORDER BY period DESC LIMIT $3", [rec.rec_account_id, rec.period, months])).rows;
+    const out = [];
+    for (const { id } of ids) {
+      const p = await loadRec(pool, client.id, id);
+      if (!p) continue;
+      const v = await recView(client, p);
+      let thread = [];
+      try {
+        const keys = (v.cover?.rows ?? []).map((r) => `${r.entity_id}:${r.code}`);
+        thread = (await pool.query(
+          `SELECT kind, body, author_email, via_agent, needs_decision, created_at FROM finance.thread_entries
+            WHERE client_id = $1 AND ((subject_kind = 'reconciliation' AND subject_key = $2) OR (subject_kind = 'account' AND subject_key = ANY($3::text[]) AND period = $4))
+            ORDER BY created_at`, [client.id, p.id, keys, p.period])).rows;
+      } catch (e) {
+        if (e?.code !== "42P01") throw e;
+      }
+      const said = (v.events ?? []).filter((e) => ["prepared", "sent_back", "review_passed", "signed_off", "variance_accepted", "comment"].includes(e.action))
+        .map((e) => ({ at: e.at, by: e.actor, action: e.action, note: e.detail?.note ?? e.detail?.reason ?? e.detail?.comment ?? null }));
+      out.push({
+        period: p.period, status: p.status,
+        preparer_note: v.rec?.preparer_note ?? null, review_note: v.rec?.review_note ?? null,
+        companies: (v.cover?.rows ?? []).map((r) => ({ entity: r.entity, account: r.code, ledger: r.gl, support: r.schedule ?? r.evidence ?? null, difference: r.variance, comment: r.comment ?? null })),
+        evidence: (v.evidence?.rows ?? []).map((x) => ({ entity: x.entity, amount: x.amount, source: x.source, document_ref: x.document_ref, method: x.method, note: x.note, added_by: x.added_by })),
+        evidence_method: v.evidence?.method ?? null,
+        reconciling: (v.evidence?.reconciling ?? []).map((x) => ({ entity: x.entity, side: x.side, kind: x.kind, amount: x.amount, description: x.description, state: x.state, cleared_note: x.cleared_note ?? null })),
+        decisions: said, thread,
+      });
+    }
+    res.json({ account: rec.account_name, period: rec.period, months: out });
+  }));
+
   // Runs fn with this client's rec, locked.
   const withRec = (conn, client, id, fn) => {
     if (!work.isGuid(id)) return { status: 400, body: { error: "id must be a reconciliation id" } };
@@ -1283,11 +1328,23 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const source = String(b.source ?? "").trim();
     if (source.length < 5) issues.push("source must say where the figure comes from (a statement, a return, a register, a confirmation)");
     if (issues.length) return { status: 422, body: { issues } };
+    // An agent may not add a second row of the same amount for the same company
+    // without saying why it is a separate item (19 Nov 2026: FM1 doubled a
+    // VAT box 5 already keyed four minutes earlier).
+    const distinct = String(b.distinct_reason ?? "").trim();
+    if (via) {
+      const twin = (await conn.query(
+        "SELECT id, source, added_by FROM finance.rec_evidence WHERE rec_id = $1 AND entity_id = $2 AND amount = $3 LIMIT 1",
+        [rec.id, b.entity_id, recs.pounds(recs.pence(amount))])).rows[0];
+      if (twin && distinct.length < 10) {
+        return { status: 409, body: { error: `This company already has evidence of ${money(recs.pence(amount))} on this reconciliation (row ${twin.id}, "${String(twin.source).slice(0, 120)}", added by ${twin.added_by}). If it is the same item, do not add it again. If it is a separate item, add it with distinct_reason saying how it differs.`, duplicate_of: twin.id } };
+      }
+    }
     const row = (await conn.query(
       `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [rec.id, b.entity_id, recs.evidenceKind(rec.proof), recs.pounds(recs.pence(amount)), source.slice(0, 300), String(b.document_ref ?? "").trim().slice(0, 300) || null,
-        String(b.note ?? "").trim().slice(0, 2000) || null, actor])).rows[0];
+        [String(b.note ?? "").trim(), distinct ? `Separate from a row of the same amount: ${distinct}` : ""].filter(Boolean).join(" ").slice(0, 2000) || null, actor])).rows[0];
     await started(conn, rec);
     await event(conn, rec.id, client.id, actor, "evidence_added", { entity_id: b.entity_id, amount: recs.pounds(recs.pence(amount)), source });
     return { status: 201, body: { id: row.id } };
@@ -1769,6 +1826,14 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       }
       await started(conn, r2);
       await event(conn, r2.id, client.id, actor, "evidence_fetched", { method, rows: rows.length });
+      // A row keyed by hand that the fetch now also holds (same company, same
+      // amount) would count twice: name it, for the preparer to remove.
+      const keyed = (await conn.query("SELECT id, entity_id, amount, source FROM finance.rec_evidence WHERE rec_id = $1 AND method IS NULL", [r2.id])).rows;
+      for (const k of keyed) {
+        if (rows.some((v) => v.entity_id === k.entity_id && recs.pence(v.amount) === recs.pence(k.amount))) {
+          said.push(`${names.get(k.entity_id) ?? "A company"}: the keyed row ${k.id} ("${String(k.source).slice(0, 100)}", ${money(recs.pence(k.amount))}) is now also fetched. If it is the same item, remove the keyed row.`);
+        }
+      }
       return { status: 200, body: { method, method_label: recs.METHOD_LABEL[method], fetched: rows.length, timing_items: aheadItems.length, said } };
     }));
   }));

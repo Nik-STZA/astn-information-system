@@ -5,7 +5,7 @@
 // There is no tool to sign off, approve a journal, or set a line's class: those
 // routes refuse an agent, and the class comes from the balance sheet matrix.
 
-const NAMES = ["list_recs", "get_rec", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "remove_rec_evidence", "propose_rec_journal", "submit_rec", "review_rec"];
+const NAMES = ["list_recs", "get_rec", "get_rec_history", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "remove_rec_evidence", "propose_rec_journal", "submit_rec", "review_rec"];
 
 const ITEM = {
   supplier: { type: "string" },
@@ -34,6 +34,11 @@ function tools(entityEnum) {
       name: "get_rec",
       description: "One reconciliation in full: each company's ledger, support and variance, the schedule, the checks, proposed journals and history.",
       input_schema: { type: "object", properties: { rec_id: { type: "string" } }, required: ["rec_id"] },
+    },
+    {
+      name: "get_rec_history",
+      description: "How this account was reconciled in the months before, newest first (3 by default, up to 12): the status, who prepared, reviewed and signed it and their notes, each company's ledger and comment, the evidence with its sources and documents, the reconciling items and the thread, including the CFO's decisions. Read it before preparing: each month starts clear, so record this month's evidence fresh, following how it was done unless you find a better way. Never copy last month's figures.",
+      input_schema: { type: "object", properties: { rec_id: { type: "string" }, months: { type: "number", description: "How many earlier months, 1 to 12" } }, required: ["rec_id"] },
     },
     {
       name: "save_rec_item",
@@ -66,6 +71,7 @@ function tools(entityEnum) {
           source: { type: "string", description: "What the figure is and where it comes from, with its date" },
           document_ref: { type: "string", description: "The document: a Xero attachment, file or report name" },
           note: { type: "string" },
+          distinct_reason: { type: "string", description: "Only when the company already has a row of the same amount and this is a separate item: how it differs" },
         },
         required: ["rec_id", "entity", "amount", "source"],
       },
@@ -166,6 +172,10 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
     if (!isId(input.rec_id)) return { error: "rec_id must be a reconciliation id from list_recs" };
     const path = `${base}/${input.rec_id}`;
     if (name === "get_rec") return recForAgent(await apiCall("GET", path));
+    if (name === "get_rec_history") {
+      const n = Math.min(Math.max(Number(input.months) || 3, 1), 12);
+      return apiCall("GET", `${path}/history?months=${n}`);
+    }
 
     const actor = await requesterOf(job);
     if (!actor) return { error: "The person who asked could not be found, so nothing was changed." };
@@ -196,7 +206,7 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
     if (name === "add_rec_evidence") {
       const e = entities.find((x) => x.slug === input.entity);
       if (!e) return { saved: false, error: `No connected entity ${input.entity}` };
-      return send("POST", `${path}/evidence`, { entity_id: e.id, amount: input.amount, source: input.source, document_ref: input.document_ref, note: input.note });
+      return send("POST", `${path}/evidence`, { entity_id: e.id, amount: input.amount, source: input.source, document_ref: input.document_ref, note: input.note, distinct_reason: input.distinct_reason });
     }
     if (name === "remove_rec_evidence") {
       if (!isId(input.evidence_id)) return { error: "evidence_id must be an evidence row id from get_rec" };
