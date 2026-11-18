@@ -6893,6 +6893,15 @@ require("./lib/asset-register-routes").mountAssetRegister(app, {
   route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
 });
 
+// ── VAT returns ─────────────────────────────────────────────────────────────
+
+// Each company's Xero VAT return export, uploaded and checked; the group return
+// and the import file for the representative member (lib/vat-routes.js,
+// migration 058). Nothing here writes to Xero: it has no VAT return API.
+require("./lib/vat-routes").mountVat(app, {
+  route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
+});
+
 // ── Threads and people ──────────────────────────────────────────────────────
 
 // One thread per thing the work is about (an account at a month end, an asset,

@@ -105,3 +105,36 @@ describe("checking a return's uploads", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("the group return and its import file", () => {
+  const { buildGroup, confirmImport, importTemplateRows } = require("./vat-group");
+  const member = (id, rep, boxes, extra) => ({ entity_id: id, entity_name: id, representative: rep, parsed: parseVatExport(exportOf({ entity: id, boxes, extra })) });
+  const imported = (b1, b4) => [["Imported VAT box amount"], ["Date", "Account", "Reference", "Details", "VAT", "Net"],
+    ["31/10/2026", "N/A", "Import", "VAT box amount from uploaded file", String(b4), "0"]];
+
+  it("sums every member's own figures and imports the members' share into the representative", () => {
+    const g = buildGroup([member("REP", true), member("M1", false), member("M2", false)]);
+    expect(g.target[4]).toBe(360);
+    expect(g.target[5]).toBe(-300); // signed: 300 to reclaim
+    expect(g.import).toEqual({ 1: 40, 2: 0, 4: 240, 6: 200, 7: 1200, 8: 0, 9: 0 });
+    expect(importTemplateRows(g.import)[5]).toEqual(["Box 5", 200]);
+  });
+
+  it("never double counts: after the import, the next file is only the difference", () => {
+    // The representative re-exported after importing 200 into box 4 (40 short).
+    const after = parseVatExport(exportOf({ entity: "REP", boxes: { 4: 320, 5: 300 }, extra: imported(0, 200) }));
+    const g = buildGroup([member("REP", true), member("M1", false), member("M2", false)], undefined, after);
+    expect(g.import[4]).toBe(40);
+    expect(confirmImport(g.target, after)).toEqual(expect.arrayContaining([{ box: 4, want: 360, got: 320 }]));
+  });
+
+  it("leaves imports and unaccepted adjustments out of a company's own figures", () => {
+    const extra = [["Adjustments with no accounting transactions"], ["Date", "Account", "Reference", "Details", "VAT", "Net"],
+      ["31/10/2026", "N/A", "Created on 28/11/2026", "Manual group adjustment", "50", "0"]];
+    const rep = member("REP", true, { 4: 170, 5: 150 }, extra);
+    const g = buildGroup([rep, member("M1", false)]);
+    expect(g.columns[0].own[4]).toBe(120);
+    const g2 = buildGroup([rep, member("M1", false)], () => true);
+    expect(g2.columns[0].own[4]).toBe(170);
+  });
+});
