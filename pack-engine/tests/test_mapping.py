@@ -177,3 +177,37 @@ def test_account_mapping_is_none_when_finance_api_has_no_such_route():
 
     api = FinanceApi("https://api.example", "k", session=Session(), sleep=lambda s: None)
     assert api.account_mapping("demo", "demo") is None
+
+
+def test_a_statutory_template_has_no_ebitda_and_depreciation_sits_in_overheads(tmp_path, profile):
+    data = {**saved(), "layout": {"template": "standard_statutory", "ebitda": False,
+                                  "labels": {"total_overheads": "Total administrative expenses"}}}
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)
+    assert res.failed == []
+    ws = openpyxl.load_workbook(res.path)["Profit and loss"]
+    labels = rows_labelled(ws)
+    assert "Management EBITDA" not in labels and "Total overheads" not in labels
+    toh = labels["Total administrative expenses"]
+    op = ws.cell(labels["Operating profit"], 6).value
+    assert op == f"=F{labels['Gross profit']}+F{toh}"
+    if "Depreciation and amortisation" in labels:
+        assert labels["Depreciation and amortisation"] < toh
+        assert f"F{labels['Depreciation and amortisation']}" in ws.cell(toh, 6).value
+
+
+def test_the_template_names_the_subtotals_and_orders_the_sublines(tmp_path, profile):
+    data = {**saved(overrides={"a-sal": {"subline": "Salaries"}, "a-pen": {"subline": "Pensions & benefits"}}),
+            "layout": {"template": "x", "ebitda": True, "labels": {"net_profit": "Net profit"},
+                       "sublineOrder": {"staff_costs": ["pensions  &  BENEFITS", "Salaries"]}}}
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)
+    assert res.failed == []
+    labels = rows_labelled(openpyxl.load_workbook(res.path)["Profit and loss"])
+    assert "Net profit" in labels and "Profit for the financial period" not in labels
+    assert "Management EBITDA" in labels
+    assert labels["Staff costs"] < labels["Pensions & benefits"] < labels["Salaries"]
+
+
+def test_no_layout_draws_as_before():
+    from pack_engine.mapping import Layout, layout_from_api
+    assert layout_from_api(None) == Layout()
+    assert layout_from_api({"labels": {"bogus": "x"}}).label("gross_profit") == "Gross profit"

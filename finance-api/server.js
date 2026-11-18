@@ -88,6 +88,8 @@ const {
   planMappingChanges,
   validateCategory,
 } = require("./lib/coa-mapping");
+const { DEFAULT_TEMPLATE, TEMPLATE_KEYS, layoutOf, templateList, templateOf, templateRows } = require("./lib/pack-templates");
+const { isCfo } = require("./lib/contracts");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -2886,6 +2888,14 @@ app.get("/api/finance/clients/:slug/entities", route(async (req, res) => {
 // by a person in the portal (migration 017, lib/coa-mapping.js). The pack
 // engine reads the result from /entities/:entity/account-mapping.
 
+// The client's pack template (migration 055, lib/pack-templates.js).
+async function packTemplateOf(db, clientId) {
+  const { rows } = await db.query("SELECT pack_template FROM shared.clients WHERE id = $1", [clientId]);
+  return rows[0]?.pack_template || DEFAULT_TEMPLATE;
+}
+
+const effectiveCategoriesFor = (rows, template) => effectiveCategories([...rows, ...templateRows(template)]);
+
 async function loadCategories(db, clientId) {
   const { rows } = await db.query(
     `SELECT client_id, key, label, statement, section, sort_order, cash_flow, active
@@ -2893,7 +2903,8 @@ async function loadCategories(db, clientId) {
      WHERE client_id IS NULL OR client_id = $1`,
     [clientId]
   );
-  return effectiveCategories(rows);
+  const template = await packTemplateOf(db, clientId);
+  return effectiveCategories([...rows, ...templateRows(template)]);
 }
 
 async function loadStoredMappings(db, entityId) {
@@ -2938,7 +2949,9 @@ app.put("/api/finance/clients/:slug/reporting-categories/:key", route(async (req
      FROM finance.reporting_categories WHERE client_id IS NULL AND key = $1`,
     [key]
   );
-  const standard = std.length ? effectiveCategories(std).get(key) : null;
+  // What the client's own row would override: the template's line, else the standard one.
+  const fromTemplate = templateRows(await packTemplateOf(pool, client.id)).filter((r) => r.key === key);
+  const standard = std.length || fromTemplate.length ? effectiveCategories([...std, ...fromTemplate]).get(key) : null;
   const current = (await loadCategories(pool, client.id)).get(key) || null;
   const { rows: used } = await pool.query(
     "SELECT COUNT(*)::int AS n FROM finance.account_mappings WHERE client_id = $1 AND category_key = $2",
@@ -2972,7 +2985,7 @@ app.put("/api/finance/clients/:slug/reporting-categories/:key", route(async (req
       ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
     });
     await conn.query("COMMIT");
-    res.json(effectiveCategories([...std, rows[0]]).get(key));
+    res.json(effectiveCategories([...std, ...fromTemplate, rows[0]]).get(key));
   } catch (e) {
     await conn.query("ROLLBACK").catch(() => {});
     throw e;
@@ -2995,10 +3008,12 @@ app.delete("/api/finance/clients/:slug/reporting-categories/:key", route(async (
     [client.id, key]
   );
   if (!own.length) return res.status(404).json({ error: "this client has no category of its own with that key" });
-  const { rows: std } = await pool.query(
+  const { rows: stdRows } = await pool.query(
     "SELECT key, active FROM finance.reporting_categories WHERE client_id IS NULL AND key = $1",
     [key]
   );
+  // A line the template also has goes back to the template's, like a standard one.
+  const std = [...stdRows, ...templateRows(await packTemplateOf(pool, client.id)).filter((r) => r.key === key)];
   const { rows: used } = await pool.query(
     "SELECT COUNT(*)::int AS n FROM finance.account_mappings WHERE client_id = $1 AND category_key = $2",
     [client.id, key]
@@ -3030,6 +3045,76 @@ app.delete("/api/finance/clients/:slug/reporting-categories/:key", route(async (
     conn.release();
   }
   res.json({ ok: true, key, reset: Boolean(std.length) });
+}));
+
+// The client's management pack template (lib/pack-templates.js, migration 055):
+// which P&L layout the pack draws. The CFO picks it in Settings > Financial.
+app.get("/api/finance/clients/:slug/pack-template", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const current = await packTemplateOf(pool, client.id);
+  const { rows: own } = await pool.query(
+    "SELECT key, label FROM finance.reporting_categories WHERE client_id = $1 AND statement = 'pnl' ORDER BY sort_order, key",
+    [client.id]
+  );
+  res.json({ current, templates: templateList(), ownLines: own });
+}));
+
+app.put("/api/finance/clients/:slug/pack-template", route(async (req, res) => {
+  const client = await clientIdFromSlug(req.params.slug);
+  if (!client) return res.status(404).json({ error: "client not found" });
+  const actorEmail = (req.get("X-Actor-Email") || "").trim();
+  if (!actorEmail) return res.status(400).json({ error: "X-Actor-Email is required" });
+  const template = String(req.body?.template ?? "");
+  if (!TEMPLATE_KEYS.includes(template)) {
+    return res.status(422).json({ error: `template must be one of ${TEMPLATE_KEYS.join(", ")}` });
+  }
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    const role = (await conn.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, actorEmail])).rows[0].role;
+    if (!isCfo(role)) {
+      await conn.query("ROLLBACK");
+      return res.status(403).json({ error: "only the CFO chooses the client's pack template" });
+    }
+    const before = (await conn.query("SELECT pack_template FROM shared.clients WHERE id = $1 FOR UPDATE", [client.id])).rows[0].pack_template;
+    // A template that drops a line accounts are mapped to would leave them with
+    // no category; refuse and name them.
+    const next = effectiveCategoriesFor(
+      (await conn.query(
+        `SELECT client_id, key, label, statement, section, sort_order, cash_flow, active
+         FROM finance.reporting_categories WHERE client_id IS NULL OR client_id = $1`, [client.id])).rows,
+      template
+    );
+    const { rows: used } = await conn.query(
+      "SELECT category_key, COUNT(*)::int AS n FROM finance.account_mappings WHERE client_id = $1 GROUP BY 1", [client.id]
+    );
+    const orphaned = used.filter((u) => !next.has(u.category_key));
+    if (orphaned.length) {
+      await conn.query("ROLLBACK");
+      return res.status(409).json({
+        error: `${templateOf(template).name} has no ${orphaned.map((o) => `${o.category_key} (${o.n} account(s))`).join(", ")}; remap those accounts or add the line for this client first`,
+      });
+    }
+    await conn.query("UPDATE shared.clients SET pack_template = $2 WHERE id = $1", [client.id, template]);
+    await audit(conn, {
+      actorEmail,
+      actorRole: role,
+      action: "set_pack_template",
+      targetType: "client",
+      targetId: client.slug,
+      clientId: client.id,
+      payload: { before, after: template, version: templateOf(template).version },
+      ip: normaliseIp(req.get("X-Forwarded-For") || req.ip),
+    });
+    await conn.query("COMMIT");
+    res.json({ current: template, layout: layoutOf(template) });
+  } catch (e) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
 }));
 
 // The Chart of accounts tab: every Xero account for one entity, what is saved,
@@ -3191,6 +3276,7 @@ app.get("/api/finance/clients/:slug/entities/:entity/account-mapping", route(asy
   const stored = await loadStoredMappings(pool, ent[0].id);
   res.json({
     categories: categoryList(categories),
+    layout: layoutOf(await packTemplateOf(pool, client.id)),
     mappings: [...stored.values()].map((s) => ({
       accountId: s.xero_account_id,
       code: s.account_code,

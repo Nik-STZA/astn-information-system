@@ -596,13 +596,13 @@ function Categories({
                   <td style={td}>{SECTION_LABELS[c.section] ?? c.section}</td>
                   <td style={td}>{flowLabel(c.cashFlow)}</td>
                   <td style={td}>{c.accounts ?? 0}</td>
-                  <td style={td}>{c.scope === "standard" ? "Standard" : c.scope === "override" ? "Changed for this client" : "This client only"}</td>
+                  <td style={td}>{c.scope === "standard" ? "Standard" : c.scope === "template" ? "From the template" : c.scope === "override" ? "Changed for this client" : "This client only"}</td>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", gap: 6 }}>
                     <button type="button" className={styles.miniBtn} disabled={busy} onClick={() => { setAdding(false); setEditing(draftOf(c)); }}>Edit</button>
-                    {c.scope !== "standard" && (
+                    {c.scope !== "standard" && c.scope !== "template" && (
                       <button type="button" className={styles.miniBtn} disabled={busy} onClick={() => call("DELETE", c.key)}>
-                        {c.scope === "override" ? "Reset to standard" : "Remove"}
+                        {c.scope === "override" ? "Reset" : "Remove"}
                       </button>
                     )}
                     </div>

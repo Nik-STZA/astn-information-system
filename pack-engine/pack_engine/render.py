@@ -31,6 +31,7 @@ from openpyxl.workbook.defined_name import DefinedName
 
 from . import style
 from .fiscal import date_label, month_label
+from .mapping import Layout
 from .model import CREDIT_SECTIONS, Model
 
 SRC = "Source - Trial balance"
@@ -205,20 +206,24 @@ class _Writer:
 
 # --- profit and loss ----------------------------------------------------------------------
 
-def _sublines(lines):
-    """A category's lines grouped by sub-line, in the order of their lowest
-    account code; lines with none go last under "Other". None when no line in
-    the category has a sub-line, so it draws as before."""
+def _sublines(lines, order: tuple[str, ...] = ()):
+    """A category's lines grouped by sub-line: first those the template lists,
+    in its order, then the rest in the order of their lowest account code;
+    lines with none go last under "Other". None when no line in the category
+    has a sub-line, so it draws as before."""
     if not any(l.subline for l in lines):
         return None
     groups: dict[str, list] = {}
     for l in lines:
         groups.setdefault(l.subline or "Other", []).append(l)
+    norm = lambda s: " ".join(str(s).split()).lower()
+    rank = {norm(name): i for i, name in enumerate(order)}
     key = lambda item: (item[0] == "Other" and not any(l.subline == "Other" for l in item[1]),
+                        rank.get(norm(item[0]), len(rank)),
                         min((l.account.code or "zzz") for l in item[1]))
     return sorted(groups.items(), key=key)
 
-def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: date):
+def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: date, layout: Layout = Layout()):
     ws = out.workbook.create_sheet(PNL)
     cols = out.columns
     w = _Writer(out, ws, client_label, "Profit and loss (GBP) - management presentation, not statutory accounts",
@@ -236,7 +241,7 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
 
     def block(b):
         top = w.r
-        groups = _sublines(b.lines)
+        groups = _sublines(b.lines, layout.sublines_of(b.category))
         if groups is None:
             first, last = top + 1, top + len(b.lines)
             w.row(b.label, "subtotal", {c: f"=SUM({c}{first}:{c}{last})" for c in vcols}, formula_required=True)
@@ -280,29 +285,37 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
     trading = by_section.get("turnover", []) + by_section.get("cost_of_sales", [])
     for b in trading:
         block(b)
-    gp = total("Gross profit", [b.category for b in trading], "section_total", "gross_profit")
-    # Overheads that are cash come first, then Management EBITDA, then the
-    # non-cash ones (depreciation and amortisation), then operating profit
-    # (CFO, 18 Nov 2026: Feldspar reads its costs, including capitalised
-    # development, before EBITDA, and D&A after it).
+    lab = layout.label
+    gp = total(lab("gross_profit"), [b.category for b in trading], "section_total", "gross_profit")
     overheads = by_section.get("overheads", [])
-    non_cash = [b for b in overheads if model.categories[b.category].cash_flow == "non_cash"]
-    cash = [b for b in overheads if b not in non_cash]
-    for b in cash:
-        block(b)
-    toh = total("Total overheads", [b.category for b in cash], "subtotal", "total_overheads")
-    ebitda = total("Management EBITDA", [gp, toh], "section_total", "management_ebitda")
-    for b in non_cash:
-        block(b)
-    op = total("Operating profit", [ebitda, *[b.category for b in non_cash]], "section_total", "operating_profit")
+    if layout.ebitda:
+        # Overheads that are cash come first, then Management EBITDA, then the
+        # non-cash ones (depreciation and amortisation), then operating profit
+        # (CFO, 18 Nov 2026: Feldspar reads its costs, including capitalised
+        # development, before EBITDA, and D&A after it).
+        non_cash = [b for b in overheads if model.categories[b.category].cash_flow == "non_cash"]
+        cash = [b for b in overheads if b not in non_cash]
+        for b in cash:
+            block(b)
+        toh = total(lab("total_overheads"), [b.category for b in cash], "subtotal", "total_overheads")
+        ebitda = total(lab("management_ebitda"), [gp, toh], "section_total", "management_ebitda")
+        for b in non_cash:
+            block(b)
+        op = total(lab("operating_profit"), [ebitda, *[b.category for b in non_cash]], "section_total", "operating_profit")
+    else:
+        # No EBITDA (a statutory layout): every overhead in category order.
+        for b in overheads:
+            block(b)
+        toh = total(lab("total_overheads"), [b.category for b in overheads], "subtotal", "total_overheads")
+        op = total(lab("operating_profit"), [gp, toh], "section_total", "operating_profit")
     finance = by_section.get("finance", [])
     for b in finance:
         block(b)
-    pbt = total("Profit before taxation", [op, *[b.category for b in finance]], "section_total", "profit_before_tax")
+    pbt = total(lab("profit_before_tax"), [op, *[b.category for b in finance]], "section_total", "profit_before_tax")
     taxation = by_section.get("taxation", [])
     for b in taxation:
         block(b)
-    total("Profit for the financial period", [pbt, *[b.category for b in taxation]], "grand_total", "net_profit")
+    total(lab("net_profit"), [pbt, *[b.category for b in taxation]], "grand_total", "net_profit")
     _negatives_red(ws, cols, w.r)
 
 
@@ -593,13 +606,14 @@ def _define_names(out: Rendered):
             wb.defined_names[name] = DefinedName(name, attr_text=f"{_q(sheet)}!${c}${r}")
 
 
-def render_statements(model: Model, ledger, *, client_label: str, period_month: date) -> Rendered:
+def render_statements(model: Model, ledger, *, client_label: str, period_month: date,
+                      layout: Layout | None = None) -> Rendered:
     wb = Workbook()
     wb.remove(wb.active)
     out = Rendered(workbook=wb, columns=Columns.plan(model))
     wb.create_sheet("Contents")
     _source_sheet(out, model, ledger)
-    _pnl_sheet(out, model, client_label, period_month)
+    _pnl_sheet(out, model, client_label, period_month, layout or Layout())
     _bs_sheet(out, model, client_label, period_month)
     _cf_sheet(out, model, client_label, period_month)
     wb.move_sheet(SRC, offset=len(wb.sheetnames))

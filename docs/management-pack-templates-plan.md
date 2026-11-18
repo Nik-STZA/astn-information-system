@@ -40,6 +40,11 @@ On the Chart of accounts page (or Settings), upload a master file (xlsx or CSV w
 ### 4. Agents keep it current
 - FM1 proposes a category and sub-line for any new Xero account (from the template and similar accounts), for the CFO to approve. The pack's mapping warning names what is waiting.
 
+## Built
+
+- **Part 1** (#208, migration 054): sub-lines.
+- **Part 2** (migration 055): `finance-api/lib/pack-templates.js` holds the three templates; `shared.clients.pack_template` records the client's (default `standard_management`, Feldspar Sport Group `feldspar_management`). Categories layer standard → template → client's own rows; the client can still rename a template line and reset it back. The account-mapping endpoint gives the pack a `layout` (EBITDA on or off, subtotal labels, sub-line order) and the pack draws from it; with no layout it draws as before. The CFO picks the template in Settings > Financial; a template that would leave mapped accounts without a line is refused, naming them. Feldspar's heading map leaves out Rounding and Impairment: no account was given a line for them, so the CFO decides when the master upload (part 3) shows them.
+
 ## Order and first step
 
 1 then 2 then 3 then 4. Feldspar's mapping is already right by hand, so nothing waits on this for the Feldspar pack except sub-lines (1) and the template's labels (2).
