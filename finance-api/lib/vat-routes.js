@@ -195,6 +195,17 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     }
   }));
 
+  // Every page of a Xero list (100 a page), so lines come back.
+  async function pagedList(ctx, path, key, where) {
+    const out = [];
+    for (let page = 1; page <= 50; page++) {
+      const batch = (await xeroGet(ctx.accessToken, ctx.tenantId, path, { where, page }))?.[key] ?? [];
+      out.push(...batch);
+      if (batch.length < 100) return out;
+    }
+    throw new Error(`more than 50 pages of ${key} in the period`);
+  }
+
   // The VAT control's movement in the period, less clearing journals and
   // HMRC receipts, for one company (spec check 3). Null when Xero cannot be read.
   async function ledgerMovement(slug, entity, ret) {
@@ -211,8 +222,10 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     const close = await bal(ret.period_end);
     const open = await bal(dayBefore(ret.period_start));
     const where = `Date >= DateTime(${xeroDate(ret.period_start)}) AND Date <= DateTime(${xeroDate(ret.period_end)})`;
-    const journals = (await xeroGet(ctx.accessToken, ctx.tenantId, "/ManualJournals", { where: `${where} AND Status=="POSTED"` }))?.ManualJournals ?? [];
-    const bank = (await xeroGet(ctx.accessToken, ctx.tenantId, "/BankTransactions", { where: `${where} AND Status=="AUTHORISED"` }))?.BankTransactions ?? [];
+    // Xero returns journal and bank lines only on paged reads: unpaged, every
+    // journal comes back with no lines and nothing would be taken out.
+    const journals = await pagedList(ctx, "/ManualJournals", "ManualJournals", `${where} AND Status=="POSTED"`);
+    const bank = await pagedList(ctx, "/BankTransactions", "BankTransactions", `${where} AND Status=="AUTHORISED"`);
     let excluded = 0;
     const named = [];
     for (const j of journals) for (const l of j.JournalLines ?? []) if (l.AccountCode === vat.Code) { excluded += Math.round(Number(l.LineAmount) * 100); named.push(`journal "${String(j.Narration ?? "").slice(0, 60)}"`); }
