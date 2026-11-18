@@ -85,6 +85,7 @@ async function scenario() {
   }
   let v = (await api("GET", `vat/returns/${RID}`)).body;
   ok("the adjustment with no transaction blocks the build", v.checks.blocking.join() === "adjustments" && v.group === null, v.checks);
+  ok("the page gets the representative and each adjustment's line", v.return.representative_id === ENT["rep-ltd"] && v.checks.checks.find((c) => c.key === "adjustments").items[0].line_id, v.checks);
   const lineId = (await pool.query("SELECT id FROM finance.vat_return_lines WHERE return_id = $1 AND kind = 'no_transaction'", [RID])).rows[0].id;
   r = await api("POST", `vat/returns/${RID}/adjustments`, { line_id: lineId, reason: "Short reason?" }, FM);
   ok("only the CFO accepts an adjustment", r.status === 403, r.body);

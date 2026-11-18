@@ -1,4 +1,4 @@
-// Reads the first worksheet of an .xlsx file into rows of cell text, in the
+// Reads worksheets of an .xlsx file into rows of cell text, in the
 // browser, with no library: an xlsx is a zip of XML parts. Only what a mapping
 // file needs: shared strings, inline strings, numbers and booleans as text.
 // Formulas give their cached value. Dates come through as Excel serial numbers.
@@ -66,7 +66,9 @@ function colIndex(ref: string): number {
   return n - 1;
 }
 
-export async function readXlsx(data: ArrayBuffer | Uint8Array): Promise<{ sheet: string; rows: string[][] }> {
+type Book = { sheets: { name: string; path: string }[]; shared: string[]; part: (name: string) => Promise<string | null> };
+
+async function openBook(data: ArrayBuffer | Uint8Array): Promise<Book> {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   const entries = zipEntries(buf);
   const byName = new Map(entries.map((e) => [e.name.replace(/^\/+/, ""), e]));
@@ -77,24 +79,23 @@ export async function readXlsx(data: ArrayBuffer | Uint8Array): Promise<{ sheet:
 
   const workbook = await part("xl/workbook.xml");
   if (!workbook) throw new Error("This is not an xlsx file (no workbook)");
-  const firstSheet = workbook.match(/<sheet\s[^>]*>/);
-  if (!firstSheet) throw new Error("The workbook has no sheets");
-  const sheetName = attr(firstSheet[0], "name") ?? "Sheet1";
-  const rid = attr(firstSheet[0], "r:id");
-  let target = "worksheets/sheet1.xml";
+  const tags = [...workbook.matchAll(/<sheet\s[^>]*>/g)].map((m) => m[0]);
+  if (!tags.length) throw new Error("The workbook has no sheets");
   const rels = await part("xl/_rels/workbook.xml.rels");
-  if (rels && rid) {
-    const rel = [...rels.matchAll(/<Relationship\s[^>]*>/g)].map((m) => m[0]).find((t) => attr(t, "Id") === rid);
-    const t = rel ? attr(rel, "Target") : null;
-    if (t) target = t;
-  }
-  const sheetPath = target.startsWith("/") ? target.slice(1) : `xl/${target}`;
-  const sheet = await part(sheetPath);
-  if (!sheet) throw new Error(`The workbook's first sheet (${sheetPath}) is missing`);
+  const relTags = rels ? [...rels.matchAll(/<Relationship\s[^>]*>/g)].map((m) => m[0]) : [];
+  const sheets = tags.map((tag, i) => {
+    const rid = attr(tag, "r:id");
+    const rel = rid ? relTags.find((t) => attr(t, "Id") === rid) : undefined;
+    const target = (rel ? attr(rel, "Target") : null) ?? `worksheets/sheet${i + 1}.xml`;
+    return { name: attr(tag, "name") ?? `Sheet${i + 1}`, path: target.startsWith("/") ? target.slice(1) : `xl/${target}` };
+  });
 
   const sharedXml = await part("xl/sharedStrings.xml");
   const shared = sharedXml ? [...sharedXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => texts(m[1])) : [];
+  return { sheets, shared, part };
+}
 
+function sheetRows(sheet: string, shared: string[]): string[][] {
   const rows: string[][] = [];
   for (const rm of sheet.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>|<row\b([^>]*)\/>/g)) {
     const rAttr = attr(`<row${rm[1] ?? rm[3] ?? ""}>`, "r");
@@ -118,5 +119,25 @@ export async function readXlsx(data: ArrayBuffer | Uint8Array): Promise<{ sheet:
     }
     rows[rowAt] = Array.from(cells, (c) => c ?? "");
   }
-  return { sheet: sheetName, rows: Array.from(rows, (r) => r ?? []) };
+  return Array.from(rows, (r) => r ?? []);
+}
+
+export async function readXlsx(data: ArrayBuffer | Uint8Array): Promise<{ sheet: string; rows: string[][] }> {
+  const book = await openBook(data);
+  const first = book.sheets[0];
+  const sheet = await book.part(first.path);
+  if (!sheet) throw new Error(`The workbook's first sheet (${first.path}) is missing`);
+  return { sheet: first.name, rows: sheetRows(sheet, book.shared) };
+}
+
+// Every worksheet, by tab name, in workbook order (Xero's VAT return export
+// has three tabs). A tab whose part is missing is left out.
+export async function readXlsxAll(data: ArrayBuffer | Uint8Array): Promise<Record<string, string[][]>> {
+  const book = await openBook(data);
+  const out: Record<string, string[][]> = {};
+  for (const s of book.sheets) {
+    const xml = await book.part(s.path);
+    if (xml) out[s.name] = sheetRows(xml, book.shared);
+  }
+  return out;
 }

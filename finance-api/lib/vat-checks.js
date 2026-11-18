@@ -69,7 +69,7 @@ function checkReturn({ exports, ret, members, accepted = new Set() }) {
     !adj.length ? "No adjustments without an accounting transaction."
       : open.length ? `${open.length} adjustment${open.length === 1 ? "" : "s"} with no accounting transaction need a reason and evidence, accepted by the CFO.`
         : `${adj.length} adjustment${adj.length === 1 ? "" : "s"} with no accounting transaction, each accepted with its reason.`,
-    adj.map((a) => ({ key: a.key, entity: a.entity, box: a.box, date: a.date, created_on: a.created_on, details: a.details, vat: a.vat, net: a.net, accepted: accepted.has(a.key) })));
+    adj.map((a) => ({ key: a.key, line_id: a.id ?? null, entity: a.entity, box: a.box, date: a.date, created_on: a.created_on, details: a.details, vat: a.vat, net: a.net, accepted: accepted.has(a.key) })));
 
   return { checks, blocking: checks.filter((c) => c.blocking).map((c) => c.key), ok: checks.every((c) => !c.blocking) };
 }
