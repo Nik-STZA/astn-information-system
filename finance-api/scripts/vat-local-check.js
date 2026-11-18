@@ -136,6 +136,33 @@ async function scenario() {
   ok("the saved file shows on the return", v.workbook.link?.includes("file0000001") && v.workbook.drive_set && v.uploads.every((u) => u.has_sheets), v.workbook);
   r = await api("POST", `vat/returns/${RID}/workbook-saved`, { link: "https://evil.example/x" });
   ok("a report without a file id is refused", r.status === 422, r.body);
+  // Recording the submission
+  r = await api("POST", `vat/returns/${RID}/submit`, { submitted_on: "2026-11-20", hmrc_receipt_ref: "123456789012" }, FM);
+  ok("only the CFO records the submission", r.status === 403, r.body);
+  r = await api("POST", `vat/returns/${RID}/submit`, { submitted_on: "2026-10-15", hmrc_receipt_ref: "123456789012" });
+  ok("a date inside the period is refused", r.status === 422, r.body);
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  const canNow = v.can_submit;
+  r = await api("POST", `vat/returns/${RID}/submit`, { submitted_on: new Date().toISOString().slice(0, 10), hmrc_receipt_ref: "123456789012" });
+  if (v.confirmation?.length) {
+    ok("not while the representative still differs from the group", r.status === 409 && !canNow, r.body);
+    // Upload the representative's return showing the group on every box, then it can be recorded.
+    const t = v.group.target;
+    const full = exportOf("rep-ltd", { box4: t[4] });
+    full["VAT Return"] = full["VAT Return"].map((row) => (["5", "6", "7"].includes(row[1]) ? [row[0], row[1], String(row[1] === "5" ? Math.abs(t[5]) : t[Number(row[1])])] : row));
+    r = await api("POST", `vat/returns/${RID}/uploads`, { entity_id: ENT["rep-ltd"], kind: "representative_post_import", file_name: "rep-final.xlsx", sheets: full });
+    v = (await api("GET", `vat/returns/${RID}`)).body;
+    ok("then it can be recorded", v.confirmation?.length === 0 && v.can_submit, { confirmation: v.confirmation, can: v.can_submit });
+    r = await api("POST", `vat/returns/${RID}/submit`, { submitted_on: new Date().toISOString().slice(0, 10), hmrc_receipt_ref: "123456789012" });
+  }
+  ok("the CFO records it submitted with the representative's boxes", r.status === 201 && r.body.boxes?.[4] === 360, r.body);
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("the return shows the submission, fixed", v.return.status === "submitted" && v.submission?.hmrc_receipt_ref === "123456789012" && !v.can_submit, v.submission);
+  r = await api("POST", `vat/returns/${RID}/uploads`, { entity_id: ENT["m1-ltd"], kind: "member_export", file_name: "late.xlsx", sheets: exportOf("m1-ltd") });
+  const r2 = await api("POST", `vat/returns/${RID}/imports`, { boxes: v.group?.import ?? { 1: 0, 2: 0, 4: 0, 6: 0, 7: 0, 8: 0, 9: 0 } });
+  ok("after submission nothing changes its figures", r.status === 409 && r2.status === 409, { upload: r.status, imports: r2.status });
+  r = await api("POST", `vat/returns/${RID}/submit`, { submitted_on: new Date().toISOString().slice(0, 10), hmrc_receipt_ref: "999999999999" });
+  ok("it is recorded once", r.status === 409, r.body);
   ok("nothing was written to Xero", xeroWrites === 0, xeroWrites);
 }
 

@@ -233,6 +233,8 @@ export default function VatReturnView({ slug, data, ledgerHref }: { slug: string
         </section>
       )}
 
+      <Submission data={data} post={post} failed={failed} onDone={() => router.refresh()} />
+
       <section className={page.card} aria-label="Workbook">
         <div className={page.cardHead}>
           <h2>Workbook</h2>
@@ -299,6 +301,60 @@ export default function VatReturnView({ slug, data, ledgerHref }: { slug: string
         )}
       </section>
     </div>
+  );
+}
+
+// 5. Record the submission: once the representative's return shows the group
+// (or, for one company, once its checks are clear), the CFO records the date
+// filed in Xero and HMRC's receipt reference. The boxes are then fixed.
+function Submission({ data, post, failed, onDone }: {
+  data: View;
+  post: (path: string, body: unknown) => Promise<{ ok: boolean; status: number; body: { error?: string; issues?: string[] } }>;
+  failed: (x: { status: number; body: { error?: string; issues?: string[] } }) => string;
+  onDone: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [on, setOn] = useState(today);
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const s = data.submission;
+  if (!s && !data.can_submit) return null;
+  async function record() {
+    setBusy(true); setErr(null);
+    const x = await post("submit", { submitted_on: on, hmrc_receipt_ref: ref.trim() });
+    setBusy(false);
+    if (!x.ok) setErr(failed(x)); else onDone();
+  }
+  return (
+    <section className={page.card} aria-label="Submission">
+      <div className={page.cardHead}>
+        <h2>{data.return.kind === "group" ? "5" : "3"}. Submission</h2>
+        {s && <span className={`${page.status} ${page["s-green"]}`}><span className={page.dot} />Submitted</span>}
+      </div>
+      {s ? (
+        <div className={`${page.pad} ${page.stack}`} style={{ fontSize: 13 }}>
+          <span>Filed on {longDate(s.submitted_on)}, HMRC receipt {s.hmrc_receipt_ref}. Recorded by {s.signed_by}.</span>
+          <span>
+            Box 5: <strong>{money(Math.abs(s.boxes["5"] ?? 0))}</strong>{" "}
+            {(s.boxes["4"] ?? 0) > (s.boxes["3"] ?? 0) ? "to reclaim from HMRC" : "to pay HMRC"}. The figures are fixed.
+          </span>
+        </div>
+      ) : (
+        <div className={`${page.pad} ${page.stack}`}>
+          <p className={page.small} style={{ margin: 0 }}>
+            Submit the return in Xero, then record it here with HMRC&apos;s receipt reference. The boxes are taken from{" "}
+            {data.return.kind === "group" ? "the representative's return as exported after the import" : "the company's export"} and fixed from then on. CFO only.
+          </p>
+          <div className={vat.form}>
+            <label className={vat.field}>Date submitted<input className={vat.input} type="date" max={today} value={on} onChange={(e) => setOn(e.target.value)} /></label>
+            <label className={vat.field} style={{ flex: "2 1 200px" }}>HMRC receipt reference<input className={vat.input} value={ref} onChange={(e) => setRef(e.target.value)} /></label>
+            <button className="btn-primary" disabled={busy || ref.trim().length < 4 || !on} onClick={record}>{busy ? "Recording..." : "Record submission"}</button>
+          </div>
+          {err && <div className={page.error} role="alert">{err}</div>}
+        </div>
+      )}
+    </section>
   );
 }
 
