@@ -87,8 +87,18 @@ export interface VatWorkbook {
   drive_set: boolean;
 }
 
+export interface VatSubmission {
+  submitted_on: string;
+  hmrc_receipt_ref: string;
+  boxes: Boxes;
+  signed_by: string | null;
+  signed_at: string | null;
+}
+
 export interface VatReturnView {
   workbook: VatWorkbook;
+  submission: VatSubmission | null;
+  can_submit: boolean;
   return: { id: string; period_start: string; period_end: string; status: VatStatus; vat_number: string; kind: "single" | "group"; representative_id: string | null };
   members: VatMember[];
   uploads: VatUpload[];
@@ -150,7 +160,7 @@ export const importFileName = (periodEnd: string, n: number) => `VAT Return Impo
 
 // The paths the portal may call through to finance-api.
 const GUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook))?$`, "i");
+const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook|submit))?$`, "i");
 export const isVatPath = (path: string) => PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

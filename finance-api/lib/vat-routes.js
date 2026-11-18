@@ -6,6 +6,7 @@
 //   POST /clients/:slug/vat/returns/:id/uploads     { entity_id, kind, file_name, sha256, sheets }
 //   POST /clients/:slug/vat/returns/:id/adjustments { key, reason, evidence_ref }   CFO
 //   POST /clients/:slug/vat/returns/:id/imports     record the import file generated now
+//   POST /clients/:slug/vat/returns/:id/submit      { submitted_on, hmrc_receipt_ref }   CFO
 //   POST /clients/:slug/vat/returns/:id/workbook    build the workbook and save it to the drive
 //   GET  /clients/:slug/vat/returns/:id/workbook-data   for the pack engine (migration 059)
 //   POST /clients/:slug/vat/returns/:id/workbook-saved  the pack engine reports back
@@ -62,8 +63,27 @@ const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ""));
 const isGuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s ?? ""));
 const KINDS = ["member_export", "representative_pre_import", "representative_post_import"];
+const FILED = ["submitted", "paid", "part_paid", "outstanding"];
+const FIXED = "This return is submitted; its figures are fixed.";
 const dayBefore = (d) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
 const xeroDate = (d) => d.split("-").map(Number).join(",");
+
+// Whether a return can be recorded as submitted, and from which upload. A
+// group's representative must have been exported again after the import and
+// show the group on every box; a single registration's own export, checks
+// clear, is the return.
+function submittable(ret, uploads, checks, group, confirmation) {
+  if (FILED.includes(ret.status)) return { ok: false, why: "This return is already recorded as submitted." };
+  if (!checks?.ok) return { ok: false, why: "The checks are not clear yet." };
+  if (ret.registration_kind === "group") {
+    const after = uploads.find((u) => u.entity_id === ret.representative_id && u.kind === "representative_post_import");
+    if (!group || !after) return { ok: false, why: "Upload the representative's return exported after the import first." };
+    if (!Array.isArray(confirmation) || confirmation.length) return { ok: false, why: "The representative's return does not yet show the group on every box." };
+    return { ok: true, upload: after };
+  }
+  const own = uploads.find((u) => u.kind === "member_export");
+  return own ? { ok: true, upload: own } : { ok: false, why: "Upload the company's export first." };
+}
 
 function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput, startJob = null }) {
   const BASE = "/api/finance/clients/:slug/vat";
@@ -136,7 +156,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
   async function loadReturn(db, clientId, id) {
     if (!isGuid(id)) return null;
     return (await db.query(
-      `SELECT v.*, v.period_start::text AS period_start, v.period_end::text AS period_end, r.kind AS registration_kind, r.representative_id, r.vat_number,
+      `SELECT v.*, v.period_start::text AS period_start, v.period_end::text AS period_end, v.submitted_on::text AS submitted_on, r.kind AS registration_kind, r.representative_id, r.vat_number,
               r.drive_id, r.export_path, r.workbook_title
          FROM finance.vat_returns v JOIN finance.vat_registrations r ON r.id = v.registration_id WHERE v.id = $1 AND v.client_id = $2`, [id, clientId])).rows[0] ?? null;
   }
@@ -149,7 +169,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     if (!client) return res.status(404).json({ error: "client not found" });
     const ret = await loadReturn(pool, client.id, req.params.id);
     if (!ret) return res.status(404).json({ error: "VAT return not found" });
-    if (["submitted", "paid", "part_paid", "outstanding"].includes(ret.status)) return res.status(409).json({ error: "This return is submitted; its figures are fixed." });
+    if (FILED.includes(ret.status)) return res.status(409).json({ error: FIXED });
     const b = req.body || {};
     const kind = KINDS.includes(b.kind) ? b.kind : null;
     const fileName = String(b.file_name ?? "").replace(/[\\/\u0000-\u001f]+/g, " ").trim().slice(0, 200);
@@ -313,6 +333,8 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     res.json({
       return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind, representative_id: ret.representative_id },
       workbook: { ...workbookOf(ret), drive_set: Boolean(ret.drive_id) },
+      submission: ret.submitted_on ? { submitted_on: ret.submitted_on, hmrc_receipt_ref: ret.hmrc_receipt_ref, boxes: ret.submitted_boxes, signed_by: ret.signed_by, signed_at: ret.signed_at } : null,
+      can_submit: submittable(ret, uploads, checks, group, confirmation).ok,
       members, uploads: uploads.map(({ parsed, ...u }) => ({ ...u, boxes: parsed?.boxes, period_start: parsed?.period_start, period_end: parsed?.period_end })),
       checks, group, confirmation, imports, ledger,
     });
@@ -326,6 +348,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     if (!client) return res.status(404).json({ error: "client not found" });
     const ret = await loadReturn(pool, client.id, req.params.id);
     if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    if (FILED.includes(ret.status)) return res.status(409).json({ error: FIXED });
     const role = await roleOf(pool, client.id, who.actorEmail);
     if (!isCfo(role)) return res.status(403).json({ error: "only the CFO accepts an adjustment with no accounting transaction" });
     const b = req.body || {};
@@ -349,6 +372,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     if (!client) return res.status(404).json({ error: "client not found" });
     const ret = await loadReturn(pool, client.id, req.params.id);
     if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    if (FILED.includes(ret.status)) return res.status(409).json({ error: FIXED });
     const boxes = req.body?.boxes;
     if (!boxes || ![1, 2, 4, 6, 7, 8, 9].every((b) => Number.isFinite(Number(boxes[b])))) return res.status(422).json({ issues: ["boxes 1, 2, 4 and 6-9 are required"] });
     const kind = (await pool.query("SELECT count(*)::int AS n FROM finance.vat_imports WHERE return_id = $1", [ret.id])).rows[0].n ? "correction" : "group";
@@ -359,6 +383,43 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_import_generated", targetType: "vat_return", targetId: ret.id, clientId: client.id,
       payload: { kind, boxes }, ip: req.get("X-Forwarded-For") || req.ip });
     res.status(201).json(row);
+  }));
+
+  // POST /vat/returns/:id/submit   { submitted_on, hmrc_receipt_ref }   CFO
+  // Records the return as filed in Xero: the boxes are the representative's
+  // return as last exported (after the import, for a group), and are fixed
+  // from now on. Only once that return shows the group on every box.
+  app.post(`${BASE}/returns/:id/submit`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    if (FILED.includes(ret.status)) return res.status(409).json({ error: "This return is already recorded as submitted." });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO records a VAT return as submitted" });
+    const b = req.body || {};
+    const ref = String(b.hmrc_receipt_ref ?? "").trim();
+    const today = new Date().toISOString().slice(0, 10);
+    const issues = [];
+    if (!isDate(b.submitted_on) || b.submitted_on > today || b.submitted_on <= ret.period_end) issues.push("submitted_on must be a date after the period end and not in the future");
+    if (ref.length < 4 || ref.length > 80) issues.push("hmrc_receipt_ref is HMRC's receipt reference for the submission");
+    if (issues.length) return res.status(422).json({ issues });
+    const { uploads, checks, group, confirmation } = await viewOf(ret);
+    const can = submittable(ret, uploads, checks, group, confirmation);
+    if (!can.ok) return res.status(409).json({ error: can.why });
+    const boxes = can.upload.parsed.boxes;
+    await pool.query(
+      `UPDATE finance.vat_returns SET status = 'submitted', submitted_on = $2, hmrc_receipt_ref = $3, submitted_boxes = $4, signed_by = $5, signed_at = now(), updated_at = now()
+        WHERE id = $1 AND status NOT IN ('submitted','paid','part_paid','outstanding')`,
+      [ret.id, b.submitted_on, ref, JSON.stringify(boxes), who.actorEmail]);
+    if (ret.registration_kind === "group") {
+      await pool.query("UPDATE finance.vat_imports SET confirmed_by_upload_id = $2, confirmed_at = now() WHERE return_id = $1 AND confirmed_at IS NULL", [ret.id, can.upload.id]);
+    }
+    await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_return_submitted", targetType: "vat_return", targetId: ret.id, clientId: client.id,
+      payload: { submitted_on: b.submitted_on, hmrc_receipt_ref: ref, boxes, from_upload: can.upload.id }, ip: req.get("X-Forwarded-For") || req.ip });
+    res.status(201).json({ status: "submitted", boxes });
   }));
 
   // POST /vat/returns/:id/workbook   builds the workbook in the pack engine and saves it to the client's drive
@@ -407,7 +468,8 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     const clientName = (await pool.query("SELECT name FROM shared.clients WHERE id = $1", [client.id])).rows[0]?.name ?? req.params.slug;
     res.json({
       client: clientName,
-      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind },
+      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind,
+        submitted_on: ret.submitted_on ?? null, hmrc_receipt_ref: ret.hmrc_receipt_ref ?? null, submitted_boxes: ret.submitted_boxes ?? null },
       drive: { drive_id: ret.drive_id, path: expandPath(ret.export_path, ret.period_end), file_id: ret.workbook_file_id },
       title: ret.workbook_title || clientName,
       companies, checks, group, confirmation,
@@ -450,4 +512,4 @@ async function defaultStartJob({ project, region, job, env }, { fetchImpl = fetc
   return { execution: op.metadata?.name ?? null };
 }
 
-module.exports = { mountVat, keptSheets, companyCode, expandPath };
+module.exports = { mountVat, keptSheets, companyCode, expandPath, submittable };

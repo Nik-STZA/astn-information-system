@@ -286,6 +286,12 @@ def build_workbook(data: dict, now: datetime | None = None) -> Workbook:
         ws.cell(row=r, column=1, value="OK" if ch.get("ok") else ("To resolve" if ch.get("blocking") else "Note")).font = _font(bold=True)
         ws.cell(row=r, column=2, value=ch.get("said"))
         r += 1
+    sub = ret.get("submitted_on")
+    if sub:
+        r += 1
+        ws.cell(row=r, column=1, value="Submitted").font = _font(bold=True)
+        ws.cell(row=r, column=2, value=f"Filed on {long_date(sub)}, HMRC receipt {ret.get('hmrc_receipt_ref') or ''}.")
+        r += 1
     conf = data.get("confirmation")
     if conf is not None:
         r += 1
