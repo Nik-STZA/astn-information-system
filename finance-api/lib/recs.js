@@ -267,11 +267,17 @@ const blockingItems = (reconciling = []) => (reconciling || []).filter((it) => i
 //   carry_forward          an account that did not move: last month's signed evidence, carried
 //   contracts              deferred income against the contracts register's held amounts
 //   asset_register         tangible and intangible assets against the signed asset register (or Xero's)
+// The ageing proves the trade control account only (18 Nov 2026: Other
+// debtors, 101.00, sat on the receivables line and was given the whole
+// receivables ageing, 250,000.00). Other debtors and creditors, sundry,
+// staff, director and deposit accounts on those lines need their own evidence.
+const NOT_TRADE = /\bother\b|sundry|staff|employee|director|deposit|loan|accrued|prepaid/i;
+
 function autoMethod(rec) {
   if (rec.line_key === "deferred") return "contracts";
   if (rec.line_key === "ppe" || rec.line_key === "intangible") return "asset_register";
-  if (rec.line_key === "ar") return "ageing_ar";
-  if (rec.line_key === "ap") return "ageing_ap";
+  if (rec.line_key === "ar") return NOT_TRADE.test(rec.account_name ?? "") ? null : "ageing_ar";
+  if (rec.line_key === "ap") return NOT_TRADE.test(rec.account_name ?? "") ? null : "ageing_ap";
   // Intercompany payables too (16 Nov 2026): a balance owed to a group company is
   // proved by the same pair as one owed by it.
   if (rec.line_key === "ic_asset" || rec.line_key === "ic_liab" || (rec.line_key === "loans" && /intercompany|inter.company/i.test(rec.account_name ?? ""))) return "counterpart";
@@ -405,7 +411,7 @@ function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] 
 // with: the company's display name, legal name, slug and Xero name (18 Nov
 // 2026: Feldspar's companies are named FGH, FSL and UDL, so the display name
 // alone matched nothing and no pair was ever suggested).
-const nameWords = (s) => String(s ?? "").toLowerCase().replace(/(limited|ltd|plc|group|holdings?)/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+const nameWords = (s) => String(s ?? "").toLowerCase().replace(/\b(limited|ltd|plc|group|holdings?)\b/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length > 2);
 
 // How well two intercompany accounts in different companies look like a
 // pair: 0 when each names the other's company, 1 or 2 when one does, 3 when
