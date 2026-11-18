@@ -41,6 +41,23 @@ describe("pack templates", () => {
     expect(layoutOf("nope").template).toBe("standard_management");
   });
 
+  it("Feldspar draws impairment and FX below EBITDA; the standard templates leave it to non-cash", () => {
+    expect(layoutOf("feldspar_management").belowEbitda).toEqual(["depreciation", "impairment", "fx"]);
+    expect(layoutOf("standard_management").belowEbitda).toBeNull();
+    const rows = Object.fromEntries(templateRows("feldspar_management").map((r) => [r.key, r]));
+    expect(rows.impairment).toMatchObject({ cash_flow: "non_cash", section: "overheads" });
+    expect(rows.fx.cash_flow).toBeNull();   // realised FX is cash
+  });
+
+  it("every below-EBITDA line is an overhead the template can draw", () => {
+    for (const key of TEMPLATE_KEYS) {
+      const t = TEMPLATES[key];
+      const overheads = new Set(["staff_costs", "establishment", "professional_fees", "administrative", "depreciation", "fx",
+        ...t.categories.filter((c) => c.section === "overheads").map((c) => c.key)]);
+      for (const k of t.belowEbitda ?? []) expect(overheads.has(k), `${key}: ${k}`).toBe(true);
+    }
+  });
+
   it("statutory has no EBITDA", () => {
     expect(layoutOf("standard_statutory").ebitda).toBe(false);
   });
@@ -62,8 +79,9 @@ describe("pack templates", () => {
     expect(categoryForHeading("feldspar_management", "IT Costs")).toBe("it_costs");
     expect(categoryForHeading("feldspar_management", "  it   costs ")).toBe("it_costs");
     expect(categoryForHeading("feldspar_management", "Amortisation")).toBe("depreciation");
-    expect(categoryForHeading("feldspar_management", "Rounding")).toBeNull();
-    expect(categoryForHeading("feldspar_management", "Impairment")).toBeNull();
+    expect(categoryForHeading("feldspar_management", "Rounding")).toBeNull();   // a balance sheet account
+    expect(categoryForHeading("feldspar_management", "Impairment")).toBe("impairment");
+    expect(categoryForHeading("feldspar_management", "Exceptional items")).toBeNull();
     expect(categoryForHeading("standard_management", "Revenue")).toBe("turnover");
     expect(categoryForHeading("standard_management", "")).toBeNull();
   });

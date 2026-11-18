@@ -289,19 +289,23 @@ def _pnl_sheet(out: Rendered, model: Model, client_label: str, period_month: dat
     gp = total(lab("gross_profit"), [b.category for b in trading], "section_total", "gross_profit")
     overheads = by_section.get("overheads", [])
     if layout.ebitda:
-        # Overheads that are cash come first, then Management EBITDA, then the
-        # non-cash ones (depreciation and amortisation), then operating profit
-        # (CFO, 18 Nov 2026: Feldspar reads its costs, including capitalised
-        # development, before EBITDA, and D&A after it).
-        non_cash = [b for b in overheads if model.categories[b.category].cash_flow == "non_cash"]
-        cash = [b for b in overheads if b not in non_cash]
-        for b in cash:
+        # Overheads above EBITDA come first, then Management EBITDA, then the
+        # lines below it, then operating profit (CFO, 18 Nov 2026: Feldspar
+        # reads its costs, including capitalised development, before EBITDA,
+        # and D&A, impairment and FX after it). The template names the lines
+        # below EBITDA; without one they are the non-cash lines.
+        if layout.below_ebitda is None:
+            below = [b for b in overheads if model.categories[b.category].cash_flow == "non_cash"]
+        else:
+            below = [b for b in overheads if b.category in layout.below_ebitda]
+        above = [b for b in overheads if b not in below]
+        for b in above:
             block(b)
-        toh = total(lab("total_overheads"), [b.category for b in cash], "subtotal", "total_overheads")
+        toh = total(lab("total_overheads"), [b.category for b in above], "subtotal", "total_overheads")
         ebitda = total(lab("management_ebitda"), [gp, toh], "section_total", "management_ebitda")
-        for b in non_cash:
+        for b in below:
             block(b)
-        op = total(lab("operating_profit"), [ebitda, *[b.category for b in non_cash]], "section_total", "operating_profit")
+        op = total(lab("operating_profit"), [ebitda, *[b.category for b in below]], "section_total", "operating_profit")
     else:
         # No EBITDA (a statutory layout): every overhead in category order.
         for b in overheads:

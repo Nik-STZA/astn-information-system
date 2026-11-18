@@ -7,9 +7,14 @@
 //   sublines    each category's sub-lines, in the order the pack draws them.
 //               A sub-line not listed here draws after the listed ones, in
 //               account code order, as before.
-//   ebitda      whether the pack shows Management EBITDA (cash overheads, the
-//               subtotal, then depreciation and amortisation below it). Off:
-//               every overhead in category order, then operating profit.
+//   ebitda      whether the pack shows Management EBITDA (overheads above it,
+//               the subtotal, then the lines below it). Off: every overhead in
+//               category order, then operating profit.
+//   belowEbitda the overhead lines drawn below Management EBITDA. Not set: the
+//               non-cash ones (depreciation and amortisation). This is about
+//               presentation only; whether a line is cash for the cash flow is
+//               its category's cash_flow (realised FX is cash, yet sits below
+//               EBITDA in a management pack).
 //   labels      the subtotal labels.
 //   headings    a master file's P&L Mapping 1 words -> category key, so a
 //               master file can be read (part 3). A heading not here is shown
@@ -85,9 +90,12 @@ const TEMPLATES = {
     key: "feldspar_management",
     name: "Feldspar management",
     description: "Feldspar's management layout: Marketing, Payroll & Related, Property & General, IT, Travel & Entertainment, Legal & Professional, Capitalised Development, then Management EBITDA.",
-    version: 1,
+    version: 2,
     ebitda: true,
     labels: { ...STANDARD_LABELS },
+    // CFO 18 Nov 2026: impairment beside depreciation and amortisation, and FX
+    // (realised, unrealised, bank revaluations) below EBITDA.
+    belowEbitda: ["depreciation", "impairment", "fx"],
     categories: [
       pnl("turnover", "Revenue", "turnover", 10),
       pnl("cost_of_sales", "Direct Costs", "cost_of_sales", 20),
@@ -98,6 +106,8 @@ const TEMPLATES = {
       pnl("travel", "Travel and Entertainment", "overheads", 38),
       pnl("professional_fees", "Legal & Professional Fees", "overheads", 50),
       pnl("capitalised_dev", "Capitalised Development", "overheads", 65),
+      pnl("impairment", "Impairment", "overheads", 72, "non_cash"),
+      pnl("fx", "FX Gains / (Losses)", "overheads", 80),
       pnl("other_income", "Other Income", "finance", 90),
       pnl("interest_payable", "Interest", "finance", 100),
       pnl("taxation", "Taxes", "taxation", 110),
@@ -122,9 +132,8 @@ const TEMPLATES = {
       it_costs: ["Website", "Software & Subscriptions", "Consumables", "Hosting & Infrastructure",
         "Hardware & Equipment - below threshold"],
     },
-    // Rounding and Impairment are left out on purpose: no Feldspar account was
-    // given a category for them on 18 Nov, so a master file's rows under them
-    // show as having no category until the CFO decides.
+    // Rounding is left out: in Xero it is a balance sheet account and stays
+    // under retained earnings, as the master's BS Mapping says (CFO 18 Nov 2026).
     headings: {
       "Revenue": "turnover",
       "Other Income": "other_income",
@@ -139,6 +148,7 @@ const TEMPLATES = {
       "IT Costs": "it_costs",
       "Interest": "interest_payable",
       "FX Gains / (Losses)": "fx",
+      "Impairment": "impairment",
       "Taxes": "taxation",
       "Capitalised Development": "capitalised_dev",
     },
@@ -171,7 +181,8 @@ function templateRows(key) {
 // What the pack engine needs to draw the P&L.
 function layoutOf(key) {
   const t = templateOf(key);
-  return { template: t.key, name: t.name, version: t.version, ebitda: t.ebitda, labels: { ...t.labels }, sublineOrder: t.sublines };
+  return { template: t.key, name: t.name, version: t.version, ebitda: t.ebitda, labels: { ...t.labels },
+    belowEbitda: t.belowEbitda ?? null, sublineOrder: t.sublines };
 }
 
 // A master file heading -> category key, or null. Case and spacing do not matter.
