@@ -202,7 +202,7 @@ export interface RecEvidence {
   statements?: RecStatement[];
   reconciling?: ReconcilingItem[];
   bridge?: RecBridge[];
-  method: "ageing_ar" | "ageing_ap" | "counterpart" | "carry_forward" | "contracts" | "asset_register" | null;
+  method: "ageing_ar" | "ageing_ap" | "counterpart" | "carry_forward" | "contracts" | "asset_register" | "vat_return" | null;
   method_label: string | null;
   missing: string[];
   rows: RecEvidenceRow[];

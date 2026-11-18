@@ -273,6 +273,7 @@ const blockingItems = (reconciling = []) => (reconciling || []).filter((it) => i
 //   carry_forward          an account that did not move: last month's signed evidence, carried
 //   contracts              deferred income against the contracts register's held amounts
 //   asset_register         tangible and intangible assets against the signed asset register (or Xero's)
+//   vat_return             VAT control against the VAT returns kept in os.stza.io (lib/vat-evidence.js)
 // The ageing proves the trade control account only (18 Nov 2026: Other
 // debtors, 101.00, sat on the receivables line and was given the whole
 // receivables ageing, 250,000.00). Other debtors and creditors, sundry,
@@ -282,6 +283,7 @@ const NOT_TRADE = /\bother\b|sundry|staff|employee|director|deposit|loan|accrued
 function autoMethod(rec) {
   if (rec.line_key === "deferred") return "contracts";
   if (rec.line_key === "ppe" || rec.line_key === "intangible") return "asset_register";
+  if (rec.line_key === "vat") return "vat_return";
   if (rec.line_key === "ar") return NOT_TRADE.test(rec.account_name ?? "") ? null : "ageing_ar";
   if (rec.line_key === "ap") return NOT_TRADE.test(rec.account_name ?? "") ? null : "ageing_ap";
   // Intercompany payables too (16 Nov 2026): a balance owed to a group company is
@@ -298,6 +300,7 @@ const METHOD_LABEL = {
   carry_forward: "Last month's signed evidence, carried where the account did not move",
   contracts: "The contracts register: what each customer contract holds on the account at the month end",
   asset_register: "The asset register signed for the month (Xero's own register for the accounts Xero keeps)",
+  vat_return: "The VAT returns in os.stza.io: each company's own position on returns not yet filed, and filed returns HMRC has not yet paid",
 };
 
 // A Xero date as YYYY-MM-DD, or null. Xero sends "2026-10-18T00:00:00" in a

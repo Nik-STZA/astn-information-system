@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeView, dueText, stepKey } from "./close";
+import { closeView, dueText, stepKey, vatEvidence } from "./close";
 import type { Task, TaskBlocker } from "./work";
 import type { RecList, RecRow } from "./recs";
 import type { JournalList, JournalRow } from "./journals";
@@ -183,5 +183,28 @@ describe("recs under a step", () => {
     expect(recsForStep("bank", list).map((r) => r.account_name)).toEqual(["HSBC Innovation: Alpha", "Business Bank"]);
     expect(recsForStep("intercompany", list).map((r) => r.account_name)).toEqual(["Beta Intercompany Loan"]);
     expect(recsForStep("vat", list).map((r) => r.account_name)).toEqual(["VAT"]);
+  });
+});
+
+describe("the VAT step's evidence", () => {
+  const base = "/finance/clients/sample";
+  const reg = [{ id: "r", vat_number: "123456789", kind: "group" as const, representative_id: "x", representative_name: "Rep", members: [] }];
+  const ret = (status: string, extra = {}) => ({ id: "v1", registration_id: "r", period_start: "2026-10-01", period_end: "2026-10-31", status, submitted_on: null, uploads: 3, ...extra });
+
+  it("is nothing when the client keeps no VAT returns here", () => {
+    expect(vatEvidence(null, "2026-10", base)).toBeNull();
+    expect(vatEvidence({ registrations: [], returns: [] }, "2026-10", base)).toBeNull();
+  });
+
+  it("asks for the month's return to be opened, then follows it to paid", () => {
+    expect(vatEvidence({ registrations: reg, returns: [] }, "2026-10", base)).toEqual({ text: "The month's VAT return is not opened yet", href: `${base}/vat`, tone: "amber" });
+    expect(vatEvidence({ registrations: reg, returns: [ret("building") as never] }, "2026-10", base)).toMatchObject({ text: "VAT return being built: 3 exports uploaded", href: `${base}/vat/v1` });
+    expect(vatEvidence({ registrations: reg, returns: [ret("submitted", { submitted_on: "2026-11-20" }) as never] }, "2026-10", base)?.text).toBe("VAT return filed on 2026-11-20: waiting for HMRC's payment");
+    expect(vatEvidence({ registrations: reg, returns: [ret("paid") as never] }, "2026-10", base)).toMatchObject({ tone: "green" });
+  });
+
+  it("says a quarter's return is filed with its quarter at a month inside it", () => {
+    const q = ret("building", { period_start: "2026-10-01", period_end: "2026-12-31" });
+    expect(vatEvidence({ registrations: reg, returns: [q as never] }, "2026-11", base)?.text).toMatch(/runs past this month end/);
   });
 });

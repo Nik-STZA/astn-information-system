@@ -366,6 +366,7 @@ function Evidence({ slug, data, ev, preparing, busy, send }: { slug: string; dat
           {ev.method === "asset_register" && data.cover.rows.map((r) => registerHref(slug, data.rec.period, r) && (
             <span key={r.entity_id}> · <Link className={styles.link} href={registerHref(slug, data.rec.period, r)!}>Open {r.entity} {r.code} in the register</Link></span>
           ))}
+          {ev.method === "vat_return" && <span> · <Link className={styles.link} href={`/finance/clients/${encodeURIComponent(slug)}/vat`}>Open the VAT returns</Link></span>}
         </span>
       </div>
       {ev.method === "counterpart" && (

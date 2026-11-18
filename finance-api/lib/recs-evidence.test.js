@@ -61,7 +61,7 @@ describe("automatic methods", () => {
     expect(autoMethod({ line_key: "loans", account_name: "Alpha Intercompany Loan" })).toBe("counterpart");
     expect(autoMethod({ line_key: "loans", account_name: "Directors' Loan Account" })).toBe(null);
     expect(autoMethod({ line_key: "sharecap" })).toBe("carry_forward");
-    expect(autoMethod({ line_key: "vat" })).toBe(null);
+    expect(autoMethod({ line_key: "vat" })).toBe("vat_return");
   });
 
   it("works an invoice's balance at a date from its own payments and credits", () => {
