@@ -51,6 +51,10 @@ describe("automatic methods", () => {
   it("by line", () => {
     expect(autoMethod({ line_key: "ar" })).toBe("ageing_ar");
     expect(autoMethod({ line_key: "ap" })).toBe("ageing_ap");
+    expect(autoMethod({ line_key: "ar", account_name: "Accounts Receivable" })).toBe("ageing_ar");
+    expect(autoMethod({ line_key: "ar", account_name: "Other debtors" })).toBe(null);
+    expect(autoMethod({ line_key: "ap", account_name: "Other creditors" })).toBe(null);
+    expect(autoMethod({ line_key: "ap", account_name: "Trade Creditors" })).toBe("ageing_ap");
     expect(autoMethod({ line_key: "ic_asset", account_name: "Alpha intercompany" })).toBe("counterpart");
     expect(autoMethod({ line_key: "ic_liab", account_name: "Owed to Alpha" })).toBe("counterpart");
     expect(autoMethod({ line_key: "loans", account_name: "Alpha Intercompany Loan" })).toBe("counterpart");
