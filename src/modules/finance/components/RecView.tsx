@@ -160,6 +160,7 @@ export default function RecView({ slug, data, thread, me }: {
       )}
 
       {!rec.line_key && <PlaceLine data={data} busy={busy} send={send} />}
+      {rec.line_key && preparing && <MoveLine data={data} busy={busy} send={send} />}
 
       <section className={`${styles.card} ${styles.section}`}>
         <div className={styles.cardHead}>
@@ -523,6 +524,27 @@ function Comment({ row, canComment, busy, send }: { row: CoverRow; canComment: b
     <input aria-label={`Comment for ${row.entity}`} className={`${styles.input} ${styles.commentBox}`} placeholder="Comment" value={text} disabled={busy}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => { if (text !== (row.comment ?? "")) void send("comment", { entity_id: row.entity_id, comment: text }); }} />
+  );
+}
+
+// An account on the wrong line (18 Nov 2026: Pensions Payable sat under
+// Provisions, proved by a schedule not built here, so nobody could work it).
+// The CFO moves it while it is being prepared; finance-api refuses anyone else.
+function MoveLine({ data, busy, send }: { data: RecDetail; busy: boolean; send: Send }) {
+  const [line, setLine] = useState("");
+  const current = data.rec.line_key;
+  return (
+    <details className={`${styles.card} ${styles.pad} ${styles.section}`}>
+      <summary style={{ cursor: "pointer", fontSize: 13 }}>On the wrong line? Move it</summary>
+      <p className={styles.sub}>The line sets the owner, the challenge, the class and how it is proved. This month and every later month still being prepared follow; signed months keep their line.</p>
+      <div className={styles.actions}>
+        <select aria-label="Matrix line" className={styles.pick} value={line} onChange={(e) => setLine(e.target.value)}>
+          <option value="">Choose a line</option>
+          {data.lines.filter((l) => l.key !== current).map((l) => <option key={l.key} value={l.key}>{l.line}</option>)}
+        </select>
+        <button type="button" className="btn-secondary" disabled={busy || !line} onClick={() => send("place", { line_key: line })}>Move it</button>
+      </div>
+    </details>
   );
 }
 

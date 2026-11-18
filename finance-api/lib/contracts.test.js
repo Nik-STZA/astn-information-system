@@ -209,6 +209,8 @@ describe("the Deferred income reconciliation", () => {
     const { classify } = await import("./bs-matrix");
     expect(classify({ Name: "Income in Advance", Type: "CURRLIAB" }).key).toBe("deferred");
     expect(classify({ Name: "Income received in advance", Type: "CURRLIAB" }).key).toBe("deferred");
+    expect(classify({ Name: "Pensions Payable", Type: "CURRLIAB" }).key).toBe("payroll");
+    expect(classify({ Name: "Provision for dilapidations", Type: "CURRLIAB" }).key).toBe("provisions");
     expect(classify({ Name: "Accruals", Type: "CURRLIAB" }).key).toBe("accruals");
   });
 });

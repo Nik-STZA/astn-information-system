@@ -1554,7 +1554,13 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
             ...await xeroPages(ctx, "/Prepayments", "Prepayments", { where: upTo }),
             ...await xeroPages(ctx, "/Overpayments", "Overpayments", { where: upTo }),
           ].filter((a) => mine.test(String(a.Type ?? "")));
-          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances });
+          // Invoices dated in the 6 months after the month end that were paid,
+          // in part or whole, by it (recs.paidAheadAt).
+          const after = new Date(Date.UTC(dt[0], dt[1] - 1, dt[2] + 183));
+          const laterWhere = `Type=="${type}" AND Date > DateTime(${dt[0]},${dt[1]},${dt[2]}) AND Date <= DateTime(${after.getUTCFullYear()},${after.getUTCMonth() + 1},${after.getUTCDate()}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
+          const later = (await xeroPages(ctx, "/Invoices", "Invoices", { where: laterWhere }))
+            .filter((inv) => (inv.Payments || []).length);
+          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances, later });
           rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "supplier bills" : "sales invoices"} outstanding at ${date}`, note: ev.note });
           said.push(`${e.name}: ${ev.note}`);
         } catch (err) {

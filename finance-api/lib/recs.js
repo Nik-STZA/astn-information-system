@@ -331,8 +331,22 @@ function creditLeftAt(cn, date) {
 // allocated, as Xero's aged reports show them; leaving them out put one client's
 // October payables out by a 3,000 supplier overpayment. Same shape as a credit
 // note: Total, Allocations, Payments (refunds), Status.
-function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] }) {
-  let total = 0, count = 0, foreign = 0, credits = 0, creditTotal = 0, adv = 0, advTotal = 0;
+// Paid ahead of the bill (18 Nov 2026): a payment dated on or before the month
+// end against an invoice dated after it is on the control account at the month
+// end (Xero posts the payment on its own date), yet the invoice is not
+// outstanding then. One client's September payables were out by exactly two
+// such payments (and a third in another company), so the rec could never tie.
+// The part of an invoice dated after `date` already paid by `date`, in pence.
+function paidAheadAt(inv, date) {
+  const raised = day(inv.DateString ?? inv.Date);
+  if (!raised || raised <= date || ["VOIDED", "DELETED", "DRAFT", "SUBMITTED"].includes(inv.Status)) return 0;
+  let paid = 0;
+  for (const p of inv.Payments || []) if ((day(p.DateString ?? p.Date) ?? "9999") <= date) paid += pence(p.Amount);
+  return paid;
+}
+
+function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [], later = [] }) {
+  let total = 0, count = 0, foreign = 0, credits = 0, creditTotal = 0, adv = 0, advTotal = 0, ahead = 0, aheadTotal = 0;
   const base = (left, rate) => Math.round(left / (rate && Number(rate) > 0 ? Number(rate) : 1));
   for (const inv of invoices || []) {
     const left = outstandingAt(inv, date);
@@ -354,12 +368,19 @@ function ageingEvidence(invoices, { date, kind, creditNotes = [], advances = [] 
     advTotal += base(left, a.CurrencyRate);
     adv += 1;
   }
-  const net = total - creditTotal - advTotal;
+  for (const inv of later || []) {
+    const paid = paidAheadAt(inv, date);
+    if (!paid) continue;
+    if (inv.CurrencyRate && Number(inv.CurrencyRate) !== 1) foreign += 1;
+    aheadTotal += base(paid, inv.CurrencyRate);
+    ahead += 1;
+  }
+  const net = total - creditTotal - advTotal - aheadTotal;
   const signed = kind === "ap" ? -net : net;
   const what = kind === "ap" ? "supplier bill" : "sales invoice";
   return {
     amount: pounds(signed), count,
-    note: `${count} ${what}${count === 1 ? "" : "s"} outstanding at ${date}${credits ? `, less ${credits} credit note${credits === 1 ? "" : "s"} not yet allocated` : ""}${adv ? `, less ${adv} prepayment${adv === 1 ? "" : "s"} or overpayment${adv === 1 ? "" : "s"} not yet allocated` : ""}, from their own payments and allocations${foreign ? `; ${foreign} in another currency converted at Xero's rate on the invoice` : ""}.`,
+    note: `${count} ${what}${count === 1 ? "" : "s"} outstanding at ${date}${credits ? `, less ${credits} credit note${credits === 1 ? "" : "s"} not yet allocated` : ""}${adv ? `, less ${adv} prepayment${adv === 1 ? "" : "s"} or overpayment${adv === 1 ? "" : "s"} not yet allocated` : ""}${ahead ? `, less ${pounds(aheadTotal)} paid by then on ${ahead} ${what}${ahead === 1 ? "" : "s"} dated after it` : ""}, from their own payments and allocations${foreign ? `; ${foreign} in another currency converted at Xero's rate on the invoice` : ""}.`,
   };
 }
 
@@ -1140,7 +1161,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
-  counterpartSignOffIssues, EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
+  counterpartSignOffIssues, EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, paidAheadAt, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,
