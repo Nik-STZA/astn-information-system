@@ -10,6 +10,30 @@
 import { ownerLabel, STATUS_LABEL, type ShownStatus, type Task } from "./work";
 import { STATUS_LABEL as REC_STATUS, type RecList, type RecRow } from "./recs";
 import type { JournalList } from "./journals";
+import type { VatOverview } from "./vat";
+
+// The VAT step's evidence: the month's VAT return in os.stza.io, the one
+// ending at the month end (or covering it, for a quarter), and how far it has
+// got. Null when the client keeps no VAT returns here.
+export function vatEvidence(vat: VatOverview | null, period: string, base: string): Evidence | null {
+  if (!vat || !vat.registrations?.length) return null;
+  const [y, m] = period.split("-").map(Number);
+  const end = `${period}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  const r = vat.returns.find((x) => x.period_end === end) ?? vat.returns.find((x) => x.period_start <= end && x.period_end >= end);
+  const href = r ? `${base}/vat/${enc(r.id)}` : `${base}/vat`;
+  if (!r) return { text: "The month's VAT return is not opened yet", href, tone: "amber" };
+  if (r.period_end > end) return { text: "The VAT return runs past this month end: filed with its quarter", href, tone: "neutral" };
+  switch (r.status) {
+    case "building": return { text: r.uploads ? `VAT return being built: ${plural(r.uploads, "export")} uploaded` : "VAT return opened: upload each company's export", href, tone: "amber" };
+    case "import_ready": return { text: "Import file made: import it in Xero and upload the representative's return again", href, tone: "blue" };
+    case "import_confirmed": return { text: "Import confirmed: submit in Xero and record it", href, tone: "blue" };
+    case "submitted": return { text: `VAT return filed${r.submitted_on ? ` on ${r.submitted_on}` : ""}: waiting for HMRC's payment`, href, tone: "blue" };
+    case "part_paid": return { text: "VAT return filed; HMRC paid a different amount", href, tone: "amber" };
+    case "outstanding": return { text: "VAT return filed; HMRC's payment is overdue", href, tone: "red" };
+    case "paid": return { text: "VAT return filed and paid", href, tone: "green" };
+    default: return { text: "VAT return", href, tone: "neutral" };
+  }
+}
 
 export type Tone = "neutral" | "blue" | "green" | "amber" | "red";
 
@@ -144,7 +168,7 @@ function recsEvidence(rows: RecRow[], href: string): Evidence | null {
   return { text: parts.join(", "), href, tone: recheck || notTying ? "red" : signed === rows.length ? "green" : "amber" };
 }
 
-export function closeView({ period, tasks, recs, journals, review, slug, today }: {
+export function closeView({ period, tasks, recs, journals, review, slug, today, vat = null }: {
   period: string;
   tasks: Task[];
   recs: RecList | null;
@@ -152,6 +176,7 @@ export function closeView({ period, tasks, recs, journals, review, slug, today }
   review: { for_you: number; by_kind: Partial<Record<string, number>> } | null;
   slug: string;
   today: string; // YYYY-MM-DD
+  vat?: VatOverview | null;
 }): CloseView {
   const base = `/finance/clients/${enc(slug)}`;
   const recsHref = `${base}/reconciliations?period=${enc(period)}`;
@@ -185,6 +210,11 @@ export function closeView({ period, tasks, recs, journals, review, slug, today }
       return billsOpen
         ? { text: `${plural(billsOpen, "bill")} still open in Bills`, href: `${base}/bills`, tone: "amber" }
         : { text: "No bills open in Bills", href: `${base}/bills`, tone: "green" };
+    }
+    // The month's VAT return, where the client keeps them here; its rec is listed under the step.
+    if (key === "vat") {
+      const v = vatEvidence(vat, period, base);
+      if (v) return v;
     }
     // The same recs the step lists, so the evidence and the list agree.
     if (key && (STEP_LINES[key] || REC_MATCH[key])) return recsEvidence(recsForStep(key, recRows), recsHref);

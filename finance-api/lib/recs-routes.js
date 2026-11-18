@@ -18,6 +18,7 @@ const bank = require("./bank-statement");
 const sheetRead = require("./sheet-read");
 const contractsLib = require("./contracts");
 const assetEvidence = require("./rec-asset-evidence");
+const { vatEvidence } = require("./vat-evidence");
 
 const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
 const crypto = require("crypto");
@@ -1643,6 +1644,42 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const ev = contractsLib.deferredEvidence(balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), held, date);
       rows.push(...ev.rows);
       said.push(...ev.said);
+    } else if (method === "vat_return") {
+      // The VAT returns kept in os.stza.io (lib/vat-evidence.js): every return
+      // of the client's registrations ending by the month end, with each
+      // company's own export, what was filed, HMRC's payment and the clearing.
+      let returns = [];
+      try {
+        const rs = (await pool.query(
+          `SELECT v.id, v.period_start::text, v.period_end::text, v.submitted_on::text, v.submitted_boxes, r.kind, r.representative_id,
+                  (SELECT min(p.paid_on)::text FROM finance.vat_payments p WHERE p.return_id = v.id AND p.withdrawn_at IS NULL) AS paid_on
+             FROM finance.vat_returns v JOIN finance.vat_registrations r ON r.id = v.registration_id
+            WHERE v.client_id = $1 AND v.period_end <= $2 AND r.ended_at IS NULL`, [who.client.id, date])).rows;
+        const ups = rs.length ? (await pool.query(
+          `SELECT return_id, entity_id, kind, parsed->'boxes' AS boxes FROM finance.vat_return_uploads
+            WHERE return_id = ANY($1::uuid[]) AND superseded_at IS NULL AND kind IN ('member_export','representative_pre_import')`, [rs.map((r) => r.id)])).rows : [];
+        let jr = [];
+        try {
+          jr = rs.length ? (await pool.query("SELECT vat_return_id, state FROM finance.journals WHERE vat_return_id = ANY($1::uuid[])", [rs.map((r) => r.id)])).rows : [];
+        } catch (e) {
+          if (e?.code !== "42703") throw e;
+        }
+        returns = rs.map((r) => {
+          const own = {};
+          for (const u of ups.filter((x) => x.return_id === r.id).sort((a) => (a.kind === "member_export" ? 1 : -1))) own[u.entity_id] = u.boxes;
+          return { ...r, own, clearing: jr.filter((j) => j.vat_return_id === r.id).map((j) => j.state) };
+        });
+      } catch (e) {
+        if (e?.code !== "42P01") throw e;
+        return res.status(409).json({ error: "VAT returns are waiting for migration 058. Record the outside evidence meanwhile." });
+      }
+      if (!returns.length) {
+        said.push("No VAT returns are kept in os.stza.io for this client yet. Record the outside evidence (the return as filed in Xero), or set the returns up on the VAT returns page.");
+      } else {
+        const ev = vatEvidence({ balances: balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), returns, date });
+        rows.push(...ev.rows);
+        said.push(...ev.said);
+      }
     } else if (method === "asset_register") {
       // The signed asset register for the month, per company and account
       // (lib/rec-asset-evidence.js); Xero's own register for an account no
