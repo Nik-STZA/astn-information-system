@@ -211,3 +211,15 @@ def test_no_layout_draws_as_before():
     from pack_engine.mapping import Layout, layout_from_api
     assert layout_from_api(None) == Layout()
     assert layout_from_api({"labels": {"bogus": "x"}}).label("gross_profit") == "Gross profit"
+
+
+def test_the_template_names_the_lines_below_ebitda(tmp_path, profile):
+    data = {**saved(), "layout": {"template": "x", "ebitda": True, "belowEbitda": ["depreciation", "establishment"]}}
+    res = build_mod.build("demo", "2026-05", tmp_path, api=FakeApi(saved_mapping=data), now=NOW)
+    assert res.failed == []
+    ws = openpyxl.load_workbook(res.path)["Profit and loss"]
+    labels = rows_labelled(ws)
+    est = labels["Establishment costs"]
+    assert labels["Total overheads"] < labels["Management EBITDA"] < est < labels["Operating profit"]
+    assert f"F{est}" not in ws.cell(labels["Total overheads"], 6).value
+    assert f"F{est}" in ws.cell(labels["Operating profit"], 6).value

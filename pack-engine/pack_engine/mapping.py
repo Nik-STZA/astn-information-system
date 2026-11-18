@@ -90,6 +90,8 @@ class Layout:
         ("net_profit", "Profit for the financial period"),
     )
     subline_order: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # Overhead lines drawn below Management EBITDA. None: the non-cash ones.
+    below_ebitda: tuple[str, ...] | None = None
 
     def label(self, key: str) -> str:
         return dict(self.labels)[key]
@@ -105,8 +107,9 @@ def layout_from_api(d: dict | None) -> Layout:
     base = dict(Layout().labels)
     labels = {**base, **{k: v for k, v in (d.get("labels") or {}).items() if k in base and v}}
     order = tuple((k, tuple(v)) for k, v in (d.get("sublineOrder") or {}).items())
+    below = d.get("belowEbitda")
     return Layout(d.get("template") or "standard_management", bool(d.get("ebitda", True)),
-                  tuple(labels.items()), order)
+                  tuple(labels.items()), order, tuple(below) if below is not None else None)
 
 
 def categories_from_api(rows: list[dict] | None) -> dict[str, Category]:
