@@ -124,11 +124,16 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       WHERE b.rec_id = $1 ORDER BY e.name`, [recId])).rows;
 
   // Evidence held on recs: an amount per company with its source and document.
-  const evidenceOf = async (db, recIds) => (recIds.length ? (await db.query(
+  // Evidence fetched by a method the rec no longer uses does not count (18 Nov
+  // 2026: Other debtors kept the receivables ageing fetched for it before
+  // #215, and FM1 has no way to remove evidence it did not key). Kept rows are
+  // keyed (no method) or fetched by the rec's own method, or a bank statement.
+  const stillApplies = (rec, v) => !v.method || v.method === "statement" || v.method === recs.autoMethod(rec);
+  const evidenceOf = async (db, recIds, recById = null) => (recIds.length ? (await db.query(
     `SELECT v.id, v.rec_id, v.entity_id, e.name AS entity_name, v.kind, v.amount, v.source, v.document_ref, v.note, v.added_by, v.added_at,
             to_jsonb(v)->>'method' AS method
        FROM finance.rec_evidence v JOIN finance.entities e ON e.id = v.entity_id
-      WHERE v.rec_id = ANY($1::uuid[]) ORDER BY e.name, v.added_at`, [recIds])).rows : []);
+      WHERE v.rec_id = ANY($1::uuid[]) ORDER BY e.name, v.added_at`, [recIds])).rows.filter((v) => !recById || !recById.get(v.rec_id) || stillApplies(recById.get(v.rec_id), v)) : []);
 
   // Reconciling items and statements (migration 043). Until it is applied
   // there are none: the table is looked for first, as a failed query would
@@ -173,7 +178,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const balances = await balancesOf(conn, rec.id);
     const items = await itemsOf(conn, client.id, [rec.rec_account_id]);
     const tol = await tolerance(conn, client.id);
-    const evidence = await evidenceOf(conn, [rec.id]);
+    const evidence = await evidenceOf(conn, [rec.id], new Map([[rec.id, rec]]));
     const reconciling = await reconcilingOf(conn, [rec.id]);
     return { balances, items, evidence, reconciling, tol, tied: recs.cover(balances, supportFor(rec, items, evidence, reconciling), tol) };
   };
@@ -232,7 +237,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         pool.query("SELECT rec_account_id, status, recheck_reason, dropped_at FROM finance.recs WHERE client_id = $1 AND period = $2", [client.id, prior]),
       ]);
       const items = await itemsOf(pool, client.id, rows.rows.map((r) => r.rec_account_id));
-      const evidence = await evidenceOf(pool, rows.rows.map((r) => r.id));
+      const evidence = await evidenceOf(pool, rows.rows.map((r) => r.id), new Map(rows.rows.map((r) => [r.id, r])));
       const reconciling = await reconcilingOf(pool, rows.rows.map((r) => r.id));
       const priorBy = new Map(priorRecs.rows.map((r) => [r.rec_account_id, r.status]));
       const list = rows.rows.map((r) => {
@@ -559,7 +564,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const balances = signed?.balances ?? liveBalances;
     const items = signed?.items ?? liveItems;
     const tol = signed?.tolerance ?? liveTol;
-    const liveEvidence = await evidenceOf(pool, [rec.id]);
+    const liveEvidence = await evidenceOf(pool, [rec.id], new Map([[rec.id, rec]]));
     const evidence = signed?.evidence ?? liveEvidence;
     const liveReconciling = await reconcilingOf(pool, [rec.id]);
     const reconciling = signed ? (signed.reconciling ?? []) : liveReconciling;

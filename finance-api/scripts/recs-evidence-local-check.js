@@ -398,6 +398,21 @@ async function scenario() {
     const v = (await api("GET", `recs/${id}`)).body;
     ok("but the page takes keyed evidence", v.evidence && v.evidence.method === null && v.evidence.missing.length === 1, v.evidence);
   });
+  await section("evidence fetched by a method the rec no longer uses stops counting", async () => {
+    // An account on the receivables line that is not the trade control
+    // account: its ageing evidence (fetched before #215) no longer counts.
+    const recId = (await pool.query(
+      `SELECT r.id, r.rec_account_id FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+        WHERE r.client_id = $1 AND a.account_name = 'Accounts Receivable' AND r.period = '2026-11' AND r.dropped_at IS NULL`, [CID])).rows[0];
+    if (!recId) { ok("a November receivables rec to test on", false, "none"); return; }
+    await api("POST", `recs/${recId.id}/evidence/fetch`, {});
+    let v = (await api("GET", `recs/${recId.id}`)).body;
+    const before = v.evidence?.rows?.length ?? 0;
+    await pool.query("UPDATE finance.rec_accounts SET account_name = 'Other debtors' WHERE id = $1", [recId.rec_account_id]);
+    v = (await api("GET", `recs/${recId.id}`)).body;
+    ok("the ageing no longer counts once the account is not the control account", before === 1 && (v.evidence?.rows ?? []).length === 0 && !v.evidence?.method, { before, after: v.evidence });
+    await pool.query("UPDATE finance.rec_accounts SET account_name = 'Accounts Receivable' WHERE id = $1", [recId.rec_account_id]);
+  });
 }
 
 (async () => {
