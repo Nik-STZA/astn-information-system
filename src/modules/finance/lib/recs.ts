@@ -154,6 +154,16 @@ export interface ReleaseOutcome {
 export interface RecEvidenceRow {
   id: string | null; entity_id: string; entity: string; kind: string | null; amount: string | null; source: string;
   document_ref: string | null; note: string | null; method: string | null; added_by: string | null; added_at: string | null;
+  detail?: AssetDetail | null;
+}
+// The register behind an asset rec's evidence figure, asset by asset (migration
+// 060). Amounts in pounds; null where the source does not hold the figure.
+export interface AssetDetailRow {
+  asset_no: string | null; name: string | null; status: string | null; date: string | null;
+  cost: number | null; additions: number | null; charge: number | null; accumulated: number | null; book_value: number | null;
+}
+export interface AssetDetail {
+  register: string; side: "cost" | "accumulated"; as_at: string; assets: AssetDetailRow[]; total: string; unlisted: string;
 }
 // A bank statement read for a rec, and what stands between it and the ledger
 // (11 Nov 2026). Amounts are money into the account positive.

@@ -131,7 +131,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   const stillApplies = (rec, v) => !v.method || v.method === "statement" || v.method === recs.autoMethod(rec);
   const evidenceOf = async (db, recIds, recById = null) => (recIds.length ? (await db.query(
     `SELECT v.id, v.rec_id, v.entity_id, e.name AS entity_name, v.kind, v.amount, v.source, v.document_ref, v.note, v.added_by, v.added_at,
-            to_jsonb(v)->>'method' AS method
+            to_jsonb(v)->>'method' AS method, to_jsonb(v)->'detail' AS detail
        FROM finance.rec_evidence v JOIN finance.entities e ON e.id = v.entity_id
       WHERE v.rec_id = ANY($1::uuid[]) ORDER BY e.name, v.added_at`, [recIds])).rows.filter((v) => !recById || !recById.get(v.rec_id) || stillApplies(recById.get(v.rec_id), v)) : []);
 
@@ -1234,6 +1234,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         id: v.id ?? null, entity_id: v.entity_id, entity: v.entity_name ?? names.get(v.entity_id) ?? "A company", kind: v.kind ?? null,
         amount: v.amount === null || v.amount === undefined ? null : money(recs.pence(v.amount)), source: v.source, document_ref: v.document_ref,
         note: v.note ?? null, method: v.method ?? null, added_by: v.added_by ?? null, added_at: v.added_at ?? null,
+        detail: v.detail ?? null,
       })),
       counterpart: null, candidates: [],
     };
@@ -1646,9 +1647,10 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       // The signed asset register for the month, per company and account
       // (lib/rec-asset-evidence.js); Xero's own register for an account no
       // register here keeps.
-      let map = [], periods = [], named = {};
+      let map = [], periods = [], named = {}, regAssets = [];
       try {
         map = (await pool.query("SELECT entity_id, grouping, role, xero_account_id, account_code, effective_from::text, effective_to::text, ended_at FROM finance.asset_account_map WHERE client_id = $1", [who.client.id])).rows;
+        regAssets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id FROM finance.assets WHERE client_id = $1", [who.client.id])).rows;
         periods = (await pool.query(
           "SELECT grouping, status, snapshot, signed_by, signed_at FROM finance.asset_register_periods WHERE client_id = $1 AND period = $2", [who.client.id, rec.period])).rows;
         const own = (await pool.query("SELECT grouping, display_name FROM finance.asset_groupings_client WHERE client_id = $1", [who.client.id])).rows;
@@ -1657,7 +1659,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       } catch (e) {
         if (e?.code !== "42P01" && e?.code !== "42703") throw e;
       }
-      const reg = assetEvidence.registerEvidence({ balances, map, periods, names: named, period: rec.period, date });
+      const reg = assetEvidence.registerEvidence({ balances, map, periods, names: named, period: rec.period, date, assets: regAssets });
       rows.push(...reg.rows);
       said.push(...reg.said);
       for (const b of reg.xero) {
@@ -1721,10 +1723,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         }
       }
       for (const v of rows) {
+        // The register behind the figure (migration 060), for the asset recs.
         await conn.query(
-          `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [r2.id, v.entity_id, recs.evidenceKind(r2.proof), v.amount, String(v.source).slice(0, 300), v.document_ref ?? null, v.note ?? null, actor, method]);
+          `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method${v.detail ? ", detail" : ""})
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9${v.detail ? ",$10" : ""})`,
+          [r2.id, v.entity_id, recs.evidenceKind(r2.proof), v.amount, String(v.source).slice(0, 300), v.document_ref ?? null, v.note ?? null, actor, method,
+            ...(v.detail ? [JSON.stringify(v.detail)] : [])]);
       }
       await started(conn, r2);
       await event(conn, r2.id, client.id, actor, "evidence_fetched", { method, rows: rows.length });

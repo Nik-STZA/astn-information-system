@@ -93,7 +93,7 @@ function prepareMonth({ period, map, assets, lines, events, trialBalances, openi
         opening: r2(a.opening), additions: r2(a.additions), transfers: r2(a.transfers), amortisation: r2(a.amortisation), impairment: r2(a.impairment),
         by_xero: a.by_xero ?? null, register: r.register, ledger: r.ledger, difference: r.difference, named_items: r.named_items, unexplained: r.unexplained, ties: r.ties };
     }),
-    assets: [...rolled.assets.entries()].map(([id, a]) => ({ asset_no: assetNo[id] ?? id, cost: a.cost, accumulated: a.accumulated, additions: a.additions })),
+    assets: [...rolled.assets.entries()].map(([id, a]) => ({ asset_no: assetNo[id] ?? id, cost: a.cost, accumulated: a.accumulated, additions: a.additions, amortisation: a.amortisation, impairment: a.impairment })),
     trial_balances: Object.entries(footing).map(([id, f]) => ({ company: nameOf[id] ?? id, debits: f.debits, credits: f.credits, difference: f.difference, acknowledged: f.acknowledged, foots: f.foots })),
     xero_runs: Object.entries(xeroRuns).map(([id, x]) => ({ company: nameOf[id] ?? id, ...x })),
   };

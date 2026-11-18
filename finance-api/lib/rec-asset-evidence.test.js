@@ -67,3 +67,50 @@ describe("evidence from Xero's own fixed asset register", () => {
     expect(xeroEvidence({ balance: b("999"), accountId: "nope", types, assets, date: "2026-09-30", period: "2026-09" }).said).toMatch(/no register keeps account 999/);
   });
 });
+
+describe("the register behind the figure, asset by asset (migration 060)", () => {
+  const COST = "c0000000-0000-0000-0000-000000000001", ACCUM = "c0000000-0000-0000-0000-000000000002";
+  const types = [{ assetTypeId: "t1", fixedAssetAccountId: COST, accumulatedDepreciationAccountId: ACCUM }];
+  const assets = [
+    { assetNumber: "FA-0002", assetName: "Laptop B", assetTypeId: "t1", assetStatus: "Registered", purchaseDate: "2026-03-01T00:00:00", purchasePrice: 600, accountingBookValue: 450 },
+    { assetNumber: "FA-0001", assetName: "Laptop A", assetTypeId: "t1", assetStatus: "Registered", purchaseDate: "2026-02-01T00:00:00", purchasePrice: 1000, accountingBookValue: 800 },
+  ];
+  const b = (code) => ({ entity_id: "udl", entity_name: "UDL", account_code: code });
+
+  it("lists Xero's assets on a cost account, in number order, summing to the figure", () => {
+    const d = xeroEvidence({ balance: b("720"), accountId: COST, types, assets, lastRun: "2026-09-30", date: "2026-09-30", period: "2026-09" }).row.detail;
+    expect(d).toMatchObject({ register: "Xero fixed asset register", side: "cost", total: "1600.00", unlisted: "0.00" });
+    expect(d.assets.map((a) => a.asset_no)).toEqual(["FA-0001", "FA-0002"]);
+    expect(d.assets[0]).toMatchObject({ name: "Laptop A", date: "2026-02-01", cost: 1000, accumulated: 200, book_value: 800 });
+  });
+
+  it("lists depreciation as a credit summing to the figure", () => {
+    const row = xeroEvidence({ balance: b("721"), accountId: ACCUM, types, assets, lastRun: "2026-09-30", date: "2026-09-30", period: "2026-09" }).row;
+    expect(row.amount).toBe("-350.00");
+    expect(row.detail).toMatchObject({ side: "accumulated", total: "-350.00", unlisted: "0.00" });
+  });
+
+  it("leaves depreciation and book value blank on a cost list when Xero has run past the month", () => {
+    const d = xeroEvidence({ balance: b("720"), accountId: COST, types, assets, lastRun: "2026-10-31", date: "2026-09-30", period: "2026-09" }).row.detail;
+    expect(d.assets[0]).toMatchObject({ cost: 1000, accumulated: null, book_value: null });
+  });
+
+  it("lists the os.stza.io register's assets on the account as signed, with what is not on an asset", () => {
+    const snap = { ...signed, snapshot: { ...signed.snapshot, assets: [
+      { asset_no: "TM-0001", cost: 40000, accumulated: -1000, additions: 500, amortisation: -250, impairment: 0 },
+      { asset_no: "TM-0002", cost: 3549.31, accumulated: 0, additions: 0 },
+    ] } };
+    const regAssets = [
+      { id: "1", entity_id: "fsl", asset_no: "TM-0001", name: "Mark one", status: "registered", cost_account_id: ACC, accum_account_id: "x" },
+      { id: "2", entity_id: "fsl", asset_no: "TM-0002", name: "Mark two", status: "pending", cost_account_id: ACC.toUpperCase(), accum_account_id: "x" },
+      { id: "3", entity_id: "fgh", asset_no: "TM-0003", name: "Elsewhere", status: "registered", cost_account_id: ACC, accum_account_id: "x" },
+    ];
+    const d = registerEvidence({ balances: [{ entity_id: "fsl", entity_name: "FSL", account_code: "775" }], map, periods: [snap],
+      names: { ip_registered: "IP register" }, period: "2026-09", date: "2026-09-30", assets: regAssets }).rows[0].detail;
+    expect(d.register).toBe("IP register, signed for September 2026");
+    expect(d.assets.map((a) => a.asset_no)).toEqual(["TM-0001", "TM-0002"]);
+    expect(d.assets[0]).toMatchObject({ cost: 40000, additions: 500, charge: 250, accumulated: 1000, book_value: 39000 });
+    expect(d.assets[1].charge).toBeNull();   // signed before the month's charge was kept per asset
+    expect(d.unlisted).toBe("0.01");
+  });
+});

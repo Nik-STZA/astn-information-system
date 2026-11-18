@@ -11,6 +11,7 @@ import { Check, ChevronRight, Minus, Plus, X } from "lucide-react";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import { EVENT_LABEL, PROOF_LABEL, actorLabel, dayLabel, money, monthLabel, type CoverRow, type EntityChecks, type RecDetail, type RecEvidence, type RecJournal, type ScheduleItem } from "@/modules/finance/lib/recs";
 import { StatusPill } from "./RecsList";
+import RecAssetList from "./RecAssetList";
 import RecReconciling from "./RecReconciling";
 import styles from "./Recs.module.css";
 import { Thread } from "./Threads";
@@ -395,6 +396,7 @@ function Evidence({ slug, data, ev, preparing, busy, send }: { slug: string; dat
                   <div><strong>{r.entity}</strong> · {money(r.amount)}</div>
                   <div className={styles.small}>{r.source}{r.document_ref ? ` · ${r.document_ref}` : ""}{r.method ? " · fetched" : r.added_by ? ` · ${r.added_by.startsWith("agent:") ? r.added_by.slice(6).toUpperCase() : r.added_by}` : ""}</div>
                   {r.note && <div className={styles.small}>{r.note}</div>}
+                  {r.detail && <RecAssetList detail={r.detail} />}
                 </div>
                 {preparing && r.id && !r.method && (
                   <button type="button" className="btn-text" disabled={busy} onClick={() => send(`evidence/${r.id}`, {}, "DELETE")} aria-label="Remove this evidence">Remove</button>
