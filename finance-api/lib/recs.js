@@ -1149,7 +1149,8 @@ function prepareInstruction(rec) {
         : "There is no automatic source for this account. Find outside evidence for each company (a statement, a return, a register, a confirmation) with get_account_activity and list_attachments, and record it with add_rec_evidence: the amount, where it comes from, and the document.",
       "Every company on the rec needs evidence. Where evidence and ledger differ, find the cause: name the transactions. If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
       "Where you cannot find outside evidence, say so plainly; never record the ledger figure itself as its own evidence.",
-      "Then use submit_rec with a note in plain English, and hand off to fc.",
+      "If an evidence row is wrong, duplicated by a fresh fetch, or belongs to another account, remove it with remove_rec_evidence and say why.",
+      "Then use submit_rec with a note in plain English and a fresh comment for every company that matches the evidence now held (replace any earlier comment that no longer fits), and hand off to fc.",
       "If a step is refused, say so plainly in your answer and do not report it as done.",
     ].join(" ");
   }

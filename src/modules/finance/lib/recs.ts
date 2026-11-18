@@ -38,7 +38,8 @@ export interface EntityError { entity_id: string; entity: string; error: string 
 export interface RecList {
   period: string;
   label: string;
-  prior: { period: string; label: string; open: boolean };
+  prior: { period: string; label: string; open: boolean; opening?: { note: string | null; by: string | null; at: string | null } | null };
+  opening?: { note: string | null; by: string | null; at: string | null } | null;
   tolerance?: string;
   composed_at?: string | null;
   entity_errors: EntityError[];
@@ -347,7 +348,7 @@ export function actorLabel(actor: string): string {
 // proposal, the note of a draft) are left out on purpose.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const REC_PATH = new RegExp(
-  `^recs/(compose|settings|agent-all|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|statement|reconciling(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
+  `^recs/(compose|settings|agent-all|opening|${UUID}/(place|comment|checks|prepare|review|sign-off|send-back|reopen|agent|releases|counterpart|evidence(/fetch|/${UUID})?|items(/${UUID})?|statement|reconciling(/${UUID})?|journals/${UUID}/(approve|reject)))$`, "i");
 export const isRecPath = (path: string) => REC_PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

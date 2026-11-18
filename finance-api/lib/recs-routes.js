@@ -220,8 +220,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const prior = recs.priorPeriod(period);
     const base = { period, label: recs.periodLabel(period), prior: { period: prior, label: recs.periodLabel(prior), open: false } };
     try {
-      const [run, rows, entities, tol, priorRecs] = await Promise.all([
-        pool.query("SELECT composed_at, composed_by, entity_errors, notes FROM finance.rec_periods WHERE client_id = $1 AND period = $2", [client.id, period]),
+      // Migration 057 (opening_month): read with to_jsonb so the list still
+      // loads before it is applied.
+      const periodRow = (p) => pool.query(
+        "SELECT composed_at, composed_by, entity_errors, notes, to_jsonb(rp) AS raw FROM finance.rec_periods rp WHERE client_id = $1 AND period = $2", [client.id, p]);
+      const [run, rows, entities, tol, priorRecs, priorRun] = await Promise.all([
+        periodRow(period),
         pool.query(
           `SELECT r.id, r.rec_account_id, r.period, r.status, r.owner, r.challenge, r.class, r.artefact, r.proof, r.recheck_reason,
                   r.sole_reviewer, r.signed_snapshot, r.line_key, a.account_name,
@@ -235,7 +239,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         companies(pool, client.id),
         tolerance(pool, client.id),
         pool.query("SELECT rec_account_id, status, recheck_reason, dropped_at FROM finance.recs WHERE client_id = $1 AND period = $2", [client.id, prior]),
+        periodRow(prior),
       ]);
+      const openingOf = (row) => (row?.raw?.opening_month
+        ? { note: row.raw.opening_note ?? null, by: row.raw.opening_by ?? null, at: row.raw.opening_at ?? null } : null);
+      const opening = openingOf(run.rows[0]);
+      const priorOpening = openingOf(priorRun.rows[0]);
       const items = await itemsOf(pool, client.id, rows.rows.map((r) => r.rec_account_id));
       const evidence = await evidenceOf(pool, rows.rows.map((r) => r.id), new Map(rows.rows.map((r) => [r.id, r])));
       const reconciling = await reconcilingOf(pool, rows.rows.map((r) => r.id));
@@ -284,7 +293,11 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       res.json({
         intercompany,
         ...base,
-        prior: { ...base.prior, open: priorRecs.rows.some((r) => r.recheck_reason || (r.status !== "signed_off" && !r.dropped_at)) },
+        // A prior month closed outside os.stza.io is not open: its closing is
+        // this month's opening (migration 057).
+        prior: { ...base.prior, opening: priorOpening,
+          open: !priorOpening && priorRecs.rows.some((r) => r.recheck_reason || (r.status !== "signed_off" && !r.dropped_at)) },
+        opening,
         tolerance: money(tol),
         notes: run.rows[0]?.notes ?? [],
         composed_at: run.rows[0]?.composed_at ?? null,
@@ -520,6 +533,29 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   }));
 
   // PUT /recs/settings   body: { tolerance }   this client's rounding tolerance
+  // POST /recs/opening   body: { period, opening: true|false, note }
+  // The CFO marks a month as closed outside os.stza.io (migration 057): the
+  // next month takes its closing as its opening and does not wait for it.
+  app.post(`${BASE}/opening`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, role, actorEmail }) => {
+    if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO marks a month as closed outside os.stza.io" } };
+    const period = String(req.body?.period ?? "");
+    if (!recs.isPeriod(period)) return { status: 422, body: { issues: ["period must be a month (YYYY-MM)"] } };
+    const on = req.body?.opening !== false;
+    const note = String(req.body?.note ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+    if (on && note.length < 10) return { status: 422, body: { issues: ["say where the month was closed and signed (10 characters or more)"] } };
+    const has = (await conn.query("SELECT 1 FROM information_schema.columns WHERE table_schema = 'finance' AND table_name = 'rec_periods' AND column_name = 'opening_month'")).rowCount;
+    if (!has) return { status: 503, body: { error: "Waiting for migration 057" } };
+    const signed = (await conn.query("SELECT count(*)::int AS n FROM finance.recs WHERE client_id = $1 AND period = $2 AND status = 'signed_off'", [client.id, period])).rows[0].n;
+    if (on && signed) return { status: 409, body: { error: `${signed} reconciliation(s) for this month are signed here, so it was not closed outside os.stza.io` } };
+    const r = await conn.query(
+      `UPDATE finance.rec_periods SET opening_month = $3, opening_note = $4, opening_by = $5, opening_at = CASE WHEN $3 THEN now() END
+        WHERE client_id = $1 AND period = $2 RETURNING period`,
+      [client.id, period, on, on ? note : null, on ? actorEmail : null]);
+    if (!r.rowCount) return { status: 404, body: { error: "Refresh this month from the trial balance first" } };
+    await auditRec(conn, req, { client, actorEmail, role, action: on ? "rec_month_opening_set" : "rec_month_opening_cleared", id: client.id, payload: { period, note } });
+    return { status: 200, body: { period, opening: on } };
+  }, { peopleOnly: true })));
+
   app.put(`${BASE}/settings`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, role, actorEmail }) => {
     if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO sets the tolerance" } };
     const t = Number(req.body?.tolerance);
@@ -1712,9 +1748,22 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   // of the month that can be worked and is not with a reviewer, one run each,
   // worked one after another by a single runner (it hands on to a fresh one
   // when its time runs out). Recs that cannot go yet come back with why.
+  //   body: { period, reopen_signed? }
+  // Re-checks too (18 Nov 2026, the close in a day or two): a rec whose figure
+  // moved after it was prepared goes back to FM1 by itself when it is with the
+  // FC or the CFO; a signed one is reopened only when the CFO asks for it here
+  // (reopen_signed), as reopening undoes a sign-off. A rec with an open Hold on
+  // its thread is parked by a person and left alone.
   app.post(`${BASE}/agent-all`, tolerant(async (req, res) => recTx(req, res, async (conn, { client, actorEmail, actor, role }) => {
     const period = String(req.body?.period ?? "");
     if (!recs.isPeriod(period)) return { status: 422, body: { issues: ["period must be a month (YYYY-MM)"] } };
+    const reopenSigned = req.body?.reopen_signed === true;
+    if (reopenSigned && !recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO reopens signed reconciliations" } };
+    const held = new Set((await conn.query(
+      `SELECT DISTINCT t.subject_key FROM finance.thread_entries t
+        WHERE t.client_id = $1 AND t.subject_kind = 'reconciliation' AND t.kind = 'hold' AND t.needs_decision
+          AND NOT EXISTS (SELECT 1 FROM finance.thread_entries d WHERE d.parent_id = t.id AND d.kind = 'decision')`,
+      [client.id])).rows.map((r) => r.subject_key));
     const rows = (await conn.query(
       `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key,
               to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id,
@@ -1726,6 +1775,24 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const queued = [], skipped = [];
     for (const rec of rows) {
       const skip = (why) => skipped.push({ id: rec.id, account: rec.account_name, why });
+      if (held.has(rec.id)) { if (rec.status !== "signed_off") skip("On hold on its thread: a person parked it"); continue; }
+      if (rec.recheck_reason && ["with_fc", "with_cfo"].includes(rec.status)) {
+        const note = `Re-check: ${rec.recheck_reason}`.slice(0, 4000);
+        await conn.query("UPDATE finance.recs SET status = 'sent_back', review_note = $2, updated_at = now() WHERE id = $1", [rec.id, note]);
+        await event(conn, rec.id, client.id, actor, "sent_back", { note, by: "re-check" });
+        rec.status = "sent_back";
+      } else if (rec.recheck_reason && rec.status === "signed_off") {
+        if (!reopenSigned) { skip("Signed, and a figure moved since: the CFO reopens it (Start agents, including signed re-checks)"); continue; }
+        await conn.query(
+          `UPDATE finance.recs SET status = 'in_progress',
+             signed_history = CASE WHEN signed_snapshot IS NULL THEN signed_history ELSE signed_history || jsonb_build_array(jsonb_build_object(
+               'signed_off_by', signed_off_by, 'signed_off_role', signed_off_role, 'signed_off_at', signed_off_at,
+               'sole_reviewer', sole_reviewer, 'reopened_by', $2::text, 'reopened_at', now(), 'snapshot', signed_snapshot)) END,
+             signed_off_by = NULL, signed_off_role = NULL, signed_off_at = NULL, updated_at = now() WHERE id = $1`, [rec.id, actorEmail]);
+        await event(conn, rec.id, client.id, actor, "reopened", { from: "signed_off", why: "re-check" });
+        await auditRec(conn, req, { client, actorEmail, role, action: "rec_reopened", id: rec.id, payload: { period: rec.period, account: rec.account_name, signed_off_by: rec.signed_off_by, why: rec.recheck_reason } });
+        rec.status = "in_progress";
+      }
       if (!["not_started", "in_progress", "sent_back"].includes(rec.status)) continue;
       if (!recs.workable(rec.line_key, rec.proof)) { skip(recs.notWorkableReason(rec.line_key, rec.proof)); continue; }
       if (rec.live) { skip("FM1 is already working on it"); continue; }
@@ -1739,7 +1806,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       await event(conn, rec.id, client.id, actor, "agent_started", { run_id: run.id, batch: true });
       queued.push({ id: rec.id, account: rec.account_name, run_id: run.id });
     }
-    await auditRec(conn, req, { client, actorEmail, role, action: "rec_agents_started", id: client.id, payload: { period, queued: queued.length, skipped: skipped.length } });
+    await auditRec(conn, req, { client, actorEmail, role, action: "rec_agents_started", id: client.id, payload: { period, queued: queued.length, skipped: skipped.length, reopen_signed: reopenSigned } });
     return {
       status: 200, body: { period, queued, skipped },
       after: queued.length ? async () => ({ runner: await startAgentRunner(queued[0].run_id) }) : undefined,

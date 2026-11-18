@@ -64,17 +64,31 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.period, data.composed_at, data.migration_missing]);
 
-  const startOpen = async () => {
+  // One request: finance-api queues every workable rec, sends re-checks with a
+  // reviewer back to FM1, leaves anything on hold, and (CFO only) reopens signed
+  // re-checks. The page can be closed once it answers (18 Nov 2026: a loop in
+  // the browser stopped when the tab closed).
+  const [said, setSaid] = useState<string | null>(null);
+  const [openingNote, setOpeningNote] = useState("");
+  const markOpening = async (on: boolean) => {
     setBusy(true);
     setError(null);
-    const open = data.recs.filter((r) => r.workable && ["not_started", "sent_back"].includes(r.status));
-    const said: string[] = [];
-    for (const r of open) {
-      const res = await post(slug, `${r.id}/agent`, {});
-      if (!res.ok) said.push(`${r.account_name}: ${String(res.body.error ?? "not started")}`);
-    }
+    const res = await post(slug, "opening", { period: data.period, opening: on, note: openingNote });
     setBusy(false);
-    if (said.length) setError(said.join(" "));
+    if (!res.ok) { setError(String(res.body.error ?? (res.body.issues as string[] | undefined)?.join(" ") ?? "Not saved")); return; }
+    router.refresh();
+  };
+  const startOpen = async (reopenSigned = false) => {
+    setBusy(true);
+    setError(null);
+    setSaid(null);
+    const res = await post(slug, "agent-all", { period: data.period, reopen_signed: reopenSigned });
+    setBusy(false);
+    if (!res.ok) { setError(String(res.body.error ?? (res.body.issues as string[] | undefined)?.join(" ") ?? "Agents were not started")); return; }
+    const queued = (res.body.queued as unknown[] | undefined)?.length ?? 0;
+    const skipped = (res.body.skipped as Array<{ account: string; why: string }> | undefined) ?? [];
+    setSaid(`FM1 started on ${queued} reconciliation${queued === 1 ? "" : "s"}; they run one after another and the page can be closed.`
+      + (skipped.length ? ` Left alone: ${skipped.map((x) => `${x.account} (${x.why})`).join("; ")}.` : ""));
     router.refresh();
   };
 
@@ -82,7 +96,9 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
     return <div className={styles.alert} role="status">Reconciliations are built but not switched on: migration 032 has not been applied to the database yet.</div>;
   }
 
-  const anyOpen = data.recs.some((r) => r.workable && ["not_started", "sent_back"].includes(r.status));
+  const anyOpen = data.recs.some((r) => (r.workable && ["not_started", "in_progress", "sent_back"].includes(r.status))
+    || (r.recheck_reason && ["with_fc", "with_cfo"].includes(r.status)));
+  const signedRecheck = data.recs.filter((r) => r.recheck_reason && r.status === "signed_off").length;
   const company = data.entities.some((e) => e.id === entity) ? entity : "";
   const groups = recGroups(data.recs, data.lines, { order, entity: company });
   // The Intercompany line's accounts show in the pairs table, once; any other
@@ -101,11 +117,18 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
         <button type="button" className="btn-secondary" disabled={busy} onClick={refresh}>
           <RefreshCw size={14} aria-hidden="true" />{busy ? "Reading..." : "Refresh from trial balance"}
         </button>
-        {anyOpen && <button type="button" className="btn-primary" disabled={busy} onClick={startOpen}>Start agents on what is open</button>}
+        {anyOpen && <button type="button" className="btn-primary" disabled={busy} onClick={() => void startOpen(false)}>Start agents on what is open</button>}
+        {signedRecheck > 0 && (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void startOpen(true)}
+            title="Reopens signed reconciliations whose figure moved since sign-off, then starts FM1 on them (CFO)">
+            Also reopen {signedRecheck} signed re-check{signedRecheck === 1 ? "" : "s"}
+          </button>
+        )}
         <span className={styles.barEnd}>{data.counts.signed_off} of {data.counts.total} signed off</span>
       </div>
 
       {error && <div className={styles.err} role="alert">{error}</div>}
+      {said && <div className={styles.note} role="status">{said}</div>}
 
       {data.entity_errors.length > 0 && (
         <div className={styles.alert} role="alert">
@@ -113,6 +136,24 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
         </div>
       )}
       {data.notes.map((n) => <div key={n} className={styles.alert} role="status">{n}</div>)}
+      {data.opening && (
+        <div className={styles.note} role="status">
+          Closed outside os.stza.io: {data.opening.note}{data.opening.by ? ` (${data.opening.by})` : ""}. {periodLong(data.period)}&apos;s closing is the next month&apos;s opening, and its reconciliations are not worked here.{" "}
+          <button type="button" className="btn-text" disabled={busy} onClick={() => void markOpening(false)}>Undo</button>
+        </div>
+      )}
+      {!data.opening && data.counts.signed_off === 0 && data.counts.total > 0 && (
+        <details className={styles.note}>
+          <summary style={{ cursor: "pointer" }}>Was this month closed outside os.stza.io?</summary>
+          <p style={{ margin: "6px 0" }}>Mark it as the opening month (CFO): the next month takes its closing as its opening and stops waiting for it. Say where it was closed and signed.</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input type="text" value={openingNote} onChange={(e) => setOpeningNote(e.target.value)} maxLength={500}
+              placeholder="e.g. Closed and signed in the August workbook, 22 Sep 2026" aria-label="Where the month was closed"
+              style={{ flex: "1 1 260px", height: 34, padding: "0 10px", borderRadius: 8, border: "1px solid var(--bd)", background: "var(--pg)", color: "var(--tx)", font: "inherit" }} />
+            <button type="button" className="btn-secondary" disabled={busy || openingNote.trim().length < 10} onClick={() => void markOpening(true)}>Mark as the opening month</button>
+          </div>
+        </details>
+      )}
       {data.prior.open && (
         <div className={styles.note}>{data.prior.label} is still open. Opening balances may move if it changes, and any reconciliation affected will be marked to re-check.</div>
       )}

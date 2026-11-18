@@ -413,6 +413,37 @@ async function scenario() {
     ok("the ageing no longer counts once the account is not the control account", before === 1 && (v.evidence?.rows ?? []).length === 0 && !v.evidence?.method, { before, after: v.evidence });
     await pool.query("UPDATE finance.rec_accounts SET account_name = 'Accounts Receivable' WHERE id = $1", [recId.rec_account_id]);
   });
+  await section("close automation: opening month, re-checks and holds", async () => {
+    // A month closed outside os.stza.io: the next month stops waiting for it.
+    let r = await api("POST", "recs/opening", { period: "2026-11", opening: true, note: "Closed and signed in the old workbook" }, fm1);
+    ok("an agent cannot mark the opening month", r.status === 403, r.body);
+    r = await api("POST", "recs/opening", { period: "2026-11", opening: true, note: "short" });
+    ok("the CFO must say where it was closed", r.status === 422, r.body);
+    r = await api("POST", "recs/opening", { period: "2026-11", opening: true, note: "Closed and signed in the old workbook" });
+    ok("the CFO marks it", r.status === 200 && r.body.opening === true, r.body);
+    let l = (await api("GET", "recs?period=2026-11")).body;
+    ok("the month shows it was closed outside", l.opening?.note === "Closed and signed in the old workbook", l.opening);
+    l = (await api("GET", "recs?period=2026-12")).body;
+    ok("the next month does not wait for it", l.prior?.open === false && l.prior?.opening?.note, l.prior);
+    r = await api("POST", "recs/opening", { period: "2026-10", opening: true, note: "Closed and signed in the old workbook" });
+    ok("a month with signed recs cannot be marked", r.status === 409, r.body);
+    await api("POST", "recs/opening", { period: "2026-11", opening: false });
+
+    // A re-check with a reviewer goes back to FM1 by itself; a hold is left alone.
+    const nov = (await api("GET", "recs?period=2026-11")).body.recs;
+    const [a, b] = nov.filter((x) => x.workable);
+    await pool.query("UPDATE finance.recs SET status = 'with_cfo', recheck_reason = 'A figure moved' WHERE id = $1", [a.id]);
+    await pool.query("UPDATE finance.recs SET status = 'in_progress' WHERE id = $1", [b.id]);
+    await pool.query(
+      "INSERT INTO finance.thread_entries (client_id, subject_kind, subject_key, period, kind, needs_decision, body, author_email) VALUES ($1,'reconciliation',$2,'2026-11','hold',true,'Parked by the CFO',$3)",
+      [CID, b.id, "cfo@example.com"]);
+    await pool.query("UPDATE finance.agent_runs SET status = 'failed' WHERE rec_id = ANY($1::uuid[])", [[a.id, b.id]]);
+    r = await api("POST", "recs/agent-all", { period: "2026-11" });
+    const after = (await pool.query("SELECT status, review_note FROM finance.recs WHERE id = $1", [a.id])).rows[0];
+    ok("the re-check went back to FM1 and was queued", r.status === 200 && after.status === "sent_back" && /Re-check: A figure moved/.test(after.review_note)
+      && r.body.queued.some((q) => q.id === a.id), { after, body: r.body });
+    ok("the held rec was left alone", r.body.skipped.some((x) => x.id === b.id && /hold/i.test(x.why)) && !r.body.queued.some((q) => q.id === b.id), r.body);
+  });
 }
 
 (async () => {
