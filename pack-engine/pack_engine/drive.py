@@ -47,6 +47,15 @@ def ensure_folder_path(svc, drive_id: str, path: list[str]) -> str:
     return parent
 
 
+def find_file(svc, drive_id: str, folder_id: str, name: str) -> str | None:
+    """The id of a file (not a folder) of this name directly in the folder."""
+    q = (f"'{folder_id}' in parents and name = '{_quote(name)}' and trashed = false "
+         f"and mimeType != '{FOLDER_MIME}'")
+    found = svc.files().list(q=q, fields="files(id)", pageSize=2, corpora="drive", driveId=drive_id,
+                             includeItemsFromAllDrives=True, supportsAllDrives=True).execute()["files"]
+    return found[0]["id"] if found else None
+
+
 def upload(svc, folder_id: str, path: Path, name: str | None = None) -> dict:
     from googleapiclient.http import MediaFileUpload
     return svc.files().create(body={"name": name or path.name, "parents": [folder_id]},

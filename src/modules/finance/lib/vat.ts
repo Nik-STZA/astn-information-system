@@ -37,6 +37,7 @@ export interface VatUpload {
   file_name: string;
   uploaded_by: string;
   uploaded_at: string;
+  has_sheets?: boolean;
   boxes?: Boxes;
   period_start?: string;
   period_end?: string;
@@ -76,7 +77,18 @@ export interface VatLedgerTie {
 
 export interface VatImport { id: string; kind: "group" | "correction" | "reset"; boxes: Boxes; generated_by: string; generated_at: string; confirmed_at: string | null }
 
+export interface VatWorkbook {
+  requested_at: string | null;
+  requested_by: string | null;
+  name: string | null;
+  link: string | null;
+  saved_at: string | null;
+  error: string | null;
+  drive_set: boolean;
+}
+
 export interface VatReturnView {
+  workbook: VatWorkbook;
   return: { id: string; period_start: string; period_end: string; status: VatStatus; vat_number: string; kind: "single" | "group"; representative_id: string | null };
   members: VatMember[];
   uploads: VatUpload[];
@@ -138,7 +150,7 @@ export const importFileName = (periodEnd: string, n: number) => `VAT Return Impo
 
 // The paths the portal may call through to finance-api.
 const GUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports))?$`, "i");
+const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook))?$`, "i");
 export const isVatPath = (path: string) => PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

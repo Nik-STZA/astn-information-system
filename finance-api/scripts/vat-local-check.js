@@ -47,6 +47,7 @@ function exportOf(entity, { box4 = 120, extra = [] } = {}) {
   return {
     "VAT Return": [["VAT Return"], [entity], ["For the period 01 Oct 2026 - 31 Oct 2026"], [], ["VAT Number", "GB123456789"], ["Period Start", "01 Oct 2026"], ["Period End", "31 Oct 2026"],
       ...[1, 2, 3, 4].map((n) => [`Box ${n}`, String(n), String(b[n])]), ["VAT to reclaim from HMRC", "5", String(b[5])], ...[6, 7, 8, 9].map((n) => [`Box ${n}`, String(n), String(b[n])])],
+    "Other tab": [["dropped"]],
     "Transactions by VAT Box": [["Transactions by VAT Box"], [entity], ["For the period 01 Oct 2026 - 31 Oct 2026"],
       ["Box 4", "VAT reclaimed", String(b[4])], ["20% (VAT on Expenses)"], ["Date", "Account", "Reference", "Details", "VAT", "Net"],
       ["10/10/2026", "Rent(469)", "R-1", "Sample Landlord - rent", "120", String(box4 * 5)], ...extra,
@@ -55,7 +56,7 @@ function exportOf(entity, { box4 = 120, extra = [] } = {}) {
   };
 }
 
-let base, CID; const ENT = {};
+let base, CID, reg; const ENT = {};
 let pass = 0; const failures = [];
 const ok = (name, cond, extra) => { if (cond) { pass++; return; } failures.push(name); console.log("  FAIL", name, extra !== undefined ? JSON.stringify(extra).slice(0, 700) : ""); };
 const api = async (method, path, body, actor = CFO) => {
@@ -70,7 +71,7 @@ async function scenario() {
   for (const [slug, name, tenant] of [["rep-ltd", "Rep Ltd", "tenant-rep"], ["m1-ltd", "Member One Ltd", "tenant-m1"], ["m2-ltd", "Member Two Ltd", "tenant-m2"]]) {
     ENT[slug] = (await pool.query("INSERT INTO finance.entities (client_id, slug, name, accounting_system_config) VALUES ($1,$2,$3,$4) RETURNING id", [CID, slug, name, JSON.stringify({ tenant_id: tenant })])).rows[0].id;
   }
-  const reg = (await pool.query("INSERT INTO finance.vat_registrations (client_id, vat_number, kind, representative_id, created_by) VALUES ($1,'123456789','group',$2,'check') RETURNING id", [CID, ENT["rep-ltd"]])).rows[0].id;
+  reg = (await pool.query("INSERT INTO finance.vat_registrations (client_id, vat_number, kind, representative_id, created_by) VALUES ($1,'123456789','group',$2,'check') RETURNING id", [CID, ENT["rep-ltd"]])).rows[0].id;
   for (const id of Object.values(ENT)) await pool.query("INSERT INTO finance.vat_registration_members (registration_id, entity_id, effective_from) VALUES ($1,$2,'2026-01-01')", [reg, id]);
 
   let r = await api("POST", "vat/returns", { period_start: "2026-10-01", period_end: "2026-10-31" });
@@ -108,6 +109,28 @@ async function scenario() {
   ok("the confirmation names what still differs", Array.isArray(v.confirmation), v.confirmation);
   r = await api("POST", `vat/returns/${RID}/uploads`, { entity_id: ENT["m1-ltd"], kind: "representative_pre_import", file_name: "x.xlsx", sheets: exportOf("m1") });
   ok("only the representative uploads a pre/post-import return", r.status === 422, r.body);
+  // The workbook (migration 059)
+  const tabs = (await pool.query("SELECT sheets FROM finance.vat_return_uploads WHERE return_id = $1 AND entity_id = $2 AND kind = 'member_export' AND superseded_at IS NULL", [RID, ENT["m1-ltd"]])).rows[0].sheets;
+  ok("an upload keeps Xero's tabs and nothing else", tabs && Object.keys(tabs).join() === "VAT Return,Transactions by VAT Box", tabs && Object.keys(tabs));
+  r = await api("POST", `vat/returns/${RID}/workbook`, {});
+  ok("no drive, no workbook", r.status === 422 && /no shared drive/.test(r.body.issues?.[0]), r.body);
+  await pool.query("UPDATE finance.vat_registrations SET drive_id = 'drive0000001', export_path = '[\"Sample\", \"VAT\", \"{yyyy}\", \"{yymm}\"]'::jsonb, workbook_title = 'Sample' WHERE id = $1", [reg]);
+  await pool.query("UPDATE finance.vat_registration_members SET code = 'REP' WHERE entity_id = $1", [ENT["rep-ltd"]]);
+  r = await api("GET", `vat/returns/${RID}/workbook-data`);
+  ok("the pack engine gets the folder, the codes and each company's tabs, representative first",
+    r.status === 200 && r.body.drive.path.join("/") === "Sample/VAT/2026/2610" && r.body.title === "Sample"
+      && r.body.companies[0].code === "REP" && r.body.companies[0].representative && r.body.companies[1].code === "MO"
+      && r.body.companies[0].sheets["VAT Return"].length > 5 && r.body.companies[0].after_import?.file_name === "rep-after.xlsx", r.body);
+  const saved = process.env.GCP_PROJECT;
+  delete process.env.GCP_PROJECT;
+  r = await api("POST", `vat/returns/${RID}/workbook`, {});
+  ok("without the pack engine configured it says so", r.status === 503, r.body);
+  if (saved) process.env.GCP_PROJECT = saved;
+  r = await api("POST", `vat/returns/${RID}/workbook-saved`, { file_id: "file0000001", name: "Sample VAT Group Return - 2610.xlsx", link: "https://drive.google.com/file/d/file0000001/view" });
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("the saved file shows on the return", v.workbook.link?.includes("file0000001") && v.workbook.drive_set && v.uploads.every((u) => u.has_sheets), v.workbook);
+  r = await api("POST", `vat/returns/${RID}/workbook-saved`, { link: "https://evil.example/x" });
+  ok("a report without a file id is refused", r.status === 422, r.body);
   ok("nothing was written to Xero", xeroWrites === 0, xeroWrites);
 }
 

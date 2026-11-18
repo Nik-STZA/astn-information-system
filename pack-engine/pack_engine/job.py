@@ -115,5 +115,14 @@ def run(*, drive=None, now: datetime | None = None) -> int:
         return 1
 
 
+def main() -> int:
+    """The job's entry point: a management pack, or a VAT return workbook
+    (JOB_KIND=vat_workbook, started by finance-api's VAT routes)."""
+    if os.environ.get("JOB_KIND", "").strip() == "vat_workbook":
+        from .vat_workbook import run as run_vat
+        return run_vat()
+    return run()
+
+
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(main())

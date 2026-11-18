@@ -93,6 +93,9 @@ const { isCfo } = require("./lib/contracts");
 const { readMasterTable, planMaster, changesToApply } = require("./lib/master-mapping");
 
 const app = express();
+// A VAT return export carries all of Xero's tabs (lib/vat-routes.js): a busy
+// month runs to several hundred KB, so that one path takes up to 8 MB.
+app.use(/^\/api\/finance\/clients\/[^/]+\/vat\/returns\/[^/]+\/uploads$/, express.json({ limit: "8mb" }));
 app.use(express.json({ limit: "1mb" }));
 
 // ── Database ────────────────────────────────────────────────────────────────

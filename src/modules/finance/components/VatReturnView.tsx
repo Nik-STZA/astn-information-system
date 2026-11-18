@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CircleCheck, CircleAlert, Download, FileUp, Info } from "lucide-react";
+import { CircleCheck, CircleAlert, Download, ExternalLink, FileUp, FolderUp, Info } from "lucide-react";
 import { readXlsxAll } from "@/modules/finance/lib/xlsx-read";
 import { writeXlsx } from "@/modules/finance/lib/xlsx-write";
 import {
@@ -22,7 +22,7 @@ import vat from "./Vat.module.css";
 
 const BOXES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const FILE_BOXES = [1, 2, 4, 6, 7, 8, 9];
-const TABS = ["VAT Return", "Transactions by VAT Box"];
+const TABS = ["VAT Return", "Transactions by VAT Box", "Transactions by Tax Rate"];
 
 async function sha256(buf: ArrayBuffer): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", buf);
@@ -85,6 +85,15 @@ export default function VatReturnView({ slug, data, ledgerHref }: { slug: string
     if (!x.ok) { setMsg({ ok: false, text: failed(x) }); return; }
     download(writeXlsx("VAT Return Import", g.template_rows), importFileName(r.period_end, data.imports.length + 1));
     setMsg({ ok: true, text: "Import file downloaded and recorded. Import it into the representative's return in Xero, then upload its export below." });
+    router.refresh();
+  }
+
+  async function saveWorkbook() {
+    setBusy("workbook"); setMsg(null);
+    const x = await post("workbook", {});
+    setBusy(null);
+    if (!x.ok) { setMsg({ ok: false, text: failed(x) }); return; }
+    setMsg({ ok: true, text: "Building the workbook. It takes about a minute; refresh to see the link." });
     router.refresh();
   }
 
@@ -223,6 +232,39 @@ export default function VatReturnView({ slug, data, ledgerHref }: { slug: string
           )}
         </section>
       )}
+
+      <section className={page.card} aria-label="Workbook">
+        <div className={page.cardHead}>
+          <h2>Workbook</h2>
+          {data.workbook.drive_set && data.uploads.length > 0 && (
+            <button className="btn-secondary" disabled={busy !== null} onClick={saveWorkbook} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <FolderUp size={15} aria-hidden="true" />{busy === "workbook" ? "Starting..." : data.workbook.link ? "Save again" : "Save to the client's drive"}
+            </button>
+          )}
+        </div>
+        <div className={`${page.pad} ${page.stack}`} style={{ fontSize: 13 }}>
+          <span className={page.small}>
+            The consolidated file: a GROUP sheet (each company, the group and the adjustment, as formulas on the company tabs),
+            each company&apos;s three Xero tabs and the checks, saved in the period&apos;s VAT folder. Saving again replaces the file it made before.
+          </span>
+          {!data.workbook.drive_set && <span className={page.warn}>No shared drive is set for this VAT registration yet.</span>}
+          {data.uploads.some((u) => u.kind === "member_export" && !u.has_sheets) && (
+            <span className={page.warn}>Some exports were uploaded before the workbook existed and did not keep Xero&apos;s tabs: upload them again first.</span>
+          )}
+          {data.workbook.link && (
+            <span>
+              <a href={data.workbook.link} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {data.workbook.name ?? "Open the workbook"}<ExternalLink size={12} aria-hidden="true" />
+              </a>
+              <span className={page.small}> saved {longDate(data.workbook.saved_at)}</span>
+            </span>
+          )}
+          {data.workbook.requested_at && (!data.workbook.saved_at || data.workbook.saved_at < data.workbook.requested_at) && !data.workbook.error && (
+            <span className={page.small}>Being built (asked {longDate(data.workbook.requested_at)} by {data.workbook.requested_by}). Refresh in a minute.</span>
+          )}
+          {data.workbook.error && <span className={page.warn}>The last save failed: {data.workbook.error}</span>}
+        </div>
+      </section>
 
       <section className={page.card} aria-label="Ledger tie">
         <div className={page.cardHead}>
