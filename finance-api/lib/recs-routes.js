@@ -1529,7 +1529,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const balances = await balancesOf(pool, rec.id);
     const entities = await companies(pool, who.client.id);
     const names = new Map(entities.map((e) => [e.id, e.name]));
-    const rows = [], said = [];
+    const rows = [], said = [], aheadItems = [];
     const date = rec.period_end;
     if (method === "ageing_ar" || method === "ageing_ap") {
       const kind = method === "ageing_ap" ? "ap" : "ar";
@@ -1560,9 +1560,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           const laterWhere = `Type=="${type}" AND Date > DateTime(${dt[0]},${dt[1]},${dt[2]}) AND Date <= DateTime(${after.getUTCFullYear()},${after.getUTCMonth() + 1},${after.getUTCDate()}) AND (Status=="AUTHORISED" OR Status=="PAID")`;
           const later = (await xeroPages(ctx, "/Invoices", "Invoices", { where: laterWhere }))
             .filter((inv) => (inv.Payments || []).length);
-          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances, later });
-          rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "supplier bills" : "sales invoices"} outstanding at ${date}`, note: ev.note });
-          said.push(`${e.name}: ${ev.note}`);
+          const ev = recs.ageingEvidence(invoices, { date, kind, creditNotes, advances });
+          const ahead = recs.paidAheadItems(later, { date, kind });
+          const aheadNote = ahead.length ? ` ${ahead.length} payment${ahead.length === 1 ? "" : "s"} made by then on ${kind === "ap" ? "bills" : "invoices"} dated after it ${ahead.length === 1 ? "is a timing item" : "are timing items"} below.` : "";
+          rows.push({ entity_id: b.entity_id, amount: ev.amount, source: `Xero ${kind === "ap" ? "aged payables" : "aged receivables"} at ${date}`, note: ev.note + aheadNote });
+          aheadItems.push(...ahead.map((it) => ({ ...it, entity_id: b.entity_id })));
+          said.push(`${e.name}: ${ev.note}${aheadNote}`);
         } catch (err) {
           said.push(`${e?.name ?? "A company"}: Xero could not be read (${String(err.message || err).slice(0, 200)}). Nothing was taken for it.`);
         }
@@ -1658,6 +1661,24 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const stop = fetchStop(r2, method, via);
       if (stop) return stop;
       await conn.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND method IS NOT NULL", [r2.id]);
+      // The ageing's timing items (payments ahead of the invoice) are replaced
+      // each fetch; one a person edited or cleared is kept.
+      if ((method === "ageing_ap" || method === "ageing_ar") && await hasReconciling(conn)) {
+        const fetchedFor = rows.map((v) => v.entity_id);
+        await conn.query(
+          "DELETE FROM finance.rec_reconciling_items WHERE rec_id = $1 AND source = 'ageing' AND state = 'open' AND edited_at IS NULL AND entity_id = ANY($2::uuid[])",
+          [r2.id, fetchedFor]);
+        const kept = (await conn.query("SELECT entity_id, xero_ref, amount FROM finance.rec_reconciling_items WHERE rec_id = $1 AND source = 'ageing'", [r2.id])).rows;
+        const keyOf = (x) => `${x.entity_id}|${x.xero_ref ?? ""}|${recs.pence(x.amount)}`;
+        const keptKeys = new Set(kept.map(keyOf));
+        for (const it of aheadItems) {
+          if (keptKeys.has(keyOf(it))) continue;
+          await conn.query(
+            `INSERT INTO finance.rec_reconciling_items (rec_id, entity_id, side, kind, txn_date, description, amount, xero_ref, source, added_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ageing',$9)`,
+            [r2.id, it.entity_id, it.side, it.kind, it.txn_date, it.description.slice(0, 300), it.amount, it.xero_ref, actor]);
+        }
+      }
       for (const v of rows) {
         await conn.query(
           `INSERT INTO finance.rec_evidence (rec_id, entity_id, kind, amount, source, document_ref, note, added_by, method)
@@ -1666,7 +1687,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       }
       await started(conn, r2);
       await event(conn, r2.id, client.id, actor, "evidence_fetched", { method, rows: rows.length });
-      return { status: 200, body: { method, method_label: recs.METHOD_LABEL[method], fetched: rows.length, said } };
+      return { status: 200, body: { method, method_label: recs.METHOD_LABEL[method], fetched: rows.length, timing_items: aheadItems.length, said } };
     }));
   }));
 

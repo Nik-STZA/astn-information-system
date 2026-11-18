@@ -65,7 +65,10 @@ const INVOICES = {
     { InvoiceID: "i1", Type: "ACCREC", Status: "PAID", DateString: "2026-10-10T00:00:00", Total: 500, Payments: [{ DateString: "2026-10-20T00:00:00", Amount: 200 }, { DateString: "2026-11-05T00:00:00", Amount: 300 }] },
     { InvoiceID: "i2", Type: "ACCREC", Status: "AUTHORISED", DateString: "2026-11-02T00:00:00", Total: 999 },
   ],
-  b: [{ InvoiceID: "p1", Type: "ACCPAY", Status: "AUTHORISED", DateString: "2026-10-12T00:00:00", Total: 300 }],
+  b: [{ InvoiceID: "p1", Type: "ACCPAY", Status: "AUTHORISED", DateString: "2026-10-12T00:00:00", Total: 300 },
+    // Dated after the month end, paid 4.00 on 30 October: a timing item, not in the ageing.
+    { InvoiceID: "p2", Type: "ACCPAY", Status: "PAID", InvoiceNumber: "SB-9", Contact: { Name: "Sample Supplier Ltd" }, DateString: "2026-11-01T00:00:00", Total: 4,
+      Payments: [{ DateString: "2026-10-30T00:00:00", Amount: 4 }] }],
 };
 const CREDIT_NOTES = { a: [], b: [{ CreditNoteID: "c1", Type: "ACCPAYCREDIT", Status: "AUTHORISED", DateString: "2026-10-20T00:00:00", Total: 40 }] };
 
@@ -95,6 +98,8 @@ global.fetch = async (url, opts = {}) => {
     return json({ Invoices: page === 1 ? INVOICES[t].filter((i) => i.Type === type) : [] });
   }
   if (u.pathname.endsWith("/CreditNotes")) return json({ CreditNotes: page === 1 ? CREDIT_NOTES[t] : [] });
+  if (u.pathname.endsWith("/Prepayments")) return json({ Prepayments: [] });
+  if (u.pathname.endsWith("/Overpayments")) return json({ Overpayments: [] });
   // Xero's fixed asset register for company a: one computer, depreciated to 30 September.
   if (u.pathname.endsWith("/AssetTypes")) return json(t === "a" ? [{ assetTypeId: "t1", fixedAssetAccountId: CE, accumulatedDepreciationAccountId: CD }] : []);
   if (u.pathname.endsWith("/Settings") && u.pathname.includes("assets.xro")) return json({ lastDepreciationDate: "2026-09-30T00:00:00" });
@@ -183,7 +188,14 @@ async function scenario() {
     const r = await api("POST", `recs/${id}/evidence/fetch`, {});
     ok("a person can fetch too", r.status === 200 && /less 1 credit note/.test(r.body.said[0]), r.body);
     const v = (await api("GET", `recs/${id}`)).body;
-    ok("evidence -260.00 against a ledger of -250.00: out by 10.00", v.cover.rows[0].schedule === "-260.00" && v.cover.rows[0].variance === "10.00" && !v.cover.ties, v.cover);
+    const items = v.evidence.reconciling ?? [];
+    ok("the evidence is the ageing, -260.00", v.evidence.rows[0].amount === "-260.00" && /aged payables/.test(v.evidence.rows[0].source), v.evidence.rows);
+    ok("a bill dated after the month end, paid by it, is a timing item from the ageing", items.length === 1 && items[0].source === "ageing" && items[0].kind === "timing"
+      && items[0].side === "xero_only" && items[0].amount === "4.00" && /Paid 2026-10-30 on Sample Supplier Ltd SB-9 dated 2026-11-01/.test(items[0].description), items);
+    ok("ageing -260.00 plus 4.00 against a ledger of -250.00: out by 6.00", v.cover.rows[0].schedule === "-256.00" && v.cover.rows[0].variance === "6.00" && !v.cover.ties, v.cover);
+    const again = await api("POST", `recs/${id}/evidence/fetch`, {});
+    const v2 = (await api("GET", `recs/${id}`)).body;
+    ok("fetching again replaces the timing items, never doubles", again.status === 200 && (v2.evidence.reconciling ?? []).length === 1, v2.evidence.reconciling);
     const p = await api("POST", `recs/${id}/prepare`, { note: "" }, fm1);
     ok("a difference needs the note and the company comment", p.status === 422 && /say why/.test(p.body.issues.join()), p.body);
   });
