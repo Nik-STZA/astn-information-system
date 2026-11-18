@@ -1190,6 +1190,7 @@ function sendBackInstruction(rec, note, by) {
     `${by} sent the ${rec.account_name} reconciliation for ${periodLabel(rec.period)} back to you. Reconciliation id: ${rec.id}.`,
     `What needs changing, in their words: ${String(note ?? "").trim()}`,
     "Deal with that first. Use get_rec to see the reconciliation as it stands, and run_rec_checks again if the ledger or the schedule may have moved.",
+    "If an evidence row is wrong or duplicated, remove it with remove_rec_evidence and say which and why. Where it helps, read how the account was done before with get_rec_history.",
     "Read the accruals-and-prepayments procedure if it is listed for you, and the balance-sheet-matrix procedure.",
     "If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
     "Then use submit_rec with a note in plain English that says what you changed for each point, and hand off to fc.",

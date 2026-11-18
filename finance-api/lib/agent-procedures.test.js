@@ -101,6 +101,25 @@ describe("the agents' library", () => {
     // No role: a general session keeps every tool, as before.
     expect(names(undefined)).toHaveLength(all.length);
   });
+
+  // 19 Nov 2026: remove_rec_evidence and get_rec_history were built and named
+  // in FM1's instructions, but not added to its role, so FM1 could not use
+  // them and said so. Every rec tool the preparer is told to use is FM1's;
+  // the reviewer has the ones it reviews with.
+  it("gives FM1 every rec tool its instructions name, and the FC its review tools", () => {
+    const all = [...ALL_TOOLS].map((name) => ({ name }));
+    const names = (agent) => toolsFor(agent, all).map((t) => t.name);
+    const { prepareInstruction, sendBackInstruction } = require("./recs");
+    const told = [prepareInstruction({ id: "x", account_name: "VAT", period: "2026-10", line_key: "vat", proof: "outside_evidence" }),
+      prepareInstruction({ id: "x", account_name: "Prepayments", period: "2026-10", line_key: "prepay", proof: "schedule" }),
+      sendBackInstruction({ id: "x", account_name: "VAT", period: "2026-10" }, "note", "CFO")].join(" ");
+    const words = new Set(told.split(/[^a-z_]+/));
+    const named = REC_TOOLS.filter((t) => words.has(t));
+    expect(named).toEqual(expect.arrayContaining(["get_rec_history", "remove_rec_evidence", "fetch_rec_evidence", "submit_rec"]));
+    for (const t of named) expect(names("fm1"), t).toContain(t);
+    for (const t of REC_TOOLS.filter((x) => x !== "review_rec")) expect(names("fm1"), t).toContain(t);
+    for (const t of ["list_recs", "get_rec", "get_rec_history", "review_rec"]) expect(names("fc"), t).toContain(t);
+  });
 });
 
 describe("client rules", () => {
