@@ -106,8 +106,32 @@ export interface VatClearingJournal {
   total: number;
 }
 
+export interface VatPaymentMatch {
+  id: string;
+  xero_bank_txn_id: string | null;
+  paid_on: string;
+  amount: number;
+  difference: number;
+  set_off_reason: string | null;
+  matched_by: string;
+  matched_at: string;
+}
+
+export interface VatPaymentCandidate {
+  xero_bank_txn_id: string;
+  date: string;
+  contact: string | null;
+  reference: string | null;
+  bank_account: string | null;
+  amount: number;
+  difference: number;
+  exact: boolean;
+  taken: boolean;
+}
+
 export interface VatReturnView {
   workbook: VatWorkbook;
+  payment: { expected: number; matched: VatPaymentMatch[] } | null;
   clearing: VatClearingJournal[] | null;
   submission: VatSubmission | null;
   can_submit: boolean;
@@ -172,7 +196,7 @@ export const importFileName = (periodEnd: string, n: number) => `VAT Return Impo
 
 // The paths the portal may call through to finance-api.
 const GUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook|submit|clearing))?$`, "i");
+const PATH = new RegExp(`^vat/returns(?:/${GUID}/(?:uploads|adjustments|imports|workbook|submit|clearing|payments|payments/find|payments/${GUID}/withdraw))?$`, "i");
 export const isVatPath = (path: string) => PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────

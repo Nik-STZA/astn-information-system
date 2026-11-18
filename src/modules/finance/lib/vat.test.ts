@@ -7,8 +7,11 @@ describe("VAT helpers", () => {
     expect(isVatPath("vat/returns")).toBe(true);
     for (const p of ["uploads", "adjustments", "imports", "workbook", "submit", "clearing"]) expect(isVatPath(`vat/returns/${id}/${p}`)).toBe(true);
     expect(isVatPath(`vat/returns/${id}`)).toBe(false);
-    expect(isVatPath(`vat/returns/${id}/payments`)).toBe(false);
+    expect(isVatPath(`vat/returns/${id}/refunds`)).toBe(false);
     expect(isVatPath("vat/returns/not-an-id/uploads")).toBe(false);
+    expect(isVatPath(`vat/returns/${id}/payments/find`)).toBe(true);
+    expect(isVatPath(`vat/returns/${id}/payments/${id}/withdraw`)).toBe(true);
+    expect(isVatPath(`vat/returns/${id}/payments/${id}`)).toBe(false);
   });
 
   it("names a calendar month as the month, anything else as dates", () => {

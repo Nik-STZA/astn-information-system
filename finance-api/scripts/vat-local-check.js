@@ -19,6 +19,7 @@ const SLUG = "sample-vat";
 const CFO = "cfo@example.com";
 const FM = "fm@example.com";
 let xeroWrites = 0;
+let hmrcPays = null;   // the HMRC receipt in the representative's bank feed, once the test puts it there
 const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 const realFetch = global.fetch;
 // Each company's VAT control: 200.00 debit at 30 Sep, 320.00 at 31 Oct, with a
@@ -41,7 +42,10 @@ global.fetch = async (url, opts = {}) => {
     if (u.searchParams.get("page") > "1") return json({ ManualJournals: [] });
     return json({ ManualJournals: t === "tenant-rep" ? [{ Narration: "VAT group clearing", ...(paged ? { JournalLines: [{ AccountCode: "820", LineAmount: -100 }] } : {}) }] : [] });
   }
-  if (u.pathname.endsWith("/BankTransactions")) return json({ BankTransactions: [] });
+  if (u.pathname.endsWith("/BankTransactions")) {
+    if (!hmrcPays || t !== "tenant-rep" || u.searchParams.get("page") > "1") return json({ BankTransactions: [] });
+    return json({ BankTransactions: hmrcPays });
+  }
   return json({}, 404);
 };
 const { app, pool } = require("../server.js");
@@ -175,8 +179,38 @@ async function scenario() {
   ok("the clearing is proposed once", r.status === 409, r.body);
   v = (await api("GET", `vat/returns/${RID}`)).body;
   ok("the return lists its clearing journals", v.clearing?.length === 3 && v.clearing.every((j) => j.state === "proposed" && j.jnl), v.clearing);
+
+  // HMRC's payment
+  ok("the return expects HMRC's repayment of box 5", v.payment?.expected === 360 && v.payment.matched.length === 0, v.payment);
+  const today = new Date();
+  const ms = (days) => `/Date(${Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + days)}+0000)/`;
+  const { randomUUID } = require("crypto");
+  const HMRC_OK = randomUUID(), HMRC_SHORT = randomUUID(), CUSTOMER = randomUUID();
+  hmrcPays = [
+    { BankTransactionID: HMRC_SHORT, Type: "RECEIVE", Status: "AUTHORISED", Date: ms(2), Total: 350, Contact: { Name: "HMRC" }, LineItems: [{ AccountCode: "820", LineAmount: 350 }] },
+    { BankTransactionID: HMRC_OK, Type: "RECEIVE", Status: "AUTHORISED", Date: ms(5), Total: 360, Contact: { Name: "HMRC VAT" }, LineItems: [{ AccountCode: "820", LineAmount: 360 }] },
+    { BankTransactionID: CUSTOMER, Type: "RECEIVE", Status: "AUTHORISED", Date: ms(3), Total: 360, Contact: { Name: "A Customer" }, LineItems: [{ AccountCode: "200", LineAmount: 360 }] },
+  ];
+  r = await api("POST", `vat/returns/${RID}/payments/find`, {}, FM);
+  ok("anyone on the client finds HMRC's payment, the exact one first, and not a customer's", r.status === 200
+    && r.body.candidates.map((c) => c.xero_bank_txn_id).join() === `${HMRC_OK},${HMRC_SHORT}` && r.body.candidates[0].exact, r.body);
+  r = await api("POST", `vat/returns/${RID}/payments`, { xero_bank_txn_id: HMRC_OK }, FM);
+  ok("only the CFO matches it", r.status === 403, r.body);
+  r = await api("POST", `vat/returns/${RID}/payments`, { xero_bank_txn_id: CUSTOMER });
+  ok("a customer's receipt cannot be matched", r.status === 422, r.body);
+  r = await api("POST", `vat/returns/${RID}/payments`, { xero_bank_txn_id: HMRC_SHORT });
+  ok("a short payment without a reason leaves the return part paid", r.status === 201 && r.body.status === "part_paid" && r.body.difference === -10, r.body);
+  r = await api("POST", `vat/returns/${RID}/payments`, { xero_bank_txn_id: HMRC_OK });
+  ok("one match at a time", r.status === 409, r.body);
   v = (await api("GET", `vat/returns/${RID}`)).body;
-  ok("the return shows the submission, fixed", v.return.status === "submitted" && v.submission?.hmrc_receipt_ref === "123456789012" && !v.can_submit, v.submission);
+  r = await api("POST", `vat/returns/${RID}/payments/${v.payment.matched[0].id}/withdraw`, {});
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("withdrawing it puts the return back to submitted", r.status === 200 && v.return.status === "submitted" && v.payment.matched.length === 0, { r: r.body, status: v.return.status });
+  r = await api("POST", `vat/returns/${RID}/payments`, { xero_bank_txn_id: HMRC_OK });
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("the exact repayment makes the return paid", r.status === 201 && v.return.status === "paid" && v.payment.matched[0].amount === 360, { r: r.body, v: v.payment });
+  v = (await api("GET", `vat/returns/${RID}`)).body;
+  ok("the return shows the submission, fixed", ["submitted", "paid"].includes(v.return.status) && v.submission?.hmrc_receipt_ref === "123456789012" && !v.can_submit, { status: v.return.status, can: v.can_submit, sub: v.submission?.hmrc_receipt_ref });
   r = await api("POST", `vat/returns/${RID}/uploads`, { entity_id: ENT["m1-ltd"], kind: "member_export", file_name: "late.xlsx", sheets: exportOf("m1-ltd") });
   const r2 = await api("POST", `vat/returns/${RID}/imports`, { boxes: v.group?.import ?? { 1: 0, 2: 0, 4: 0, 6: 0, 7: 0, 8: 0, 9: 0 } });
   ok("after submission nothing changes its figures", r.status === 409 && r2.status === 409, { upload: r.status, imports: r2.status });
