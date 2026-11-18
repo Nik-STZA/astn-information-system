@@ -223,8 +223,14 @@ const EVIDENCE_PROOFS = new Set(["outside_evidence", "ledger_review"]);
 // asset register, signed for the month in os.stza.io, or Xero's own register
 // for the accounts Xero keeps (lib/rec-asset-evidence.js).
 const REGISTER_SCHEDULED = new Set(["deferred", "ppe", "intangible"]);
+// Every other line proved by a schedule (accruals, provisions, leases, loan
+// notes...) is worked as an evidence rec until its own schedule is built here
+// (18 Nov 2026: Accruals and Pensions could not be worked at all). The
+// schedule comes onto the rec as outside evidence, an amount per company with
+// the document; a nil balance is confirmed with its basis. Prepayments keep the
+// schedule built here.
 const usesEvidence = (lineKey, proof) => Boolean(lineKey)
-  && (EVIDENCE_PROOFS.has(proof) || (proof === "schedule" && REGISTER_SCHEDULED.has(lineKey)));
+  && (EVIDENCE_PROOFS.has(proof) || (proof === "schedule" && lineKey !== "prepay"));
 // The kind an evidence row is held as (rec_evidence allows the two evidence
 // proofs). Deferred income's register stands on its signed contracts, which
 // are outside evidence.
@@ -237,7 +243,7 @@ const workable = (lineKey, proof) => bySchedule(lineKey, proof) || usesEvidence(
 function notWorkableReason(lineKey, proof) {
   if (workable(lineKey, proof)) return null;
   if (!lineKey) return "Place this account on the balance sheet matrix first, so it is known how it is proved.";
-  return "This is proved by a schedule, which is not built here yet: only the Prepayments schedule is.";
+  return "This line cannot be worked here yet.";
 }
 
 // ── Evidence ─────────────────────────────────────────────────────────────────
@@ -1146,7 +1152,9 @@ function prepareInstruction(rec) {
       "Use get_rec to see each company's ledger balance and any evidence already held.",
       method
         ? `Use fetch_rec_evidence first: it takes the evidence from Xero (${METHOD_LABEL[method]}). Check what it found against the ledger and the documents behind it.`
-        : "There is no automatic source for this account. Find outside evidence for each company (a statement, a return, a register, a confirmation) with get_account_activity and list_attachments, and record it with add_rec_evidence: the amount, where it comes from, and the document.",
+        : rec.proof === "schedule"
+          ? "This account is proved by a schedule that is not built in os.stza.io yet, so record the schedule as evidence with add_rec_evidence: for each company, the schedule's total at the month end, where it comes from (the listing and its date) and the document. Build the listing from get_account_activity (what makes up the balance and what cleared it). If a company's balance is nil, record nil with the basis: what was on the account during the month and how it cleared; a nil balance with movement is still proved."
+          : "There is no automatic source for this account. Find outside evidence for each company (a statement, a return, a register, a confirmation) with get_account_activity and list_attachments, and record it with add_rec_evidence: the amount, where it comes from, and the document.",
       "Every company on the rec needs evidence. Where evidence and ledger differ, find the cause: name the transactions. If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
       "Where you cannot find outside evidence, say so plainly; never record the ledger figure itself as its own evidence.",
       "If an evidence row is wrong, duplicated by a fresh fetch, or belongs to another account, remove it with remove_rec_evidence and say why.",
