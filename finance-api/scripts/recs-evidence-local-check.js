@@ -239,6 +239,11 @@ async function scenario() {
     ok("only a company on the rec", r.status === 422, r.body);
     r = await api("POST", `recs/${id}/evidence`, { entity_id: EA, amount: -100, source: "Confirmation statement, 1 March 2026", document_ref: "CS01 2026.pdf" }, fm1);
     ok("FM1 keys Alpha's", r.status === 201, r.body);
+    r = await api("POST", `recs/${id}/evidence`, { entity_id: EA, amount: -100, source: "Alpha confirmation statement again" }, fm1);
+    ok("FM1 cannot add the same amount for the same company a second time", r.status === 409 && r.body.duplicate_of, r.body);
+    r = await api("POST", `recs/${id}/evidence`, { entity_id: EA, amount: -100, source: "Share premium certificate", distinct_reason: "A separate allotment of 100 shares in June" }, fm1);
+    ok("unless it says how the item differs", r.status === 201, r.body);
+    await api("DELETE", `recs/${id}/evidence/${r.body.id}`, undefined, fm1);
     r = await api("POST", `recs/${id}/evidence`, { entity_id: EB, amount: -2, source: "Confirmation statement, 1 March 2026" }, { "X-Work-Via": `agent:ap-clerk:${await run("ap-clerk")}` });
     ok("the AP clerk cannot", r.status === 403, r);
     const wrong = await api("POST", `recs/${id}/evidence`, { entity_id: EB, amount: -20, source: "Confirmation statement, 1 March 2026" });
@@ -258,6 +263,13 @@ async function scenario() {
     r = await api("POST", `recs/${nid}/evidence/fetch`, {}, fm1);
     v = (await api("GET", `recs/${nid}`)).body;
     ok("November: October's signed evidence carried where nothing moved, and it ties", r.status === 200 && v.cover.ties && v.evidence.rows.every((x) => /carried from October 2026/.test(x.source)), { r: r.body, ev: v.evidence.rows });
+    r = await api("GET", `recs/${nid}/history`);
+    const oct = r.body.months?.[0];
+    ok("November's preparer can read how October was done: the evidence, its sources, the notes and the sign-off",
+      r.status === 200 && oct?.period === "2026-10" && oct.status === "signed_off" && oct.preparer_note === "Agrees to the confirmation statements."
+        && oct.evidence.length === 2 && oct.evidence.some((x) => x.document_ref === "CS01 2026.pdf") && oct.decisions.some((d) => d.action === "signed_off"), r.body);
+    r = await api("GET", `recs/${id}/history`);
+    ok("October has no earlier month to read", r.status === 200 && r.body.months.length === 0, r.body);
   });
 
   await section("a bank statement: the last day it agreed, and what stands between", async () => {

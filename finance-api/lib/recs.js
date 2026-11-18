@@ -1146,13 +1146,19 @@ const approvalInstruction = (journalId, jnlNo = null) =>
 const namesRecProposal = (instruction) => /reconciliation proposal [0-9a-f-]{36}\b/i.test(String(instruction ?? ""));
 
 // What FM1 is asked when a person starts it on a rec.
+// How a preparer starts (CFO, 19 Nov 2026): the month starts clear, and the
+// way it was done before is read first, as a finance person would open last
+// month's file, then followed or improved.
+const HISTORY = "First read how this account was reconciled before with get_rec_history: the evidence and its sources, the comments, the reconciling items and the CFO's decisions in the thread. This month starts clear: record this month's evidence fresh, following how it was done unless you find a better way, and never copy last month's figures. In your submit note, say what you followed from last month and anything you did differently and why.";
+
 function prepareInstruction(rec) {
   if (usesEvidence(rec.line_key, rec.proof)) {
     const method = autoMethod(rec);
     return [
       `Prepare the ${rec.account_name} reconciliation for ${periodLabel(rec.period)}. Reconciliation id: ${rec.id}.`,
       "Read the balance-sheet-matrix procedure, and any procedure listed for you that covers this account.",
-      "Use get_rec to see each company's ledger balance and any evidence already held.",
+      HISTORY,
+      "Use get_rec to see each company's ledger balance and any evidence already held. Before adding anything, check what is already there: never add a row the reconciliation already holds.",
       method
         ? `Use fetch_rec_evidence first: it takes the evidence from Xero (${METHOD_LABEL[method]}). Check what it found against the ledger and the documents behind it.`
         : rec.proof === "schedule"
@@ -1168,6 +1174,7 @@ function prepareInstruction(rec) {
   return [
     `Prepare the ${rec.account_name} reconciliation for ${periodLabel(rec.period)}. Reconciliation id: ${rec.id}.`,
     "Read the accruals-and-prepayments procedure if it is listed for you, and the balance-sheet-matrix procedure.",
+    HISTORY,
     "Use get_rec, then run_rec_checks. Check every company, and that each item has a document. Add or correct items with save_rec_item.",
     "Find the cause of any difference. If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
     "Then use submit_rec with a note in plain English, and hand off to fc.",
