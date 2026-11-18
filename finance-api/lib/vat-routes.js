@@ -6,6 +6,9 @@
 //   POST /clients/:slug/vat/returns/:id/uploads     { entity_id, kind, file_name, sha256, sheets }
 //   POST /clients/:slug/vat/returns/:id/adjustments { key, reason, evidence_ref }   CFO
 //   POST /clients/:slug/vat/returns/:id/imports     record the import file generated now
+//   POST /clients/:slug/vat/returns/:id/workbook    build the workbook and save it to the drive
+//   GET  /clients/:slug/vat/returns/:id/workbook-data   for the pack engine (migration 059)
+//   POST /clients/:slug/vat/returns/:id/workbook-saved  the pack engine reports back
 //
 // People only for now: the browser reads each export (it is a person's
 // download from Xero) and sends its tabs as rows. Nothing here writes to Xero:
@@ -17,6 +20,42 @@ const { checkReturn, adjustmentKey } = require("./vat-checks");
 const { buildGroup, confirmImport, importTemplateRows } = require("./vat-group");
 const { trialBalanceByAccountId } = require("./journal");
 const { isCfo } = require("./contracts");
+const { metadataToken } = require("./pack-job");
+
+// The tabs of Xero's export kept with an upload, for the workbook.
+const KEEP_TABS = ["VAT Return", "Transactions by VAT Box", "Transactions by Tax Rate"];
+const MAX_ROWS = 20000;
+const MAX_COLS = 30;
+
+// Only Xero's tabs, as rows of short text; anything else in the file is dropped.
+function keptSheets(sheets) {
+  if (!sheets || typeof sheets !== "object") return null;
+  const out = {};
+  for (const tab of KEEP_TABS) {
+    const rows = sheets[tab];
+    if (!Array.isArray(rows)) continue;
+    out[tab] = rows.slice(0, MAX_ROWS).map((r) => (Array.isArray(r) ? r.slice(0, MAX_COLS).map((c) => (c === null || c === undefined ? "" : String(c).slice(0, 2000))) : []));
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+// A short code for a company's columns and tabs: its slug when short (udl ->
+// UDL), otherwise the initials of its name without Limited/Ltd.
+function companyCode(entity) {
+  if (entity.code) return entity.code;
+  const slug = String(entity.slug ?? "");
+  if (/^[a-z0-9]{2,5}$/i.test(slug)) return slug.toUpperCase();
+  const words = String(entity.entity_name ?? entity.name ?? "").replace(/\b(limited|ltd|plc|llp)\b\.?/gi, "").split(/[^A-Za-z0-9]+/).filter(Boolean);
+  return (words.map((w) => w[0]).join("").toUpperCase() || slug.toUpperCase()).slice(0, 6);
+}
+
+// The folder path inside the drive for a period: {yyyy} 2026, {yymm} 2610,
+// {period} 2026-10, {fy} 26 (the calendar year of the period end).
+function expandPath(parts, periodEnd) {
+  const [y, m] = String(periodEnd).split("-");
+  return (Array.isArray(parts) ? parts : []).map((part) => String(part)
+    .replace(/\{yyyy\}/g, y).replace(/\{yymm\}/g, `${y.slice(2)}${m}`).replace(/\{period\}/g, `${y}-${m}`).replace(/\{fy\}/g, y.slice(2)));
+}
 
 const MISSING = "VAT returns are waiting for migration 058 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
@@ -26,7 +65,7 @@ const KINDS = ["member_export", "representative_pre_import", "representative_pos
 const dayBefore = (d) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
 const xeroDate = (d) => d.split("-").map(Number).join(",");
 
-function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput }) {
+function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput, startJob = null }) {
   const BASE = "/api/finance/clients/:slug/vat";
 
   const tolerant = (fn) => route(async (req, res) => {
@@ -55,7 +94,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     return r;
   }
   const membersOn = async (db, registrationId, date) => (await db.query(
-    `SELECT m.entity_id, e.name AS entity_name, e.slug FROM finance.vat_registration_members m JOIN finance.entities e ON e.id = m.entity_id
+    `SELECT m.entity_id, e.name AS entity_name, e.slug, m.code FROM finance.vat_registration_members m JOIN finance.entities e ON e.id = m.entity_id
       WHERE m.registration_id = $1 AND m.effective_from <= $2 AND (m.effective_to IS NULL OR m.effective_to >= $2) ORDER BY e.name`,
     [registrationId, date])).rows;
 
@@ -97,7 +136,8 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
   async function loadReturn(db, clientId, id) {
     if (!isGuid(id)) return null;
     return (await db.query(
-      `SELECT v.*, v.period_start::text AS period_start, v.period_end::text AS period_end, r.kind AS registration_kind, r.representative_id, r.vat_number
+      `SELECT v.*, v.period_start::text AS period_start, v.period_end::text AS period_end, r.kind AS registration_kind, r.representative_id, r.vat_number,
+              r.drive_id, r.export_path, r.workbook_title
          FROM finance.vat_returns v JOIN finance.vat_registrations r ON r.id = v.registration_id WHERE v.id = $1 AND v.client_id = $2`, [id, clientId])).rows[0] ?? null;
   }
 
@@ -130,9 +170,9 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
       await conn.query("UPDATE finance.vat_return_uploads SET superseded_at = now() WHERE return_id = $1 AND entity_id = $2 AND kind = $3 AND superseded_at IS NULL",
         [ret.id, b.entity_id, kind]);
       const up = (await conn.query(
-        `INSERT INTO finance.vat_return_uploads (return_id, entity_id, kind, file_name, sha256, parsed, uploaded_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [ret.id, b.entity_id, kind, fileName, sha256, JSON.stringify({ ...parsed, lines: undefined }), who.actorEmail])).rows[0];
+        `INSERT INTO finance.vat_return_uploads (return_id, entity_id, kind, file_name, sha256, parsed, sheets, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [ret.id, b.entity_id, kind, fileName, sha256, JSON.stringify({ ...parsed, lines: undefined }), JSON.stringify(keptSheets(b.sheets)), who.actorEmail])).rows[0];
       for (let box = 1; box <= 9; box++) {
         await conn.query("INSERT INTO finance.vat_return_figures (return_id, upload_id, entity_id, box, amount) VALUES ($1,$2,$3,$4,$5)",
           [ret.id, up.id, b.entity_id, box, parsed.boxes[box]]);
@@ -183,15 +223,12 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     return { account: vat.Code, open, close, movement: close - open, excluded, trading: close - open - excluded, named };
   }
 
-  // GET /vat/returns/:id
-  app.get(`${BASE}/returns/:id`, tolerant(async (req, res) => {
-    const client = await clientIdFromSlug(req.params.slug);
-    if (!client) return res.status(404).json({ error: "client not found" });
-    const ret = await loadReturn(pool, client.id, req.params.id);
-    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+  // A return's uploads, checks and group build, shared by the page and the
+  // workbook.
+  async function viewOf(ret) {
     const members = await membersOn(pool, ret.registration_id, ret.period_end);
     const uploads = (await pool.query(
-      `SELECT u.id, u.entity_id, u.kind, u.file_name, u.sha256, u.parsed, u.uploaded_by, u.uploaded_at, e.name AS entity_name
+      `SELECT u.id, u.entity_id, u.kind, u.file_name, u.sha256, u.parsed, u.uploaded_by, u.uploaded_at, e.name AS entity_name, (u.sheets IS NOT NULL) AS has_sheets
          FROM finance.vat_return_uploads u LEFT JOIN finance.entities e ON e.id = u.entity_id
         WHERE u.return_id = $1 AND u.superseded_at IS NULL ORDER BY e.name, u.kind`, [ret.id])).rows;
     const lines = (await pool.query("SELECT * , line_date::text AS line_date, created_on::text AS created_on FROM finance.vat_return_lines WHERE return_id = $1 AND upload_id = ANY($2::uuid[])",
@@ -226,6 +263,21 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
       if (repUpload?.kind === "representative_post_import") confirmation = confirmImport(group.target, repLatest);
       group.template_rows = importTemplateRows(group.import);
     }
+    return { members, uploads, exports, checks, group, confirmation, accepted };
+  }
+
+  const workbookOf = (ret) => ({
+    requested_at: ret.workbook_requested_at, requested_by: ret.workbook_requested_by, name: ret.workbook_name,
+    link: ret.workbook_link, saved_at: ret.workbook_saved_at, error: ret.workbook_error,
+  });
+
+  // GET /vat/returns/:id
+  app.get(`${BASE}/returns/:id`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const { members, uploads, exports, checks, group, confirmation } = await viewOf(ret);
 
     let ledger = null;
     if (req.query.ledger === "1") {
@@ -247,6 +299,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     const imports = (await pool.query("SELECT id, kind, boxes, generated_by, generated_at, confirmed_at FROM finance.vat_imports WHERE return_id = $1 ORDER BY generated_at", [ret.id])).rows;
     res.json({
       return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind, representative_id: ret.representative_id },
+      workbook: { ...workbookOf(ret), drive_set: Boolean(ret.drive_id) },
       members, uploads: uploads.map(({ parsed, ...u }) => ({ ...u, boxes: parsed?.boxes, period_start: parsed?.period_start, period_end: parsed?.period_end })),
       checks, group, confirmation, imports, ledger,
     });
@@ -294,6 +347,94 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
       payload: { kind, boxes }, ip: req.get("X-Forwarded-For") || req.ip });
     res.status(201).json(row);
   }));
+
+  // POST /vat/returns/:id/workbook   builds the workbook in the pack engine and saves it to the client's drive
+  app.post(`${BASE}/returns/:id/workbook`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!role) return res.status(403).json({ error: "you have no role on this client" });
+    if (!ret.drive_id) return res.status(422).json({ issues: ["no shared drive is set for this VAT registration, so there is nowhere to save the workbook"] });
+    const withSheets = (await pool.query("SELECT count(*)::int AS n FROM finance.vat_return_uploads WHERE return_id = $1 AND superseded_at IS NULL AND sheets IS NOT NULL", [ret.id])).rows[0].n;
+    if (!withSheets) return res.status(422).json({ issues: ["upload the companies' exports again: files uploaded before 19 Nov 2026 did not keep Xero's tabs"] });
+    const project = process.env.GCP_PROJECT;
+    const region = process.env.PACK_JOB_REGION;
+    const job = process.env.PACK_ENGINE_JOB;
+    if (!project || !region || !job) return res.status(503).json({ error: "the pack engine is not configured on finance-api (GCP_PROJECT, PACK_JOB_REGION, PACK_ENGINE_JOB)" });
+    const r = await (startJob ?? defaultStartJob)({ project, region, job, env: { JOB_KIND: "vat_workbook", CLIENT_SLUG: req.params.slug, VAT_RETURN_ID: ret.id } });
+    await pool.query("UPDATE finance.vat_returns SET workbook_requested_at = now(), workbook_requested_by = $2, workbook_error = NULL, updated_at = now() WHERE id = $1", [ret.id, who.actorEmail]);
+    await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_workbook_requested", targetType: "vat_return", targetId: ret.id, clientId: client.id,
+      payload: { execution: r.execution }, ip: req.get("X-Forwarded-For") || req.ip });
+    res.status(202).json({ started: true, execution: r.execution });
+  }));
+
+  // GET /vat/returns/:id/workbook-data   everything the pack engine needs, sheets included
+  app.get(`${BASE}/returns/:id/workbook-data`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const { members, uploads, checks, group, confirmation } = await viewOf(ret);
+    const sheets = new Map((await pool.query("SELECT id, sheets FROM finance.vat_return_uploads WHERE return_id = $1 AND superseded_at IS NULL", [ret.id])).rows.map((r) => [r.id, r.sheets]));
+    const pick = (entityId, kinds) => { for (const k of kinds) { const u = uploads.find((x) => x.entity_id === entityId && x.kind === k); if (u) return u; } return null; };
+    const ordered = [...members].sort((a, b) => (a.entity_id === ret.representative_id ? -1 : b.entity_id === ret.representative_id ? 1 : 0));
+    const companies = ordered.map((m) => {
+      const own = pick(m.entity_id, ["member_export", "representative_pre_import"]);
+      const after = m.entity_id === ret.representative_id ? pick(m.entity_id, ["representative_post_import"]) : null;
+      return {
+        entity_id: m.entity_id, name: m.entity_name, code: companyCode(m), representative: m.entity_id === ret.representative_id,
+        file_name: own?.file_name ?? null, boxes: own?.parsed?.boxes ?? null, sheets: own ? sheets.get(own.id) ?? null : null,
+        after_import: after ? { file_name: after.file_name, boxes: after.parsed?.boxes ?? null, sheets: sheets.get(after.id) ?? null } : null,
+      };
+    });
+    const clientName = (await pool.query("SELECT name FROM shared.clients WHERE id = $1", [client.id])).rows[0]?.name ?? req.params.slug;
+    res.json({
+      client: clientName,
+      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind },
+      drive: { drive_id: ret.drive_id, path: expandPath(ret.export_path, ret.period_end), file_id: ret.workbook_file_id },
+      title: ret.workbook_title || clientName,
+      companies, checks, group, confirmation,
+    });
+  }));
+
+  // POST /vat/returns/:id/workbook-saved   { file_id, name, link } or { error }
+  app.post(`${BASE}/returns/:id/workbook-saved`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const b = req.body || {};
+    if (b.error) {
+      await pool.query("UPDATE finance.vat_returns SET workbook_error = $2, updated_at = now() WHERE id = $1", [ret.id, String(b.error).slice(0, 2000)]);
+      return res.json({ ok: true });
+    }
+    const fileId = String(b.file_id ?? "");
+    if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return res.status(422).json({ issues: ["file_id is required"] });
+    const link = /^https:\/\/(docs|drive)\.google\.com\//.test(String(b.link ?? "")) ? String(b.link) : null;
+    await pool.query(
+      `UPDATE finance.vat_returns SET workbook_file_id = $2, workbook_name = $3, workbook_link = $4, workbook_saved_at = now(), workbook_error = NULL, updated_at = now() WHERE id = $1`,
+      [ret.id, fileId, String(b.name ?? "").slice(0, 300), link]);
+    await audit(pool, { actorEmail: "pack-engine", actorRole: "system", action: "vat_workbook_saved", targetType: "vat_return", targetId: ret.id, clientId: client.id,
+      payload: { file_id: fileId, name: b.name }, ip: req.get("X-Forwarded-For") || req.ip });
+    res.json({ ok: true });
+  }));
 }
 
-module.exports = { mountVat };
+// Starts the pack engine's Cloud Run Job with the given environment.
+async function defaultStartJob({ project, region, job, env }, { fetchImpl = fetch } = {}) {
+  const bearer = await metadataToken(fetchImpl);
+  const r = await fetchImpl(`https://run.googleapis.com/v2/projects/${project}/locations/${region}/jobs/${job}:run`, {
+    method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ overrides: { containerOverrides: [{ env: Object.entries(env).map(([name, value]) => ({ name, value: String(value) })) }] } }),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Google Cloud refused to start the pack engine (${r.status}): ${text.slice(0, 300)}`);
+  const op = text ? JSON.parse(text) : {};
+  return { execution: op.metadata?.name ?? null };
+}
+
+module.exports = { mountVat, keptSheets, companyCode, expandPath };
