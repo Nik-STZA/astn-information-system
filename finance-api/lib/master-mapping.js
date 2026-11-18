@@ -52,13 +52,19 @@ function readMasterTable(table) {
   table.slice(headAt + 1).forEach((line, i) => {
     const r = { code: get(line, "code"), name: get(line, "name"), type: get(line, "type"), pnl1: get(line, "pnl1"), pnl2: get(line, "pnl2"), bs: get(line, "bs"), row: headAt + i + 2 };
     if (!r.name && !r.code) return;
+    // A note under the table (no code, no mapping), not an account.
+    if (!r.code && !r.pnl1 && !r.pnl2 && !r.bs) return;
     rows.push(r);
   });
   if (rows.length > 5000) errors.push("The file has more than 5,000 rows; split it");
   return { rows, errors };
 }
 
-const keyOf = (code, name) => `${norm(code)}|${norm(name)}`;
+// Names match ignoring case, spacing and punctuation: "Extreme Track -
+// Accumulated Amortisation" in a file is Xero's "Extreme Track Accumulated
+// Amortisation". An ampersand counts as "and".
+const nameKey = (v) => norm(v).replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "");
+const keyOf = (code, name) => `${norm(code)}|${nameKey(name)}`;
 const ASSET_SECTIONS = new Set(["fixed_assets", "current_assets"]);
 const LIABILITY_SECTIONS = new Set(["creditors_lt1y", "creditors_gt1y", "provisions"]);
 

@@ -27,6 +27,11 @@ describe("reading a master file", () => {
     expect(rows).toEqual([{ code: "422", name: "Website costs", type: "Overhead", pnl1: "IT Costs", pnl2: "Website", bs: "", row: 4 }]);
   });
 
+  it("skips notes under the table", () => {
+    const { rows } = readMasterTable([...table(["422", "Website costs", "Overhead", "IT Costs"]), ["", "", "Intercompany pairs: 621 <-> 662"]]);
+    expect(rows.map((r) => r.code)).toEqual(["422"]);
+  });
+
   it("refuses a file without the mapping columns", () => {
     expect(readMasterTable([["a", "b"], ["1", "2"]]).errors[0]).toMatch(/No header row/);
     expect(readMasterTable([]).errors[0]).toMatch(/no rows/);
@@ -104,6 +109,15 @@ describe("planning a master file", () => {
     const ents = [{ slug: "alpha", name: "Alpha", accounts: [accounts[0]], stored: st }];
     expect(planMaster({ rows, template: "feldspar_management", categories, entities: ents, approve: true }).entities[0].changes[0].kind).toBe("approve");
     expect(planMaster({ rows, template: "feldspar_management", categories, entities: ents, approve: false }).entities[0].changes).toEqual([]);
+  });
+
+  it("matches names ignoring punctuation, but not a different name", () => {
+    const r = readMasterTable(table(["779", "Extreme Track - Accumulated Amortisation", "Fixed Asset", "", "", "Internally Developed Intellectual Property"],
+      ["495", "FX gain/loss", "Expense", "FX Gains / (Losses)"])).rows;
+    const p = planMaster({ rows: r, template: "feldspar_management", categories, entities: [{ slug: "alpha", name: "Alpha",
+      accounts: [acct("a779", "779", "Extreme Track Accumulated Amortisation", "ASSET"), acct("a495", "495", "Overpayments", "LIABILITY")], stored: new Map() }] });
+    expect(p.entities[0].changes.map((c) => c.accountId)).toEqual(["a779"]);
+    expect(p.entities[0].nameDiffers.map((x) => x.code)).toEqual(["495"]);
   });
 
   it("refuses rows that disagree with themselves", () => {
