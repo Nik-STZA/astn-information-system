@@ -15,9 +15,10 @@ describe("which recs can be worked", () => {
     expect(workable("ppe", "schedule")).toBe(true);
     expect(workable("intangible", "schedule")).toBe(true);
     expect(autoMethod({ line_key: "ppe" })).toBe("asset_register");
-    expect(workable("provisions", "schedule")).toBe(false);
+    expect(workable("provisions", "schedule")).toBe(true);   // the schedule is recorded as evidence until built
+    expect(workable(null, "schedule")).toBe(false);
     expect(notWorkableReason(null, "ledger_review")).toMatch(/Place this account/);
-    expect(notWorkableReason("provisions", "schedule")).toMatch(/schedule, which is not built/);
+    expect(notWorkableReason("provisions", "schedule")).toBe(null);
     expect(usesEvidence("prepay", "schedule")).toBe(false);
   });
 });

@@ -199,7 +199,9 @@ describe("the Deferred income reconciliation", () => {
     expect(recs.workable("deferred", "schedule")).toBe(true);
     expect(recs.bySchedule("deferred", "schedule")).toBe(false);
     expect(recs.bySchedule("prepay", "schedule")).toBe(true);
-    expect(recs.usesEvidence("accruals", "schedule")).toBe(false);
+    // Other schedule lines are worked as evidence until their schedule is built (18 Nov 2026).
+    expect(recs.usesEvidence("accruals", "schedule")).toBe(true);
+    expect(recs.usesEvidence("prepay", "schedule")).toBe(false);
     // rec_evidence holds only the two evidence kinds.
     expect(recs.evidenceKind("schedule")).toBe("outside_evidence");
     expect(recs.evidenceKind("ledger_review")).toBe("ledger_review");

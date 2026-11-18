@@ -172,7 +172,7 @@ export default function RecView({ slug, data, thread, me }: {
       </section>
 
       {!rec.workable && rec.line_key && (
-        <div className={styles.note}>This line is on the list so it cannot be missed. It is proved by a schedule that is not built here yet; only the Prepayments schedule is.</div>
+        <div className={styles.note}>This line is on the list so it cannot be missed, but it cannot be worked here yet.</div>
       )}
 
       {data.evidence && <Evidence slug={slug} data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />}
@@ -180,7 +180,7 @@ export default function RecView({ slug, data, thread, me }: {
         <RecReconciling data={data} ev={data.evidence} preparing={preparing} busy={busy} send={send} />
       )}
 
-      {rec.workable && rec.proof === "schedule" && (
+      {rec.workable && rec.line_key === "prepay" && rec.proof === "schedule" && (
         <Fold title="Schedule" open meta={`${schedule.items.length} ${schedule.items.length === 1 ? "item" : "items"}`}
           action={preparing && <button type="button" className="btn-secondary" onClick={(e) => { e.preventDefault(); setAdding(!adding); }}><Plus size={14} aria-hidden="true" />Add item</button>}>
           {adding && <ItemForm entities={data.entities} busy={busy} send={send} onDone={() => setAdding(false)} />}
@@ -190,7 +190,7 @@ export default function RecView({ slug, data, thread, me }: {
         </Fold>
       )}
 
-      {rec.workable && rec.proof === "schedule" && data.releases && <Releases slug={slug} data={data} busy={busy} send={send} preparing={preparing} />}
+      {rec.workable && rec.line_key === "prepay" && rec.proof === "schedule" && data.releases && <Releases slug={slug} data={data} busy={busy} send={send} preparing={preparing} />}
 
       {rec.workable && (
         <div className={styles.two}>

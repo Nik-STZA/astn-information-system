@@ -85,9 +85,11 @@ describe("a group rec joins companies by account name", () => {
     expect(matrixFields("prepay")).toMatchObject({ owner: "FM1", challenge: null, class: "M" });
     expect(matrixFields("accruals")).toMatchObject({ owner: "FM1", challenge: "FC", class: "J" });
   });
-  it("works end to end only for prepayments, for now", () => {
+  it("works prepayments by their schedule and other schedule lines by evidence", () => {
     expect(workable("prepay", "schedule")).toBe(true);
-    expect(workable("accruals", "schedule")).toBe(false);
+    expect(workable("accruals", "schedule")).toBe(true);
+    expect(prepareInstruction({ id: "r1", line_key: "accruals", proof: "schedule", account_name: "Accruals", period: "2026-09" }))
+      .toMatch(/record the schedule as evidence[\s\S]*nil with the basis/);
   });
 });
 
@@ -406,8 +408,8 @@ describe("moving a rec along", () => {
   it("keeps every other agent off preparing", () => {
     expect(stepIssues("prepare", { rec: rec(), tied: true, via: { agent: "fc" } })).toContain("Only FM1 or a person prepares a reconciliation");
   });
-  it("refuses a line that is not built yet", () => {
-    expect(stepIssues("prepare", { rec: rec({ line_key: "accruals" }), tied: true, via: null })[0]).toMatch(/only the Prepayments schedule/);
+  it("refuses an account not yet placed on the matrix", () => {
+    expect(stepIssues("prepare", { rec: rec({ line_key: null }), tied: true, via: null })[0]).toMatch(/Place this account/);
   });
   it("keeps review to the FC, and the preparer off their own work", () => {
     const r = rec({ status: "with_fc" });
