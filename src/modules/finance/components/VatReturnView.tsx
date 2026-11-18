@@ -15,7 +15,7 @@ import { readXlsxAll } from "@/modules/finance/lib/xlsx-read";
 import { writeXlsx } from "@/modules/finance/lib/xlsx-write";
 import {
   BOX_LABEL, importFileName, KIND_LABEL, longDate, money,
-  type UploadKind, type VatCheck, type VatReturnView as View,
+  type UploadKind, type VatCheck, type VatPaymentCandidate, type VatReturnView as View,
 } from "@/modules/finance/lib/vat";
 import page from "./Page.module.css";
 import vat from "./Vat.module.css";
@@ -340,6 +340,7 @@ function Submission({ data, post, failed, onDone }: {
             {(s.boxes["4"] ?? 0) > (s.boxes["3"] ?? 0) ? "to reclaim from HMRC" : "to pay HMRC"}. The figures are fixed.
           </span>
           {data.clearing && <Clearing data={data} post={post} failed={failed} onDone={onDone} />}
+          {data.payment && <Payment data={data} post={post} failed={failed} onDone={onDone} />}
         </div>
       ) : (
         <div className={`${page.pad} ${page.stack}`}>
@@ -398,6 +399,84 @@ function Clearing({ data, post, failed, onDone }: {
       )}
       {live.length === 0 && (
         <button className="btn-secondary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={propose}>{busy ? "Proposing..." : "Propose the clearing journals"}</button>
+      )}
+      {err && <div className={page.error} role="alert">{err}</div>}
+    </div>
+  );
+}
+
+// HMRC's payment, found in the representative's bank feed and matched by the
+// CFO. A different amount needs the reason (HMRC can set a repayment off
+// against another tax); without one the return is part paid.
+function Payment({ data, post, failed, onDone }: {
+  data: View;
+  post: (path: string, body: unknown) => Promise<{ ok: boolean; status: number; body: { error?: string; issues?: string[]; candidates?: VatPaymentCandidate[]; company?: string; from?: string; to?: string } }>;
+  failed: (x: { status: number; body: { error?: string; issues?: string[] } }) => string;
+  onDone: () => void;
+}) {
+  const p = data.payment!;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [found, setFound] = useState<{ candidates: VatPaymentCandidate[]; company: string; from: string; to: string } | null>(null);
+  const [reason, setReason] = useState("");
+  const receive = p.expected >= 0;
+  const m = p.matched[0];
+
+  async function find() {
+    setBusy(true); setErr(null);
+    const x = await post("payments/find", {});
+    setBusy(false);
+    if (!x.ok) { setErr(failed(x)); return; }
+    setFound({ candidates: x.body.candidates ?? [], company: x.body.company ?? "", from: x.body.from ?? "", to: x.body.to ?? "" });
+  }
+  async function match(c: VatPaymentCandidate) {
+    setBusy(true); setErr(null);
+    const x = await post("payments", { xero_bank_txn_id: c.xero_bank_txn_id, set_off_reason: c.exact ? undefined : reason.trim() || undefined });
+    setBusy(false);
+    if (!x.ok) setErr(failed(x)); else { setFound(null); onDone(); }
+  }
+  async function withdraw() {
+    setBusy(true); setErr(null);
+    const x = await post(`payments/${m.id}/withdraw`, {});
+    setBusy(false);
+    if (!x.ok) setErr(failed(x)); else onDone();
+  }
+
+  return (
+    <div className={page.stack} style={{ borderTop: "1px solid var(--bd)", paddingTop: 10 }}>
+      <strong style={{ fontSize: 13 }}>HMRC&apos;s payment</strong>
+      <span className={page.small}>Expected: {money(Math.abs(p.expected))} {receive ? "from HMRC" : "to HMRC"}.</span>
+      {m ? (
+        <>
+          <span style={{ fontSize: 13 }}>
+            Matched: {money(Math.abs(m.amount))} on {longDate(m.paid_on)}
+            {m.difference ? `, ${money(Math.abs(m.difference))} ${m.difference < 0 ? "less" : "more"} than the return` : ", the exact amount"}.
+            {m.set_off_reason ? ` ${m.set_off_reason}` : ""}
+          </span>
+          {m.difference !== 0 && !m.set_off_reason && <span className={page.warn}>Part paid: HMRC paid a different amount and no reason is recorded.</span>}
+          <button className="btn-text" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={withdraw}>Withdraw the match</button>
+        </>
+      ) : !found ? (
+        <button className="btn-secondary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={find}>{busy ? "Looking..." : "Find HMRC's payment"}</button>
+      ) : (
+        <>
+          <span className={page.small}>{found.company}&apos;s bank feed, {longDate(found.from)} to {longDate(found.to)}: {found.candidates.length ? `${found.candidates.length} from HMRC` : "nothing from HMRC yet. Look again once the bank feed has it."}</span>
+          {found.candidates.some((c) => !c.exact) && (
+            <label className={vat.field}>If HMRC paid a different amount, why (it counts as paid with a reason)
+              <input className={vat.input} value={reason} onChange={(e) => setReason(e.target.value)} />
+            </label>
+          )}
+          {found.candidates.map((c) => (
+            <div key={c.xero_bank_txn_id} className={page.controls} style={{ fontSize: 13 }}>
+              <span className={page.grow}>
+                {longDate(c.date)}, {c.contact ?? "no contact"}{c.reference ? `, ${c.reference}` : ""}: <strong>{money(Math.abs(c.amount))}</strong>
+                {c.exact ? " (exact)" : ` (${money(Math.abs(c.difference))} ${c.difference < 0 ? "less" : "more"})`}
+                {c.taken ? " - matched to another return" : ""}
+              </span>
+              {!c.taken && <button className={page.miniBtn} disabled={busy} onClick={() => match(c)}>Match</button>}
+            </div>
+          ))}
+        </>
       )}
       {err && <div className={page.error} role="alert">{err}</div>}
     </div>

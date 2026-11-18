@@ -8,6 +8,9 @@
 //   POST /clients/:slug/vat/returns/:id/imports     record the import file generated now
 //   POST /clients/:slug/vat/returns/:id/submit      { submitted_on, hmrc_receipt_ref }   CFO
 //   POST /clients/:slug/vat/returns/:id/clearing    propose the group clearing journals again   CFO
+//   POST /clients/:slug/vat/returns/:id/payments/find   HMRC's payment candidates in the bank feed
+//   POST /clients/:slug/vat/returns/:id/payments    { xero_bank_txn_id, set_off_reason }   CFO
+//   POST /clients/:slug/vat/returns/:id/payments/:pid/withdraw                               CFO
 //   POST /clients/:slug/vat/returns/:id/workbook    build the workbook and save it to the drive
 //   GET  /clients/:slug/vat/returns/:id/workbook-data   for the pack engine (migration 059)
 //   POST /clients/:slug/vat/returns/:id/workbook-saved  the pack engine reports back
@@ -24,6 +27,7 @@ const { trialBalanceByAccountId } = require("./journal");
 const { isCfo } = require("./contracts");
 const { metadataToken } = require("./pack-job");
 const { clearingJournals } = require("./vat-clearing");
+const vatPay = require("./vat-payments");
 const { jnlRef } = require("./journals");
 
 // The tabs of Xero's export kept with an upload, for the workbook.
@@ -355,6 +359,36 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     return { proposed, issues: [] };
   }
 
+  // The company whose bank HMRC pays into or is paid from: the representative,
+  // or a single registration's one company.
+  async function payerOf(ret) {
+    const members = await membersOn(pool, ret.registration_id, ret.period_end);
+    return members.find((m) => m.entity_id === ret.representative_id) ?? members[0] ?? null;
+  }
+
+  // HMRC's payment candidates for a submitted return, read from the payer's bank feed.
+  async function paymentCandidates(client, ret) {
+    const payer = await payerOf(ret);
+    if (!payer) return { error: "no company on the registration" };
+    const ctx = await xeroEntityContext(client.slug, payer.slug);
+    if (!ctx || ctx.error) return { error: ctx?.error ?? "not connected to Xero" };
+    const expected = vatPay.expectedOf(ret.submitted_boxes);
+    const { from, to } = vatPay.windowOf(ret.submitted_on);
+    const vat = ((await xeroGet(ctx.accessToken, ctx.tenantId, "/Accounts", { where: 'SystemAccount=="GST"' }))?.Accounts ?? [])[0];
+    const txns = await pagedList(ctx, "/BankTransactions", "BankTransactions",
+      `Date >= DateTime(${xeroDate(from)}) AND Date <= DateTime(${xeroDate(to)}) AND Status=="AUTHORISED"`);
+    // Matched to another of this client's returns already.
+    const taken = (await pool.query(
+      `SELECT p.xero_bank_txn_id FROM finance.vat_payments p JOIN finance.vat_returns v ON v.id = p.return_id
+        WHERE v.client_id = $1 AND v.id <> $2 AND p.withdrawn_at IS NULL AND p.xero_bank_txn_id IS NOT NULL`, [client.id, ret.id])).rows.map((r) => r.xero_bank_txn_id);
+    return { payer, ctx, expected, from, to, candidates: vatPay.candidatesFrom(txns, { expected, vatCode: vat?.Code, from, to, taken }), vatCode: vat?.Code };
+  }
+
+  const paymentsOf = async (ret) => (await pool.query(
+    `SELECT id, xero_bank_txn_id, paid_on::text AS paid_on, amount, difference, set_off_reason, matched_by, matched_at
+       FROM finance.vat_payments WHERE return_id = $1 AND withdrawn_at IS NULL ORDER BY matched_at`, [ret.id])).rows
+    .map((p) => ({ ...p, amount: Number(p.amount), difference: Number(p.difference) }));
+
   const clearingOf = async (ret) => (await pool.query(
     `SELECT j.id, j.jnl_no, e.name AS entity_name, j.journal_date::text AS journal_date, j.state, j.lines, j.period, j.xero_journal_no
        FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
@@ -399,6 +433,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
       submission: ret.submitted_on ? { submitted_on: ret.submitted_on, hmrc_receipt_ref: ret.hmrc_receipt_ref, boxes: ret.submitted_boxes, signed_by: ret.signed_by, signed_at: ret.signed_at } : null,
       can_submit: submittable(ret, uploads, checks, group, confirmation).ok,
       clearing: ret.registration_kind === "group" ? await clearingOf(ret) : null,
+      payment: ret.submitted_on ? { expected: vatPay.expectedOf(ret.submitted_boxes) / 100, matched: await paymentsOf(ret) } : null,
       members, uploads: uploads.map(({ parsed, ...u }) => ({ ...u, boxes: parsed?.boxes, period_start: parsed?.period_start, period_end: parsed?.period_end })),
       checks, group, confirmation, imports, ledger,
     });
@@ -511,6 +546,73 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     if (out.already) return res.status(409).json({ error: "This return's clearing journals are already on the Journals page." });
     if (out.issues.length) return res.status(422).json({ issues: out.issues });
     res.status(201).json(out);
+  }));
+
+  // POST /vat/returns/:id/payments/find   read-only: HMRC's payment candidates
+  app.post(`${BASE}/returns/:id/payments/find`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    if (!ret.submitted_on) return res.status(409).json({ error: "Record the return as submitted first." });
+    if (!(await roleOf(pool, client.id, who.actorEmail))) return res.status(403).json({ error: "you have no role on this client" });
+    const out = await paymentCandidates(client, ret);
+    if (out.error) return res.status(503).json({ error: `Xero could not be read: ${out.error}` });
+    res.json({ company: out.payer.entity_name, expected: out.expected / 100, from: out.from, to: out.to, candidates: out.candidates });
+  }));
+
+  // POST /vat/returns/:id/payments   { xero_bank_txn_id, set_off_reason }   CFO
+  // Matches one of the candidates: it is read again from Xero, so only a real
+  // HMRC movement in the window can be matched. One match at a time.
+  app.post(`${BASE}/returns/:id/payments`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO matches HMRC's payment to a return" });
+    if (!ret.submitted_on) return res.status(409).json({ error: "Record the return as submitted first." });
+    if ((await paymentsOf(ret)).length) return res.status(409).json({ error: "A payment is already matched to this return. Withdraw it first." });
+    const id = String(req.body?.xero_bank_txn_id ?? "");
+    const reason = String(req.body?.set_off_reason ?? "").trim().slice(0, 500) || null;
+    if (!isGuid(id)) return res.status(422).json({ issues: ["xero_bank_txn_id is required"] });
+    const out = await paymentCandidates(client, ret);
+    if (out.error) return res.status(503).json({ error: `Xero could not be read: ${out.error}` });
+    const c = out.candidates.find((x) => x.xero_bank_txn_id === id);
+    if (!c) return res.status(422).json({ issues: ["that bank transaction is not one of HMRC's in the window"] });
+    if (c.taken) return res.status(409).json({ error: "That bank transaction is already matched to another return." });
+    if (!c.exact && reason && reason.length < 10) return res.status(422).json({ issues: ["say why HMRC paid a different amount (10 characters or more)"] });
+    const status = vatPay.statusAfter({ expected: out.expected, amount: c.amount, setOffReason: reason });
+    const row = (await pool.query(
+      `INSERT INTO finance.vat_payments (return_id, xero_bank_txn_id, paid_on, amount, difference, set_off_reason, matched_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [ret.id, id, c.date, c.amount, c.difference, c.exact ? null : reason, who.actorEmail])).rows[0];
+    await pool.query("UPDATE finance.vat_returns SET status = $2, updated_at = now() WHERE id = $1", [ret.id, status]);
+    await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_payment_matched", targetType: "vat_return", targetId: ret.id, clientId: client.id,
+      payload: { payment: row.id, xero_bank_txn_id: id, paid_on: c.date, amount: c.amount, difference: c.difference, set_off_reason: reason, status }, ip: req.get("X-Forwarded-For") || req.ip });
+    res.status(201).json({ id: row.id, status, amount: c.amount, difference: c.difference });
+  }));
+
+  // POST /vat/returns/:id/payments/:pid/withdraw   CFO
+  app.post(`${BASE}/returns/:id/payments/:pid/withdraw`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const ret = await loadReturn(pool, client.id, req.params.id);
+    if (!ret) return res.status(404).json({ error: "VAT return not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO withdraws a payment match" });
+    if (!isGuid(req.params.pid)) return res.status(404).json({ error: "payment not found" });
+    const gone = (await pool.query("UPDATE finance.vat_payments SET withdrawn_at = now() WHERE id = $1 AND return_id = $2 AND withdrawn_at IS NULL RETURNING id", [req.params.pid, ret.id])).rows[0];
+    if (!gone) return res.status(404).json({ error: "payment not found" });
+    await pool.query("UPDATE finance.vat_returns SET status = 'submitted', updated_at = now() WHERE id = $1 AND status IN ('paid','part_paid')", [ret.id]);
+    await audit(pool, { actorEmail: who.actorEmail, actorRole: role, action: "vat_payment_withdrawn", targetType: "vat_return", targetId: ret.id, clientId: client.id,
+      payload: { payment: gone.id }, ip: req.get("X-Forwarded-For") || req.ip });
+    res.json({ withdrawn: true });
   }));
 
   // POST /vat/returns/:id/workbook   builds the workbook in the pack engine and saves it to the client's drive
