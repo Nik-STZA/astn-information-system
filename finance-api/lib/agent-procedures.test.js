@@ -12,6 +12,7 @@ import { agentContracts } from "./agent-contracts";
 import { NAMES as REC_TOOLS } from "./agent-recs";
 import { NAMES as JOURNAL_TOOLS, ROLES as JOURNAL_ROLES } from "./agent-journals";
 import { NAMES as ACCRUAL_TOOLS } from "./agent-accruals";
+import { NAMES as COMMENTARY_TOOLS, ROLES as COMMENTARY_ROLES } from "./agent-commentary";
 import { NAMES as OUTSTANDING_TOOLS } from "./agent-outstanding-docs";
 
 const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
@@ -36,6 +37,7 @@ const ALL_TOOLS = new Set([
   ...REC_TOOLS,
   ...JOURNAL_TOOLS,
   ...ACCRUAL_TOOLS,
+  ...COMMENTARY_TOOLS,
   ...OUTSTANDING_TOOLS,
   "read_procedure",
 ]);
@@ -105,6 +107,9 @@ describe("the agents' library", () => {
     for (const r of ROLES) expect(names(r).includes("run_accruals"), r).toBe(r === "fm1");
     for (const r of ["fm1", "fc"]) expect(names(r)).toEqual(expect.arrayContaining(["get_accrual_history", "comment_on_accrual"]));
     expect([...ALL_TOOLS].some((t) => /^(decide|approve)_accrual/.test(t))).toBe(false);
+    // Pack commentary: FP&A and the FC draft; nobody's tools approve it.
+    for (const r of ROLES) expect(names(r).includes("edit_pack_commentary"), r).toBe(COMMENTARY_ROLES.includes(r));
+    expect([...ALL_TOOLS].some((t) => /approve_pack_commentary/.test(t))).toBe(false);
     for (const r of ROLES) expect(names(r)).toContain("read_procedure");
     // No role: a general session keeps every tool, as before.
     expect(names(undefined)).toHaveLength(all.length);

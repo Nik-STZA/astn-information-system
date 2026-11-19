@@ -6931,6 +6931,12 @@ accrualRoutes = require("./lib/accruals-routes").mountAccruals(app, {
   route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
 });
 
+// Each month's management pack commentary (migration 063): drafted by FP&A or
+// the FC, edited and approved by the CFO, read by the pack build.
+require("./lib/pack-commentary-routes").mountPackCommentary(app, {
+  route, pool, audit, clientIdFromSlug, viaInput: work.viaInput,
+});
+
 // ── Threads and people ──────────────────────────────────────────────────────
 
 // One thread per thing the work is about (an account at a month end, an asset,

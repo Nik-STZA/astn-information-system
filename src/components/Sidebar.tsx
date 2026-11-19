@@ -17,7 +17,7 @@ import { usePathname } from "next/navigation";
 import {
   BadgeCheck, BookOpen, FileQuestionMark, FileSignature, Package, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
-  CalendarClock, PanelLeftClose, PanelLeftOpen, PenLine, Receipt, ListPlus, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
+  CalendarClock, MessageSquareText, PanelLeftClose, PanelLeftOpen, PenLine, Receipt, ListPlus, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon, Percent,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -99,6 +99,8 @@ const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = 
   { seg: "procedures", label: "Procedures", icon: BookOpen },
   { seg: "close", label: "Close", icon: ClipboardList },
   { seg: "reports", label: "Reports", icon: FileBarChart },
+  // The month's pack commentary, edited and approved in place (19 Nov 2026).
+  { seg: "commentary", label: "Pack commentary", icon: MessageSquareText },
   { seg: "diary", label: "Diary", icon: NotebookPen },
   { seg: "xero", label: "Xero", icon: Network },
   { seg: "coa", label: "Chart of accounts", icon: Table2 },
