@@ -290,11 +290,16 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     const exports = memberExports.map((u) => ({ entity_id: u.entity_id, entity_name: u.entity_name, parsed: parsedOf(u) }));
     const acceptedKeys = new Set();
     for (const x of exports) for (const l of x.parsed.lines) if (accepted.has(l.id)) acceptedKeys.add(adjustmentKey(x.entity_id, l));
-    const checks = checkReturn({ exports, ret, members, accepted: acceptedKeys });
+    // A return filed before os.stza.io, loaded from HMRC's record with no
+    // exports, has nothing to check or build: it stands as filed.
+    const history = Boolean(ret.history_note) && !uploads.length;
+    const checks = history
+      ? { checks: [{ key: "history", ok: true, blocking: false, said: "Filed before os.stza.io: the figures are HMRC's record of the return as filed.", items: [] }], blocking: [], ok: true }
+      : checkReturn({ exports, ret, members, accepted: acceptedKeys });
 
     let group = null;
     let confirmation = null;
-    if (ret.registration_kind === "group" && checks.ok) {
+    if (ret.registration_kind === "group" && checks.ok && exports.length) {
       const repUpload = uploads.find((u) => u.entity_id === ret.representative_id && u.kind === "representative_post_import")
         ?? uploads.find((u) => u.entity_id === ret.representative_id && u.kind === "representative_pre_import")
         ?? uploads.find((u) => u.entity_id === ret.representative_id && u.kind === "member_export");
@@ -459,11 +464,12 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     }
     const imports = (await pool.query("SELECT id, kind, boxes, generated_by, generated_at, confirmed_at FROM finance.vat_imports WHERE return_id = $1 ORDER BY generated_at", [ret.id])).rows;
     res.json({
-      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind, representative_id: ret.representative_id },
+      return: { id: ret.id, period_start: ret.period_start, period_end: ret.period_end, status: ret.status, vat_number: ret.vat_number, kind: ret.registration_kind, representative_id: ret.representative_id, history_note: ret.history_note ?? null },
       workbook: { ...workbookOf(ret), drive_set: Boolean(ret.drive_id) },
       submission: ret.submitted_on ? { submitted_on: ret.submitted_on, hmrc_receipt_ref: ret.hmrc_receipt_ref, boxes: ret.submitted_boxes, signed_by: ret.signed_by, signed_at: ret.signed_at } : null,
       can_submit: submittable(ret, uploads, checks, group, confirmation).ok,
-      clearing: ret.registration_kind === "group" ? await clearingOf(ret) : null,
+      // A return filed before os.stza.io was cleared by hand at the time.
+      clearing: ret.registration_kind === "group" && !ret.history_note ? await clearingOf(ret) : null,
       payment: ret.submitted_on ? { expected: vatPay.expectedOf(ret.submitted_boxes) / 100, matched: await paymentsOf(ret) } : null,
       members, uploads: uploads.map(({ parsed, ...u }) => ({ ...u, boxes: parsed?.boxes, period_start: parsed?.period_start, period_end: parsed?.period_end })),
       checks, group, confirmation, imports, ledger,
@@ -573,6 +579,7 @@ function mountVat(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext
     if (!isCfo(role)) return res.status(403).json({ error: "only the CFO proposes the VAT clearing journals" });
     if (!FILED.includes(ret.status)) return res.status(409).json({ error: "Record the return as submitted first: the clearing is dated the day it was filed." });
     if (ret.registration_kind !== "group") return res.status(409).json({ error: "A single registration has nothing to clear." });
+    if (ret.history_note) return res.status(409).json({ error: "This return was filed before os.stza.io and cleared by hand at the time." });
     const out = await proposeClearing(client, ret, who.actorEmail, role, req.get("X-Forwarded-For") || req.ip);
     if (out.already) return res.status(409).json({ error: "This return's clearing journals are already on the Journals page." });
     if (out.issues.length) return res.status(422).json({ issues: out.issues });

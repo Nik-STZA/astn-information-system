@@ -1730,6 +1730,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       try {
         const rs = (await pool.query(
           `SELECT v.id, v.period_start::text, v.period_end::text, v.submitted_on::text, v.submitted_boxes, r.kind, r.representative_id,
+                  v.history_note IS NOT NULL AS history,
                   (SELECT min(p.paid_on)::text FROM finance.vat_payments p WHERE p.return_id = v.id AND p.withdrawn_at IS NULL) AS paid_on
              FROM finance.vat_returns v JOIN finance.vat_registrations r ON r.id = v.registration_id
             WHERE v.client_id = $1 AND v.period_end <= $2 AND r.ended_at IS NULL`, [who.client.id, date])).rows;
@@ -1755,7 +1756,15 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         said.push("No VAT returns are kept in os.stza.io for this client yet. Record the outside evidence (the return as filed in Xero), or set the returns up on the VAT returns page.");
       } else {
         const ev = vatEvidence({ balances: balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), returns, date });
-        rows.push(...ev.rows);
+        // A figure already keyed by hand on this rec (a return from before
+        // os.stza.io, before it was loaded) is not taken twice: the keyed row
+        // stays, and the fetched one is left out.
+        const keyed = (await pool.query("SELECT entity_id, amount::text, source FROM finance.rec_evidence WHERE rec_id = $1 AND method IS NULL", [rec.id])).rows;
+        for (const row of ev.rows) {
+          const twin = keyed.find((k) => k.entity_id === row.entity_id && recs.pence(k.amount) === recs.pence(row.amount));
+          if (twin) { said.push(`${names.get(row.entity_id)}: ${row.amount} is already held as evidence keyed by hand ("${String(twin.source ?? "").slice(0, 120)}"), so it was not taken again.`); continue; }
+          rows.push(row);
+        }
         said.push(...ev.said);
       }
     } else if (method === "asset_register") {

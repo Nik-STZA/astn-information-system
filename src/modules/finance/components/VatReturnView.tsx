@@ -334,7 +334,9 @@ function Submission({ data, post, failed, onDone }: {
       </div>
       {s ? (
         <div className={`${page.pad} ${page.stack}`} style={{ fontSize: 13 }}>
-          <span>Filed on {longDate(s.submitted_on)}, HMRC receipt {s.hmrc_receipt_ref}. Recorded by {s.signed_by}.</span>
+          {data.return.history_note
+            ? <span>{data.return.history_note}</span>
+            : <span>Filed on {longDate(s.submitted_on)}, HMRC receipt {s.hmrc_receipt_ref}. Recorded by {s.signed_by}.</span>}
           <span>
             Box 5: <strong>{money(Math.abs(s.boxes["5"] ?? 0))}</strong>{" "}
             {(s.boxes["4"] ?? 0) > (s.boxes["3"] ?? 0) ? "to reclaim from HMRC" : "to pay HMRC"}. The figures are fixed.

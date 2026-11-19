@@ -135,7 +135,7 @@ export interface VatReturnView {
   clearing: VatClearingJournal[] | null;
   submission: VatSubmission | null;
   can_submit: boolean;
-  return: { id: string; period_start: string; period_end: string; status: VatStatus; vat_number: string; kind: "single" | "group"; representative_id: string | null };
+  return: { id: string; period_start: string; period_end: string; status: VatStatus; vat_number: string; kind: "single" | "group"; representative_id: string | null; history_note?: string | null };
   members: VatMember[];
   uploads: VatUpload[];
   checks: { checks: VatCheck[]; blocking: string[]; ok: boolean };

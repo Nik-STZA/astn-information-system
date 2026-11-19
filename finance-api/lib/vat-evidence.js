@@ -9,8 +9,9 @@
 //   - for the representative (or a single registration's company), every
 //     return filed by that date and not yet paid by HMRC: the return as filed.
 // A filed group return's members hold nothing for it once its clearing
-// journals are in Xero; until then the rec says so. Returns from before
-// os.stza.io stay as the evidence keyed for them (fetching keeps keyed rows).
+// journals are in Xero; until then the rec says so. A return filed before
+// os.stza.io (loaded from HMRC's record, history set) was cleared by hand at
+// the time, so its members hold nothing for it once it is filed.
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const pence = (n) => Math.round(Number(n || 0) * 100);
@@ -28,7 +29,7 @@ const position = (boxes) => pence(boxes?.[4] ?? boxes?.["4"]) - pence(boxes?.[3]
 //   returns   [{ id, period_start, period_end, submitted_on, submitted_boxes, kind,
 //               representative_id, own: { entity_id: boxes } from each company's own export,
 //               paid_on: earliest matched payment date or null,
-//               clearing: [journal state] }]
+//               clearing: [journal state], history: true for a return filed before os.stza.io }]
 //   date      the month end
 // Returns { rows, said }
 function vatEvidence({ balances = [], returns = [], date }) {
@@ -46,6 +47,7 @@ function vatEvidence({ balances = [], returns = [], date }) {
       const filed = r.submitted_on && r.submitted_on <= date;
       if (!filed) {
         const boxes = r.own?.[b.entity_id];
+        if (!boxes && r.history) { said.push(`${who}: the ${name} return was filed before os.stza.io, on ${longDate(r.submitted_on)}; its own position before then is not held here. Record it as outside evidence.`); continue; }
         if (!boxes) { said.push(`${who}: no export uploaded for the ${name} return, so nothing was taken for it.`); continue; }
         const p = position(boxes);
         rows.push({ entity_id: b.entity_id, amount: amount(p),
@@ -55,6 +57,7 @@ function vatEvidence({ balances = [], returns = [], date }) {
       }
       const payer = r.kind === "group" ? r.representative_id : b.entity_id;
       if (r.kind === "group" && b.entity_id !== payer) {
+        if (r.history) continue;
         const unposted = (r.clearing || []).filter((s) => s !== "posted" && s !== "rejected" && s !== "superseded");
         if (!(r.clearing || []).some((s) => s === "posted")) {
           said.push(`${who}: the ${name} return was filed on ${longDate(r.submitted_on)} but its clearing journals are ${unposted.length ? "not yet in Xero" : "not proposed"}, so ${who} still holds its share in the ledger.`);
@@ -65,7 +68,7 @@ function vatEvidence({ balances = [], returns = [], date }) {
       if (r.paid_on && r.paid_on <= date) continue;
       const p = position(r.submitted_boxes);
       rows.push({ entity_id: b.entity_id, amount: amount(p),
-        source: `${name} VAT return as filed on ${longDate(r.submitted_on)}: ${p >= 0 ? "refund claimed" : "payment due"}, ${r.paid_on ? `paid ${longDate(r.paid_on)}, after` : "not yet paid by HMRC at"} ${longDate(date)}` });
+        source: `${name} VAT return as filed on ${longDate(r.submitted_on)}${r.history ? " (HMRC's record)" : ""}: ${p >= 0 ? "refund claimed" : "payment due"}, ${r.paid_on ? `paid ${longDate(r.paid_on)}, after` : "not yet paid by HMRC at"} ${longDate(date)}` });
       found++;
     }
     if (found) said.push(`${who}: ${found} VAT return figure${found === 1 ? "" : "s"} taken from os.stza.io.`);
