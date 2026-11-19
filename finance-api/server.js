@@ -1840,10 +1840,23 @@ app.post("/api/finance/agent-runs/relay", route(async (_req, res) => {
 // the next job rather than blocking or, worse, running the same one twice.
 const agentHandoff = require("./lib/agent-handoff");
 
+// A run still marked running long after any runner could still be on it (the
+// Cloud Run task stops at 30 minutes) was cut off: a crash, a stopped laptop,
+// a task killed at its limit. It is closed as failed, with why, so nothing
+// waits on it and a person can ask again. Done whenever a runner claims work.
+const STALE_RUN_MINUTES = 60;
+const STALE_RUN_ERROR = `The runner stopped before this finished (no answer after ${STALE_RUN_MINUTES} minutes). Anything it saved is on the record; ask again to continue.`;
+
 app.post("/api/finance/agent-runs/claim", route(async (_req, res) => {
   const conn = await pool.connect();
   try {
     await conn.query("BEGIN");
+    const stale = await conn.query(
+      `UPDATE finance.agent_runs SET status = 'failed', finished_at = now(), error = $1
+        WHERE status = 'running' AND finished_at IS NULL
+          AND COALESCE(started_at, queued_at) < now() - make_interval(mins => $2)
+        RETURNING id`, [STALE_RUN_ERROR, STALE_RUN_MINUTES]);
+    if (stale.rowCount) console.log(`Closed ${stale.rowCount} run(s) cut off before finishing: ${stale.rows.map((r) => r.id).join(", ")}`);
     const { rows } = await conn.query(
       `WITH next AS (
          SELECT id FROM finance.agent_runs
