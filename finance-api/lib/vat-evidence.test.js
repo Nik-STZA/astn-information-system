@@ -38,6 +38,18 @@ describe("VAT control evidence from the returns in os.stza.io", () => {
     expect(said).toContain("ALP: the September 2026 return was filed on 26 October 2026 but its clearing journals are not yet in Xero, so ALP still holds its share in the ledger.");
   });
 
+  it("holds a return filed before os.stza.io on the representative, with no clearing to wait for", () => {
+    const q4 = { id: "q", kind: "group", representative_id: "rep", period_start: "2025-10-01", period_end: "2025-12-31", history: true,
+      submitted_on: "2026-02-03", submitted_boxes: { 3: 3762.98, 4: 90600.14 }, paid_on: null, clearing: [], own: {} };
+    const { rows, said } = vatEvidence({ balances, returns: [q4, oct], date: "2026-10-31" });
+    const rep = rows.filter((r) => r.entity_id === "rep");
+    expect(rep[0]).toMatchObject({ amount: "86837.16" });
+    expect(rep[0].source).toBe("October 2025 to December 2025 VAT return as filed on 3 February 2026 (HMRC's record): refund claimed, not yet paid by HMRC at 31 October 2026");
+    expect(said.some((x) => /clearing journals/.test(x))).toBe(false);
+    const before = vatEvidence({ balances, returns: [q4], date: "2025-12-31" }).said;
+    expect(before).toContain("ALP: the October 2025 to December 2025 return was filed before os.stza.io, on 3 February 2026; its own position before then is not held here. Record it as outside evidence.");
+  });
+
   it("treats a return filed after the month end as not yet filed then", () => {
     const { rows } = vatEvidence({ balances, returns: [sep], date: "2026-09-30" });
     expect(rows.map((r) => [r.entity_id, r.amount])).toEqual([["rep", "4074.79"], ["a", "3057.75"], ["b", "846.12"]]);
