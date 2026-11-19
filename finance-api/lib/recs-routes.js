@@ -19,6 +19,7 @@ const sheetRead = require("./sheet-read");
 const contractsLib = require("./contracts");
 const assetEvidence = require("./rec-asset-evidence");
 const { vatEvidence } = require("./vat-evidence");
+const accruals = require("./accruals");
 
 const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
 const crypto = require("crypto");
@@ -1701,6 +1702,25 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const ev = contractsLib.deferredEvidence(balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), held, date);
       rows.push(...ev.rows);
       said.push(...ev.said);
+    } else if (method === "accrual_schedule") {
+      // The accruals schedule (migration 062, lib/accruals.js): what each
+      // company accrued for the month. Last month's were reversed on the 1st.
+      let items = [];
+      try {
+        items = (await pool.query("SELECT id, entity_id, supplier, amount::text AS amount, period_from, standing, end_period, stopped_period FROM finance.accrual_items WHERE client_id = $1", [who.client.id])).rows;
+      } catch (e) {
+        if (e?.code !== "42P01") throw e;
+        return res.status(409).json({ error: "The accruals schedule is waiting for migration 062. Record the outside evidence meanwhile." });
+      }
+      const totals = accruals.scheduleAt(items, rec.period);
+      for (const b of balances) {
+        const mine = items.filter((i) => i.entity_id === b.entity_id && accruals.accruesIn(i, rec.period));
+        const p = totals.get(b.entity_id) ?? 0;
+        rows.push({ entity_id: b.entity_id, amount: recs.pounds(-p),
+          source: mine.length ? `Accruals schedule in os.stza.io at ${date}: ${mine.map((i) => `${i.supplier} ${i.amount}`).join(", ")}` : `Accruals schedule in os.stza.io at ${date}: nothing accrued`,
+          note: "Net of VAT; each item reverses on the 1st of the next month." });
+        said.push(`${names.get(b.entity_id)}: ${mine.length} item${mine.length === 1 ? "" : "s"} on the accruals schedule, ${money(p)} in all.`);
+      }
     } else if (method === "vat_return") {
       // The VAT returns kept in os.stza.io (lib/vat-evidence.js): every return
       // of the client's registrations ending by the month end, with each

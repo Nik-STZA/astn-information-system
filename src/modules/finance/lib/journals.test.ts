@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { balanceOf, blankLine, groupOf, grouped, isJournalPath, needsXeroCheck, pence, sourceLabel, toLines, type JournalRow } from "./journals";
+import { balanceOf, batchLines, batchable, blankLine, draftsIn, filtered, groupOf, grouped, isJournalPath, needsXeroCheck, pence, sourceKey, sourceLabel, toLines, type JournalRow } from "./journals";
 
 const ID = "12345678-1234-1234-1234-123456789012";
 const line = (account_code: string, debit = "", credit = "", description = "") => ({ account_code, description, debit, credit });
 
 describe("journal paths", () => {
   it("lets through what the page uses", () => {
-    for (const p of ["journals", "journals/refresh", `journals/${ID}/approve`, `journals/${ID}/reject`]) expect(isJournalPath(p), p).toBe(true);
+    for (const p of ["journals", "journals/refresh", `journals/${ID}/approve`, `journals/${ID}/reject`, "journals/approve-batch"]) expect(isJournalPath(p), p).toBe(true);
   });
   it("keeps anything else out", () => {
     for (const p of [`journals/${ID}`, "journals/../xero", `journals/${ID}/drafted`, "recs/compose", "journals/refresh/x"]) expect(isJournalPath(p), p).toBe(false);
@@ -72,5 +72,40 @@ describe("the list", () => {
     expect(needsXeroCheck([row("draft_created", { kind: "rec" })], now)).toBe(true);
     expect(needsXeroCheck([row("draft_created", { kind: "rec", xero_checked_at: "2026-11-02T11:55:00Z" })], now)).toBe(false);
     expect(needsXeroCheck([row("proposed")], now)).toBe(false);
+  });
+});
+
+describe("accrual pairs, filters and batch approval", () => {
+  const base = { kind: "register", id: "a", jnl: "JNL-60", entity_id: "e1", entity_name: "Alpha Ltd", period: "2026-11", journal_date: "2026-11-30",
+    narration: "Accrual: Example, November 2026 services", lines: [], total: "750.00", reason: null, source: "accrual", proposed_by: "platform:accruals",
+    state: "proposed", approved_by: null, approved_at: null, rejected_by: null, rejected_at: null, xero_journal_no: null, xero_status: null, xero_checked_at: null,
+    drafted_at: null, last_error: null, retry_state: null, can_retry: false, rec: null, created_at: "2026-11-19T09:00:00Z",
+    pair: { reversal_date: "2026-12-01", reversal_narration: "Reversal: Example, November 2026 services", accrual_xero_journal_no: null, reversal_xero_journal_no: null, reversal_xero_status: null, accrual_item_id: "i1", backfill: false },
+  } as JournalRow;
+  const person = { ...base, id: "b", jnl: "JNL-61", entity_id: "e2", entity_name: "Beta Ltd", source: "person", narration: "Reclass", pair: null } as JournalRow;
+  const fm1 = { ...person, id: "c", source: "fm1" } as JournalRow;
+  const rec = { ...person, id: "d", kind: "rec", source: "rec" } as JournalRow;
+
+  it("labels a pair and files any agent under one choice", () => {
+    expect(sourceLabel(base)).toBe("Accrual pair");
+    expect(sourceKey(fm1)).toBe("agent");
+    expect(sourceKey(base)).toBe("accrual");
+  });
+
+  it("filters by source and company", () => {
+    const rows = [base, person, fm1, rec];
+    expect(filtered(rows, { source: "accrual" }).map((r) => r.id)).toEqual(["a"]);
+    expect(filtered(rows, { source: "agent" }).map((r) => r.id)).toEqual(["c"]);
+    expect(filtered(rows, { entity: "e2" }).map((r) => r.id)).toEqual(["b", "c", "d"]);
+    expect(filtered(rows, {})).toHaveLength(4);
+  });
+
+  it("ticks only register journals still waiting, and lists a pair as two drafts", () => {
+    expect([base, person, rec, { ...person, state: "approved" } as JournalRow].map(batchable)).toEqual([true, true, false, false]);
+    expect(batchLines([base, person])).toEqual([
+      "JNL-60 Alpha Ltd, 2026-11-30: Accrual: Example, November 2026 services, 750.00, reversed 2026-12-01 (two drafts)",
+      "JNL-61 Beta Ltd, 2026-11-30: Reclass, 750.00",
+    ]);
+    expect(draftsIn([base, person])).toBe(3);
   });
 });

@@ -274,6 +274,7 @@ const blockingItems = (reconciling = []) => (reconciling || []).filter((it) => i
 //   contracts              deferred income against the contracts register's held amounts
 //   asset_register         tangible and intangible assets against the signed asset register (or Xero's)
 //   vat_return             VAT control against the VAT returns kept in os.stza.io (lib/vat-evidence.js)
+//   accrual_schedule       accruals against the accruals schedule kept in os.stza.io (lib/accruals.js)
 // The ageing proves the trade control account only (18 Nov 2026: Other
 // debtors, 101.00, sat on the receivables line and was given the whole
 // receivables ageing, 250,000.00). Other debtors and creditors, sundry,
@@ -284,6 +285,7 @@ function autoMethod(rec) {
   if (rec.line_key === "deferred") return "contracts";
   if (rec.line_key === "ppe" || rec.line_key === "intangible") return "asset_register";
   if (rec.line_key === "vat") return "vat_return";
+  if (rec.line_key === "accruals") return "accrual_schedule";
   if (rec.line_key === "ar") return NOT_TRADE.test(rec.account_name ?? "") ? null : "ageing_ar";
   if (rec.line_key === "ap") return NOT_TRADE.test(rec.account_name ?? "") ? null : "ageing_ap";
   // Intercompany payables too (16 Nov 2026): a balance owed to a group company is
@@ -301,6 +303,7 @@ const METHOD_LABEL = {
   contracts: "The contracts register: what each customer contract holds on the account at the month end",
   asset_register: "The asset register signed for the month (Xero's own register for the accounts Xero keeps)",
   vat_return: "The VAT returns in os.stza.io: each company's own position on returns not yet filed, and filed returns HMRC has not yet paid",
+  accrual_schedule: "The accruals schedule in os.stza.io: each item accrued for the month, reversed on the 1st of the next",
 };
 
 // A Xero date as YYYY-MM-DD, or null. Xero sends "2026-10-18T00:00:00" in a
@@ -1160,7 +1163,7 @@ function prepareInstruction(rec) {
       HISTORY,
       "Use get_rec to see each company's ledger balance and any evidence already held. Before adding anything, check what is already there: never add a row the reconciliation already holds.",
       method
-        ? `Use fetch_rec_evidence first: it takes the evidence from Xero (${METHOD_LABEL[method]}). Check what it found against the ledger and the documents behind it.`
+        ? `Use fetch_rec_evidence first: it takes the evidence from ${["vat_return", "accrual_schedule"].includes(method) ? "os.stza.io" : "Xero"} (${METHOD_LABEL[method]}). Check what it found against the ledger and the documents behind it.`
         : rec.proof === "schedule"
           ? "This account is proved by a schedule that is not built in os.stza.io yet, so record the schedule as evidence with add_rec_evidence: for each company, the schedule's total at the month end, where it comes from (the listing and its date) and the document. Build the listing from get_account_activity (what makes up the balance and what cleared it). If a company's balance is nil, record nil with the basis: what was on the account during the month and how it cleared; a nil balance with movement is still proved."
           : "There is no automatic source for this account. Find outside evidence for each company (a statement, a return, a register, a confirmation) with get_account_activity and list_attachments, and record it with add_rec_evidence: the amount, where it comes from, and the document.",

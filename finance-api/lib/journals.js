@@ -9,6 +9,7 @@
 
 const { toPence, fromPence, validateJournal, isValidIsoDate } = require("./journal");
 const recs = require("./recs");
+const accrualRules = require("./accruals");
 
 // The agents that may propose. Every other agent, and Claude through the
 // practice MCP, is refused: they can raise a task in Work instead.
@@ -133,12 +134,29 @@ const stateFromXero = (status) => (String(status ?? "").toUpperCase() === "POSTE
 function registerGate({ proposals, input }) {
   const same = recs.amountsKey(input?.lines);
   const month = String(input?.date ?? "").slice(0, 7);
-  const hit = (proposals ?? []).find((p) => recs.amountsKey(p.lines) === same
+  // A pair is two journals: its reversal is held as its accrual is.
+  const legs = (proposals ?? []).flatMap((p) => (p.reversal_date
+    ? [p, { ...p, journal_date: p.reversal_date, lines: accrualRules.reversalLines(p.lines) }] : [p]));
+  const hit = legs.find((p) => recs.amountsKey(p.lines) === same
     && (["proposed", "approved"].includes(p.state) || String(p.journal_date).slice(0, 7) === month));
   if (!hit) return {};
   return { refuse: hit.state === "rejected"
     ? "The CFO rejected this journal on the Journals page. Propose it again there if it is still needed."
     : "This journal is on the Journals page. The CFO approves it there, and it goes to Xero from there." };
+}
+
+// The Xero journals one register row stands for: one, or for an accrual pair
+// (migration 062) the accrual and its reversal, each with its own key. One
+// approval sends both; each leg carries its own approval text, naming its own
+// date, codes and amounts, as the journal write checks.
+function legsOf(j) {
+  const accrual = { leg: "accrual", date: String(j.journal_date).slice(0, 10), narration: j.narration, lines: j.lines, key: journalKey(j) };
+  if (!j.reversal_date) return [accrual];
+  const keys = accrualRules.pairKeys(j);
+  return [
+    { ...accrual, key: keys.accrual },
+    { leg: "reversal", date: String(j.reversal_date).slice(0, 10), narration: accrualRules.reversalNarration(j.narration), lines: accrualRules.reversalLines(j.lines), key: keys.reversal },
+  ];
 }
 
 // Where a journal in the list came from: person, fm1, fc, or rec for one
@@ -148,6 +166,7 @@ function sourceOf(row) {
   if (row.source === "person") return "person";
   if (row.source === "schedule") return "schedule";
   if (row.source === "vat") return "vat";
+  if (row.source === "accrual") return "accrual";
   const m = /^agent:(.+)$/.exec(String(row.proposed_by ?? ""));
   return m ? m[1] : "agent";
 }
@@ -161,5 +180,5 @@ function jnlRef(n) {
 module.exports = {
   jnlRef,
   PROPOSERS, MAX_LINES, STATES, AGREED_TEXT, PENDING_LIVE_MINUTES,
-  journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, sourceOf, registerGate,
+  journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, sourceOf, registerGate, legsOf,
 };

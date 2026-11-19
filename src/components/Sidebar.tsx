@@ -17,7 +17,7 @@ import { usePathname } from "next/navigation";
 import {
   BadgeCheck, BookOpen, FileQuestionMark, FileSignature, Package, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
-  PanelLeftClose, PanelLeftOpen, PenLine, Receipt, ListPlus, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
+  CalendarClock, PanelLeftClose, PanelLeftOpen, PenLine, Receipt, ListPlus, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
   type LucideIcon, Percent,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -85,6 +85,8 @@ const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = 
   { seg: "bills", label: "Bills", icon: Receipt },
   { seg: "reconciliations", label: "Reconciliations", icon: Scale },
   { seg: "journals", label: "Journals", icon: ScrollText },
+  // Agent proposals discussed and decided in place; accrual and reversal as one pair (19 Nov 2026).
+  { seg: "accruals", label: "Accruals", icon: CalendarClock },
   // Every asset register, os.stza.io's and Xero's, a month at a time (18 Nov 2026).
   { seg: "fixed-assets", label: "Fixed assets", icon: Package },
   // Transactions without their supporting document, carried in the close (10 Nov 2026).

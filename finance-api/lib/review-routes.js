@@ -19,6 +19,7 @@ const SOURCES = {
   journals: "Journals are waiting for migration 033 to be applied.",
   approvals: "The Approvals folders are not in this database.",
   xero_changes: "Xero changes are waiting for migration 039 to be applied.",
+  accruals: "Accruals are waiting for migration 062 to be applied.",
 };
 
 function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = null }) {
@@ -56,7 +57,7 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
     // the item can link to it.
     if (syncApprovalTasks) await syncApprovalTasks(client.id);
 
-    const [bills, recRows, recJournals, own, wip, xeroChanges] = await Promise.all([
+    const [bills, recRows, recJournals, own, wip, xeroChanges, accrualRows] = await Promise.all([
       source("bills", missing, async () => (await pool.query(
         `SELECT i.id, i.state, i.file_name, i.source, i.created_at, i.decided_at,
                 e.slug AS entity_slug, e.name AS entity_name,
@@ -90,12 +91,16 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
           WHERE j.client_id = $1 AND j.state IN ('proposed', 'approved')`, [client.id])).rows),
       source("journals", missing, async () => (await pool.query(
         `SELECT j.id, j.jnl_no, j.state, j.period, j.narration, j.lines, j.source, j.proposed_by, j.approved_at, j.created_at, j.last_error,
+                j.xero_journal_id, to_jsonb(j)->>'reversal_date' AS reversal_date, to_jsonb(j)->>'reversal_xero_journal_id' AS reversal_xero_journal_id,
                 e.name AS entity_name,
-                p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http, p.created_at AS post_at
+                p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http, p.created_at AS post_at,
+                rp.outcome AS rpost_outcome, rp.response_body->>'http_status' AS rpost_http, rp.created_at AS rpost_at
            FROM finance.journals j
            JOIN finance.entities e ON e.id = j.entity_id
            LEFT JOIN finance.journal_posts p ON p.client_id = j.client_id AND p.entity_id = j.entity_id
              AND p.idempotency_key = 'journal-' || j.id || '-' || j.attempts
+           LEFT JOIN finance.journal_posts rp ON rp.client_id = j.client_id AND rp.entity_id = j.entity_id
+             AND rp.idempotency_key = 'journal-' || j.id || '-' || (to_jsonb(j)->>'reversal_attempts') || '-reversal'
           WHERE j.client_id = $1 AND j.state IN ('proposed', 'approved')`, [client.id])).rows),
       source("approvals", missing, async () => (await pool.query(
         `SELECT w.id, w.ref, w.type, w.status, w.panel, w.title, w.amount_total, w.blocked_on,
@@ -112,6 +117,11 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
                 c.input->'record'->>'purchasePrice' AS amount, e.name AS entity_name
            FROM finance.xero_changes c JOIN finance.entities e ON e.id = c.entity_id
           WHERE c.client_id = $1 AND c.state IN ('proposed', 'approved')`, [client.id])).rows),
+      source("accruals", missing, async () => (await pool.query(
+        `SELECT p.id, p.period, p.supplier, p.lines, p.test, p.basis, p.confidence, p.decision, p.decision_reason, p.proposed_by, p.created_at, p.updated_at,
+                e.name AS entity_name
+           FROM finance.accrual_proposals p JOIN finance.entities e ON e.id = p.entity_id
+          WHERE p.client_id = $1 AND p.decision IN ('pending', 'question')`, [client.id])).rows),
     ]);
 
     const ctx = { slug, activeAgents, now };
@@ -123,6 +133,7 @@ function mountReview(app, { route, pool, clientIdFromSlug, syncApprovalTasks = n
       ...own.map((r) => review.journalItem(r, ctx)),
       ...wip.map((r) => review.approvalItem(r, ctx)),
       ...xeroChanges.map((r) => review.xeroChangeItem(r, ctx)),
+      ...accrualRows.map((r) => review.accrualItem(r, ctx)),
     ], waitsAs);
     return { viewer: { email: actorEmail || null, role, waits_as: waitsAs }, items, counts: review.counts(items), missing };
   }

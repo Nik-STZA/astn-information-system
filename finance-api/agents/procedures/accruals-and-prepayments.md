@@ -1,8 +1,8 @@
 ---
 name: accruals-and-prepayments
 title: Accruals and prepayments
-version: 1.3.1
-summary: Reconciling prepayments month by month from the last signed-off rec, checking every release posted, and proving accruals: each with a basis, last month's reversed, and no regular supplier's bill missing.
+version: 1.4.0
+summary: Reconciling prepayments month by month from the last signed-off rec and checking every release posted; accruals proposed for the CFO from five tests, citing the client's precedents, held on the schedule and posted as accrual and reversal pairs.
 roles: fm1,fc
 ---
 
@@ -134,47 +134,83 @@ against the order: has the goods or service arrived, and should it have moved on
 
 ### What proves the balance
 
-**A schedule.** One line per accrual: what it is for, the period, the amount, the
-basis, and when it should clear. The basis is one of: a contract or fixed fee, a
+**The accruals schedule in os.stza.io.** One item per accrual: the supplier, the
+cost lines net of VAT, the month it is for, the basis, and the bill it waits for.
+A standing item recurs each month until its end month or until the CFO stops it.
+The platform holds the schedule, makes each accrual and its reversal as one journal
+pair, matches the bill when it arrives, and the rec takes its evidence from the
+schedule with `fetch_rec_evidence`. The basis is one of: a contract or fixed fee, a
 purchase order or quote, the last bill for the same supply, or a stated estimate
 with who gave it. An amount with no basis is not an accrual.
 
+Amounts are net of VAT, with no tax type. The accrual is dated the month end and
+reverses on the 1st of the next month. The accruals account is each company's own,
+set on the Accruals page or taken from the account on the Accruals line; never use a
+code from memory or from another client.
+
+### The loop: discuss, then it remembers
+
+You propose; the CFO discusses each proposal in place and decides (accept, accept
+with edits, no accrual, a question back to you, or standing). Each decision and its
+reason is kept as a precedent for that client and supplier, and you read them before
+you propose again. Precedents belong to one client: never carry one to another.
+
 ### Steps
 
-**1. Start from the prior close.** As for prepayments: the last month signed off in
-Reconciliations, rolled forward month by month, with opening equal to prior close.
+**1. Read the history.** `get_accrual_history` for the month: your earlier
+proposals with the CFO's decisions and comments, the precedents in force, the
+standing items, and each month's bill against what was accrued.
 
-**2. Check last month's accruals reversed.** For each one, find what happened: a
-reversal in `get_manual_journals`, the real bill arriving (`get_invoices`), or a
-stated re-basing with the reason. A prior-month accrual neither reversed nor
-re-based is an error, not a balance. Watch for the bill landing and the accrual
-staying, which counts the cost twice, and for a reversal posted with no bill, which
-leaves the month with the cost removed.
+**2. Run the month.** `run_accruals`. It proposes the pair for every standing item,
+backfills a month a standing item missed into that month, matches bills that arrived
+to the months they clear, and lists findings. Do not propose what it proposed. Where
+it says a missed month is locked, the CFO opens it in Xero: never put that month's
+cost in another month. Where it says a company has no accruals account, ask.
 
-**3. Look for regular suppliers missing a bill.** List suppliers billed in each of
-the prior three months with `get_invoices` (ACCPAY), and compare to this month. For
-each with no bill and no accrual, check whether the document is on its way: bills
-at DRAFT or SUBMITTED in Xero count. Then either propose an accrual on the basis of
-the last bill, or say why none is needed: cancelled, billed less often, or moved.
-Do the same for regular direct debits in `get_bank_transactions`, which may have no
-bill at all. Your tools do not show the Bills queue, so say the FC should compare
-your list to it.
+**3. Run the five tests.** Each candidate records the test that found it.
 
-**4. Look for costs with no regular pattern.** Work done but not yet billed: the
-month's tasks in Work, contracts started, professional fees for a year-end, interest
-owed, and anything the client's rules list. Do not accrue a guess. Where a cost is
-likely and has no basis, ask.
+| Test | What it finds |
+|---|---|
+| a. Continuity | Every accrual last month recurs, or is closed with a reason: reversed and matched to its bill, or stopped |
+| b. Backward | Bills dated after the month end for service in it or earlier, in every status (`get_invoices`, ACCPAY) |
+| c. Gap | Recurring suppliers with a month missing, from a six-month grid of bills by supplier and month |
+| d. Forward | Contracts and engagements where more has been earned than billed: the month's work, contracts started, fees due on milestones |
+| e. Reverse cut-off | Bills dated in the month for later service: a prepayment, or a bill dated wrongly |
 
-**5. Build this month's schedule** and agree it to the ledger. Accruals cannot be
-prepared on the rec yet, so follow what `balance-sheet-matrix` says for such a line.
-Propose new accruals and reversals with `propose_rec_journal`.
+For the gap test, bills at DRAFT or SUBMITTED in Xero count as arrived. Check regular
+direct debits in `get_bank_transactions` too, which may have no bill. Your tools do
+not show the Bills queue, so say the FC should compare your list to it.
+
+**4. Cite or depart.** Every proposal names in precedent_ids the precedent it
+follows, or says in departs_reason what is different this month. A candidate that
+repeats a no-accrual precedent without new evidence is not raised: the platform
+refuses it, and you list it in your note as "not raised, precedent" with its id. A
+question the CFO answered until changed is not asked again unless the facts changed:
+a new bill pattern, or an amount outside the range.
+
+**5. Calibrate.** Where the history shows a supplier's bills running one way against
+its accruals (always under, or always over), say so, and adjust the basis.
+
+**6. Propose.** `propose_accrual`, one per supplier, company and month, with its
+basis, evidence (invoice ids, lines, documents) and confidence. Where a fact from
+outside the ledger is needed, make it an open question, with no amount: it goes to
+the CFO and is never estimated into a journal. Any cost size below which nothing is
+accrued comes from the client's rules; where they are silent, report the amount and
+say no rule was set.
+
+**7. Answer in the discussion.** When the CFO or the FC comments on a proposal,
+reply with `comment_on_accrual` with what you found. You never decide.
 
 ### Done means
 
-- Every accrual has a basis and a clearing date.
-- Every prior accrual is reversed, matched to a bill, or re-based with a reason.
-- The regular supplier check is recorded, with its result, even when clear.
-- The schedule ties to the ledger, or the difference is named.
+- The history was read, the month was run, and its pairs, matches and findings are
+  in your note by JNL number.
+- All five tests are recorded with their result, even when clear.
+- Every proposal has a basis, evidence and a precedent cited or departed from.
+- Every candidate not raised is listed with its precedent.
+- Every prior accrual is matched to its bill, or listed as late.
+- The accruals rec takes its evidence from the schedule and ties to the ledger, or
+  the difference is named (a pair waiting for approval or posting is the usual one).
 
 ## Stop and ask
 
@@ -186,7 +222,8 @@ Stop and ask rather than guess when:
 - the service period is not on the document
 - a month's ledger will not agree and the cause cannot be found
 - a journal would be dated before the lock date in `get_organisation`
-- an accrual would need an estimate nobody has given
+- an accrual would need an estimate nobody has given (make it an open question)
+- a missed month of a standing accrual is locked
 - a cost could be either an accrual or a provision
 
 Record a wait on someone outside with `waiting_on`, per `how-work-moves`.
@@ -195,9 +232,10 @@ Record a wait on someone outside with `waiting_on`, per `how-work-moves`.
 
 The rec, handed on with `hand_off`, plus in the note: the start month and why; each month's agreement; every missing,
 draft, doubled, or late release; items near their end; the statement about repeating
-journals; accruals not reversed; the regular supplier list with what you concluded;
+journals; the accruals run (pairs, matches, findings), the five tests, every proposal, and every candidate not raised with its precedent;
 every judgement; and what you could not check. Accruals are a judgement line, so the
-FC challenges each basis, not just the total, and checks the opening itself with
+FC challenges each basis, not just the total, on the proposal's discussion with
+`comment_on_accrual` marked as a challenge, and checks the opening itself with
 `get_rec`, recording its view with `review_rec`.
 
 ## How to say it
@@ -214,6 +252,9 @@ FC challenges each basis, not just the total, and checks the opening itself with
   once it is."
 - "[Supplier] billed in each of the last three months and has not billed for October.
   I have proposed an accrual at last month's amount. Is the service still running?"
+- "Not raised: [supplier], precedent [id], no accrual (fully billed). No new bill since."
+- "The standing accrual for [supplier] missed August. The run proposed it into August,
+  not October."
 
 ## Version history
 
@@ -222,3 +263,5 @@ FC challenges each basis, not just the total, and checks the opening itself with
 | 1.0.0 | 1 November 2026 | First version. |
 | 1.1.0 | 1 November 2026 | Matches the reconciliation record: the rec lives in os.stza.io, journals are proposed on it and approved there, and tolerance and start month follow the platform. |
 | 1.2.0 | 2 November 2026 | Prepayment items are found by rebuilding the account with `get_account_activity`, started from the last date the balance was nil, instead of searching bills and journals over a guessed window. Unexplained amounts are findings. |
+| 1.3.1 | 18 November 2026 | Accruals worked as an evidence rec until their schedule was built. |
+| 1.4.0 | 19 November 2026 | Accruals on the platform: the five tests, cite or depart, proposals the CFO decides in place, precedents per client, standing items, accrual and reversal as one pair, bills matched, and the rec's evidence from the schedule. |

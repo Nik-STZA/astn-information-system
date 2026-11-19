@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { waitsAs, producedBy, billAgent, billItem, recItem, recJournalItem, journalItem, approvalItem, combine, counts } from "./review";
+import { waitsAs, producedBy, billAgent, billItem, recItem, recJournalItem, journalItem, accrualItem, approvalItem, combine, counts } from "./review";
 
 const slug = "alpha-group";
 const NOW = Date.parse("2026-11-02T12:00:00Z");
@@ -188,5 +188,35 @@ describe("one list", () => {
 
   it("a viewer with no review role has nothing for them", () => {
     expect(combine([item("bill", "2026-10-15T00:00:00.000Z", "CFO")], null)[0].for_you).toBe(false);
+  });
+});
+
+describe("an accrual proposal", () => {
+  const row = { id: "a1", period: "2026-10", supplier: "Example Solicitors", lines: [], test: "gap", basis: "Needs their WIP at 31 October",
+    confidence: "open", decision: "pending", proposed_by: "agent:fm1", created_at: "2026-11-03T09:00:00Z", entity_name: "Alpha Ltd" };
+
+  it("puts an open question in front of the CFO, with no amount", () => {
+    expect(accrualItem(row, { slug })).toMatchObject({
+      kind: "accrual", waiting_on: "CFO", amount: null, produced_by: "FM1",
+      status: "Question for you: Needs their WIP at 31 October",
+      href: "/finance/clients/alpha-group/accruals?period=2026-10&proposal=a1",
+    });
+  });
+
+  it("sends the CFO's question back to the preparer, and drops a decided one", () => {
+    expect(accrualItem({ ...row, decision: "question", decision_reason: "When did the work start?" }, { slug }).waiting_on).toBe("Preparer");
+    expect(accrualItem({ ...row, decision: "no_accrual" }, { slug })).toBeNull();
+    expect(accrualItem({ ...row, confidence: "high", lines: [{ account_code: "412", amount: 750 }] }, { slug })).toMatchObject({ amount: "750.00", status: "Accrual proposed (gap test)" });
+  });
+});
+
+describe("an accrual pair on the Journals page", () => {
+  const pair = { id: "j1", jnl_no: 60, state: "approved", period: "2026-11", narration: "Accrual: Example, November 2026 services", source: "accrual", proposed_by: "platform:accruals",
+    lines: [{ account_code: "412", amount: 750 }, { account_code: "805", amount: -750 }], reversal_date: "2026-12-01", created_at: "2026-11-19T09:00:00Z", approved_at: "2026-11-19T10:00:00Z" };
+
+  it("names the reversal, and asks for approval again only for the leg not yet in Xero", () => {
+    const item = journalItem({ ...pair, xero_journal_id: "x1", rpost_outcome: "failed", rpost_http: "400", rpost_at: "2026-11-19T10:00:00Z" }, { slug, now: NOW });
+    expect(item.title).toBe("JNL-60 Accrual: Example, November 2026 services (with its reversal on 2026-12-01)");
+    expect(item.status).toMatch(/^Xero refused the last attempt/);
   });
 });

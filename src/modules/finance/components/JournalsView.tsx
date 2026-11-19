@@ -5,7 +5,9 @@
 // proposed on a reconciliation is listed too, and decided on its reconciliation.
 //
 // Nothing here talks to Xero. Approving asks finance-api, which creates the
-// journal in Xero as a DRAFT; a person posts it there.
+// journal in Xero as a DRAFT; a person posts it there. An accrual and its
+// reversal are one row and one approval, and two drafts. Several can be ticked
+// and approved after one confirmation that lists what will be created.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,13 +16,14 @@ import { ChevronRight, Plus, RefreshCw, X } from "lucide-react";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import { dayLabel, money, periodChoices, periodLong } from "@/modules/finance/lib/recs";
 import {
-  balanceOf, blankLine, grouped, needsXeroCheck, sourceLabel, toLines,
-  type DraftLine, type JournalList, type JournalRow,
+  SOURCE_FILTERS, balanceOf, batchLines, batchable, blankLine, draftsIn, filtered, grouped, needsXeroCheck, sourceLabel, toLines,
+  type DraftLine, type JournalList, type JournalRow, type SourceFilter,
 } from "@/modules/finance/lib/journals";
 import SearchSelect from "./SearchSelect";
 import styles from "./Journals.module.css";
 
 type Send = (path: string, body?: unknown) => Promise<boolean>;
+type Ticks = { selected: Set<string>; toggle: (id: string) => void };
 
 async function post(slug: string, path: string, body: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
   const res = await fetch(`/api/finance/${encodeURIComponent(slug)}/${path}`, {
@@ -38,7 +41,16 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [source, setSource] = useState<SourceFilter>("all");
+  const [entity, setEntity] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
   const checked = useRef<string | null>(null);
+  const toggle = (id: string) => setSelected((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const send: Send = async (path, body = {}) => {
     setBusy(true);
@@ -73,8 +85,28 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
     return <div className={styles.alert} role="status">Journals are built but not switched on: migration 033 has not been applied to the database yet.</div>;
   }
 
-  const groups = grouped(data.journals);
+  const shown = filtered(data.journals, { source, entity });
+  const groups = grouped(shown);
   const anyDrafts = data.journals.some((j) => j.state === "draft_created");
+  const ticked = shown.filter((j) => selected.has(j.id) && batchable(j));
+  const tickable = shown.filter(batchable);
+  const pick: Ticks = { selected, toggle };
+
+  // One confirmation for all of them; each is then approved on its own, in turn.
+  const approveTicked = async () => {
+    setBusy(true);
+    setError(null);
+    const r = await post(slug, "journals/approve-batch", { ids: ticked.map((j) => j.id), confirmed: true });
+    setBusy(false);
+    setConfirming(false);
+    if (!r.ok) { setError(said(r.body, "That did not work")); router.refresh(); return; }
+    const results = (r.body.results as Array<{ id: string; ok: boolean; error?: string }> | undefined) ?? [];
+    const refused = results.filter((x) => !x.ok);
+    const name = (id: string) => data.journals.find((j) => j.id === id)?.jnl ?? "A journal";
+    setNotice(`${r.body.approved ?? 0} approved and sent to Xero as drafts.${refused.length ? ` Not done: ${refused.map((x) => `${name(x.id)} (${x.error ?? "refused"})`).join("; ")}.` : ""}`);
+    setSelected(new Set());
+    router.refresh();
+  };
 
   return (
     <div className={styles.journalsPage}>
@@ -83,6 +115,15 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
           onChange={(e) => router.push(`/finance/clients/${slug}/journals?period=${e.target.value}`)}>
           {periodChoices(data.period).map((p) => <option key={p} value={p}>{periodLong(p)}</option>)}
         </select>
+        <select aria-label="From" className={styles.pick} value={source} onChange={(e) => setSource(e.target.value as SourceFilter)}>
+          {SOURCE_FILTERS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+        </select>
+        {data.entities.length > 1 && (
+          <select aria-label="Company" className={styles.pick} value={entity} onChange={(e) => setEntity(e.target.value)}>
+            <option value="">Every company</option>
+            {data.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        )}
         <button type="button" className="btn-primary" disabled={busy} onClick={() => setAdding((a) => !a)} aria-expanded={adding}>
           {adding ? <X size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}{adding ? "Close" : "New journal"}
         </button>
@@ -98,7 +139,34 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
 
       {notice && <div className={styles.alert} role="status">{notice}</div>}
 
+      {tickable.length > 1 && (
+        <div className={styles.bar}>
+          <button type="button" className="btn-secondary" disabled={busy}
+            onClick={() => setSelected(ticked.length === tickable.length ? new Set() : new Set(tickable.map((j) => j.id)))}>
+            {ticked.length === tickable.length ? "Clear the ticks" : `Tick all ${tickable.length} waiting`}
+          </button>
+          <button type="button" className="btn-primary" disabled={busy || ticked.length === 0} onClick={() => setConfirming(true)}>
+            Approve {ticked.length || ""} ticked
+          </button>
+        </div>
+      )}
+
+      {confirming && ticked.length > 0 && (
+        <div className={`${styles.card} ${styles.pad}`} role="dialog" aria-label="Approve these journals">
+          <strong>Approve these {ticked.length} as Xero drafts? That makes {draftsIn(ticked)} draft{draftsIn(ticked) === 1 ? "" : "s"} in Xero.</strong>
+          <ul className={styles.small}>{batchLines(ticked).map((l) => <li key={l}>{l}</li>)}</ul>
+          <div className={styles.actions}>
+            <button type="button" className="btn-primary" disabled={busy} onClick={approveTicked}>{busy ? "Approving..." : "Approve them"}</button>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {adding && <NewJournal slug={slug} data={data} onDone={(n) => { setAdding(false); setNotice(n); router.refresh(); }} />}
+
+      {data.journals.length > 0 && shown.length === 0 && (
+        <div className={`${styles.card} ${styles.pad}`}><span className={styles.sub}>No journals match these filters.</span></div>
+      )}
 
       {data.journals.length === 0 && !adding && (
         <div className={`${styles.card} ${styles.pad}`}>
@@ -114,11 +182,12 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
               <details key={j.id} className={`${styles.card} ${styles.fold}`} open={g.key === "waiting"}>
                 <summary className={styles.cardSummary}>
                   <div className={styles.rowTop}>
+                    {batchable(j) && <Tick j={j} pick={pick} />}
                     <span className={styles.rowName}>{j.jnl && <span className={styles.sub}>{j.jnl} </span>}{j.narration}</span>
                     <span className={styles.num}>{money(j.total)}</span>
                   </div>
                   <div className={styles.rowMeta}>
-                    <span>{j.entity_name}</span><span>{dayLabel(j.journal_date)}</span><span>{sourceLabel(j)}</span>
+                    <span>{j.entity_name}</span><span>{dayLabel(j.journal_date)}{j.pair ? `, reversed ${dayLabel(j.pair.reversal_date)}` : ""}</span><span>{sourceLabel(j)}</span>
                   </div>
                 </summary>
                 <div className={styles.foldBody}><Detail slug={slug} j={j} busy={busy} send={send} /></div>
@@ -129,10 +198,10 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th aria-label="Open"></th><th>No.</th><th>Company</th><th>Date</th><th>Narration</th><th>From</th><th className={styles.num}>Total</th>
+                  <th aria-label="Open"></th><th aria-label="Tick"></th><th>No.</th><th>Company</th><th>Date</th><th>Narration</th><th>From</th><th className={styles.num}>Total</th>
                 </tr>
               </thead>
-              {g.rows.map((j) => <Row key={j.id} slug={slug} j={j} busy={busy} send={send} startOpen={g.key === "waiting"} />)}
+              {g.rows.map((j) => <Row key={j.id} slug={slug} j={j} busy={busy} send={send} pick={pick} startOpen={g.key === "waiting"} />)}
             </table>
           </div>
         </section>
@@ -142,7 +211,7 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
 }
 
 // One journal on a computer: a row that opens to its lines and the decision.
-function Row({ slug, j, busy, send, startOpen }: { slug: string; j: JournalRow; busy: boolean; send: Send; startOpen: boolean }) {
+function Row({ slug, j, busy, send, pick, startOpen }: { slug: string; j: JournalRow; busy: boolean; send: Send; pick: Ticks; startOpen: boolean }) {
   const [open, setOpen] = useState(startOpen);
   return (
     <tbody>
@@ -152,9 +221,10 @@ function Row({ slug, j, busy, send, startOpen }: { slug: string; j: JournalRow; 
             <ChevronRight size={14} className={open ? styles.chevOpen : styles.chev} aria-hidden="true" />
           </button>
         </td>
+        <td onClick={(e) => e.stopPropagation()}>{batchable(j) && <Tick j={j} pick={pick} />}</td>
         <td className={`${styles.nowrap} ${styles.sub}`}>{j.jnl ?? ""}</td>
         <td>{j.entity_name}</td>
-        <td className={styles.nowrap}>{dayLabel(j.journal_date)}</td>
+        <td className={styles.nowrap}>{dayLabel(j.journal_date)}{j.pair && <div className={styles.sub}>reversed {dayLabel(j.pair.reversal_date)}</div>}</td>
         <td className={styles.strong}>{j.narration}</td>
         <td className={styles.sub}>{sourceLabel(j)}</td>
         <td className={styles.num}>{money(j.total)}</td>
@@ -162,10 +232,33 @@ function Row({ slug, j, busy, send, startOpen }: { slug: string; j: JournalRow; 
       {open && (
         <tr className={styles.detailRow}>
           <td></td>
-          <td colSpan={6}><Detail slug={slug} j={j} busy={busy} send={send} /></td>
+          <td colSpan={7}><Detail slug={slug} j={j} busy={busy} send={send} /></td>
         </tr>
       )}
     </tbody>
+  );
+}
+
+function Tick({ j, pick }: { j: JournalRow; pick: Ticks }) {
+  return (
+    <input type="checkbox" aria-label={`Tick ${j.jnl ?? j.narration} to approve`} checked={pick.selected.has(j.id)}
+      onClick={(e) => e.stopPropagation()} onChange={() => pick.toggle(j.id)} />
+  );
+}
+
+function Lines({ lines, negate = false }: { lines: JournalRow["lines"]; negate?: boolean }) {
+  return (
+    <div className={styles.lines}>
+      {lines.map((l, i) => {
+        const amount = negate ? -l.amount : l.amount;
+        return (
+          <div key={i} className={styles.jLine}>
+            <span className={styles.lineText}><span className={styles.code}>{l.account_code}</span>{l.description ? ` ${l.description}` : ""}</span>
+            <span className={styles.num}>{amount > 0 ? "Dr" : "Cr"} {money(Math.abs(amount))}</span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -173,17 +266,19 @@ function Row({ slug, j, busy, send, startOpen }: { slug: string; j: JournalRow; 
 function Detail({ slug, j, busy, send }: { slug: string; j: JournalRow; busy: boolean; send: Send }) {
   return (
     <div className={styles.detail}>
-      <div className={styles.lines}>
-        {j.lines.map((l, i) => (
-          <div key={i} className={styles.jLine}>
-            <span className={styles.lineText}><span className={styles.code}>{l.account_code}</span>{l.description ? ` ${l.description}` : ""}</span>
-            <span className={styles.num}>{l.amount > 0 ? "Dr" : "Cr"} {money(Math.abs(l.amount))}</span>
-          </div>
-        ))}
-      </div>
+      {j.pair ? (
+        <>
+          <div className={styles.label}>Accrual, dated {dayLabel(j.journal_date)}{j.pair.accrual_xero_journal_no ? `, Xero ${j.pair.accrual_xero_journal_no}` : ""}</div>
+          <Lines lines={j.lines} />
+          <div className={styles.label}>Reversal, dated {dayLabel(j.pair.reversal_date)}{j.pair.reversal_xero_journal_no ? `, Xero ${j.pair.reversal_xero_journal_no}` : ""}: {j.pair.reversal_narration}</div>
+          <Lines lines={j.lines} negate />
+          {j.pair.backfill && <p className={styles.small}>Backfilled into its own month: no catch-up in a later month.</p>}
+          <p className={styles.small}><Link className={styles.link} href={`/finance/clients/${slug}/accruals?period=${j.period}`}>Open the accruals for {periodLong(j.period)}</Link></p>
+        </>
+      ) : <Lines lines={j.lines} />}
       {j.reason && <div className={styles.reason}><div className={styles.label}>Reason</div><MarkdownOutput text={j.reason} /></div>}
       <p className={styles.small}>
-        Proposed by {j.proposed_by.replace(/^agent:/, "").replace(/^(fm1|fc)$/, (m) => m.toUpperCase())}
+        Proposed by {j.proposed_by === "platform:accruals" ? "os.stza.io, from the accruals schedule" : j.proposed_by === "backload" ? "the back-load of hand-posted journals" : j.proposed_by.replace(/^agent:/, "").replace(/^(fm1|fc)$/, (m) => m.toUpperCase())}
         {j.approved_by && j.state !== "proposed" ? ` · approved by ${j.approved_by}` : ""}
         {j.rejected_by && j.state === "rejected" ? ` · rejected by ${j.rejected_by}` : ""}
       </p>
@@ -208,12 +303,13 @@ function State({ slug, j }: { slug: string; j: JournalRow }) {
     );
   }
   let text: string | null = null;
-  if (j.state === "proposed") text = j.last_error ? `The last approval did not reach Xero: ${j.last_error}` : "Approving creates it in Xero as a draft. You post it there.";
+  if (j.state === "proposed") text = j.last_error ? `The last approval did not reach Xero: ${j.last_error}` : j.pair ? "Approving creates both in Xero as drafts: the accrual and its reversal. You post them there." : "Approving creates it in Xero as a draft. You post it there.";
   if (j.state === "approved") {
     text = j.retry_state === "live" ? "Being created in Xero now."
       : j.retry_state === "unknown" ? "The last attempt did not finish cleanly, so this draft may already be in Xero. Check Xero. If it is not there, reject this and propose it again."
         : j.retry_state === "drafted" ? "This draft is in Xero. Record it to move it on."
-          : `Approved, but no draft was created${j.last_error ? `: ${j.last_error}` : "."}`;
+          : j.pair && j.pair.accrual_xero_journal_no ? `The accrual is in Xero; the reversal is not yet${j.last_error ? `: ${j.last_error}` : "."} Trying again sends only the reversal.`
+            : `Approved, but no draft was created${j.last_error ? `: ${j.last_error}` : "."}`;
   }
   if (j.state === "draft_created") {
     const gone = j.xero_status && !["DRAFT", "POSTED"].includes(j.xero_status.toUpperCase());
@@ -228,7 +324,7 @@ function Actions({ j, busy, send }: { j: JournalRow; busy: boolean; send: Send }
   if (j.state === "proposed") {
     return (
       <div className={styles.actions}>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => send(`${j.id}/approve`)}>Approve as Xero draft</button>
+        <button type="button" className="btn-primary" disabled={busy} onClick={() => send(`${j.id}/approve`)}>{j.pair ? "Approve both as Xero drafts" : "Approve as Xero draft"}</button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => send(`${j.id}/reject`)}>Reject</button>
       </div>
     );

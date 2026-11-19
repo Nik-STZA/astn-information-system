@@ -67,6 +67,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { practiceTools } from "./practice-tools.js";
 import { workTools } from "./work-tools.js";
+import { accrualTools } from "./accrual-tools.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -756,10 +757,13 @@ const handlers = {
 
 const TOOLSET = process.env.STZA_TOOLSET === "practice" ? "practice" : "byoai";
 // The practice toolset also gets Work (work-tools.js): STZA's own Claude can
-// push an open item into a client's task list in os.stza.io.
+// push an open item into a client's task list in os.stza.io, and accruals
+// (accrual-tools.js): read the history, raise a proposal, reply on one.
 function withWork(set) {
-  const w = workTools({ apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log });
-  return { tools: [...set.tools, ...w.tools], handlers: { ...set.handlers, ...w.handlers } };
+  const opts = { apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log };
+  const w = workTools(opts);
+  const a = accrualTools(opts);
+  return { tools: [...set.tools, ...w.tools, ...a.tools], handlers: { ...set.handlers, ...w.handlers, ...a.handlers } };
 }
 const active = TOOLSET === "practice"
   ? withWork(practiceTools({ apiUrl: API_URL, apiKey, actorEmail: process.env.STZA_ACTOR_EMAIL, log }))

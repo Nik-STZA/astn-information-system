@@ -11,6 +11,7 @@ import { agentThreads } from "./agent-threads";
 import { agentContracts } from "./agent-contracts";
 import { NAMES as REC_TOOLS } from "./agent-recs";
 import { NAMES as JOURNAL_TOOLS, ROLES as JOURNAL_ROLES } from "./agent-journals";
+import { NAMES as ACCRUAL_TOOLS } from "./agent-accruals";
 import { NAMES as OUTSTANDING_TOOLS } from "./agent-outstanding-docs";
 
 const ROLES = ["ap-clerk", "ar-clerk", "fc", "fm1", "fm2", "fpa"];
@@ -34,6 +35,7 @@ const ALL_TOOLS = new Set([
   ...DOCUMENT_TOOLS,
   ...REC_TOOLS,
   ...JOURNAL_TOOLS,
+  ...ACCRUAL_TOOLS,
   ...OUTSTANDING_TOOLS,
   "read_procedure",
 ]);
@@ -97,6 +99,12 @@ describe("the agents' library", () => {
     expect(names("fm1")).toContain("create_draft_journal");
     // A journal for the CFO's Journals page is proposed by FM1 or the FC only.
     for (const r of ROLES) expect(names(r).includes("propose_journal"), r).toBe(JOURNAL_ROLES.includes(r));
+    // Accruals (docs/accruals-spec.md 8): FM1 raises and runs; the FC reads and
+    // comments. No role has a tool to decide: only the CFO decides, in os.stza.io.
+    for (const r of ROLES) expect(names(r).includes("propose_accrual"), r).toBe(r === "fm1");
+    for (const r of ROLES) expect(names(r).includes("run_accruals"), r).toBe(r === "fm1");
+    for (const r of ["fm1", "fc"]) expect(names(r)).toEqual(expect.arrayContaining(["get_accrual_history", "comment_on_accrual"]));
+    expect([...ALL_TOOLS].some((t) => /^(decide|approve)_accrual/.test(t))).toBe(false);
     for (const r of ROLES) expect(names(r)).toContain("read_procedure");
     // No role: a general session keeps every tool, as before.
     expect(names(undefined)).toHaveLength(all.length);

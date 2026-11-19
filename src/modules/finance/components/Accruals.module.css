@@ -1,0 +1,33 @@
+/* Accruals page: proposals as cards with their discussion, phone first. */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.pick { height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--bd); background: var(--pnl); color: var(--tx); font: 13px var(--font-sans); }
+.section { margin-top: 18px; }
+.h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+.count { color: var(--sub); font-weight: 400; }
+.head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+.name { font-size: 14px; font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--sub); }
+.body { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; font-size: 13px; line-height: 1.5; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sub); }
+.line { display: flex; justify-content: space-between; gap: 12px; }
+.thread { display: flex; flex-direction: column; gap: 8px; border-left: 2px solid var(--bd); padding-left: 10px; }
+.comment { font-size: 13px; }
+.challenge { border-left: 2px solid var(--accent-text); padding-left: 8px; margin-left: -12px; }
+.who { font-weight: 600; margin-right: 6px; }
+.when { color: var(--sub); font-size: 12px; }
+.input, .area { width: 100%; box-sizing: border-box; border: 1px solid var(--bd); border-radius: 8px; background: var(--pg); color: var(--tx); font: 13px var(--font-sans); padding: 8px 10px; }
+.area { min-height: 64px; resize: vertical; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.decide { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--bd); padding-top: 10px; }
+.focus { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.err { color: var(--alert-red); font-size: 13px; }
+.warn { color: var(--warning-amber); }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--bd); vertical-align: top; }
+.table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sub); font-weight: 500; }
+.tableWrap { overflow-x: auto; }
+.link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 640px) {
+  .hidePhone { display: none; }
+}

@@ -5,7 +5,7 @@
 // fetches are at the bottom; the rest is pure, so it is tested and safe on
 // either side.
 
-export type ReviewKind = "bill" | "rec" | "rec_journal" | "journal" | "xero_change" | "approval";
+export type ReviewKind = "bill" | "rec" | "rec_journal" | "journal" | "accrual" | "xero_change" | "approval";
 export type WaitingOn = "CFO" | "FC" | "FM" | "Preparer" | "Outside";
 
 export interface ReviewItem {
@@ -35,6 +35,7 @@ export const KIND_LABEL: Record<ReviewKind, string> = {
   rec: "Reconciliation",
   rec_journal: "Journal on a rec",
   journal: "Journal",
+  accrual: "Accrual",
   xero_change: "Xero change",
   approval: "Approvals folder",
 };
@@ -49,13 +50,14 @@ export const WAITING_LABEL: Record<WaitingOn, string> = {
 
 // The filter chips. A journal proposed on a reconciliation is a journal, so it
 // sits under Journals; it is still acted on at its reconciliation.
-export type Filter = "all" | "bills" | "recs" | "journals" | "xero" | "approvals";
+export type Filter = "all" | "bills" | "recs" | "journals" | "accruals" | "xero" | "approvals";
 
 export const FILTERS: Array<{ key: Filter; label: string; kinds: ReviewKind[] }> = [
-  { key: "all", label: "All", kinds: ["bill", "rec", "rec_journal", "journal", "xero_change", "approval"] },
+  { key: "all", label: "All", kinds: ["bill", "rec", "rec_journal", "journal", "accrual", "xero_change", "approval"] },
   { key: "bills", label: "Bills", kinds: ["bill"] },
   { key: "recs", label: "Reconciliations", kinds: ["rec"] },
   { key: "journals", label: "Journals", kinds: ["journal", "rec_journal"] },
+  { key: "accruals", label: "Accruals", kinds: ["accrual"] },
   { key: "xero", label: "Xero changes", kinds: ["xero_change"] },
   { key: "approvals", label: "Approvals", kinds: ["approval"] },
 ];

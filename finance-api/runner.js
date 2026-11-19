@@ -400,6 +400,8 @@ function buildTools(clientSlug, entities, agent, clientRules) {
     ...reconciliations.tools(entityEnum),
     // FM1 and the FC only; a general session is not offered it either.
     ...(journalsRegister.roles.includes(agent) ? journalsRegister.tools(entityEnum) : []),
+    // Accruals: FM1 proposes and runs the month, the FC comments (lib/agent-accruals.js).
+    ...accrualTools.tools(entityEnum, agent),
     // get_account_activity is offered to FM1 and the FC only (lib/agent-ledger.js).
     ...ledger.tools(entityEnum, agent),
     ...xeroReads.tools(entityEnum),
@@ -634,6 +636,13 @@ const journalsRegister = {
   ...require("./lib/agent-journals").agentJournals({ apiRequest, requesterOf }),
   roles: require("./lib/agent-journals").ROLES,
 };
+
+// ── Accruals ─────────────────────────────────────────────────────────────────
+//
+// Proposals the CFO discusses and decides, the month's standing pairs, and the
+// history the agents learn from: lib/agent-accruals.js.
+
+const accrualTools = require("./lib/agent-accruals").agentAccruals({ apiRequest, requesterOf });
 
 // ── Ledger reads ─────────────────────────────────────────────────────────────
 //
@@ -910,6 +919,8 @@ ${t}` : ""))}`;
           result = procedures.readProcedure(job.agent, tu.input.name, rules);
         } else if (reconciliations.names.includes(tu.name)) {
           result = await reconciliations.call(job, connectedEntities, tu.name, tu.input);
+        } else if (accrualTools.names.includes(tu.name)) {
+          result = await accrualTools.call(job, tu.name, tu.input);
         } else if (journalsRegister.names.includes(tu.name)) {
           result = await journalsRegister.call(job, tu.name, tu.input);
           console.log(`    Journal proposal: ${result.saved ? "recorded" : `refused (${result.status ?? result.error})`}`);
