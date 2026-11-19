@@ -1941,7 +1941,7 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
          processing_path_label = COALESCE($12, processing_path_label),
          finished_at = now()
      WHERE id = $1 AND finished_at IS NULL
-     RETURNING id, status, finished_at`,
+     RETURNING id, status, finished_at, rec_id, client_id, agent`,
     [
       req.params.id, status, sessionId || null, output || null, error || null,
       toolsUsed ? JSON.stringify(toolsUsed) : null,
@@ -1954,6 +1954,11 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
   if (!rows.length) {
     await conn.query("ROLLBACK");
     return res.status(409).json({ error: "run not found, or already finished and therefore immutable" });
+  }
+  // An FM1 run on a rec: what it worked from, as it finished (lib/rec-inputs.js).
+  const done = rows[0];
+  if (done.rec_id && done.agent === "fm1") {
+    await recRoutes.runFinished(conn, { runId: done.id, recId: done.rec_id, clientId: done.client_id, status: done.status });
   }
   let handed = null;
   if (status === "succeeded" && handoff) {
@@ -1981,7 +1986,8 @@ app.post("/api/finance/agent-runs/:id/complete", route(async (req, res) => {
     }
   }
   await conn.query("COMMIT");
-  res.json({ ...rows[0], ...(handed ? { handoff: handed } : {}) });
+  const { rec_id: _r, client_id: _c, agent: _a, ...shown } = rows[0];
+  res.json({ ...shown, ...(handed ? { handoff: handed } : {}) });
   } catch (e) {
     await conn.query("ROLLBACK").catch(() => {});
     throw e;

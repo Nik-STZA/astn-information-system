@@ -78,17 +78,22 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
     if (!res.ok) { setError(String(res.body.error ?? (res.body.issues as string[] | undefined)?.join(" ") ?? "Not saved")); return; }
     router.refresh();
   };
-  const startOpen = async (reopenSigned = false) => {
+  // Recs FM1 finished on with nothing moved since are left alone by Run all
+  // (finance-api lib/rec-inputs.js); this many were, last time.
+  const [unchanged, setUnchanged] = useState(0);
+  const startOpen = async (reopenSigned = false, includeUnchanged = false) => {
     setBusy(true);
     setError(null);
     setSaid(null);
-    const res = await post(slug, "agent-all", { period: data.period, reopen_signed: reopenSigned });
+    setUnchanged(0);
+    const res = await post(slug, "agent-all", { period: data.period, reopen_signed: reopenSigned, include_unchanged: includeUnchanged });
     setBusy(false);
     if (!res.ok) { setError(String(res.body.error ?? (res.body.issues as string[] | undefined)?.join(" ") ?? "Agents were not started")); return; }
     const queued = (res.body.queued as unknown[] | undefined)?.length ?? 0;
     const skipped = (res.body.skipped as Array<{ account: string; why: string }> | undefined) ?? [];
     setSaid(`FM1 started on ${queued} reconciliation${queued === 1 ? "" : "s"}; they run one after another and the page can be closed.`
       + (skipped.length ? ` Left alone: ${skipped.map((x) => `${x.account} (${x.why})`).join("; ")}.` : ""));
+    setUnchanged(skipped.filter((x) => /nothing has moved since/.test(x.why)).length);
     router.refresh();
   };
 
@@ -129,6 +134,13 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
 
       {error && <div className={styles.err} role="alert">{error}</div>}
       {said && <div className={styles.note} role="status">{said}</div>}
+      {unchanged > 0 && (
+        <div className={styles.bar}>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void startOpen(false, true)}>
+            Run the {unchanged} unchanged anyway
+          </button>
+        </div>
+      )}
 
       {data.entity_errors.length > 0 && (
         <div className={styles.alert} role="alert">
