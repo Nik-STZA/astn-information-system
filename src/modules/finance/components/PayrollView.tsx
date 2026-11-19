@@ -8,8 +8,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileSpreadsheet, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
 import { periodChoices, periodLong } from "@/modules/finance/lib/recs";
 import { readXlsxAll } from "@/modules/finance/lib/xlsx-read";
 import { KIND_LABEL, ROLE_LABEL, ROLES, gbp, payDateIssue, stripReport, type PayrollMonth, type Role } from "@/modules/finance/lib/payroll";
@@ -77,13 +77,32 @@ export default function PayrollView({ slug, data }: { slug: string; data: Payrol
     router.refresh();
   };
 
+  // Contractors, by code: their cost is the net of their bills dated in the month, read from Xero.
+  const contractors = run?.contractors ?? [];
+  const readBills = async (quiet = false) => {
+    if (!run) return;
+    const r = await call("POST", `runs/${run.id}/contractors`, {});
+    if (!r.ok) return;
+    if (!quiet) setNotice("Contractors' bills read from Xero.");
+    router.refresh();
+  };
+  // Read them once for a month that has not had them read; after that, on request.
+  const autoRead = useRef(false);
+  useEffect(() => {
+    if (autoRead.current || !run || !contractors.length || run.contractors_read_at) return;
+    autoRead.current = true;
+    void readBills(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id]);
+  const shareCodes = [...(run?.employees.map((e) => e.emp_code) ?? []), ...contractors.map((c) => c.code)];
+
   const shareOf = (code: string, p: string) => shares[code]?.[p] ?? (run?.alloc[code]?.[p] !== undefined ? String(run.alloc[code][p]) : "");
   const sharesEdited = Object.keys(shares).length > 0;
   const settled = Boolean(run?.alloc_confirmed_at) && !sharesEdited;
   const confirmShares = async () => {
     if (!run) return;
-    const alloc = Object.fromEntries(run.employees.map((e) => [e.emp_code, Object.fromEntries(projects
-      .map((p) => [p, Number(shareOf(e.emp_code, p) || 0)]).filter(([, v]) => Number(v) > 0))]));
+    const alloc = Object.fromEntries(shareCodes.map((code) => [code, Object.fromEntries(projects
+      .map((p) => [p, Number(shareOf(code, p) || 0)]).filter(([, v]) => Number(v) > 0))]));
     const r = await call("POST", `runs/${run.id}/alloc`, { alloc, note: shareNote.trim() });
     if (!r.ok) return;
     setShares({});
@@ -203,24 +222,38 @@ export default function PayrollView({ slug, data }: { slug: string; data: Payrol
                   <table className={styles.table}>
                     <thead><tr><th>Code</th>{projects.map((p) => <th key={p} className={styles.num}>{p}</th>)}</tr></thead>
                     <tbody>
-                      {run.employees.map((e) => (
-                        <tr key={e.emp_code}>
-                          <td>{e.emp_code}</td>
-                          {projects.map((p) => (
-                            <td key={p} className={styles.num}>
-                              <input aria-label={`${e.emp_code} ${p} percent`} inputMode="decimal" className={styles.input} style={{ width: 64, textAlign: "right" }}
-                                value={shareOf(e.emp_code, p)}
-                                onChange={(ev) => setShares({ ...shares, [e.emp_code]: { ...(shares[e.emp_code] ?? {}), [p]: ev.target.value } })} />
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                      {shareCodes.map((code) => {
+                        const c = contractors.find((x) => x.code === code);
+                        return (
+                          <tr key={code}>
+                            <td>{code}{c && <span className={page.small}> contractor</span>}</td>
+                            {projects.map((p) => (
+                              <td key={p} className={styles.num}>
+                                <input aria-label={`${code} ${p} percent`} inputMode="decimal" className={styles.input} style={{ width: 64, textAlign: "right" }}
+                                  value={shareOf(code, p)}
+                                  onChange={(ev) => setShares({ ...shares, [code]: { ...(shares[code] ?? {}), [p]: ev.target.value } })} />
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
                       {Object.keys(run.preview.by_project).length > 0 && (
                         <tr><td><strong>Capitalised</strong></td>{projects.map((p) => <td key={p} className={styles.num}>{run.preview.by_project[p] ? gbp(run.preview.by_project[p]) : ""}</td>)}</tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+                {contractors.length > 0 && (
+                  <div className={`${page.pad} ${styles.row}`}>
+                    <span className={page.small}>
+                      {contractors.map((c) => `${c.code}: ${c.cost == null ? "bills not read yet" : c.cost ? `${gbp(c.cost)} net, from bill${c.bills.length === 1 ? "" : "s"} ${c.bills.join(", ")}` : "no approved bill dated this month"}`).join("; ")}.
+                      {run.contractors_read_at ? ` Read from Xero ${when(run.contractors_read_at)}.` : ""}
+                    </span>
+                    <button type="button" className="btn-text" disabled={busy} onClick={() => readBills()}>
+                      <RefreshCw size={13} aria-hidden="true" />Read the bills again
+                    </button>
+                  </div>
+                )}
                 <div className={`${page.pad} ${styles.row}`}>
                   {settled
                     ? <span className={page.small}><CheckCircle2 size={13} aria-hidden="true" /> Confirmed by {run.alloc_confirmed_by}, {when(run.alloc_confirmed_at)}{run.alloc_note ? `, from: ${run.alloc_note}` : ""}.</span>

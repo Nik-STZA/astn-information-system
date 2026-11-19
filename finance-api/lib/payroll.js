@@ -17,6 +17,9 @@
 //   the payroll journal         costs by role, and the liabilities
 //   the contracted staff journal  the intercompany staff's costs in the other company
 //   capitalised development     employer cost x project %, and the recharge
+// and, where the client has contractors (migration 066), a fourth:
+//   capitalised contractors     contractor cost x project %, credited to the
+//                               contractors' own account; no recharge
 
 const { toPence, fromPence } = require("./journal");
 
@@ -124,10 +127,11 @@ const DESCRIBE = {
 
 // The month's journals. settings: { payroll_entity, contracted_entity, accounts: { payroll: {...}, contracted: {...}, capdev: {...} }, projects: [...] }
 //   roles   { emp_code: role }
-//   alloc   { emp_code: { project: percent 0-100 } }
-function payrollJournals({ employees, roles, alloc = {}, settings, period, payDate }) {
+//   alloc   { emp_code or contractor code: { project: percent 0-100 } }
+//   contractors [{ code, cost }]: each contractor's cost for the month, null when not read
+function payrollJournals({ employees, roles, alloc = {}, settings, period, payDate, contractors = [] }) {
   const issues = [...rolesIssues(employees, roles)];
-  if (issues.length) return { journals: [], issues, capdev: null };
+  if (issues.length) return { journals: [], issues, capdev: null, capdev_contractor: null };
   const of = (role) => employees.filter((e) => roles[e.emp_code] === role);
   const notIc = employees.filter((e) => roles[e.emp_code] !== "intercompany");
   const ic = of("intercompany");
@@ -199,10 +203,46 @@ function payrollJournals({ employees, roles, alloc = {}, settings, period, payDa
     };
   }
 
+  // Contractors: their cost for the month x each project's percentage, in the
+  // payroll company, credited to the contractors' capitalised account.
+  const cByProject = Object.fromEntries(projects.map((p) => [p, 0]));
+  for (const c of contractors) {
+    const pct = alloc[c.code] ?? {};
+    const shared = Object.values(pct).some((v) => Number(v) > 0);
+    if (!shared) continue;
+    const total = Object.values(pct).reduce((a, v) => a + Number(v || 0), 0);
+    if (total > 100.0001) allocIssues.push(`contractor ${c.code}: capitalised share adds to ${total}%, over 100%`);
+    if (c.cost == null) { allocIssues.push(`contractor ${c.code}: read the month's bills from Xero first`); continue; }
+    if (!c.cost) { allocIssues.push(`contractor ${c.code}: no approved bill dated in the month, so there is nothing to capitalise`); continue; }
+    const cost = Math.round(Number(c.cost) * 100);
+    for (const [p, v] of Object.entries(pct)) {
+      if (!projects.includes(p)) { allocIssues.push(`contractor ${c.code}: ${p} is not a project`); continue; }
+      cByProject[p] += Math.round((cost * Number(v || 0)) / 100);
+    }
+  }
+  const cTotal = Object.values(cByProject).reduce((a, p) => a + p, 0);
+  let capdevContractor = null;
+  if (cTotal) {
+    const C = A.capdev ?? {};
+    const cIssues = [];
+    const month = narration.replace(" Payroll", "");
+    const lines = [];
+    if (!C.capdev) cIssues.push("no account set for Capitalised Development");
+    else for (const [p, amt] of Object.entries(cByProject)) {
+      if (amt) lines.push({ account_code: String(C.capdev), description: `Capitalised Development - ${month} - ${p} - contractors`, amount: Number(fromPence(amt)), tax_type: "NONE" });
+    }
+    if (!C.contractor_credit) cIssues.push("no account set for Capitalised Contractor Costs");
+    else lines.push({ account_code: String(C.contractor_credit), description: `Capitalised Contractor Costs - ${month}`, amount: Number(fromPence(-cTotal)), tax_type: "NONE" });
+    capdevContractor = {
+      entity: settings?.payroll_entity, date, narration: `${month} Capitalised Development - Contractors`, lines, issues: cIssues,
+      by_project: Object.fromEntries(Object.entries(cByProject).map(([p, v]) => [p, Number(fromPence(v))])),
+    };
+  }
+
   const journals = [payroll, contracted].filter(Boolean);
   return {
-    journals, capdev,
-    issues: [...issues, ...allocIssues, ...journals.flatMap((j) => j.issues), ...(capdev?.issues ?? [])],
+    journals, capdev, capdev_contractor: capdevContractor,
+    issues: [...issues, ...allocIssues, ...journals.flatMap((j) => j.issues), ...(capdev?.issues ?? []), ...(capdevContractor?.issues ?? [])],
   };
 }
 

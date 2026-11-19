@@ -20,7 +20,9 @@ export interface PayrollEmployee {
   net_pay: number; er_nic: number; er_pension: number; pay_bill: number;
 }
 export interface PayrollLine { account_code: string; description: string; amount: number; tax_type: string }
-export interface PayrollJournalPreview { kind: "payroll" | "contracted" | "capdev" | "capdev_other"; entity: string; date: string; narration: string; lines: PayrollLine[]; issues: string[] }
+export interface PayrollJournalPreview { kind: "payroll" | "contracted" | "capdev" | "capdev_other" | "capdev_contractor"; entity: string; date: string; narration: string; lines: PayrollLine[]; issues: string[] }
+// A contractor by code: cost is the net of its bills dated in the month, null until read from Xero.
+export interface PayrollContractor { code: string; cost: number | null; bills: string[] }
 export interface PayrollMonth {
   period: string;
   entities: Array<{ slug: string; name: string }>;
@@ -28,12 +30,14 @@ export interface PayrollMonth {
   settings: null | {
     payroll_entity: string; payroll_entity_name: string; contracted_entity: string | null; contracted_entity_name: string | null;
     accounts: Record<string, Record<string, string>>; projects: string[]; drive_set: boolean; folder: string;
+    contractors?: string[];
   };
   roles: Record<string, Role>;
   run: null | {
     id: string; pay_date: string; source_name: string; uploaded_by: string; uploaded_at: string; missing: string[];
     employees: PayrollEmployee[]; alloc: Record<string, Record<string, number>>;
     alloc_confirmed_by: string | null; alloc_confirmed_at: string | null; alloc_note: string | null; no_role: string[];
+    contractors?: PayrollContractor[]; contractors_read_at?: string | null;
     preview: { journals: PayrollJournalPreview[]; by_project: Record<string, number>; issues: string[] };
     journals: Array<{ id: string; jnl: string; kind: string; state: string; narration: string; entity: string; entity_name: string }>;
     workbook: { requested_at: string | null; requested_by: string | null; name: string | null; link: string | null; saved_at: string | null; error: string | null };
@@ -67,10 +71,10 @@ export const payDateIssue = (period: string, date: string) =>
 export const gbp = (n: number) => n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const KIND_LABEL: Record<PayrollJournalPreview["kind"], string> = {
-  payroll: "Payroll", contracted: "Contracted staff", capdev: "Capitalised development", capdev_other: "Recharge, other company",
+  payroll: "Payroll", contracted: "Contracted staff", capdev: "Capitalised development", capdev_other: "Recharge, other company", capdev_contractor: "Capitalised development, contractors",
 };
 
-const PATH = /^payroll\/(settings|roles|runs|runs\/[0-9a-f-]{36}\/(alloc|propose|workbook))$/;
+const PATH = /^payroll\/(settings|roles|runs|runs\/[0-9a-f-]{36}\/(alloc|contractors|propose|workbook))$/;
 export const isPayrollPath = (path: string) => PATH.test(path);
 
 // ── Server only ──────────────────────────────────────────────────────────────
