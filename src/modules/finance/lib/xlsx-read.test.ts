@@ -19,6 +19,16 @@ describe("readXlsx", () => {
     expect(rows[5][7]).toBe("Cash");
   });
 
+  // Payroll software built on .NET's Open XML SDK writes every element with a
+  // namespace prefix (<x:sheet>, <x:row>, <x:c>) after a byte-order mark, and
+  // mixes stored and compressed parts. Excel reads it; so must we (19 Nov 2026:
+  // a provider's salary report was refused as "not an Excel workbook").
+  it("reads a workbook whose XML elements carry a namespace prefix", async () => {
+    const all = await readXlsxAll(readFileSync(new URL("./__fixtures__/prefixed-sample.xlsx", import.meta.url)));
+    expect(Object.keys(all)).toEqual(["Salary Report"]);
+    expect(all["Salary Report"]).toEqual([["EmpCode", "Surname", "Basic"], ["11", "BLOGGS", "5000.5"]]);
+  });
+
   it("refuses a file that is not an xlsx", async () => {
     await expect(readXlsx(new TextEncoder().encode("code,name\n1,a\n"))).rejects.toThrow(/not an xlsx/);
   });
