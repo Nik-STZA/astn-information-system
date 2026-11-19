@@ -40,6 +40,8 @@ export default function RecView({ slug, data, thread, me }: {
   const [sole, setSole] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [reason, setReason] = useState("");
+  const [acceptingItems, setAcceptingItems] = useState(false);
+  const [itemsWhy, setItemsWhy] = useState("");
   const [said, setSaid] = useState<string | null>(null);
 
   // A draft posted in Xero since the last look shows as posted: the Journals
@@ -76,6 +78,15 @@ export default function RecView({ slug, data, thread, me }: {
   };
 
   const preparing = ["not_started", "in_progress", "sent_back"].includes(rec.status);
+  // Open items other than timing are decisions for the CFO at sign-off: accept
+  // them with a reason (they stay open and carry to next month) or send back.
+  const blocking = (data.evidence?.reconciling ?? []).filter((i) => i.state === "open" && i.kind !== "timing");
+  const signBlocked = busy || Boolean(rec.recheck_reason) || (!cover.ties && (!accepting || !reason.trim())) || (blocking.length > 0 && (!acceptingItems || !itemsWhy.trim()));
+  const signBody = () => ({
+    sole_reviewer: sole,
+    ...(cover.ties ? {} : { accept_variance: reason }),
+    ...(blocking.length ? { accept_items: itemsWhy } : {}),
+  });
   const difference = cover.group.variance;
   const stage = rec.status === "with_fc" ? 1 : rec.status === "with_cfo" ? 2 : rec.status === "signed_off" ? 3 : 0;
   const stepClass = (n: number) => (stage === n ? styles.stepOn : "");
@@ -101,9 +112,9 @@ export default function RecView({ slug, data, thread, me }: {
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => send("reopen")}>Reopen</button>
           )}
           {rec.status === "with_cfo" && (
-            <button type="button" className="btn-primary" disabled={busy || Boolean(rec.recheck_reason) || (!cover.ties && (!accepting || !reason.trim()))}
-              title={!cover.ties && !accepting ? "It does not tie. Accept the difference under Sign off below" : undefined}
-              onClick={() => send("sign-off", cover.ties ? { sole_reviewer: sole } : { sole_reviewer: sole, accept_variance: reason })}>Sign off</button>
+            <button type="button" className="btn-primary" disabled={signBlocked}
+              title={!cover.ties && !accepting ? "It does not tie. Accept the difference under Sign off below" : blocking.length && !acceptingItems ? "Items are open that are not timing. Accept them under Sign off below" : undefined}
+              onClick={() => send("sign-off", signBody())}>Sign off</button>
           )}
         </div>
       </div>
@@ -259,11 +270,30 @@ export default function RecView({ slug, data, thread, me }: {
               )}
             </>
           )}
+          {blocking.length > 0 && (
+            <>
+              <p className={styles.small} style={{ marginTop: 0 }}>
+                {blocking.length === 1 ? "One item is" : `${blocking.length} items are`} open that {blocking.length === 1 ? "is" : "are"} not timing:{" "}
+                {blocking.map((i) => `${money(i.amount)} ${i.kind}${i.description ? ` (${i.description})` : ""}`).join("; ")}.
+                To sign off, say why {blocking.length === 1 ? "it is" : "they are"} accepted. {blocking.length === 1 ? "It stays" : "They stay"} open, carry to next month, and the reason stays on the reconciliation.
+                Otherwise send this back to have {blocking.length === 1 ? "it" : "them"} cleared.
+              </p>
+              <label className={styles.small} style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "8px 0" }}>
+                <input type="checkbox" checked={acceptingItems} onChange={(e) => setAcceptingItems(e.target.checked)} />
+                <span>I accept {blocking.length === 1 ? "this item" : "these items"} and sign off with {blocking.length === 1 ? "it" : "them"} open.</span>
+              </label>
+              {acceptingItems && (
+                <label className={styles.field}>Why {blocking.length === 1 ? "it is" : "they are"} accepted
+                  <textarea className={styles.area} value={itemsWhy} onChange={(e) => setItemsWhy(e.target.value)} />
+                </label>
+              )}
+            </>
+          )}
           <SoleTick sole={sole} setSole={setSole} />
           {error && <div className={styles.err} role="alert">{error}</div>}
           <div className={styles.actions} style={{ marginTop: 8 }}>
-            <button type="button" className="btn-primary" disabled={busy || Boolean(rec.recheck_reason) || (!cover.ties && (!accepting || !reason.trim()))}
-              onClick={() => send("sign-off", cover.ties ? { sole_reviewer: sole } : { sole_reviewer: sole, accept_variance: reason })}>Sign off</button>
+            <button type="button" className="btn-primary" disabled={signBlocked}
+              onClick={() => send("sign-off", signBody())}>Sign off</button>
           </div>
         </section>
       )}

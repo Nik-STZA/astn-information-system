@@ -424,6 +424,13 @@ describe("moving a rec along", () => {
     expect(stepIssues("review_pass", { rec: r, via: null, role: "Bookkeeper", actor: "b" }).join()).toMatch(/Only the FC or the CFO/);
     expect(stepIssues("review_back", { rec: r, via: { agent: "fc" }, note: " " })).toContain("Say what needs changing");
   });
+  it("lets the CFO accept open items that are not timing at sign-off, with a reason", () => {
+    const r = rec({ status: "with_cfo" });
+    const blocking = [{ id: "i1", state: "open", kind: "query", amount: "28.09" }];
+    expect(stepIssues("sign_off", { rec: r, tied: true, ...person, blocking }).join()).toMatch(/still open that is not timing \(28\.09 query\)\. Accept it at sign-off/);
+    expect(stepIssues("sign_off", { rec: r, tied: true, ...person, blocking, acceptItems: "too short" }).join()).toMatch(/at least 15 characters/);
+    expect(stepIssues("sign_off", { rec: r, tied: true, ...person, blocking, acceptItems: "Accepted: residual too small to pursue" })).toEqual([]);
+  });
   it("lets only a person with the CFO role sign off, once it ties", () => {
     const r = rec({ status: "with_cfo" });
     expect(stepIssues("sign_off", { rec: r, tied: true, ...person })).toEqual([]);

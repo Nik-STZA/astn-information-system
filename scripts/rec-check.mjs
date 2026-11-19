@@ -30,6 +30,12 @@ try {
     for (const e of await q("SELECT entity_id, kind, method, amount, left(source, 160) AS source, added_by, added_at FROM finance.rec_evidence WHERE rec_id = $1 ORDER BY added_at", [r.id])) {
       console.log(`   evidence ${names.get(e.entity_id)} ${e.kind}/${e.method ?? "keyed"} ${e.amount} by ${e.added_by} ${e.added_at.toISOString().slice(0, 16)}: ${e.source}`);
     }
+    for (const i of await q("SELECT entity_id, side, kind, amount, state, source, left(description, 120) AS description, added_by FROM finance.rec_reconciling_items WHERE rec_id = $1 ORDER BY added_at", [r.id])) {
+      console.log(`   item ${names.get(i.entity_id)} ${i.side} ${i.kind} ${i.amount} ${i.state} (${i.source}, ${i.added_by}): ${i.description ?? ""}`);
+    }
+    for (const ev of await q("SELECT at, actor, action, left(detail::text, 160) AS detail FROM finance.rec_events WHERE rec_id = $1 ORDER BY at DESC LIMIT 6", [r.id])) {
+      console.log(`   event ${ev.at.toISOString().slice(0, 16)} ${ev.actor} ${ev.action} ${ev.detail}`);
+    }
   }
   if (!recs.length) console.log("No Accruals or VAT reconciliation for that month.");
 

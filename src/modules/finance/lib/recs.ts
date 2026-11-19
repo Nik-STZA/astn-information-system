@@ -337,6 +337,7 @@ export const EVENT_LABEL: Record<string, string> = {
   release_withdrawn: "Monthly release withdrawn: Xero has it",
   journal_posted: "Journal posted in Xero",
   variance_accepted: "Difference accepted at sign-off",
+  reconciling_accepted: "Open items accepted at sign-off",
   agent_restarted: "FM1 started again after a send back",
   restart_held: "FM1 not restarted: waiting for a person",
   restart_skipped: "FM1 already working, not restarted",
