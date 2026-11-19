@@ -105,7 +105,7 @@ async function applyBackload(conn, d, { apply = false, library } = {}) {
     const account = acc.accrualAccountFor({ settings, entityId: e.id });
     for (const p of it.posted ?? []) {
       if (!account) throw new Error(`${e.name} has no accruals account in the file or the database`);
-      const have = apply && (await conn.query(
+      const have = item.id !== "(dry run)" && (await conn.query(
         "SELECT id FROM finance.journals WHERE accrual_item_id = $1 AND period = $2 AND source = 'accrual' AND state IN ('proposed','approved','draft_created','posted')", [item.id, p.period])).rows[0];
       if (have) { said.push(`kept: pair ${it.supplier} ${p.period}`); continue; }
       const j = acc.pairFor({ item, period: p.period, accrualAccount: account });
