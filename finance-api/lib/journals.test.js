@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, sourceOf, registerGate } from "./journals";
+import { journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, pairStateFromXero, sourceOf, registerGate } from "./journals";
 import { checkApprovalText } from "./journal";
 import { agentJournals } from "./agent-journals";
 
@@ -109,10 +109,18 @@ describe("going to Xero", () => {
     expect(failureText({ status: 404, body: { error: "entity not found or not connected" } })).toBe("entity not found or not connected");
   });
 
-  it("moves to posted only when Xero says POSTED", () => {
+  it("moves to posted when Xero says POSTED, and closes a draft deleted or voided in Xero", () => {
     expect(stateFromXero("POSTED")).toBe("posted");
     expect(stateFromXero("DRAFT")).toBeNull();
-    expect(stateFromXero("VOIDED")).toBeNull();
+    expect(stateFromXero("VOIDED")).toBe("rejected");
+    expect(stateFromXero("DELETED")).toBe("rejected");
+  });
+
+  it("moves a pair only when both legs agree", () => {
+    expect(pairStateFromXero("POSTED", "POSTED")).toBe("posted");
+    expect(pairStateFromXero("DELETED", "VOIDED")).toBe("rejected");
+    expect(pairStateFromXero("POSTED", "DRAFT")).toBeNull();
+    expect(pairStateFromXero("DELETED", "POSTED")).toBeNull();
   });
 
   it("names where a journal came from", () => {

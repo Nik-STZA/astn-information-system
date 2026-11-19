@@ -288,6 +288,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
         WHERE j.client_id = $1 AND j.period = $2 AND j.state = 'draft_created' AND j.xero_journal_id IS NOT NULL
         ORDER BY j.drafted_at LIMIT 50`, [client.id, period])).rows;
     let posted = 0;
+    let closed = 0;
     const errors = [];
     // One at a time: Xero allows five concurrent calls per organisation, and
     // this is not the only caller.
@@ -295,18 +296,21 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
       const got = await xeroManualJournalStatus(req.params.slug, d.entity_slug, d.xero_journal_id);
       if (got.error) { errors.push({ id: d.id, error: got.error }); continue; }
       let next = journals.stateFromXero(got.status);
-      // A pair is posted when both legs are.
+      // A pair is posted when both legs are, closed when both were deleted.
       if (d.reversal_xero_journal_id) {
         const rev = await xeroManualJournalStatus(req.params.slug, d.entity_slug, d.reversal_xero_journal_id);
         if (rev.error) { errors.push({ id: d.id, error: rev.error }); continue; }
         await pool.query("UPDATE finance.journals SET reversal_xero_status = $2 WHERE id = $1", [d.id, rev.status]);
-        if (journals.stateFromXero(rev.status) !== "posted") next = null;
+        next = journals.pairStateFromXero(got.status, rev.status);
       }
       const r = await pool.query(
         `UPDATE finance.journals SET xero_status = $2, xero_checked_at = now(), updated_at = now(),
-                state = COALESCE($3, state)
+                state = COALESCE($3, state),
+                rejected_by = CASE WHEN $3 = 'rejected' THEN 'xero' ELSE rejected_by END,
+                rejected_at = CASE WHEN $3 = 'rejected' THEN now() ELSE rejected_at END
           WHERE id = $1 AND state = 'draft_created' RETURNING state`, [d.id, got.status, next]);
       if (r.rows[0]?.state === "posted") posted += 1;
+      if (r.rows[0]?.state === "rejected") closed += 1;
     }
     // A reconciliation's drafts too, by the rec's month: a person posts them in
     // Xero, and the rec, its chain and this page should then say so. Skipped,
@@ -328,7 +332,9 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
       let r;
       try {
         r = await pool.query(
-          `UPDATE finance.rec_journals SET xero_status = $2, xero_checked_at = now(), state = COALESCE($3, state)
+          `UPDATE finance.rec_journals SET xero_status = $2, xero_checked_at = now(), state = COALESCE($3, state),
+                  rejected_by = CASE WHEN $3 = 'rejected' THEN 'xero' ELSE rejected_by END,
+                  rejected_at = CASE WHEN $3 = 'rejected' THEN now() ELSE rejected_at END
             WHERE id = $1 AND state = 'draft_created' RETURNING state`, [d.id, got.status, next]);
       } catch (e) {
         if (!isMissingTable(e)) throw e;
@@ -340,8 +346,14 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
           "INSERT INTO finance.rec_events (rec_id, client_id, actor, action, detail) VALUES ($1,$2,'automatic','journal_posted',$3)",
           [d.rec_id, d.client_id, JSON.stringify({ journal_id: d.id })]);
       }
+      if (r.rows[0]?.state === "rejected") {
+        closed += 1;
+        await pool.query(
+          "INSERT INTO finance.rec_events (rec_id, client_id, actor, action, detail) VALUES ($1,$2,'automatic','journal_deleted_in_xero',$3)",
+          [d.rec_id, d.client_id, JSON.stringify({ journal_id: d.id, xero_status: got.status })]);
+      }
     }
-    res.json({ checked: drafts.length + recDrafts.length - errors.length, posted, errors });
+    res.json({ checked: drafts.length + recDrafts.length - errors.length, posted, closed, errors });
   }));
 
   // ── The CFO's decision ──────────────────────────────────────────────────────
