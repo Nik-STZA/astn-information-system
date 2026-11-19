@@ -191,7 +191,7 @@ def test_the_tab_keeps_the_laptop_layout(tmp_path, profile):
     assert ws.cell(6, 1).value == STAFF
     assert ws.freeze_panes == "C5" and ws.sheet_properties.outlinePr.summaryBelow is False
     account = row_of(ws, "477 - Salaries")
-    vendor = row_of(ws, "Payroll April  [NEW]")
+    vendor = row_of(ws, "Payroll  [NEW]")
     assert ws.row_dimensions[6].outlineLevel == 0
     assert ws.row_dimensions[account].outlineLevel == 1 and ws.row_dimensions[vendor].outlineLevel == 2
     assert ws.column_dimensions["Q"].hidden
@@ -559,3 +559,19 @@ def test_the_existing_tabs_are_the_same_with_the_tabs_on(tmp_path, profile):
     for name in ("Profit and loss", "Balance sheet", "Cash flow", "Mapping", "Source - Trial balance"):
         cells = lambda wb: [(c.coordinate, c.value, c.number_format) for r in wb[name].iter_rows() for c in r]
         assert cells(on) == cells(off), name
+
+
+def test_journal_lines_group_by_their_description_not_the_months_narration():
+    def payroll(month, amount):
+        return {"Status": "POSTED", "Date": f"2026-{month:02d}-25", "Narration": f"{['Apr', 'May'][month - 4]} 2026 Payroll",
+                "JournalLines": [{"AccountCode": "477", "LineAmount": amount, "Description": "Directors Salary"}]}
+    docs = sup.ledger_from_documents(manual_journals=[payroll(4, 1000), payroll(5, 1200)])
+    assert {k[1] for k in docs} == {"Directors Salary"}
+
+
+def test_journal_label_drops_months_and_years():
+    assert sup.journal_label(None, "Jan 2026 Payroll") == "Payroll"
+    assert sup.journal_label(None, "Feb'26 Payroll Adjustments") == "Payroll Adjustments"
+    assert sup.journal_label("Accrual: Jo Bloggs", "Accrual: Jo Bloggs JB/010, September services") == "Accrual: Jo Bloggs"
+    assert sup.journal_label(None, "Prepayment release: Example Ltd (item 4), October 2026") == "Prepayment release: Example Ltd (item 4)"
+    assert sup.journal_label(None, None) == "(Manual journal)"
