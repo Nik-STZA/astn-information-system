@@ -5,6 +5,7 @@
 //   PUT  /payroll/roles                     CFO: { roles: { emp_code: role } }
 //   POST /payroll/runs                      a person: { period, pay_date, source_name, source_sha256, rows }
 //   POST /payroll/runs/:id/alloc            CFO: { alloc: { emp_code: { project: percent } }, note } confirmed
+//   POST /payroll/runs/:id/contractors      the contractors' bills for the month read from Xero (migration 066)
 //   POST /payroll/runs/:id/propose          the month's journals onto the Journals page
 //   POST /payroll/runs/:id/workbook         the pack engine builds the working file on the client's drive
 //   GET  /payroll/runs/:id/workbook-data    for the pack engine
@@ -17,11 +18,12 @@
 // drive from the export the client keeps there.
 
 const pay = require("./payroll");
+const con = require("./payroll-contractors");
 const recs = require("./recs");
 const { jnlRef } = require("./journals");
 const { expandPath } = require("./vat-routes");
 
-const MISSING = "Payroll is waiting for migration 065 to be applied.";
+const MISSING = "Payroll is waiting for migrations 065 and 066 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ""));
 const isPeriod = (s) => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s ?? ""));
@@ -29,7 +31,8 @@ const PLATFORM = "platform:payroll";
 // The only headings that may arrive: the employee code and the figures.
 const ALLOWED = new Set([pay.CODE, ...Object.values(pay.FIGURES)].map((h) => String(h).replace(/\s+/g, "").toLowerCase()));
 const LIVE = ["proposed", "approved", "draft_created", "posted"];
-const KINDS = ["payroll", "contracted", "capdev", "capdev_other"];
+const KINDS = ["payroll", "contracted", "capdev", "capdev_other", "capdev_contractor"];
+const CAPDEV_KINDS = ["capdev", "capdev_other", "capdev_contractor"];
 
 const lastDay = (p) => {
   const [y, m] = p.split("-").map(Number);
@@ -75,7 +78,10 @@ function allocIssues(alloc, projects, codes) {
 // The shares with nil projects dropped, so carried-forward shares compare cleanly.
 const tidyAlloc = (alloc) => Object.fromEntries(Object.entries(alloc ?? {}).map(([c, s]) => [c, Object.fromEntries(Object.entries(s ?? {}).filter(([, v]) => Number(v) > 0).map(([p, v]) => [p, Number(v)]))]));
 
-function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, startJob = null, defaultStartJob = require("./vat-routes").defaultStartJob }) {
+// xeroEntityContext, xeroGet and matchKey (the fingerprint key from Secret
+// Manager) are needed only to read contractors' bills.
+function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, startJob = null, defaultStartJob = require("./vat-routes").defaultStartJob,
+  xeroEntityContext = null, xeroGet = null, matchKey = null }) {
   const BASE = "/api/finance/clients/:slug/payroll";
 
   const tolerant = (fn) => route(async (req, res) => {
@@ -134,9 +140,16 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     .map((j) => ({ id: j.id, jnl: jnlRef(j.jnl_no), kind: j.payroll_kind, state: j.state, narration: j.narration, entity: j.entity, entity_name: j.entity_name }));
 
   // The journals as lib/payroll.js builds them, one per kind.
+  const contractorsOf = (settings) => (Array.isArray(settings?.contractors) ? settings.contractors : []);
+  // Each contractor's cost for the run's month: null until the bills are read.
+  const contractorCosts = (run, settings) => contractorsOf(settings).map((c) => {
+    const got = run.contractor_costs?.[c.code];
+    return { code: c.code, cost: got ? got.cost : null, bills: got?.bills ?? [] };
+  });
+
   function preview(run, settings, roles) {
     const out = pay.payrollJournals({
-      employees: run.figures, roles, alloc: run.alloc, period: run.period, payDate: run.pay_date,
+      employees: run.figures, roles, alloc: run.alloc, period: run.period, payDate: run.pay_date, contractors: contractorCosts(run, settings),
       settings: settings ? { payroll_entity: settings.payroll_entity, contracted_entity: settings.contracted_entity, accounts: settings.accounts, projects: settings.projects } : null,
     });
     const [payroll, contracted] = out.journals;
@@ -147,7 +160,11 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
       kinds.push({ kind: "capdev", entity: out.capdev.entity, date: out.capdev.date, narration: out.capdev.narration, lines: out.capdev.lines, issues: [] });
       if (out.capdev.other.length) kinds.push({ kind: "capdev_other", entity: out.capdev.other_entity, date: out.capdev.date, narration: out.capdev.narration, lines: out.capdev.other, issues: [] });
     }
-    return { journals: kinds, by_project: out.capdev?.by_project ?? {}, issues: out.issues };
+    const cc = out.capdev_contractor;
+    if (cc && !cc.issues.length) kinds.push({ kind: "capdev_contractor", entity: cc.entity, date: cc.date, narration: cc.narration, lines: cc.lines, issues: [] });
+    const byProject = { ...(out.capdev?.by_project ?? {}) };
+    for (const [p, v] of Object.entries(cc?.by_project ?? {})) if (v) byProject[p] = Math.round(((byProject[p] ?? 0) + v) * 100) / 100;
+    return { journals: kinds, by_project: byProject, issues: out.issues };
   }
 
   const workbookOf = (run) => ({
@@ -172,6 +189,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
         contracted_entity: settings.contracted_entity, contracted_entity_name: settings.contracted_entity_name,
         accounts: settings.accounts, projects: settings.projects, drive_set: Boolean(settings.drive_id),
         folder: expandPath(settings.drive_path, lastDay(period)).join(" / "),
+        contractors: contractorsOf(settings).map((c) => c.code),
       } : null,
       roles, run: null,
     };
@@ -182,6 +200,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
         source_name: run.source_name, uploaded_by: run.uploaded_by, uploaded_at: run.uploaded_at, missing: run.missing,
         employees: run.figures, alloc: run.alloc, alloc_confirmed_by: run.alloc_confirmed_by, alloc_confirmed_at: run.alloc_confirmed_at, alloc_note: run.alloc_note,
         no_role: run.figures.filter((e) => !pay.ROLES.includes(roles[e.emp_code])).map((e) => e.emp_code),
+        contractors: contractorCosts(run, settings), contractors_read_at: run.contractor_costs_read_at ?? null,
         preview: p, journals: await journalsOf(run.id), workbook: workbookOf(run),
       };
     }
@@ -298,11 +317,14 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
       // The shares carry forward from this month's earlier upload, else the last month's.
       const from = prior ?? (await conn.query(
         "SELECT alloc FROM finance.payroll_runs WHERE client_id = $1 AND superseded_at IS NULL AND period < $2 ORDER BY period DESC LIMIT 1", [client.id, b.period])).rows[0];
-      const alloc = tidyAlloc(pay.carryForward(from?.alloc ?? {}, report.employees));
+      const contractors = contractorsOf(await settingsOf(client.id));
+      const alloc = tidyAlloc(pay.carryForward(from?.alloc ?? {}, [...report.employees, ...contractors.map((c) => ({ emp_code: c.code }))]));
+      // The contractors' bills belong to the month, not the report: a replacement keeps them.
       const row = (await conn.query(
-        `INSERT INTO finance.payroll_runs (client_id, period, pay_date, figures, missing, source_name, source_sha256, alloc, uploaded_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-        [client.id, b.period, b.pay_date, JSON.stringify(report.employees), report.missing, sourceName, b.source_sha256, JSON.stringify(alloc), who.actorEmail])).rows[0];
+        `INSERT INTO finance.payroll_runs (client_id, period, pay_date, figures, missing, source_name, source_sha256, alloc, uploaded_by, contractor_costs, contractor_costs_read_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+        [client.id, b.period, b.pay_date, JSON.stringify(report.employees), report.missing, sourceName, b.source_sha256, JSON.stringify(alloc), who.actorEmail,
+          prior?.contractor_costs ? JSON.stringify(prior.contractor_costs) : null, prior?.contractor_costs_read_at ?? null])).rows[0];
       await conn.query("COMMIT");
       await auditPay(req, { client, who, action: "payroll_uploaded", id: row.id,
         payload: { period: b.period, pay_date: b.pay_date, source_name: sourceName, employees: report.employees.length, replaces: prior?.id ?? null } });
@@ -326,15 +348,50 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     const settings = await settingsOf(client.id);
     const alloc = req.body?.alloc ?? run.alloc;
     const note = String(req.body?.note ?? "").trim();
-    const issues = allocIssues(alloc, settings?.projects ?? [], run.figures.map((e) => e.emp_code));
+    const contractors = contractorCosts(run, settings);
+    const issues = allocIssues(alloc, settings?.projects ?? [], [...run.figures.map((e) => e.emp_code), ...contractors.map((c) => c.code)]);
+    for (const c of contractors) {
+      if (!Object.values(alloc?.[c.code] ?? {}).some((v) => Number(v) > 0)) continue;
+      if (c.cost == null) issues.push(`contractor ${c.code}: read the month's bills from Xero before confirming a share`);
+      else if (!c.cost) issues.push(`contractor ${c.code}: no approved bill dated in the month, so a share cannot be confirmed`);
+    }
     if (note.length < 3 || note.length > 200) issues.push("say where the shares came from (3 to 200 characters), e.g. who sent them and when");
     if (issues.length) return res.status(422).json({ issues });
-    const live = (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE source = 'payroll' AND payroll_run_id = $1 AND payroll_kind LIKE 'capdev%' AND state = ANY($2)", [run.id, LIVE])).rows[0].n;
+    const live = (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE source = 'payroll' AND payroll_run_id = $1 AND payroll_kind = ANY($3) AND state = ANY($2)", [run.id, LIVE, CAPDEV_KINDS])).rows[0].n;
     if (live) return res.status(409).json({ issues: ["the capitalised development journal is already proposed: reject it on the Journals page first"] });
     const tidy = tidyAlloc(alloc);
     await pool.query("UPDATE finance.payroll_runs SET alloc = $2, alloc_confirmed_by = $3, alloc_confirmed_at = now(), alloc_note = $4 WHERE id = $1", [run.id, JSON.stringify(tidy), who.actorEmail, note]);
     await auditPay(req, { client, who, action: "payroll_alloc_confirmed", id: run.id, payload: { period: run.period, alloc: tidy, note } });
     res.json({ ok: true });
+  }));
+
+  // POST /payroll/runs/:id/contractors   each contractor's approved bills for the month, from Xero
+  app.post(`${BASE}/runs/:id/contractors`, tolerant(async (req, res) => {
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const who = await caller(req, res, client, { agents: true, what: "reading contractors' bills" });
+    if (!who) return;
+    const run = await runById(client.id, req.params.id);
+    if (!run) return res.status(404).json({ error: "payroll month not found" });
+    const settings = await settingsOf(client.id);
+    const contractors = contractorsOf(settings);
+    if (!contractors.length) return res.status(422).json({ issues: ["no contractors are set in the payroll settings"] });
+    if (!xeroEntityContext || !xeroGet || !matchKey) return res.status(503).json({ error: "reading bills from Xero is not available here" });
+    const live = (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE source = 'payroll' AND payroll_run_id = $1 AND payroll_kind = 'capdev_contractor' AND state = ANY($2)", [run.id, LIVE])).rows[0].n;
+    if (live) return res.status(409).json({ issues: ["the contractors' journal is already proposed: reject it on the Journals page before reading the bills again"] });
+    const ctx = await xeroEntityContext(req.params.slug, settings.payroll_entity);
+    if (!ctx) return res.status(422).json({ issues: [`${settings.payroll_entity_name} is not connected to Xero`] });
+    if (ctx.error) return res.status(502).json({ error: ctx.error });
+    const bills = [];
+    for (const contactId of [...new Set(contractors.map((c) => c.contact_id))]) {
+      const got = await xeroGet(ctx.accessToken, ctx.tenantId, "/Invoices", { where: con.billsWhere(contactId, run.period), Statuses: con.BILL_STATUSES.join(","), page: "1" });
+      bills.push(...(got?.Invoices ?? []));
+    }
+    const costs = con.costsFromBills(bills, contractors, await matchKey(), run.period);
+    await pool.query("UPDATE finance.payroll_runs SET contractor_costs = $2, contractor_costs_read_at = now() WHERE id = $1", [run.id, JSON.stringify(costs)]);
+    // Codes, amounts and bill numbers only: never a line's words.
+    await auditPay(req, { client, who, action: "payroll_contractor_bills_read", id: run.id, payload: { period: run.period, costs } });
+    res.json({ costs });
   }));
 
   // POST /payroll/runs/:id/propose   the month's journals onto the Journals page
@@ -363,7 +420,8 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
         if (!entityId) throw Object.assign(new Error(`no company ${j.entity}`), { status: 422 });
         const reason = [
           `${j.narration}, from ${run.source_name} (uploaded by ${run.uploaded_by}).`,
-          j.kind === "capdev" || j.kind === "capdev_other" ? `Shares confirmed by ${run.alloc_confirmed_by}, from: ${run.alloc_note}.` : null,
+          CAPDEV_KINDS.includes(j.kind) ? `Shares confirmed by ${run.alloc_confirmed_by}, from: ${run.alloc_note}.` : null,
+          j.kind === "capdev_contractor" ? `Contractors' cost from Xero bills ${contractorCosts(run, settings).flatMap((c) => c.bills).join(", ")}.` : null,
           `Payroll month ${run.id}.`,
         ].filter(Boolean).join(" ");
         const row = (await conn.query(
@@ -425,6 +483,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
       entities: { payroll: settings?.payroll_entity_name ?? null, contracted: settings?.contracted_entity_name ?? null },
       projects: settings?.projects ?? [],
       employees: run.figures.map((e) => ({ ...e, role: roles[e.emp_code] ?? null })),
+      contractors: contractorCosts(run, settings).map((c) => ({ code: c.code, cost: c.cost ?? 0, bills: c.bills })),
       alloc: run.alloc, alloc_confirmed_by: run.alloc_confirmed_by, alloc_note: run.alloc_note,
       journals: p.journals, by_project: p.by_project, issues: p.issues,
     });

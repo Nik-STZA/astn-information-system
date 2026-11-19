@@ -81,6 +81,25 @@ def test_capitalised_development_and_journal_checks_calculate():
     assert s.value("Journal - Payroll", "C8") == "Yes"
 
 
+def test_a_contractor_follows_the_staff_by_code_at_the_bills_net_cost():
+    d = data(contractors=[{"code": "C1", "cost": 1200, "bills": ["1001"]}],
+             alloc={"11": {"P1": 50}, "12": {"P1": 25, "P2": 25}, "C1": {"P1": 30}},
+             journals=[{"kind": "capdev_contractor", "entity": "alpha-ltd", "date": "2026-10-23", "narration": "Oct 2026 Capitalised Development - Contractors",
+                        "lines": [{"account_code": "789", "description": "Capitalised Development - Oct 2026 - P1 - contractors", "amount": 360, "tax_type": "NONE"},
+                                  {"account_code": "466", "description": "Capitalised Contractor Costs - Oct 2026", "amount": -360, "tax_type": "NONE"}]}])
+    wb = pw.build_workbook(SOURCE, d)
+    assert wb.sheetnames[-1] == "Journal - Cap Dev Contractors"
+    buf = io.BytesIO()
+    wb.save(buf)
+    s = Sheetbook(load_workbook(io.BytesIO(buf.getvalue())))
+    assert s.value("Capitalised Development", "A7") == "C1"
+    assert round(s.value("Capitalised Development", "E7"), 2) == 360.00
+    # Total P1: 2950 + 1172.50 + 360.
+    assert round(s.value("Capitalised Development", "E8"), 2) == 4482.50
+    assert "1001" in s.value("Capitalised Development", "A10")
+    assert s.value("Journal - Cap Dev Contractors", "C8") == "Yes"
+
+
 def test_a_tab_name_the_provider_already_uses_is_not_overwritten():
     wb = Workbook()
     wb.active.title = "Roles"

@@ -15,12 +15,41 @@
 //     "drive_id": "<shared drive id>" or "drive_from_vat": true,   (the VAT registration's drive)
 //     "drive_path": ["Client", "Payroll", "{yymm}"],
 //     "roles": { "<emp code>": "director" | "direct" | "intercompany" },
-//     "alloc": { "period": "YYYY-MM", "shares": { "<emp code>": { "<project>": percent } } } }
+//     "contractors": [ { "code": "C1", "contact_id": "<supplier's Xero ContactID>", "name_word": "<a word of the person's name on the bill line>" } ],
+//     "alloc": { "period": "YYYY-MM", "shares": { "<emp code or contractor code>": { "<project>": percent } } } }
+//
+// A contractor's name_word never leaves this computer: it is fingerprinted
+// here under the key in Secret Manager (payroll-match-key, made on first use)
+// and only the fingerprint is stored. Secret Manager is reached with this
+// computer's Google sign-in (gcloud auth application-default login).
 
 const fs = require("fs");
 const { Pool } = require("pg");
 const pay = require("../lib/payroll");
+const con = require("../lib/payroll-contractors");
 const { allocIssues } = require("../lib/payroll-routes");
+
+const SECRET_PROJECT = process.env.SECRET_PROJECT || "africanstn-research";
+async function matchKey({ create }) {
+  const { SecretManagerServiceClient } = await import("@google-cloud/secret-manager");
+  const sm = new SecretManagerServiceClient();
+  const path = `projects/${SECRET_PROJECT}/secrets/${con.KEY_SECRET}`;
+  try {
+    const [v] = await sm.accessSecretVersion({ name: `${path}/versions/latest` });
+    return v.payload.data.toString("utf8");
+  } catch (e) {
+    if (!(e.code === 5 || /NOT_FOUND/i.test(e.message || ""))) throw e;
+  }
+  if (!create) return null;
+  try {
+    await sm.createSecret({ parent: `projects/${SECRET_PROJECT}`, secretId: con.KEY_SECRET, secret: { replication: { automatic: {} } } });
+  } catch (e) {
+    if (!(e.code === 6 || /ALREADY_EXISTS/i.test(e.message || ""))) throw e;
+  }
+  const key = require("crypto").randomBytes(32).toString("hex");
+  await sm.addSecretVersion({ parent: path, payload: { data: Buffer.from(key, "utf8") } });
+  return key;
+}
 
 function check(f) {
   const issues = [];
@@ -29,6 +58,11 @@ function check(f) {
   for (const [c, r] of Object.entries(f.roles ?? {})) if (!pay.ROLES.includes(r)) issues.push(`employee ${c}: ${r} is not a role`);
   if (!f.drive_id && !f.drive_from_vat) issues.push("drive_id or drive_from_vat is needed");
   if (f.alloc && !/^\d{4}-(0[1-9]|1[0-2])$/.test(f.alloc.period ?? "")) issues.push("alloc.period must be YYYY-MM");
+  for (const c of f.contractors ?? []) {
+    if (!con.CODE.test(String(c.code ?? ""))) issues.push(`${c.code} is not a contractor code (C1, C2, ...)`);
+    if (con.wordsOf(c.name_word).length !== 1) issues.push(`contractor ${c.code}: name_word must be one word of the name as the bill shows it`);
+  }
+  if ((f.contractors ?? []).length && !f.accounts?.capdev?.contractor_credit) issues.push("accounts.capdev.contractor_credit is needed for contractors");
   return issues;
 }
 
@@ -70,12 +104,25 @@ async function main() {
     const roleChanges = Object.entries(f.roles).filter(([c, r]) => heldRoles[c] !== r);
     console.log(`  roles: ${Object.keys(f.roles).length} codes, ${roleChanges.length} to set`);
 
+    // Contractors: the name word becomes a fingerprint here; only that is stored.
+    let contractors = null;
+    if (f.contractors) {
+      const key = await matchKey({ create: apply });
+      if (!key) console.log(`  contractors: ${f.contractors.map((c) => c.code).join(", ")}; the fingerprint key is made when this runs with --apply`);
+      else {
+        contractors = f.contractors.map((c) => ({ code: c.code, contact_id: c.contact_id, match: con.fingerprint(key, con.wordsOf(c.name_word)[0]) }));
+        const ci = con.contractorsIssues(contractors);
+        if (ci.length) throw new Error(ci.join("\n"));
+        console.log(`  contractors: ${contractors.map((c) => c.code).join(", ")}, matched on their suppliers' bills by fingerprint`);
+      }
+    }
+
     let run = null;
     if (f.alloc) {
       run = (await db.query("SELECT id, figures, alloc_confirmed_at FROM finance.payroll_runs WHERE client_id = $1 AND period = $2 AND superseded_at IS NULL", [client.id, f.alloc.period])).rows[0];
       if (!run) console.log(`  shares for ${f.alloc.period}: not set, as that month's report is not uploaded yet. Upload it, then run this again.`);
       else {
-        const ai = allocIssues(f.alloc.shares, f.projects, run.figures.map((e) => e.emp_code));
+        const ai = allocIssues(f.alloc.shares, f.projects, [...run.figures.map((e) => e.emp_code), ...(f.contractors ?? []).map((c) => c.code)]);
         if (ai.length) throw new Error(ai.join("\n"));
         if (run.alloc_confirmed_at) { console.log(`  shares for ${f.alloc.period}: already confirmed on the page, left alone`); run = null; }
         else console.log(`  shares for ${f.alloc.period}: ${Object.keys(f.alloc.shares).length} employee(s), for the CFO to confirm on the Payroll page`);
@@ -91,6 +138,7 @@ async function main() {
          accounts = EXCLUDED.accounts, projects = EXCLUDED.projects, drive_id = EXCLUDED.drive_id, drive_path = EXCLUDED.drive_path,
          updated_by = EXCLUDED.updated_by, updated_at = now()`,
       [client.id, payrollE.id, contractedE?.id ?? null, JSON.stringify(f.accounts), f.projects, driveId, JSON.stringify(f.drive_path), by]);
+    if (contractors) await db.query("UPDATE finance.payroll_settings SET contractors = $2 WHERE client_id = $1", [client.id, JSON.stringify(contractors)]);
     for (const [c, r] of roleChanges) {
       await db.query(
         `INSERT INTO finance.payroll_roles (client_id, emp_code, role, set_by) VALUES ($1,$2,$3,$4)
@@ -100,7 +148,7 @@ async function main() {
     await db.query(
       `INSERT INTO finance.audit_log (actor_email, actor_role, action, target_type, target_id, client_id, payload)
        VALUES ($1,$2,'payroll_setup_loaded','client',$3,$4,$5)`,
-      [by, role, String(client.id), client.id, JSON.stringify({ file: require("path").basename(file), roles_set: roleChanges.length, shares_period: run ? f.alloc.period : null })]);
+      [by, role, String(client.id), client.id, JSON.stringify({ file: require("path").basename(file), roles_set: roleChanges.length, contractors: contractors?.map((c) => c.code) ?? null, shares_period: run ? f.alloc.period : null })]);
     await db.query("COMMIT");
     console.log("\nWritten.");
   } catch (e) {

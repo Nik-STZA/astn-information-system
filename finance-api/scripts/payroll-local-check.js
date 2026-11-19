@@ -3,7 +3,7 @@
 // The salary report is made up (Sample Ltd).
 //
 // Not part of `npm test`. To run:
-//   1. A scratch cluster on port 54329, database t, migrations through 065.
+//   1. A scratch cluster on port 54329, database t, migrations through 066.
 //   2. node scripts/payroll-local-check.js        (or `serve` for the screens, on 8788)
 
 const Module = require("module");
@@ -19,9 +19,23 @@ process.env.DB_HOST = "127.0.0.1";
 Object.assign(process.env, { FINANCE_API_KEY: "k", DB_PORT: process.env.DB_PORT || "54329", DB_USER: process.env.DB_USER || "postgres", DB_NAME: "t", DB_PASSWORD: "x" });
 delete process.env.PACK_ENGINE_JOB;
 const realFetch = global.fetch;
+// Xero, faked: a token, and one umbrella company's bills (made up) for the contractor check.
+const UMBRELLA = "11111111-2222-3333-4444-555555555555";
+const xeroAsked = [];
+const BILLS = [
+  { Type: "ACCPAY", InvoiceID: "i1", InvoiceNumber: "5001", Status: "PAID", DateString: "2026-12-29T00:00:00", LineAmountTypes: "Exclusive", Contact: { ContactID: UMBRELLA },
+    LineItems: [{ Description: "Umbrella Ltd - services of Miss Jo Bloggs", LineAmount: 1200, TaxAmount: 240 }, { Description: "Umbrella Ltd - services of Sam Sample", LineAmount: 800, TaxAmount: 160 }] },
+  { Type: "ACCPAY", InvoiceID: "i2", InvoiceNumber: "5002", Status: "AUTHORISED", DateString: "2026-12-30T00:00:00", LineAmountTypes: "Inclusive", Contact: { ContactID: UMBRELLA },
+    LineItems: [{ Description: "Expenses - Jo Bloggs", LineAmount: 120, TaxAmount: 20 }] },
+];
 global.fetch = async (url, opts) => {
   const u = new URL(String(url));
   if (u.hostname === "127.0.0.1" || u.hostname === "localhost") return realFetch(url, opts);
+  if (u.hostname === "identity.xero.com") return new Response(JSON.stringify({ access_token: "a", refresh_token: "x", expires_in: 1800 }), { status: 200, headers: { "Content-Type": "application/json" } });
+  if (u.hostname === "api.xero.com" && u.pathname.endsWith("/Invoices")) {
+    xeroAsked.push(u.searchParams.get("where"));
+    return new Response(JSON.stringify({ Invoices: BILLS }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
   throw new Error(`blocked host ${u.hostname}`);
 };
 const { app, pool } = require("../server.js");
@@ -180,8 +194,45 @@ async function scenario() {
   ok("the page shows the link", r.body.run.workbook.link?.startsWith("https://drive.google.com/"), r.body.run.workbook);
   ok("and where the shares came from", r.body.run.alloc_note === "Development lead, email 4 Nov 2026", r.body.run.alloc_note);
 
+  console.log("contractors");
+  const con = require("../lib/payroll-contractors");
+  r = await api("PUT", "payroll/settings", { ...SETTINGS, accounts: { ...SETTINGS.accounts, capdev: { ...SETTINGS.accounts.capdev, contractor_credit: "466" } } });
+  ok("the contractors' account is set", r.status === 200, r);
+  // As payroll-setup.js stores it: the fingerprint under the key (the fake Secret Manager's is "x"), never the name.
+  await pool.query("UPDATE finance.payroll_settings SET contractors = $2 WHERE client_id = $1", [CID, JSON.stringify([{ code: "C1", contact_id: UMBRELLA, match: con.fingerprint("x", "bloggs") }])]);
+  const D = "2026-12";
+  r = await api("POST", "payroll/runs", { period: D, pay_date: "2026-12-23", source_name: "Salary report M09.xlsx", source_sha256: SHA("9"), rows: ROWS });
+  ok("December uploads", r.status === 201, r);
+  const decRun = r.body.id;
+  r = await api("GET", `payroll?period=${D}`);
+  ok("the contractor shows by code, cost not read yet", r.body.settings.contractors.join() === "C1" && r.body.run.contractors?.[0]?.code === "C1" && r.body.run.contractors[0].cost === null, r.body.run.contractors);
+  ok("and joins the shares at nil", JSON.stringify(r.body.run.alloc.C1) === "{}", r.body.run.alloc);
+  r = await api("POST", `payroll/runs/${decRun}/alloc`, { alloc: { 11: { P1: 50 }, C1: { P1: 30 } }, note: "Development lead, email 3 Dec 2026" });
+  ok("a contractor's share waits for the bills", r.status === 422 && /read the month's bills/.test(r.body.issues?.join()), r);
+  r = await api("POST", `payroll/runs/${decRun}/contractors`, {}, { "X-Actor-Email": FCP });
+  ok("a person reads the bills", r.status === 200 && r.body.costs?.C1?.cost === 1300 && r.body.costs.C1.bills.join() === "5001,5002", r);
+  ok("asking Xero for the supplier's bills dated in the month", xeroAsked.at(-1) === con.billsWhere(UMBRELLA, D), xeroAsked);
+  const readAudit = (await pool.query("SELECT payload FROM finance.audit_log WHERE client_id = $1 AND action = 'payroll_contractor_bills_read'", [CID])).rows;
+  ok("the audit keeps codes and amounts, not the line's words", readAudit.length === 1 && !/bloggs|services/i.test(JSON.stringify(readAudit)), readAudit);
+  r = await api("POST", `payroll/runs/${decRun}/alloc`, { alloc: { 11: { P1: 50 }, C1: { P1: 30 } }, note: "Development lead, email 3 Dec 2026" });
+  ok("then the CFO confirms the contractor's share", r.status === 200, r);
+  r = await api("GET", `payroll?period=${D}`);
+  const cj = r.body.run.preview.journals.find((j) => j.kind === "capdev_contractor");
+  ok("a contractors' journal in the payroll company: Dr 789, Cr 466, no recharge", cj?.entity === "alpha-ltd"
+    && JSON.stringify(cj.lines.map((l) => [l.account_code, l.amount])) === JSON.stringify([["789", 390], ["466", -390]]), cj);
+  ok("the capitalised total includes it", r.body.run.preview.by_project.P1 === 2950 + 390, r.body.run.preview.by_project);
+  ok("and the page holds no name", !/bloggs/i.test(JSON.stringify(r.body)), null);
+  r = await api("POST", `payroll/runs/${decRun}/propose`);
+  ok("December's journals are proposed with it", r.status === 201 && r.body.proposed.some((j) => j.kind === "capdev_contractor"), r);
+  const cjRow = (await pool.query("SELECT lines, reason FROM finance.journals WHERE payroll_run_id = $1 AND payroll_kind = 'capdev_contractor'", [decRun])).rows[0];
+  ok("it balances and names the bills", cjRow && sum(cjRow.lines) === 0 && /5001, 5002/.test(cjRow.reason) && /email 3 Dec/.test(cjRow.reason), cjRow);
+  r = await api("POST", `payroll/runs/${decRun}/contractors`);
+  ok("the bills cannot be re-read under a proposed journal", r.status === 409, r);
+  r = await api("GET", `payroll/runs/${decRun}/workbook-data`);
+  ok("the pack engine gets the contractor by code", JSON.stringify(r.body.contractors) === JSON.stringify([{ code: "C1", cost: 1300, bills: ["5001", "5002"] }]), r.body.contractors);
+
   const audits = (await pool.query("SELECT action FROM finance.audit_log WHERE client_id = $1 ORDER BY occurred_at", [CID])).rows.map((x) => x.action);
-  for (const a of ["payroll_settings_set", "payroll_roles_set", "payroll_uploaded", "payroll_alloc_confirmed", "journal_proposed", "payroll_workbook_saved"]) ok(`audited: ${a}`, audits.includes(a), audits);
+  for (const a of ["payroll_settings_set", "payroll_roles_set", "payroll_uploaded", "payroll_alloc_confirmed", "journal_proposed", "payroll_workbook_saved", "payroll_contractor_bills_read"]) ok(`audited: ${a}`, audits.includes(a), audits);
 }
 
 async function serve() {

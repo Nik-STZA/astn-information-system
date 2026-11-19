@@ -6933,8 +6933,19 @@ accrualRoutes = require("./lib/accruals-routes").mountAccruals(app, {
 
 // Payroll from the provider's salary report (migration 065): employee codes
 // and figures only; the month's journals go to the Journals page.
+// Contractors (migration 066) are matched on their suppliers' bills by a keyed
+// fingerprint of a word of their name; the key is made once and kept in Secret
+// Manager, never in the database (lib/payroll-contractors.js).
+let payrollMatchKey = null;
+async function readPayrollMatchKey() {
+  if (payrollMatchKey) return payrollMatchKey;
+  const name = require("./lib/payroll-contractors").KEY_SECRET;
+  if (!(await secretExists(name))) await storeSecret(name, require("crypto").randomBytes(32).toString("hex"));
+  payrollMatchKey = await readSecret(name);
+  return payrollMatchKey;
+}
 require("./lib/payroll-routes").mountPayroll(app, {
-  route, pool, audit, clientIdFromSlug, viaInput: work.viaInput,
+  route, pool, audit, clientIdFromSlug, viaInput: work.viaInput, xeroEntityContext, xeroGet, matchKey: readPayrollMatchKey,
 });
 
 // Each month's management pack commentary (migration 063): drafted by FP&A or
