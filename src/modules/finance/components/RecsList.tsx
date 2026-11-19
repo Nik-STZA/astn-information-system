@@ -53,6 +53,18 @@ export default function RecsList({ slug, data }: { slug: string; data: RecList }
     const r = await post(slug, "compose", { period: data.period });
     setBusy(false);
     if (!r.ok) setError(String((r.body.issues as string[] | undefined)?.join(" ") ?? r.body.error ?? "The trial balance could not be read"));
+    else {
+      // What the refresh did by itself: items carried from last month, and
+      // evidence taken from the schedules os.stza.io keeps (accruals, VAT, contracts).
+      const carried = Number(r.body.carried ?? 0);
+      const ev = (r.body.evidence as Array<{ account: string; ok: boolean; fetched?: number; error?: string }> | undefined) ?? [];
+      const parts = [
+        carried ? `${carried} open reconciling item${carried === 1 ? "" : "s"} carried from last month` : "",
+        ev.filter((e) => e.ok).length ? `evidence taken from os.stza.io for ${ev.filter((e) => e.ok).map((e) => e.account).join(", ")}` : "",
+        ...ev.filter((e) => !e.ok).map((e) => `${e.account}: ${e.error}`),
+      ].filter(Boolean);
+      if (parts.length) setSaid(`Refreshed: ${parts.join("; ")}.`);
+    }
     router.refresh();
   }
 

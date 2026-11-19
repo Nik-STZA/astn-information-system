@@ -70,6 +70,23 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     return res.status(out.status).json(out.body);
   }
 
+  // A transaction for someone already known (preflight's who), not a request.
+  async function txAs(who, via, fn) {
+    const conn = await pool.connect();
+    let out;
+    try {
+      await conn.query("BEGIN");
+      out = await fn(conn, { client: who.client, actorEmail: who.actorEmail, role: who.role, via, actor: recs.actorOf(who.actorEmail, via) });
+      await conn.query(out.status >= 400 ? "ROLLBACK" : "COMMIT");
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
+    }
+    return out;
+  }
+
   // Who is asking, before anything is read from Xero. Answers and returns null
   // when they cannot.
   async function preflight(req, res) {
@@ -374,6 +391,65 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   // and brings the month's list up to date. Safe to repeat. It is also how a
   // moved figure is noticed. A company that cannot be read keeps what it had,
   // and the list then says it is not complete.
+  // After a month's balances are refreshed (CFO, 19 Nov 2026: the Accruals rec
+  // sat empty beside a schedule that matched the ledger, and the VAT recs'
+  // explanations sat in a working paper):
+  //   - open reconciling items on last month's rec of each account come onto
+  //     this month's, until a person clears them (migration 067);
+  //   - every rec still being prepared whose evidence os.stza.io keeps itself
+  //     (OWN_METHODS) takes it, as a person pressing Fetch would.
+  // Each step stands alone: a failure is reported, never undoes the refresh.
+  async function afterRefresh(who, period, via) {
+    const out = { carried: 0, evidence: [] };
+    try {
+      out.carried = await carryReconciling(who, period);
+    } catch (e) {
+      if (!["42P01", "42703", "23514"].includes(e?.code)) out.carry_error = String(e.message || e).slice(0, 300);
+    }
+    const due = (await pool.query(
+      `SELECT r.id, r.line_key, a.account_name FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+        WHERE r.client_id = $1 AND r.period = $2 AND r.dropped_at IS NULL AND r.status IN ('not_started', 'in_progress', 'sent_back')`,
+      [who.client.id, period])).rows.filter((r) => recs.OWN_METHODS.includes(recs.autoMethod(r)));
+    for (const r of due) {
+      try {
+        const got = await fetchEvidence(who, r.id, via);
+        out.evidence.push({ rec_id: r.id, account: r.account_name, ok: got.status < 400, ...(got.status < 400 ? { fetched: got.body.fetched, said: got.body.said } : { error: got.body.error }) });
+      } catch (e) {
+        out.evidence.push({ rec_id: r.id, account: r.account_name, ok: false, error: String(e.message || e).slice(0, 300) });
+      }
+    }
+    return out;
+  }
+
+  // Open reconciling items of last month's rec of the same account, onto this
+  // month's. Keyed and carried items only: a statement's and an ageing's are
+  // found again from their own source. Answers how many were carried.
+  async function carryReconciling(who, period) {
+    const prior = recs.priorPeriod(period);
+    return txAs(who, null, async (conn, { actor }) => {
+      const rows = (await conn.query(
+        `SELECT it.*, now_r.id AS to_rec, now_r.status AS to_status
+           FROM finance.recs now_r
+           JOIN finance.recs was ON was.rec_account_id = now_r.rec_account_id AND was.period = $3
+           JOIN finance.rec_reconciling_items it ON it.rec_id = was.id
+           JOIN finance.rec_balances b ON b.rec_id = now_r.id AND b.entity_id = it.entity_id
+          WHERE now_r.client_id = $1 AND now_r.period = $2 AND now_r.dropped_at IS NULL
+            AND now_r.status IN ('not_started', 'in_progress', 'sent_back')
+            AND it.state = 'open' AND it.source IN ('keyed', 'carried')
+            AND NOT EXISTS (SELECT 1 FROM finance.rec_reconciling_items x WHERE x.rec_id = now_r.id AND x.carried_from = it.id)`,
+        [who.client.id, period, prior])).rows;
+      for (const it of rows) {
+        await conn.query(
+          `INSERT INTO finance.rec_reconciling_items (rec_id, entity_id, side, kind, txn_date, description, amount, xero_ref, source, note, added_by, carried_from)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'carried',$9,$10,$11)`,
+          [it.to_rec, it.entity_id, it.side, it.kind, it.txn_date, it.description, it.amount, it.xero_ref,
+            [it.note, `Carried from ${recs.periodLabel(prior)}.`].filter(Boolean).join(" ").slice(0, 2000), actor, it.id]);
+        await event(conn, it.to_rec, who.client.id, actor, "reconciling_carried", { from: it.id, entity_id: it.entity_id, kind: it.kind, amount: it.amount });
+      }
+      return { status: 200, body: {}, n: rows.length };
+    }).then((r) => r.n ?? 0);
+  }
+
   app.post(`${BASE}/compose`, tolerant(async (req, res) => {
     const who = await preflight(req, res);
     if (!who) return;
@@ -406,7 +482,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const names = new Map(entities.map((e) => [e.id, e.name]));
     const readIds = new Set(read.map((e) => e.id));
 
-    await recTx(req, res, async (conn, { actor, actorEmail, role }) => {
+    await recTx(req, res, async (conn, { actor, actorEmail, role, via }) => {
       const closings = new Map();
       const seen = new Set();
       let added = 0;
@@ -531,7 +607,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
          ON CONFLICT (client_id, period) DO UPDATE SET composed_at = now(), composed_by = EXCLUDED.composed_by, entity_errors = EXCLUDED.entity_errors, notes = EXCLUDED.notes`,
         [client.id, period, actor, JSON.stringify(errors), JSON.stringify(notes)]);
       await flagNextMonth(conn, client, period, closings, names, actor);
-      return { status: 200, body: { period, accounts: accounts.length, added, complete: errors.length === 0, entity_errors: errors, notes } };
+      return { status: 200, body: { period, accounts: accounts.length, added, complete: errors.length === 0, entity_errors: errors, notes },
+        after: () => afterRefresh(who, period, via) };
     });
   }));
 
@@ -1605,7 +1682,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (stop) return stop;
     const it = (await conn.query("SELECT id, source, side, amount FROM finance.rec_reconciling_items WHERE id = $1 AND rec_id = $2", [req.params.iid, rec.id])).rows[0];
     if (!it) return { status: 404, body: { error: "no such reconciling item on this reconciliation" } };
-    if (it.source !== "keyed") return { status: 409, body: { error: "This came from the statement: clear it with a note instead" } };
+    if (it.source !== "keyed") return { status: 409, body: { error: it.source === "carried" ? "This was carried from last month: clear it with a note instead" : "This came from the statement: clear it with a note instead" } };
     await conn.query("DELETE FROM finance.rec_reconciling_items WHERE id = $1", [it.id]);
     await event(conn, rec.id, client.id, actor, "reconciling_removed", { id: it.id, side: it.side, amount: it.amount });
     return { status: 200, body: { removed: it.id } };
@@ -1637,12 +1714,21 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     if (!who) return;
     const origin = viaInput(req.get("X-Work-Via"), req.get("X-Work-Ref"));
     if (!mayEvidence(origin.via)) return res.status(403).json({ error: "FM1 or a person fetches evidence" });
-    const rec = await loadRec(pool, who.client.id, req.params.id);
-    if (!rec) return res.status(404).json({ error: "reconciliation not found" });
+    const out = await fetchEvidence(who, req.params.id, origin.via);
+    if (out.after) Object.assign(out.body, await out.after());
+    return res.status(out.status).json(out.body);
+  }));
+
+  // The evidence a rec's method finds, written onto the rec: for the route
+  // above, and for the platform when a month's balances are refreshed (the
+  // schedules os.stza.io keeps itself, OWN_METHODS). Answers { status, body }.
+  async function fetchEvidence(who, id, via) {
+    const rec = await loadRec(pool, who.client.id, id);
+    if (!rec) return { status: 404, body: { error: "reconciliation not found" } };
     const method = recs.autoMethod(rec);
-    if (!method) return res.status(409).json({ error: "There is no automatic source for this account. Record the outside evidence with its document." });
-    const blocked = fetchStop(rec, method, origin.via);
-    if (blocked) return res.status(409).json(blocked.body);
+    if (!method) return { status: 409, body: { error: "There is no automatic source for this account. Record the outside evidence with its document." } };
+    const blocked = fetchStop(rec, method, via);
+    if (blocked) return { status: 409, body: blocked.body };
     const balances = await balancesOf(pool, rec.id);
     const entities = await companies(pool, who.client.id);
     const names = new Map(entities.map((e) => [e.id, e.name]));
@@ -1688,12 +1774,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         }
       }
     } else if (method === "counterpart") {
-      if (!rec.counterpart_account_id) return res.status(409).json({ error: "Choose the paired account in the other company first", needs: "counterpart" });
+      if (!rec.counterpart_account_id) return { status: 409, body: { error: "Choose the paired account in the other company first", needs: "counterpart" } };
       const twin = (await pool.query(
         `SELECT r.id, a.account_name, b.entity_id, b.closing FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
            JOIN finance.rec_balances b ON b.rec_id = r.id
           WHERE r.client_id = $1 AND r.rec_account_id = $2 AND r.period = $3 AND r.dropped_at IS NULL`, [who.client.id, rec.counterpart_account_id, rec.period])).rows;
-      if (balances.length !== 1 || twin.length !== 1) return res.status(409).json({ error: "Pairing works for an account held by one company against one held by one other company" });
+      if (balances.length !== 1 || twin.length !== 1) return { status: 409, body: { error: "Pairing works for an account held by one company against one held by one other company" } };
       const t = twin[0];
       const amount = recs.pounds(-recs.pence(t.closing));
       rows.push({ entity_id: balances[0].entity_id, amount, source: `${names.get(t.entity_id) ?? "The other company"}: ${t.account_name} at ${date}, reversed`, note: `The paired account read from the same trial balances as this one.` });
@@ -1713,7 +1799,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         held = cs.map((c) => ({ ...c, movements: ms.filter((m) => m.contract_id === c.id) }));
       } catch (e) {
         if (e?.code !== "42P01") throw e;
-        return res.status(409).json({ error: "The contracts register is waiting for migration 047. Record the outside evidence meanwhile." });
+        return { status: 409, body: { error: "The contracts register is waiting for migration 047. Record the outside evidence meanwhile." } };
       }
       const ev = contractsLib.deferredEvidence(balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), held, date);
       rows.push(...ev.rows);
@@ -1726,7 +1812,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         items = (await pool.query("SELECT id, entity_id, supplier, amount::text AS amount, period_from, standing, end_period, stopped_period FROM finance.accrual_items WHERE client_id = $1", [who.client.id])).rows;
       } catch (e) {
         if (e?.code !== "42P01") throw e;
-        return res.status(409).json({ error: "The accruals schedule is waiting for migration 062. Record the outside evidence meanwhile." });
+        return { status: 409, body: { error: "The accruals schedule is waiting for migration 062. Record the outside evidence meanwhile." } };
       }
       const totals = accruals.scheduleAt(items, rec.period);
       for (const b of balances) {
@@ -1765,7 +1851,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         });
       } catch (e) {
         if (e?.code !== "42P01") throw e;
-        return res.status(409).json({ error: "VAT returns are waiting for migration 058. Record the outside evidence meanwhile." });
+        return { status: 409, body: { error: "VAT returns are waiting for migration 058. Record the outside evidence meanwhile." } };
       }
       if (!returns.length) {
         said.push("No VAT returns are kept in os.stza.io for this client yet. Record the outside evidence (the return as filed in Xero), or set the returns up on the VAT returns page.");
@@ -1833,13 +1919,13 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const prior = (await pool.query(
         "SELECT id, status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2", [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
       if (!prior || prior.status !== "signed_off" || !(prior.signed_snapshot?.evidence ?? []).length) {
-        return res.status(409).json({ error: `${recs.periodLabel(recs.priorPeriod(rec.period))} has no signed evidence to carry. Record the outside evidence this month (a confirmation statement, the signed accounts).` });
+        return { status: 409, body: { error: `${recs.periodLabel(recs.priorPeriod(rec.period))} has no signed evidence to carry. Record the outside evidence this month (a confirmation statement, the signed accounts).` } };
       }
       const carried = recs.carryForward(prior.signed_snapshot.evidence, balances);
       for (const v of carried) rows.push({ entity_id: v.entity_id, amount: v.amount, source: `${v.source} (carried from ${recs.periodLabel(recs.priorPeriod(rec.period))}, no movement)`, document_ref: v.document_ref ?? null });
       for (const b of balances) if (!carried.some((v) => v.entity_id === b.entity_id)) said.push(`${names.get(b.entity_id)}: the account moved this month, so last month's evidence was not carried. Record what explains the movement.`);
     }
-    return recTx(req, res, (conn, { client, actor, via }) => withRec(conn, client, req.params.id, async (r2) => {
+    return txAs(who, via, (conn, { client, actor, via }) => withRec(conn, client, id, async (r2) => {
       const stop = fetchStop(r2, method, via);
       if (stop) return stop;
       await conn.query("DELETE FROM finance.rec_evidence WHERE rec_id = $1 AND method IS NOT NULL", [r2.id]);
@@ -1881,7 +1967,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       }
       return { status: 200, body: { method, method_label: recs.METHOD_LABEL[method], fetched: rows.length, timing_items: aheadItems.length, said } };
     }));
-  }));
+  }
 
   // All pages of a Xero list, up to a cap.
   async function xeroPages(ctx, path, resource, params) {

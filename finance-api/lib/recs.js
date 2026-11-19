@@ -295,6 +295,11 @@ function autoMethod(rec) {
   return null;
 }
 
+// The methods whose source is kept in os.stza.io itself, so the platform takes
+// their evidence whenever the month's balances are refreshed, without anyone
+// pressing Fetch (19 Nov 2026). Xero-read methods stay with FM1 or a person.
+const OWN_METHODS = ["accrual_schedule", "vat_return", "contracts"];
+
 const METHOD_LABEL = {
   ageing_ar: "Xero aged receivables at the month end; receipts by then on later invoices are timing items",
   ageing_ap: "Xero aged payables at the month end; payments made by then on later bills are timing items",
@@ -1229,7 +1234,7 @@ module.exports = {
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,
   isPeriod, monthEnd, priorPeriod, nextPeriod, periodLabel, pence, pounds,
   accountKey, lineKey, hasRows, unidentifiedRows, entityLines, composeAccounts, matrixFields, workable,
-  counterpartSignOffIssues, EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, METHOD_LABEL, outstandingAt, creditLeftAt, paidAheadAt, paidAheadItems, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
+  counterpartSignOffIssues, EVIDENCE_PROOFS, REGISTER_SCHEDULED, usesEvidence, bySchedule, evidenceKind, notWorkableReason, evidenceTotals, blockingItems, autoMethod, OWN_METHODS, METHOD_LABEL, outstandingAt, creditLeftAt, paidAheadAt, paidAheadItems, ageingEvidence, counterpartCandidates, intercompanyGrid, carryForward,
   releaseProfile, releaseIn, itemAt, scheduleTotals, scheduleMonths, scheduleItemInput, finishItem,
   cover, snapshotOf, recheckReason, journalChecks, releaseJournals,
   actorOf, needsSoleReviewer, stepIssues, journalProposalIssues, journalMatches, journalAgrees, amountsKey, draftFailure, recJournalKey, recJournalGate, runIsLive, retryState, approvalIssues, approvalInstruction, namesRecProposal, prepareInstruction,
