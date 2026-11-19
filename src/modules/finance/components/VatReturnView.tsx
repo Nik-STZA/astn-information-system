@@ -409,9 +409,9 @@ function Clearing({ data, post, failed, onDone }: {
       {live.some((j) => j.state === "proposed") && (
         <>
           <span style={{ fontSize: 12, color: "var(--sub)" }}>
-            Already cleared by hand in Xero? Do not approve these: link them to the journals in Xero instead. (From now on this is checked when the submission is recorded.)
+            Posted these by hand in Xero? Don&apos;t approve them here. Link them instead.
           </span>
-          <button className="btn-text" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={inXero}>{busy ? "Looking in Xero..." : "Already in Xero: find and link them"}</button>
+          <button className="btn-secondary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={inXero}>{busy ? "Searching Xero..." : "Link Xero journals"}</button>
         </>
       )}
       {err && <div className={page.error} role="alert">{err}</div>}

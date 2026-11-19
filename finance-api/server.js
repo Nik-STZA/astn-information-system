@@ -3492,6 +3492,7 @@ const JOURNAL_TARGET_TYPE = "xero_journal";
 // needs their gates.
 let recRoutes;
 let journalRoutes;
+let accrualRoutes;
 
 // Reads the organisation's lock dates. A journal dated into a locked period is
 // rejected here rather than by Xero, so the caller gets a reason rather than a
@@ -6902,6 +6903,12 @@ require("./lib/asset-register-routes").mountAssetRegister(app, {
 // and the import file for the representative member (lib/vat-routes.js,
 // migration 058). Nothing here writes to Xero: it has no VAT return API.
 require("./lib/vat-routes").mountVat(app, {
+  route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
+});
+
+// Accruals (docs/accruals-spec.md, migration 062): proposals, the CFO's
+// decisions and precedents, the schedule, and the journal pair.
+accrualRoutes = require("./lib/accruals-routes").mountAccruals(app, {
   route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, viaInput: work.viaInput,
 });
 

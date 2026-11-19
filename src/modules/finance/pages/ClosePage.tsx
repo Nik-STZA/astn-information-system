@@ -7,6 +7,7 @@ import PageHeader from "@/shared/ui/PageHeader";
 import CloseView from "@/modules/finance/components/CloseView";
 import { closeView } from "@/modules/finance/lib/close";
 import { fetchVat } from "@/modules/finance/lib/vat";
+import { fetchAccruals } from "@/modules/finance/lib/accruals";
 import { defaultPeriod, fetchRecs, isPeriod } from "@/modules/finance/lib/recs";
 import { fetchJournals } from "@/modules/finance/lib/journals";
 import { fetchReview } from "@/modules/finance/lib/review";
@@ -30,7 +31,7 @@ export default async function ClosePage({ params: paramsPromise, searchParams: s
   const period = isPeriod(asked) ? asked as string : defaultPeriod();
 
   const errors: string[] = [];
-  const [tasks, recs, journals, review, docs, open, people, vat] = await Promise.all([
+  const [tasks, recs, journals, review, docs, open, people, vat, accruals] = await Promise.all([
     fetchTasks(slug).catch((e: unknown) => e instanceof Error ? e : new Error("the tasks could not be read")),
     fetchRecs(slug, period).catch(() => null),
     fetchJournals(slug, period).catch(() => null),
@@ -39,6 +40,7 @@ export default async function ClosePage({ params: paramsPromise, searchParams: s
     fetchThreads(slug, { period, open: true }).catch(() => null),
     fetchPeople().catch(() => null),
     fetchVat(slug).catch(() => null),
+    fetchAccruals(slug, period).catch(() => null),
   ]);
 
   if (tasks instanceof Error) {
@@ -68,6 +70,7 @@ export default async function ClosePage({ params: paramsPromise, searchParams: s
     slug,
     today,
     vat: vat?.ok ? vat.data : null,
+    accruals: accruals?.ok ? accruals.data : null,
   });
 
   // What waits on a decision in the month's threads, answered here in place.

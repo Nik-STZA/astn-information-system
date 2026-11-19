@@ -37,6 +37,18 @@ export interface JournalRow {
   can_retry: boolean;
   rec: { id: string; account_name: string } | null;
   created_at: string;
+  /** An accrual and its reversal (migration 062): one row, one approval, two Xero drafts. */
+  pair?: JournalPair | null;
+}
+
+export interface JournalPair {
+  reversal_date: string;
+  reversal_narration: string;
+  accrual_xero_journal_no: string | null;
+  reversal_xero_journal_no: string | null;
+  reversal_xero_status: string | null;
+  accrual_item_id: string;
+  backfill: boolean;
 }
 
 export interface JournalList {
@@ -80,7 +92,48 @@ export function sourceLabel(j: Pick<JournalRow, "source">): string {
   if (j.source === "rec") return "From a reconciliation";
   if (j.source === "schedule") return "Monthly release";
   if (j.source === "vat") return "VAT clearing";
+  if (j.source === "accrual") return "Accrual pair";
   return j.source.toUpperCase();
+}
+
+// ── Filters ──────────────────────────────────────────────────────────────────
+
+// Where a journal came from, as the page filters it. FM1 and the FC, and any
+// other agent, are one choice: an agent's.
+export type SourceFilter = "all" | "person" | "agent" | "rec" | "schedule" | "accrual" | "vat";
+export const SOURCE_FILTERS: Array<{ key: SourceFilter; label: string }> = [
+  { key: "all", label: "Every source" },
+  { key: "person", label: "A person" },
+  { key: "agent", label: "An agent" },
+  { key: "rec", label: "Reconciliations" },
+  { key: "schedule", label: "Monthly releases" },
+  { key: "accrual", label: "Accruals" },
+  { key: "vat", label: "VAT clearing" },
+];
+
+const KNOWN = new Set(["person", "rec", "schedule", "accrual", "vat"]);
+export const sourceKey = (j: Pick<JournalRow, "source">): Exclude<SourceFilter, "all"> => (KNOWN.has(j.source) ? j.source as Exclude<SourceFilter, "all"> : "agent");
+
+export function filtered(rows: JournalRow[], { source = "all", entity = "" }: { source?: SourceFilter; entity?: string }): JournalRow[] {
+  return rows.filter((r) => (source === "all" || sourceKey(r) === source) && (!entity || r.entity_id === entity));
+}
+
+// ── Approving several at once ────────────────────────────────────────────────
+
+// Only a register journal still waiting can be ticked; a reconciliation's is
+// decided on its reconciliation.
+export const batchable = (j: Pick<JournalRow, "kind" | "state">) => j.kind === "register" && j.state === "proposed";
+
+// The one confirmation: each journal as it will reach Xero, a pair as both legs.
+export function batchLines(rows: JournalRow[]): string[] {
+  return rows.map((j) => {
+    const head = `${j.jnl ? `${j.jnl} ` : ""}${j.entity_name}, ${j.journal_date}: ${j.narration}, ${j.total}`;
+    return j.pair ? `${head}, reversed ${j.pair.reversal_date} (two drafts)` : head;
+  });
+}
+
+export function draftsIn(rows: JournalRow[]): number {
+  return rows.reduce((n, j) => n + (j.pair ? 2 : 1), 0);
 }
 
 // ── The new-journal form ─────────────────────────────────────────────────────
@@ -134,7 +187,7 @@ export function toLines(lines: DraftLine[]): JournalLine[] {
 // the refresh from Xero, and the CFO's decision. The agents' way in (X-Work-Via)
 // is never set by the portal, so through here everything is a person.
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const JOURNAL_PATH = new RegExp(`^journals(/refresh|/${UUID}/(approve|reject))?$`, "i");
+const JOURNAL_PATH = new RegExp(`^journals(/refresh|/approve-batch|/${UUID}/(approve|reject))?$`, "i");
 export const isJournalPath = (path: string) => JOURNAL_PATH.test(path);
 
 // The list checks Xero for posted drafts on opening when it last looked this

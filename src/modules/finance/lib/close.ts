@@ -11,6 +11,23 @@ import { ownerLabel, STATUS_LABEL, type ShownStatus, type Task } from "./work";
 import { STATUS_LABEL as REC_STATUS, type RecList, type RecRow } from "./recs";
 import type { JournalList } from "./journals";
 import type { VatOverview } from "./vat";
+import type { AccrualMonth } from "./accruals";
+
+// The accruals step's evidence (docs/accruals-spec.md): proposals still to
+// decide, pairs still to approve, and findings from the month's run. Null when
+// the client keeps no accruals here yet.
+export function accrualEvidence(a: AccrualMonth | null, period: string, base: string): Evidence | null {
+  if (!a || a.migration_missing) return null;
+  if (!a.items.length && !a.proposals.length && !a.precedents.length) return null;
+  const href = `${base}/accruals?period=${enc(period)}`;
+  const parts: string[] = [];
+  if (a.counts.open) parts.push(`${plural(a.counts.open, "accrual")} to decide`);
+  if (a.counts.pairs_waiting) parts.push(`${plural(a.counts.pairs_waiting, "pair")} to approve`);
+  if (a.findings.length) parts.push(plural(a.findings.length, "finding"));
+  if (a.due.length) parts.push(`${plural(a.due.length, "standing accrual")} not yet proposed: run the month`);
+  if (!parts.length) return { text: "Accruals decided and their pairs approved", href, tone: "green" };
+  return { text: parts.join(", "), href, tone: a.findings.length ? "red" : "amber" };
+}
 
 // The VAT step's evidence: the month's VAT return in os.stza.io, the one
 // ending at the month end (or covering it, for a quarter), and how far it has
@@ -168,7 +185,7 @@ function recsEvidence(rows: RecRow[], href: string): Evidence | null {
   return { text: parts.join(", "), href, tone: recheck || notTying ? "red" : signed === rows.length ? "green" : "amber" };
 }
 
-export function closeView({ period, tasks, recs, journals, review, slug, today, vat = null }: {
+export function closeView({ period, tasks, recs, journals, review, slug, today, vat = null, accruals = null }: {
   period: string;
   tasks: Task[];
   recs: RecList | null;
@@ -177,6 +194,7 @@ export function closeView({ period, tasks, recs, journals, review, slug, today, 
   slug: string;
   today: string; // YYYY-MM-DD
   vat?: VatOverview | null;
+  accruals?: AccrualMonth | null;
 }): CloseView {
   const base = `/finance/clients/${enc(slug)}`;
   const recsHref = `${base}/reconciliations?period=${enc(period)}`;
@@ -215,6 +233,11 @@ export function closeView({ period, tasks, recs, journals, review, slug, today, 
     if (key === "vat") {
       const v = vatEvidence(vat, period, base);
       if (v) return v;
+    }
+    // The month's accruals, where the client keeps them here; the recs are listed under the step.
+    if (key === "accruals") {
+      const a = accrualEvidence(accruals, period, base);
+      if (a) return a;
     }
     // The same recs the step lists, so the evidence and the list agree.
     if (key && (STEP_LINES[key] || REC_MATCH[key])) return recsEvidence(recsForStep(key, recRows), recsHref);

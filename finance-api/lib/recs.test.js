@@ -88,7 +88,10 @@ describe("a group rec joins companies by account name", () => {
   it("works prepayments by their schedule and other schedule lines by evidence", () => {
     expect(workable("prepay", "schedule")).toBe(true);
     expect(workable("accruals", "schedule")).toBe(true);
+    // Accruals take their evidence from the accruals schedule kept in os.stza.io (migration 062).
     expect(prepareInstruction({ id: "r1", line_key: "accruals", proof: "schedule", account_name: "Accruals", period: "2026-09" }))
+      .toMatch(/fetch_rec_evidence first[\s\S]*accruals schedule in os\.stza\.io/);
+    expect(prepareInstruction({ id: "r1", line_key: "provisions", proof: "schedule", account_name: "Provisions", period: "2026-09" }))
       .toMatch(/record the schedule as evidence[\s\S]*nil with the basis/);
   });
 });

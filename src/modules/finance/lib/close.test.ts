@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { closeView, dueText, stepKey, vatEvidence } from "./close";
+import { accrualEvidence, closeView, dueText, stepKey, vatEvidence } from "./close";
 import type { Task, TaskBlocker } from "./work";
 import type { RecList, RecRow } from "./recs";
 import type { JournalList, JournalRow } from "./journals";
+import type { AccrualMonth } from "./accruals";
 
 let n = 0;
 const t = (id: string, parent: string | null, extra: Partial<Task> = {}): Task => ({
@@ -206,5 +207,24 @@ describe("the VAT step's evidence", () => {
   it("says a quarter's return is filed with its quarter at a month inside it", () => {
     const q = ret("building", { period_start: "2026-10-01", period_end: "2026-12-31" });
     expect(vatEvidence({ registrations: reg, returns: [q as never] }, "2026-11", base)?.text).toMatch(/runs past this month end/);
+  });
+});
+
+describe("the accruals step", () => {
+  const month = (over: Partial<AccrualMonth> = {}) => ({
+    period: "2026-11", label: "November 2026", entities: [], proposals: [], items: [{ id: "i" }], precedents: [], findings: [], due: [], tie: null,
+    counts: { open: 0, pairs_waiting: 0 }, ...over,
+  }) as unknown as AccrualMonth;
+
+  it("says what is left, worst first, and links to the month", () => {
+    expect(accrualEvidence(month({ counts: { open: 2, pairs_waiting: 1 } }), "2026-11", "/finance/clients/x"))
+      .toEqual({ text: "2 accruals to decide, 1 pair to approve", href: "/finance/clients/x/accruals?period=2026-11", tone: "amber" });
+    expect(accrualEvidence(month({ findings: [{ kind: "locked", text: "x" }] }), "2026-11", "/b")?.tone).toBe("red");
+    expect(accrualEvidence(month(), "2026-11", "/b")).toMatchObject({ text: "Accruals decided and their pairs approved", tone: "green" });
+  });
+
+  it("stays out of the way where the client keeps no accruals here", () => {
+    expect(accrualEvidence(null, "2026-11", "/b")).toBeNull();
+    expect(accrualEvidence(month({ items: [] }), "2026-11", "/b")).toBeNull();
   });
 });

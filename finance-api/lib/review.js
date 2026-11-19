@@ -11,6 +11,7 @@
 
 const recs = require("./recs");
 const journals = require("./journals");
+const accrualRules = require("./accruals");
 
 // Who an item waits on. CFO and FC are engagement roles. Preparer is whoever
 // does the work below review, a person or an agent. FM is the first review tier
@@ -165,6 +166,14 @@ function journalItem(row, { slug, now = Date.now() }) {
   let retry = null;
   if (row.state === "approved") {
     retry = journals.attemptState(row.post_outcome ? { outcome: row.post_outcome, http_status: row.post_http, created_at: row.post_at } : null, now);
+    // An accrual pair (migration 062): the state of both legs together.
+    if (row.reversal_date) {
+      const leg = (outcome, http, at, inXero) => (inXero ? "drafted" : journals.attemptState(outcome ? { outcome, http_status: http, created_at: at } : null, now));
+      retry = accrualRules.pairAttempt({
+        accrual: leg(row.post_outcome, row.post_http, row.post_at, row.xero_journal_id),
+        reversal: leg(row.rpost_outcome, row.rpost_http, row.rpost_at, row.reversal_xero_journal_id),
+      }).state;
+    }
     if (retry === "live") return null;
   }
   const source = journals.sourceOf({ kind: "register", source: row.source, proposed_by: row.proposed_by });
@@ -175,7 +184,7 @@ function journalItem(row, { slug, now = Date.now() }) {
     kind: "journal",
     id: row.id,
     jnl: journals.jnlRef(row.jnl_no),
-    title: withJnl(row),
+    title: row.reversal_date ? `${withJnl(row)} (with its reversal on ${row.reversal_date})` : withJnl(row),
     company: row.entity_name ?? null,
     amount: journals.totalOf(row.lines),
     currency: null,
@@ -184,6 +193,30 @@ function journalItem(row, { slug, now = Date.now() }) {
     produced_by: source === "person" ? row.proposed_by : producedBy(source),
     status: `${retry ? after : `Proposed for ${recs.periodLabel(row.period)}`}${last}`,
     href: `${clientBase(slug)}/journals?period=${enc(row.period)}`,
+  };
+}
+
+// ── Accruals ─────────────────────────────────────────────────────────────────
+
+// An accrual proposal still open (migration 062): with the CFO to decide, or,
+// once the CFO has asked a question back, with the preparer to answer.
+function accrualItem(row, { slug }) {
+  if (!["pending", "question"].includes(row.decision)) return null;
+  const asked = row.decision === "question";
+  const total = Array.isArray(row.lines) && row.lines.length ? journals.totalOf(row.lines) : null;
+  return {
+    kind: "accrual",
+    id: row.id,
+    title: `${row.supplier}, ${recs.periodLabel(row.period)}`,
+    company: row.entity_name ?? null,
+    amount: total,
+    currency: null,
+    waiting_on: asked ? "Preparer" : "CFO",
+    since: iso(row.updated_at ?? row.created_at),
+    produced_by: producedBy(row.proposed_by),
+    status: asked ? `You asked: ${String(row.decision_reason ?? "").slice(0, 140)}`
+      : row.confidence === "open" ? `Question for you: ${String(row.basis ?? "").slice(0, 140)}` : `Accrual proposed (${String(row.test).replace("_", " ")} test)`,
+    href: `${clientBase(slug)}/accruals?period=${enc(row.period)}&proposal=${enc(row.id)}`,
   };
 }
 
@@ -271,5 +304,5 @@ function counts(items) {
 }
 
 module.exports = {
-  WAITS, FC_ROLE, waitsAs, producedBy, billAgent, billItem, recItem, recJournalItem, journalItem, xeroChangeItem, approvalItem, combine, counts,
+  WAITS, FC_ROLE, waitsAs, producedBy, billAgent, billItem, recItem, recJournalItem, journalItem, accrualItem, xeroChangeItem, approvalItem, combine, counts,
 };

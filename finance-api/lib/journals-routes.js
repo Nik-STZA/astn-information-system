@@ -16,6 +16,7 @@
 const journals = require("./journals");
 const recs = require("./recs");
 const work = require("./work");
+const accrualRules = require("./accruals");
 
 const MISSING = "Journals are waiting for migration 033 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
@@ -69,7 +70,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
   });
 
   const loadJournal = async (db, clientId, id, lock = false) => (await db.query(
-    `SELECT j.*, j.journal_date::text AS journal_date, e.slug AS entity_slug, e.name AS entity_name
+    `SELECT j.*, j.journal_date::text AS journal_date, to_jsonb(j)->>'reversal_date' AS reversal_date, e.slug AS entity_slug, e.name AS entity_name
        FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
       WHERE j.id = $1 AND j.client_id = $2 ${lock ? "FOR UPDATE OF j" : ""}`, [id, clientId])).rows[0];
 
@@ -109,12 +110,15 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
     let own;
     try {
       own = (await pool.query(
-        `SELECT j.*, j.journal_date::text AS journal_date, e.name AS entity_name,
-                p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http, p.created_at AS post_at
+        `SELECT j.*, j.journal_date::text AS journal_date, to_jsonb(j)->>'reversal_date' AS reversal_date, e.name AS entity_name,
+                p.outcome AS post_outcome, p.response_body->>'http_status' AS post_http, p.created_at AS post_at,
+                rp.outcome AS rpost_outcome, rp.response_body->>'http_status' AS rpost_http, rp.created_at AS rpost_at
            FROM finance.journals j
            JOIN finance.entities e ON e.id = j.entity_id
            LEFT JOIN finance.journal_posts p ON p.client_id = j.client_id AND p.entity_id = j.entity_id
              AND p.idempotency_key = 'journal-' || j.id || '-' || j.attempts
+           LEFT JOIN finance.journal_posts rp ON rp.client_id = j.client_id AND rp.entity_id = j.entity_id
+             AND rp.idempotency_key = 'journal-' || j.id || '-' || (to_jsonb(j)->>'reversal_attempts') || '-reversal'
           WHERE j.client_id = $1 AND j.period = $2 AND j.state <> 'superseded'
           ORDER BY j.journal_date, j.created_at`, [client.id, period])).rows;
     } catch (e) {
@@ -149,13 +153,23 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
         const retry = j.state === "approved"
           ? journals.attemptState(j.post_outcome ? { outcome: j.post_outcome, http_status: j.post_http, created_at: j.post_at } : null)
           : null;
+        const leg = (outcome, http, at, inXero) => (inXero ? "drafted" : journals.attemptState(outcome ? { outcome, http_status: http, created_at: at } : null));
+        const pairRetry = j.state === "approved" && j.reversal_date
+          ? accrualRules.pairAttempt({ accrual: leg(j.post_outcome, j.post_http, j.post_at, j.xero_journal_id), reversal: leg(j.rpost_outcome, j.rpost_http, j.rpost_at, j.reversal_xero_journal_id) }).state
+          : null;
         return {
           kind: "register", id: j.id, jnl: journals.jnlRef(j.jnl_no), entity_id: j.entity_id, entity_name: j.entity_name, period: j.period, journal_date: j.journal_date,
           narration: j.narration, lines: j.lines, total: journals.totalOf(j.lines), reason: j.reason,
           source: journals.sourceOf({ kind: "register", source: j.source, proposed_by: j.proposed_by }), proposed_by: j.proposed_by,
           state: j.state, approved_by: j.approved_by, approved_at: j.approved_at, rejected_by: j.rejected_by, rejected_at: j.rejected_at,
           xero_journal_no: j.xero_journal_no, xero_status: j.xero_status, xero_checked_at: j.xero_checked_at, drafted_at: j.drafted_at,
-          last_error: j.last_error, retry_state: retry, can_retry: ["go", "retry"].includes(retry), rec: null, created_at: j.created_at,
+          last_error: j.last_error, retry_state: pairRetry ?? retry, can_retry: ["go", "retry"].includes(pairRetry ?? retry), rec: null, created_at: j.created_at,
+          // An accrual pair (migration 062): one row, both legs.
+          pair: j.reversal_date ? {
+            reversal_date: j.reversal_date, reversal_narration: accrualRules.reversalNarration(j.narration),
+            accrual_xero_journal_no: j.xero_journal_no, reversal_xero_journal_no: j.reversal_xero_journal_no, reversal_xero_status: j.reversal_xero_status,
+            accrual_item_id: j.accrual_item_id, backfill: j.backfill,
+          } : null,
         };
       }),
       ...fromRecs.map((j) => {
@@ -269,7 +283,8 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
     const role = (await pool.query("SELECT finance.role_at($1,$2,CURRENT_DATE) AS role", [client.id, who.actorEmail])).rows[0].role;
     if (!role) return res.status(403).json({ error: `${who.actorEmail} holds no engagement role for this client` });
     const drafts = (await pool.query(
-      `SELECT j.id, j.xero_journal_id, e.slug AS entity_slug FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
+      `SELECT j.id, j.xero_journal_id, to_jsonb(j)->>'reversal_xero_journal_id' AS reversal_xero_journal_id, e.slug AS entity_slug
+         FROM finance.journals j JOIN finance.entities e ON e.id = j.entity_id
         WHERE j.client_id = $1 AND j.period = $2 AND j.state = 'draft_created' AND j.xero_journal_id IS NOT NULL
         ORDER BY j.drafted_at LIMIT 50`, [client.id, period])).rows;
     let posted = 0;
@@ -279,7 +294,14 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
     for (const d of drafts) {
       const got = await xeroManualJournalStatus(req.params.slug, d.entity_slug, d.xero_journal_id);
       if (got.error) { errors.push({ id: d.id, error: got.error }); continue; }
-      const next = journals.stateFromXero(got.status);
+      let next = journals.stateFromXero(got.status);
+      // A pair is posted when both legs are.
+      if (d.reversal_xero_journal_id) {
+        const rev = await xeroManualJournalStatus(req.params.slug, d.entity_slug, d.reversal_xero_journal_id);
+        if (rev.error) { errors.push({ id: d.id, error: rev.error }); continue; }
+        await pool.query("UPDATE finance.journals SET reversal_xero_status = $2 WHERE id = $1", [d.id, rev.status]);
+        if (journals.stateFromXero(rev.status) !== "posted") next = null;
+      }
       const r = await pool.query(
         `UPDATE finance.journals SET xero_status = $2, xero_checked_at = now(), updated_at = now(),
                 state = COALESCE($3, state)
@@ -324,28 +346,66 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
 
   // ── The CFO's decision ──────────────────────────────────────────────────────
 
-  // POST /journals/:id/approve   the CFO approves on the screen, and finance-api
-  // creates exactly this journal in Xero as a DRAFT. Approving again creates
-  // nothing more: the key is the journal's, and moves on only after Xero
-  // definitely refused the last attempt.
-  app.post(`${BASE}/:id/approve`, tolerant(async (req, res) => {
-    const who = caller(req, res, { peopleOnly: true });
-    if (!who) return;
-    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a journal id" });
-    const client = await clientIdFromSlug(req.params.slug);
-    if (!client) return res.status(404).json({ error: "client not found" });
+  // What is known of one leg's attempt, by its key.
+  async function legAttempt(db, j, key) {
+    const row = (await db.query(
+      `SELECT outcome, response_body, created_at FROM finance.journal_posts
+        WHERE client_id = $1 AND entity_id = $2 AND idempotency_key = $3`, [j.client_id, j.entity_id, key])).rows[0];
+    const post = row ? { outcome: row.outcome, http_status: row.response_body?.http_status, response_body: row.response_body, created_at: row.created_at } : null;
+    return { state: journals.attemptState(post), post };
+  }
 
-    // The decision, in its own short transaction.
+  // A pair's leg reached Xero. The row becomes draft_created once both have.
+  async function markLeg(db, id, leg, created) {
+    const cols = leg === "reversal"
+      ? "reversal_xero_journal_id = $2, reversal_xero_journal_no = $3, reversal_xero_status = $4, reversal_drafted_at = now()"
+      : "xero_journal_id = $2, xero_journal_no = $3, xero_status = $4";
+    await db.query(
+      `UPDATE finance.journals SET ${cols}, updated_at = now() WHERE id = $1 AND state = 'approved'`,
+      [id, created?.journal_id ?? null, created?.journal_number != null ? String(created.journal_number) : null, created?.status ?? "DRAFT"]);
+    await db.query(
+      `UPDATE finance.journals SET state = 'draft_created', drafted_at = now(), last_error = NULL, updated_at = now()
+        WHERE id = $1 AND state = 'approved' AND xero_journal_id IS NOT NULL AND reversal_xero_journal_id IS NOT NULL`, [id]);
+  }
+
+  // Each leg of a pair: in Xero already, or what is known of its last attempt.
+  async function pairLegs(db, j) {
+    const keys = accrualRules.pairKeys(j);
+    const a = j.xero_journal_id ? { state: "drafted", post: null } : await legAttempt(db, j, keys.accrual);
+    const r = j.reversal_xero_journal_id ? { state: "drafted", post: null } : await legAttempt(db, j, keys.reversal);
+    return { plan: accrualRules.pairAttempt({ accrual: a.state, reversal: r.state }), accrual: a, reversal: r };
+  }
+
+  // One approval: the decision in its own short transaction, then the write.
+  // For a pair, the accrual and then the reversal, each under its own key, so
+  // approving again sends only a leg not yet in Xero.
+  async function approveOne(req, client, who, id) {
     let j;
-    let approval;
+    let send = [];
     const decided = await tx(client, who, async (conn, { actorEmail, role }) => {
       if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO approves a journal" } };
-      j = await loadJournal(conn, client.id, req.params.id, true);
+      j = await loadJournal(conn, client.id, id, true);
       if (!j) return { status: 404, body: { error: "journal not found" } };
       if (["draft_created", "posted"].includes(j.state)) return { status: 409, body: { error: "This journal is already in Xero. Post it there, or void it there if it is not wanted." } };
       if (!["proposed", "approved"].includes(j.state)) return { status: 409, body: { error: `This journal is ${j.state}` } };
       let attempts = j.attempts;
-      if (j.state === "approved") {
+      let reversalAttempts = j.reversal_attempts ?? 1;
+      const pair = Boolean(j.reversal_date);
+      if (pair) {
+        const legs = await pairLegs(conn, j);
+        const plan = legs.plan;
+        if (plan.state === "live") return { status: 409, body: { error: "This pair is being created in Xero now." } };
+        if (plan.state === "unknown") return { status: 409, body: { error: "The last attempt did not finish cleanly, so a leg of this pair may already be in Xero. Check Xero. If neither is there, reject this and run the month again." } };
+        if (plan.state === "drafted") {
+          if (j.state === "proposed") await conn.query("UPDATE finance.journals SET state = 'approved' WHERE id = $1", [j.id]);
+          if (legs.accrual.post) await markLeg(conn, j.id, "accrual", legs.accrual.post.response_body);
+          if (legs.reversal.post) await markLeg(conn, j.id, "reversal", legs.reversal.post.response_body);
+          return { status: 200, body: { drafted: true, caught_up: true } };
+        }
+        if (legs.accrual.state === "retry") attempts += 1;
+        if (legs.reversal.state === "retry") reversalAttempts += 1;
+        send = plan.legs;
+      } else if (j.state === "approved") {
         const after = await lastAttempt(conn, j);
         if (after.state === "live") return { status: 409, body: { error: "This journal is being created in Xero now." } };
         if (after.state === "unknown") return { status: 409, body: { error: "The last attempt did not finish cleanly, so this draft may already be in Xero. Check Xero. If it is not there, reject this and propose it again." } };
@@ -356,44 +416,87 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
         if (after.state === "retry") attempts += 1;
       }
       await conn.query(
-        `UPDATE finance.journals SET state = 'approved', approved_by = $2, approved_at = now(), attempts = $3, last_error = NULL, updated_at = now()
-          WHERE id = $1`, [j.id, actorEmail, attempts]);
+        `UPDATE finance.journals SET state = 'approved', approved_by = $2, approved_at = now(), attempts = $3, reversal_attempts = $4, last_error = NULL, updated_at = now()
+          WHERE id = $1`, [j.id, actorEmail, attempts, reversalAttempts]);
       j.attempts = attempts;
-      approval = journals.approvalFor(j, { entityName: j.entity_name, actorEmail });
+      j.reversal_attempts = reversalAttempts;
+      if (!pair) send = ["accrual"];
       await auditJournal(conn, req, {
         client, actorEmail, role, action: "journal_approved", id: j.id,
-        payload: { entity: j.entity_slug, date: j.journal_date, narration: j.narration, lines: j.lines, attempts, key: journals.journalKey(j) },
+        payload: {
+          entity: j.entity_slug, date: j.journal_date, narration: j.narration, lines: j.lines, attempts,
+          legs: journals.legsOf(j).filter((l) => send.includes(l.leg)).map((l) => ({ leg: l.leg, date: l.date, key: l.key })),
+        },
       });
       return { status: 200, body: {}, go: true };
     });
-    if (!decided.go) return res.status(decided.status).json(decided.body);
+    if (!decided.go) return decided;
 
-    // The write, after the decision is committed. DRAFT only, under the
-    // journal's own key, through the one journal write.
-    const out = await postManualJournal({
-      slug: req.params.slug, entitySlug: j.entity_slug, actorEmail: who.actorEmail, ip: req.get("X-Forwarded-For") || req.ip,
-      body: {
-        date: j.journal_date, narration: j.narration, lines: j.lines, status: "DRAFT",
-        idempotency_key: journals.journalKey(j), approval,
-      },
-      onDrafted: (db, created) => markDrafted(db, j.id, created),
-      register: true,
-    });
-    if (out.body?.ok) {
-      return res.json({ drafted: true, journal_number: out.body.journal_number ?? null, warnings: out.body.warnings ?? [] });
+    // The writes, after the decision is committed. DRAFT only, each leg under
+    // its own key, through the one journal write.
+    const drafted = [];
+    for (const leg of journals.legsOf(j).filter((l) => send.includes(l.leg))) {
+      const shown = { ...j, journal_date: leg.date, narration: leg.narration, lines: leg.lines };
+      const out = await postManualJournal({
+        slug: req.params.slug, entitySlug: j.entity_slug, actorEmail: who.actorEmail, ip: req.get("X-Forwarded-For") || req.ip,
+        body: {
+          date: leg.date, narration: leg.narration, lines: leg.lines, status: "DRAFT",
+          idempotency_key: leg.key, approval: journals.approvalFor(shown, { entityName: j.entity_name, actorEmail: who.actorEmail }),
+        },
+        onDrafted: (db, created) => (j.reversal_date ? markLeg(db, j.id, leg.leg, created) : markDrafted(db, j.id, created)),
+        register: true,
+      });
+      if (out.body?.ok) { drafted.push({ leg: leg.leg, journal_number: out.body.journal_number ?? null }); continue; }
+      const text = `${j.reversal_date ? `The ${leg.leg}: ` : ""}${journals.failureText(out)}`;
+      const now = (await pool.query("SELECT xero_journal_id, reversal_xero_journal_id FROM finance.journals WHERE id = $1", [j.id])).rows[0] ?? {};
+      if (!out.sent && !now.xero_journal_id && !now.reversal_xero_journal_id) {
+        // Nothing reached Xero, so the journal goes back to waiting, with why.
+        await pool.query(
+          `UPDATE finance.journals SET state = 'proposed', approved_by = NULL, approved_at = NULL, last_error = $3, updated_at = now()
+            WHERE id = $1 AND state = 'approved' AND attempts = $2`, [j.id, j.attempts, text]);
+        return { status: 422, body: { error: text, issues: [text] } };
+      }
+      // Part of it may be in Xero. It stays approved, and the list says whether
+      // approving again is safe; a leg already in Xero is never sent again.
+      await pool.query("UPDATE finance.journals SET last_error = $2, updated_at = now() WHERE id = $1 AND state = 'approved'", [j.id, text]);
+      return { status: out.sent ? (out.status >= 400 ? out.status : 502) : 422, body: { error: text, drafted } };
     }
-    const text = journals.failureText(out);
-    if (!out.sent) {
-      // Nothing reached Xero, so the journal goes back to waiting, with why.
-      await pool.query(
-        `UPDATE finance.journals SET state = 'proposed', approved_by = NULL, approved_at = NULL, last_error = $3, updated_at = now()
-          WHERE id = $1 AND state = 'approved' AND attempts = $2`, [j.id, j.attempts, text]);
-      return res.status(422).json({ error: text, issues: [text] });
+    return { status: 200, body: { drafted: true, legs: drafted, journal_number: drafted[0]?.journal_number ?? null } };
+  }
+
+  // POST /journals/:id/approve   the CFO approves on the screen, and finance-api
+  // creates exactly this journal (or pair) in Xero as DRAFT. Approving again
+  // creates nothing more: each key moves on only after Xero definitely refused it.
+  app.post(`${BASE}/:id/approve`, tolerant(async (req, res) => {
+    const who = caller(req, res, { peopleOnly: true });
+    if (!who) return;
+    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a journal id" });
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const out = await approveOne(req, client, who, req.params.id);
+    res.status(out.status).json(out.body);
+  }));
+
+  // POST /journals/approve-batch   body: { ids, confirmed }   the CFO approves
+  // several at once, after one confirmation listing them. Each is approved on
+  // its own, in turn, by the same rules as one: one refusal does not stop the
+  // rest, and the answer says what became of each.
+  app.post(`${BASE}/approve-batch`, tolerant(async (req, res) => {
+    const who = caller(req, res, { peopleOnly: true });
+    if (!who) return;
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))] : [];
+    if (!ids.length || ids.length > 50 || ids.some((x) => !work.isGuid(x))) return res.status(422).json({ issues: ["ids must be 1 to 50 journal ids"] });
+    if (req.body?.confirmed !== true) return res.status(422).json({ issues: ["confirm the list first"] });
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const results = [];
+    // One at a time: Xero allows five concurrent calls per organisation.
+    for (const id of ids) {
+      const out = await approveOne(req, client, who, id);
+      results.push({ id, ok: out.status < 400, status: out.status, ...out.body });
+      if (out.status === 403) break;
     }
-    // It may have reached Xero. It stays approved, and the list says whether
-    // trying again is safe.
-    await pool.query("UPDATE finance.journals SET last_error = $2, updated_at = now() WHERE id = $1 AND state = 'approved'", [j.id, text]);
-    return res.status(out.status >= 400 ? out.status : 502).json({ error: text });
+    res.json({ results, approved: results.filter((r) => r.ok).length, refused: results.filter((r) => !r.ok).length });
   }));
 
   // POST /journals/:id/reject   body: { confirmed_not_in_xero }
@@ -408,7 +511,16 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
       const j = await loadJournal(conn, client.id, req.params.id, true);
       if (!j || !["proposed", "approved"].includes(j.state)) return { status: 409, body: { error: "This journal is not waiting for a decision" } };
       let unknown = false;
-      if (j.state === "approved") {
+      if (j.state === "approved" && j.reversal_date) {
+        // A pair with a leg in Xero is not rejected here: void that leg in Xero.
+        const legs = await pairLegs(conn, j);
+        if (legs.plan.state === "live") return { status: 409, body: { error: "This pair is being created in Xero now." } };
+        if ([legs.accrual.state, legs.reversal.state].includes("drafted")) return { status: 409, body: { error: "A leg of this pair is already a draft in Xero. Void it there if it is not wanted, and approve again to finish the other." } };
+        unknown = legs.plan.state === "unknown";
+        if (unknown && req.body?.confirmed_not_in_xero !== true) {
+          return { status: 409, body: { error: "A leg of this pair may be in Xero. Check Xero. Reject it only once you have seen neither is there." } };
+        }
+      } else if (j.state === "approved") {
         const after = await lastAttempt(conn, j);
         if (after.state === "live") return { status: 409, body: { error: "This journal is being created in Xero now." } };
         if (after.state === "drafted") return { status: 409, body: { error: "This journal is already a draft in Xero. Void it there if it is not wanted." } };
@@ -433,7 +545,7 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
   async function registerGate(clientId, entityId, { input }) {
     try {
       const proposals = (await pool.query(
-        `SELECT state, journal_date::text AS journal_date, lines FROM finance.journals
+        `SELECT state, journal_date::text AS journal_date, to_jsonb(j)->>'reversal_date' AS reversal_date, lines FROM finance.journals j
           WHERE client_id = $1 AND entity_id = $2 AND state <> 'superseded'
             AND (period = $3 OR state IN ('proposed', 'approved'))`,
         [clientId, entityId, String(input?.date ?? "").slice(0, 7)])).rows;
