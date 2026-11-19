@@ -175,7 +175,7 @@ export interface RecStatement {
 }
 export interface ReconcilingItem {
   id: string | null; entity_id: string; entity: string; side: "bank_only" | "xero_only"; kind: ReconcilingKind; txn_date: string | null;
-  description: string | null; amount: string; source: "statement" | "keyed" | "ageing"; state: "open" | "cleared"; note: string | null;
+  description: string | null; amount: string; source: "statement" | "keyed" | "ageing" | "carried"; state: "open" | "cleared"; note: string | null;
   added_by: string | null; cleared_by: string | null; cleared_at: string | null; cleared_note: string | null;
 }
 export interface RecBridge {
