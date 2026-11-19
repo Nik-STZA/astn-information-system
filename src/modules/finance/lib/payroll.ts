@@ -33,7 +33,7 @@ export interface PayrollMonth {
   run: null | {
     id: string; pay_date: string; source_name: string; uploaded_by: string; uploaded_at: string; missing: string[];
     employees: PayrollEmployee[]; alloc: Record<string, Record<string, number>>;
-    alloc_confirmed_by: string | null; alloc_confirmed_at: string | null; no_role: string[];
+    alloc_confirmed_by: string | null; alloc_confirmed_at: string | null; alloc_note: string | null; no_role: string[];
     preview: { journals: PayrollJournalPreview[]; by_project: Record<string, number>; issues: string[] };
     journals: Array<{ id: string; jnl: string; kind: string; state: string; narration: string; entity: string; entity_name: string }>;
     workbook: { requested_at: string | null; requested_by: string | null; name: string | null; link: string | null; saved_at: string | null; error: string | null };

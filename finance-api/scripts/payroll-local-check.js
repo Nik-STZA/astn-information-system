@@ -119,11 +119,13 @@ async function scenario() {
   ok("and for the shares to be confirmed", r.status === 422 && /confirm/.test(r.body.issues?.[0]), r);
 
   console.log("shares");
-  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 80, P9: 30 } } });
+  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 80, P9: 30 } }, note: "lead, email 4 Nov" });
   ok("an unknown project or over 100% is refused", r.status === 422 && r.body.issues.length === 2, r);
-  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 50 } } }, { "X-Actor-Email": FCP });
+  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 50 } }, note: "lead, email 4 Nov" }, { "X-Actor-Email": FCP });
   ok("only the CFO confirms the shares", r.status === 403, r);
   r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 50 }, 12: { P1: 25, P2: 25 } } });
+  ok("shares without where they came from are refused", r.status === 422 && /where the shares came from/.test(r.body.issues?.join()), r);
+  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 50 }, 12: { P1: 25, P2: 25 } }, note: "Development lead, email 4 Nov 2026" });
   ok("the CFO confirms them", r.status === 200, r);
 
   console.log("journals");
@@ -142,7 +144,7 @@ async function scenario() {
   ok("every one balances", js.every((j) => sum(j.lines) === 0), js.map((j) => sum(j.lines)));
 
   console.log("replacing the report");
-  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 40 } } });
+  r = await api("POST", `payroll/runs/${runId}/alloc`, { alloc: { 11: { P1: 40 } }, note: "lead, email 5 Nov" });
   ok("shares cannot change under a proposed capitalisation journal", r.status === 409, r);
   r = await up(ROWS.map((x, i) => (i === 1 ? ["11", 5100, 250, 400, 900, 3550, 600, 300, 5100] : x)), { source_sha256: SHA("c") });
   ok("a corrected report replaces it", r.status === 201 && r.body.replaced === true, r);
@@ -151,7 +153,7 @@ async function scenario() {
   ok("the old proposals are closed by the platform", old.every((j) => j.state === "rejected" && j.rejected_by === "platform:payroll"), old);
   r = await api("GET", `payroll?period=${P}`);
   ok("the shares carry forward, unconfirmed", r.body.run.id === newRun && r.body.run.alloc["12"]?.P2 === 25 && !r.body.run.alloc_confirmed_at, r.body.run);
-  r = await api("POST", `payroll/runs/${newRun}/alloc`, {});
+  r = await api("POST", `payroll/runs/${newRun}/alloc`, { note: "Development lead, email 4 Nov 2026" });
   ok("the CFO confirms the carried-forward shares as they are", r.status === 200, r);
   r = await api("POST", `payroll/runs/${newRun}/propose`);
   ok("the corrected month's journals are proposed", r.status === 201 && r.body.proposed.length === 4, r);
@@ -176,6 +178,7 @@ async function scenario() {
   ok("and reports the file back", r.status === 200, r);
   r = await api("GET", `payroll?period=${P}`);
   ok("the page shows the link", r.body.run.workbook.link?.startsWith("https://drive.google.com/"), r.body.run.workbook);
+  ok("and where the shares came from", r.body.run.alloc_note === "Development lead, email 4 Nov 2026", r.body.run.alloc_note);
 
   const audits = (await pool.query("SELECT action FROM finance.audit_log WHERE client_id = $1 ORDER BY occurred_at", [CID])).rows.map((x) => x.action);
   for (const a of ["payroll_settings_set", "payroll_roles_set", "payroll_uploaded", "payroll_alloc_confirmed", "journal_proposed", "payroll_workbook_saved"]) ok(`audited: ${a}`, audits.includes(a), audits);
@@ -190,7 +193,7 @@ async function serve() {
   await api("PUT", "payroll/roles", { roles: { 11: "director", 12: "direct" } });
   const r = await api("POST", "payroll/runs", { period: "2026-09", pay_date: "2026-09-23", source_name: "Salary report M06.xlsx", source_sha256: SHA("f"), rows: ROWS });
   await api("PUT", "payroll/roles", { roles: { 13: "intercompany" } });
-  await api("POST", `payroll/runs/${r.body.id}/alloc`, { alloc: { 11: { P1: 50 }, 12: { P1: 25, P2: 25 } } });
+  await api("POST", `payroll/runs/${r.body.id}/alloc`, { alloc: { 11: { P1: 50 }, 12: { P1: 25, P2: 25 } }, note: "Development lead, email 4 Nov 2026" });
   console.log("serving on 8788");
 }
 

@@ -33,6 +33,7 @@ export default function PayrollView({ slug, data }: { slug: string; data: Payrol
   const [payDate, setPayDate] = useState(data.run?.pay_date ?? "");
   const [roles, setRoles] = useState<Record<string, Role | "">>({});
   const [shares, setShares] = useState<Record<string, Record<string, string>>>({});
+  const [shareNote, setShareNote] = useState("");
   const file = useRef<HTMLInputElement>(null);
   const base = `/finance/clients/${encodeURIComponent(slug)}`;
   const run = data.run;
@@ -78,13 +79,15 @@ export default function PayrollView({ slug, data }: { slug: string; data: Payrol
 
   const shareOf = (code: string, p: string) => shares[code]?.[p] ?? (run?.alloc[code]?.[p] !== undefined ? String(run.alloc[code][p]) : "");
   const sharesEdited = Object.keys(shares).length > 0;
+  const settled = Boolean(run?.alloc_confirmed_at) && !sharesEdited;
   const confirmShares = async () => {
     if (!run) return;
     const alloc = Object.fromEntries(run.employees.map((e) => [e.emp_code, Object.fromEntries(projects
       .map((p) => [p, Number(shareOf(e.emp_code, p) || 0)]).filter(([, v]) => Number(v) > 0))]));
-    const r = await call("POST", `runs/${run.id}/alloc`, { alloc });
+    const r = await call("POST", `runs/${run.id}/alloc`, { alloc, note: shareNote.trim() });
     if (!r.ok) return;
     setShares({});
+    setShareNote("");
     setNotice("Shares confirmed for the month.");
     router.refresh();
   };
@@ -219,10 +222,14 @@ export default function PayrollView({ slug, data }: { slug: string; data: Payrol
                   </table>
                 </div>
                 <div className={`${page.pad} ${styles.row}`}>
-                  {run.alloc_confirmed_at && !sharesEdited
-                    ? <span className={page.small}><CheckCircle2 size={13} aria-hidden="true" /> Confirmed by {run.alloc_confirmed_by}, {when(run.alloc_confirmed_at)}.</span>
-                    : <span className={page.small}>{data.last_period ? `Carried forward from ${periodLong(data.last_period)}. ` : ""}Check and confirm for this month.</span>}
-                  <button type="button" className="btn-primary" disabled={busy || (!!run.alloc_confirmed_at && !sharesEdited)} onClick={confirmShares}>Confirm shares</button>
+                  {settled
+                    ? <span className={page.small}><CheckCircle2 size={13} aria-hidden="true" /> Confirmed by {run.alloc_confirmed_by}, {when(run.alloc_confirmed_at)}{run.alloc_note ? `, from: ${run.alloc_note}` : ""}.</span>
+                    : <>
+                        <span className={page.small}>{data.last_period ? `Carried forward from ${periodLong(data.last_period)}. ` : ""}Enter this month&apos;s shares, say where they came from, and confirm.</span>
+                        <input aria-label="Where the shares came from" className={styles.input} style={{ flex: "1 1 220px" }} maxLength={200}
+                          placeholder="Where from, e.g. development lead, email 4 Nov" value={shareNote} onChange={(e) => setShareNote(e.target.value)} />
+                      </>}
+                  <button type="button" className="btn-primary" disabled={busy || settled || shareNote.trim().length < 3} onClick={confirmShares}>Confirm shares</button>
                 </div>
               </div>
             </section>

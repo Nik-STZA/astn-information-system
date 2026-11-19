@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS finance.payroll_runs (
   alloc          jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(alloc) = 'object'),
   alloc_confirmed_by text,
   alloc_confirmed_at timestamptz,
+  -- Where the shares came from, e.g. "development lead, email 4 Nov 2026".
+  alloc_note     text CHECK (alloc_note IS NULL OR length(alloc_note) BETWEEN 3 AND 200),
   uploaded_by    text NOT NULL,
   uploaded_at    timestamptz NOT NULL DEFAULT now(),
   superseded_at  timestamptz,

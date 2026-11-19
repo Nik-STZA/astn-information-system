@@ -87,7 +87,8 @@ def build_workbook(source: bytes, data: dict):
     projects = data.get("projects") or []
     if projects:
         ws = wb.create_sheet(_unique(wb, "Capitalised Development"))
-        _title(ws, f"Capitalised development - {data['period']}", sub + f" Shares confirmed by {data.get('alloc_confirmed_by') or 'nobody yet'}.")
+        _title(ws, f"Capitalised development - {data['period']}", sub + f" Shares confirmed by {data.get('alloc_confirmed_by') or 'nobody yet'}"
+               + (f", from: {data['alloc_note']}." if data.get("alloc_note") else "."))
         n = len(projects)
         _head(ws, 4, ["EmpCode", "Employer cost"] + [f"{p} %" for p in projects] + [f"{p} £" for p in projects])
         first = 5

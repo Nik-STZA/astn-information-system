@@ -4,7 +4,7 @@
 //   PUT  /payroll/settings                  CFO: companies, accounts, projects, drive folder
 //   PUT  /payroll/roles                     CFO: { roles: { emp_code: role } }
 //   POST /payroll/runs                      a person: { period, pay_date, source_name, source_sha256, rows }
-//   POST /payroll/runs/:id/alloc            CFO: { alloc: { emp_code: { project: percent } } } confirmed
+//   POST /payroll/runs/:id/alloc            CFO: { alloc: { emp_code: { project: percent } }, note } confirmed
 //   POST /payroll/runs/:id/propose          the month's journals onto the Journals page
 //   POST /payroll/runs/:id/workbook         the pack engine builds the working file on the client's drive
 //   GET  /payroll/runs/:id/workbook-data    for the pack engine
@@ -180,7 +180,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
       body.run = {
         id: run.id, pay_date: String(run.pay_date instanceof Date ? run.pay_date.toISOString().slice(0, 10) : run.pay_date).slice(0, 10),
         source_name: run.source_name, uploaded_by: run.uploaded_by, uploaded_at: run.uploaded_at, missing: run.missing,
-        employees: run.figures, alloc: run.alloc, alloc_confirmed_by: run.alloc_confirmed_by, alloc_confirmed_at: run.alloc_confirmed_at,
+        employees: run.figures, alloc: run.alloc, alloc_confirmed_by: run.alloc_confirmed_by, alloc_confirmed_at: run.alloc_confirmed_at, alloc_note: run.alloc_note,
         no_role: run.figures.filter((e) => !pay.ROLES.includes(roles[e.emp_code])).map((e) => e.emp_code),
         preview: p, journals: await journalsOf(run.id), workbook: workbookOf(run),
       };
@@ -325,13 +325,15 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     if (!run) return res.status(404).json({ error: "payroll month not found" });
     const settings = await settingsOf(client.id);
     const alloc = req.body?.alloc ?? run.alloc;
+    const note = String(req.body?.note ?? "").trim();
     const issues = allocIssues(alloc, settings?.projects ?? [], run.figures.map((e) => e.emp_code));
+    if (note.length < 3 || note.length > 200) issues.push("say where the shares came from (3 to 200 characters), e.g. who sent them and when");
     if (issues.length) return res.status(422).json({ issues });
     const live = (await pool.query("SELECT count(*)::int AS n FROM finance.journals WHERE source = 'payroll' AND payroll_run_id = $1 AND payroll_kind LIKE 'capdev%' AND state = ANY($2)", [run.id, LIVE])).rows[0].n;
     if (live) return res.status(409).json({ issues: ["the capitalised development journal is already proposed: reject it on the Journals page first"] });
     const tidy = tidyAlloc(alloc);
-    await pool.query("UPDATE finance.payroll_runs SET alloc = $2, alloc_confirmed_by = $3, alloc_confirmed_at = now() WHERE id = $1", [run.id, JSON.stringify(tidy), who.actorEmail]);
-    await auditPay(req, { client, who, action: "payroll_alloc_confirmed", id: run.id, payload: { period: run.period, alloc: tidy } });
+    await pool.query("UPDATE finance.payroll_runs SET alloc = $2, alloc_confirmed_by = $3, alloc_confirmed_at = now(), alloc_note = $4 WHERE id = $1", [run.id, JSON.stringify(tidy), who.actorEmail, note]);
+    await auditPay(req, { client, who, action: "payroll_alloc_confirmed", id: run.id, payload: { period: run.period, alloc: tidy, note } });
     res.json({ ok: true });
   }));
 
@@ -361,7 +363,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
         if (!entityId) throw Object.assign(new Error(`no company ${j.entity}`), { status: 422 });
         const reason = [
           `${j.narration}, from ${run.source_name} (uploaded by ${run.uploaded_by}).`,
-          j.kind === "capdev" || j.kind === "capdev_other" ? `Shares confirmed by ${run.alloc_confirmed_by}.` : null,
+          j.kind === "capdev" || j.kind === "capdev_other" ? `Shares confirmed by ${run.alloc_confirmed_by}, from: ${run.alloc_note}.` : null,
           `Payroll month ${run.id}.`,
         ].filter(Boolean).join(" ");
         const row = (await conn.query(
@@ -423,7 +425,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
       entities: { payroll: settings?.payroll_entity_name ?? null, contracted: settings?.contracted_entity_name ?? null },
       projects: settings?.projects ?? [],
       employees: run.figures.map((e) => ({ ...e, role: roles[e.emp_code] ?? null })),
-      alloc: run.alloc, alloc_confirmed_by: run.alloc_confirmed_by,
+      alloc: run.alloc, alloc_confirmed_by: run.alloc_confirmed_by, alloc_note: run.alloc_note,
       journals: p.journals, by_project: p.by_project, issues: p.issues,
     });
   }));

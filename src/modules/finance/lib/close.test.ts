@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { accrualEvidence, closeView, dueText, stepKey, vatEvidence } from "./close";
+import { accrualEvidence, closeView, dueText, payrollEvidence, stepKey, vatEvidence } from "./close";
+import type { PayrollMonth } from "./payroll";
 import type { Task, TaskBlocker } from "./work";
 import type { RecList, RecRow } from "./recs";
 import type { JournalList, JournalRow } from "./journals";
@@ -226,5 +227,29 @@ describe("the accruals step", () => {
   it("stays out of the way where the client keeps no accruals here", () => {
     expect(accrualEvidence(null, "2026-11", "/b")).toBeNull();
     expect(accrualEvidence(month({ items: [] }), "2026-11", "/b")).toBeNull();
+  });
+});
+
+describe("the payroll step", () => {
+  const run = (over: Record<string, unknown> = {}) => ({
+    no_role: [], alloc_confirmed_at: "2026-11-05T10:00:00Z", journals: [],
+    preview: { issues: [], journals: [{ kind: "payroll" }, { kind: "contracted" }], by_project: {} }, ...over,
+  });
+  const month = (r: unknown = run()) => ({ period: "2026-10", settings: { projects: [] }, run: r }) as unknown as PayrollMonth;
+  const at = (m: PayrollMonth) => payrollEvidence(m, "2026-10", "/b");
+
+  it("walks the month from upload to approval", () => {
+    expect(at(month(null))).toMatchObject({ text: "The month's salary report is not uploaded yet", href: "/b/payroll?period=2026-10" });
+    expect(at(month(run({ no_role: ["14"] })))?.tone).toBe("red");
+    expect(at(month(run({ alloc_confirmed_at: null })))?.text).toMatch(/capitalisation shares/);
+    expect(at(month(run()))).toMatchObject({ text: "2 payroll journals to propose", tone: "blue" });
+    const live = [{ kind: "payroll", state: "proposed" }, { kind: "contracted", state: "approved" }];
+    expect(at(month(run({ journals: live })))).toMatchObject({ text: "1 payroll journal to approve" });
+    expect(at(month(run({ journals: live.map((j) => ({ ...j, state: "posted" })) })))).toMatchObject({ tone: "green" });
+  });
+
+  it("stays out of the way where the client keeps no payroll here", () => {
+    expect(payrollEvidence(null, "2026-10", "/b")).toBeNull();
+    expect(payrollEvidence({ period: "2026-10", settings: null } as unknown as PayrollMonth, "2026-10", "/b")).toBeNull();
   });
 });
