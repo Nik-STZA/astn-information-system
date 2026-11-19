@@ -281,7 +281,7 @@ function Detail({ slug, j, busy, send }: { slug: string; j: JournalRow; busy: bo
       <p className={styles.small}>
         Proposed by {j.proposed_by === "platform:accruals" ? "os.stza.io, from the accruals schedule" : j.proposed_by === "backload" ? "the back-load of hand-posted journals" : j.proposed_by.replace(/^agent:/, "").replace(/^(fm1|fc)$/, (m) => m.toUpperCase())}
         {j.approved_by && j.state !== "proposed" ? ` · approved by ${j.approved_by}` : ""}
-        {j.rejected_by && j.state === "rejected" ? ` · rejected by ${j.rejected_by}` : ""}
+        {j.rejected_by && j.state === "rejected" && j.rejected_by !== "xero" ? ` · rejected by ${j.rejected_by}` : ""}
       </p>
       <State slug={slug} j={j} />
       {j.kind === "register" && <Actions j={j} busy={busy} send={send} />}
@@ -317,7 +317,7 @@ function State({ slug, j }: { slug: string; j: JournalRow }) {
     text = gone ? `Xero says this draft is ${String(j.xero_status).toLowerCase()}.` : `Draft in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}. Post it there.`;
   }
   if (j.state === "posted") text = `Posted in Xero${j.xero_journal_no ? `, number ${j.xero_journal_no}` : ""}.`;
-  if (j.state === "rejected") text = "Rejected. Nothing went to Xero.";
+  if (j.state === "rejected") text = j.rejected_by === "xero" ? "Deleted or voided in Xero, so closed here." : "Rejected. Nothing went to Xero.";
   return text ? <p className={j.last_error && j.state !== "rejected" ? styles.warnText : styles.sub}>{text}</p> : null;
 }
 

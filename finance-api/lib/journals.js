@@ -119,9 +119,24 @@ function failureText(out) {
   return String(b.error ?? `It did not reach Xero (${out.status}).`);
 }
 
-// What Xero's status for a draft means for the register. Only POSTED moves it:
-// voided or deleted is reported, and a person decides what to do.
-const stateFromXero = (status) => (String(status ?? "").toUpperCase() === "POSTED" ? "posted" : null);
+// What Xero's status for a draft means for the register. POSTED moves it on;
+// a draft deleted or voided in Xero closes it as rejected, by Xero (19 Nov
+// 2026: a draft deleted in Xero could not be rejected here, and sat as a draft
+// for ever). Anything else leaves it as it is.
+function stateFromXero(status) {
+  const s = String(status ?? "").toUpperCase();
+  if (s === "POSTED") return "posted";
+  if (s === "DELETED" || s === "VOIDED") return "rejected";
+  return null;
+}
+
+// A pair is posted when both legs are, and closed when both were deleted or
+// voided in Xero. One leg each way is left for a person to see.
+function pairStateFromXero(accrualStatus, reversalStatus) {
+  const a = stateFromXero(accrualStatus);
+  const r = stateFromXero(reversalStatus);
+  return a && a === r ? a : null;
+}
 
 // The gate at the journal write for every caller but the register itself. A
 // journal waiting on the Journals page reaches Xero only through the CFO's
@@ -180,5 +195,5 @@ function jnlRef(n) {
 module.exports = {
   jnlRef,
   PROPOSERS, MAX_LINES, STATES, AGREED_TEXT, PENDING_LIVE_MINUTES,
-  journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, sourceOf, registerGate, legsOf,
+  journalIssues, cleanLines, totalOf, ledgerIssues, journalKey, attemptState, presentedText, approvalFor, failureText, stateFromXero, pairStateFromXero, sourceOf, registerGate, legsOf,
 };
