@@ -1204,7 +1204,9 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       const { balances, items, evidence, reconciling, tol, tied: c } = await figuresOn(conn, client, rec);
       const sole = req.body?.sole_reviewer === true;
       const reason = String(req.body?.accept_variance ?? "").trim().slice(0, 2000);
-      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads, accept: reason, blocking: recs.blockingItems(reconciling) });
+      const blocking = recs.blockingItems(reconciling);
+      const itemsWhy = blocking.length ? String(req.body?.accept_items ?? "").trim().slice(0, 2000) : "";
+      const issues = recs.stepIssues("sign_off", { rec, tied: c.ties, via, role, actor, person: actorEmail, sole, reads, accept: reason, blocking, acceptItems: itemsWhy });
       // A journal still waiting here is a fix for the same difference: decide
       // it first, rather than accept the difference beside it.
       if (!c.ties && reason) {
@@ -1220,12 +1222,18 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         reason, by: actorEmail, role, group: money(c.group.variance),
         by_company: c.rows.filter((r) => !r.ties).map((r) => ({ entity_id: r.entity_id, variance: money(r.variance), currency: r.currency })),
       };
+      // Open items the CFO accepted: they stay open and carry to next month.
+      const acceptedItems = blocking.length ? {
+        reason: itemsWhy, by: actorEmail, role,
+        items: blocking.map((it) => ({ id: it.id, entity_id: it.entity_id, kind: it.kind, side: it.side, amount: it.amount, description: it.description })),
+      } : null;
       await conn.query(
         `UPDATE finance.recs SET status = 'signed_off', signed_off_by = $2, signed_off_role = $3, signed_off_at = now(),
            sole_reviewer = $4, signed_snapshot = $5, updated_at = now() WHERE id = $1`,
-        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, evidence, reconciling: reconcilingSnap(reconciling), tolerance: tol, accepted, at: new Date().toISOString() })]);
-      const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged, accepted_variance: accepted };
+        [rec.id, actorEmail, role, flagged, JSON.stringify({ balances, items, evidence, reconciling: reconcilingSnap(reconciling), tolerance: tol, accepted, accepted_items: acceptedItems, at: new Date().toISOString() })]);
+      const payload = { period: rec.period, account: rec.account_name, group_ledger: money(c.group.gl), sole_reviewer: flagged, accepted_variance: accepted, accepted_items: acceptedItems };
       if (accepted) await event(conn, rec.id, client.id, actor, "variance_accepted", { reason, group: accepted.group });
+      if (acceptedItems) await event(conn, rec.id, client.id, actor, "reconciling_accepted", { reason: itemsWhy, items: acceptedItems.items.map((it) => ({ id: it.id, kind: it.kind, amount: it.amount })) });
       await event(conn, rec.id, client.id, actor, "signed_off", { role, ...payload });
       await auditRec(conn, req, { client, actorEmail, role, action: "rec_signed_off", id: rec.id, payload });
       return { status: 200, body: { status: "signed_off" } };

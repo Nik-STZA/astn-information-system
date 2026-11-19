@@ -948,7 +948,7 @@ const actorOf = (actorEmail, via) => (via?.kind === "agent" ? `agent:${via.agent
 //   note     the note given
 //   reads    why the figures cannot be relied on at sign-off
 //   accept   the CFO's reason for signing off a difference that does not tie
-function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "", missingEvidence = null, blocking = [] }) {
+function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, comments, reads = null, accept = "", missingEvidence = null, blocking = [], acceptItems = "" }) {
   const issues = [];
   const say = (s) => issues.push(s);
   const worked = workable(rec.line_key, rec.proof);
@@ -978,10 +978,17 @@ function stepIssues(step, { rec, tied, via, role, actor, person, sole, note, com
     if (!tied && !why) say("It does not tie. Post the journal in Xero and refresh, correct the schedule, or accept the difference with a reason");
     if (!tied && why && why.length < ACCEPT_MIN) say(`Say why the difference is accepted, in at least ${ACCEPT_MIN} characters`);
     if (tied && why) say("It ties, so there is no difference to accept");
-    if (blocking.length) {
+    // An open item that is not timing is a decision: an error waiting on a
+    // journal, a query. The CFO may accept it at sign-off with a reason; it
+    // stays open, keeps bridging the figures, and carries to next month until
+    // it is cleared (19 Nov 2026: clearing it here would have broken the tie).
+    const itemsWhy = String(acceptItems ?? "").trim();
+    if (blocking.length && !itemsWhy) {
       const n = blocking.length;
-      say(`${n} reconciling item${n === 1 ? " is" : "s are"} still open that ${n === 1 ? "is" : "are"} not timing. Fix ${n === 1 ? "it" : "them"} in Xero and upload the statement again, or clear ${n === 1 ? "it" : "them"} with a note`);
+      const list = blocking.map((it) => `${Number(it.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${it.kind}`).join(", ");
+      say(`${n} reconciling item${n === 1 ? " is" : "s are"} still open that ${n === 1 ? "is" : "are"} not timing (${list}). Accept ${n === 1 ? "it" : "them"} at sign-off with a reason (${n === 1 ? "it stays" : "they stay"} open and carry to next month), or send this back to clear ${n === 1 ? "it" : "them"}`);
     }
+    if (blocking.length && itemsWhy && itemsWhy.length < ACCEPT_MIN) say(`Say why the open items are accepted, in at least ${ACCEPT_MIN} characters`);
     if (!via && needsSoleReviewer(rec, person) && !sole) {
       say("You prepared or reviewed this, or started the agents that did. Tick sole reviewer to sign off: it is recorded and shown on the reconciliation");
     }

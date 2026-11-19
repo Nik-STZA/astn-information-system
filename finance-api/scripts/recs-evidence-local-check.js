@@ -347,6 +347,14 @@ async function scenario() {
     r = await api("POST", `recs/${id}/review`, { pass: true, note: "Agreed to the statement." }, { "X-Work-Via": `agent:fc:${await run("fc")}`, "X-Actor-Email": FC });
     r = await api("POST", `recs/${id}/sign-off`, { sole_reviewer: true });
     ok("sign-off refused while a query is open", r.status === 422 && /1 reconciling item is still open that is not timing/.test(r.body.issues.join()), r.body);
+    r = await api("POST", `recs/${id}/sign-off`, { sole_reviewer: true, accept_items: "short" });
+    ok("accepting open items needs a real reason", r.status === 422 && /at least 15 characters/.test(r.body.issues.join()), r.body);
+    r = await api("POST", `recs/${id}/sign-off`, { sole_reviewer: true, accept_items: "Client query, below materiality; chase in November" });
+    ok("CFO signs off accepting the open query", r.status === 200 && r.body.status === "signed_off", r.body);
+    r = await api("GET", `recs/${id}`);
+    ok("the accepted query stays open, and the acceptance is on the record",
+      (r.body.evidence?.reconciling ?? []).some((i) => i.id === ghost && i.state === "open")
+        && (r.body.events ?? []).some((e) => e.action === "reconciling_accepted"), r.body.events);
     r = await api("POST", `recs/${id}/reopen`, {});
     r = await api("PATCH", `recs/${id}/reconciling/${ghost}`, { kind: "timing", note: "Client confirms it cleared on 3 November" });
     await api("POST", `recs/${id}/prepare`, { note: "Agrees to the HSBC statement; two payments clear in November." }, fm1);
