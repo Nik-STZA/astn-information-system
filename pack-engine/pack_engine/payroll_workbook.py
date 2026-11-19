@@ -36,7 +36,7 @@ MONEY = '#,##0.00;-#,##0.00;"-"'
 PCT = '0.00"%"'
 BAND = "F5F0E8"
 ROLE = {"director": "Director", "direct": "Direct staff", "intercompany": "Intercompany"}
-KIND = {"payroll": "Payroll", "contracted": "Contracted", "capdev": "Cap Dev", "capdev_other": "Recharge"}
+KIND = {"payroll": "Payroll", "contracted": "Contracted", "capdev": "Cap Dev", "capdev_other": "Recharge", "capdev_contractor": "Cap Dev Contractors"}
 
 
 def file_name(data: dict) -> str:
@@ -90,20 +90,27 @@ def build_workbook(source: bytes, data: dict):
         _title(ws, f"Capitalised development - {data['period']}", sub + f" Shares confirmed by {data.get('alloc_confirmed_by') or 'nobody yet'}"
                + (f", from: {data['alloc_note']}." if data.get("alloc_note") else "."))
         n = len(projects)
-        _head(ws, 4, ["EmpCode", "Employer cost"] + [f"{p} %" for p in projects] + [f"{p} £" for p in projects])
+        _head(ws, 4, ["Code", "Cost"] + [f"{p} %" for p in projects] + [f"{p} £" for p in projects])
         first = 5
-        for r, e in enumerate(data["employees"], start=first):
-            ws.cell(row=r, column=1, value=e["emp_code"])
-            ws.cell(row=r, column=2, value=round(e["basic"] + e["er_nic"] + e["er_pension"], 2)).number_format = MONEY
-            shares = (data.get("alloc") or {}).get(e["emp_code"], {})
+        # Staff at employer cost, then contractors at their bills' net cost (by code only).
+        rows = [(e["emp_code"], round(e["basic"] + e["er_nic"] + e["er_pension"], 2)) for e in data["employees"]]
+        rows += [(c["code"], round(c.get("cost") or 0, 2)) for c in data.get("contractors") or []]
+        for r, (code, cost) in enumerate(rows, start=first):
+            ws.cell(row=r, column=1, value=code)
+            ws.cell(row=r, column=2, value=cost).number_format = MONEY
+            shares = (data.get("alloc") or {}).get(code, {})
             for i, p in enumerate(projects):
                 pct = ws.cell(row=r, column=3 + i, value=shares.get(p) or None)
                 pct.number_format = PCT
                 amt = ws.cell(row=r, column=3 + n + i, value=f"=ROUND($B{r}*{get_column_letter(3 + i)}{r}/100,2)")
                 amt.number_format = MONEY
-        last = first + len(data["employees"]) - 1
+        last = first + len(rows) - 1
         tot = last + 1
         ws.cell(row=tot, column=1, value="Total").font = Font(bold=True)
+        bills = [b for c in data.get("contractors") or [] for b in c.get("bills") or []]
+        if data.get("contractors"):
+            ws.cell(row=tot + 2, column=1, value="Contractors (C codes) at the net of their bills dated in the month"
+                    + (f": {', '.join(bills)}." if bills else ": none this month.")).font = Font(italic=True, color="8E9196")
         for i in range(n):
             col = get_column_letter(3 + n + i)
             c = ws.cell(row=tot, column=3 + n + i, value=f"=SUM({col}{first}:{col}{last})")
