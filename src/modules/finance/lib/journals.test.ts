@@ -109,3 +109,12 @@ describe("accrual pairs, filters and batch approval", () => {
     expect(draftsIn([base, person])).toBe(3);
   });
 });
+
+describe("why a journal exists, at a glance", () => {
+  it("takes the reason's first sentence, plain, and keeps it short", async () => {
+    const { whyLine } = await import("./journals");
+    expect(whyLine("**£10.63** received 1 Sep was coded to Rounding. It belongs to the director's loan.")).toBe("£10.63 received 1 Sep was coded to Rounding.");
+    expect(whyLine(null)).toBeNull();
+    expect(whyLine("x".repeat(300))?.length).toBe(160);
+  });
+});

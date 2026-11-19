@@ -96,6 +96,16 @@ export function sourceLabel(j: Pick<JournalRow, "source">): string {
   return j.source.toUpperCase();
 }
 
+// The reason's first sentence, for the list: why this journal exists, without
+// opening it (19 Nov 2026: the reasons were there but folded away). Plain text;
+// markdown marks are dropped.
+export function whyLine(reason: string | null | undefined, max = 160): string | null {
+  const text = String(reason ?? "").replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const first = /^(.+?[.!?])(\s|$)/.exec(text)?.[1] ?? text;
+  return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
+}
+
 // ── Filters ──────────────────────────────────────────────────────────────────
 
 // Where a journal came from, as the page filters it. FM1 and the FC, and any

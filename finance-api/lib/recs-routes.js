@@ -1013,6 +1013,21 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           `SELECT id, state, lines, narration FROM finance.journals
             WHERE schedule_item_id = $1 AND period = $2 AND source = 'schedule'
               AND state IN ('proposed', 'approved', 'draft_created', 'posted') FOR UPDATE`, [j.item_id, rec.period])).rows[0];
+        // Rejected by the CFO for this month, and the item not changed since:
+        // not proposed again, and one waiting from before the rule is withdrawn.
+        const rejected = (await conn.query(
+          `SELECT j.jnl_no, j.rejected_at, i.updated_at AS item_updated_at FROM finance.journals j
+             JOIN finance.rec_schedule_items i ON i.id = j.schedule_item_id
+            WHERE j.schedule_item_id = $1 AND j.period = $2 AND j.source = 'schedule' AND j.state = 'rejected'
+            ORDER BY j.rejected_at DESC NULLS LAST LIMIT 1`, [j.item_id, rec.period])).rows[0];
+        if (rejected && (!prior || prior.state === "proposed") && recs.releaseHeld({ rejectedAt: rejected.rejected_at, itemUpdatedAt: rejected.item_updated_at })) {
+          if (prior) {
+            await conn.query("UPDATE finance.journals SET state = 'superseded', updated_at = now() WHERE id = $1", [prior.id]);
+            await event(conn, rec.id, client.id, actor, "release_withdrawn", { entity_id: r.entity_id, journal_id: prior.id, why: "rejected before" });
+          }
+          say("held", `The CFO rejected this month's release (${jnlRef(rejected.jnl_no)}), and the item has not changed since, so it is not proposed again. Change the item if the release is wrong, or post it by hand if it is needed.`, { ...about, id: prior?.id ?? null });
+          continue;
+        }
         if (prior && (prior.state !== "proposed" || (recs.amountsKey(prior.lines) === recs.amountsKey(j.lines) && prior.narration === j.narration))) {
           say("kept", prior.state === "proposed" ? "This month's release is already waiting on the Journals page." : "This month's release is already approved or in Xero.", { ...about, id: prior.id });
           continue;
@@ -1997,6 +2012,15 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const live = (await conn.query(
       "SELECT id, jnl_no, state FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('proposed', 'approved') FOR UPDATE", [rec.id, entity.id])).rows[0];
     if (live?.state === "approved") return { status: 409, body: { error: "A journal for this company is already approved. It must finish or be rejected first." } };
+    // The same correction already proposed on this account's rec in another month.
+    const others = (await conn.query(
+      `SELECT j.jnl_no, r.period, j.entity_id, j.state, j.lines FROM finance.rec_journals j JOIN finance.recs r ON r.id = j.rec_id
+        WHERE r.rec_account_id = $1 AND r.id <> $2 AND j.entity_id = $3 AND j.state IN ('proposed', 'approved', 'draft_created', 'posted')`,
+      [rec.rec_account_id, rec.id, entity.id])).rows;
+    const repeat = recs.repeatsOtherMonth(others, { entity_id: entity.id, lines: req.body.lines });
+    if (repeat) {
+      return { status: 409, body: { error: `The same journal is already ${repeat.state === "proposed" ? "waiting" : repeat.state === "approved" ? "approved" : "in Xero"} on the ${recs.periodLabel(repeat.period)} reconciliation of this account, as ${jnlRef(repeat.jnl_no)}. A correction belongs to one month: decide that one, or say why this month needs its own.` } };
+    }
     const drafted = (await conn.query(
       "SELECT lines FROM finance.rec_journals WHERE rec_id = $1 AND entity_id = $2 AND state IN ('draft_created', 'posted')", [rec.id, entity.id])).rows;
     if (drafted.some((d) => recs.amountsKey(d.lines) === recs.amountsKey(req.body.lines))) {
