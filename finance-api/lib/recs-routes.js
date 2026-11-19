@@ -20,6 +20,7 @@ const contractsLib = require("./contracts");
 const assetEvidence = require("./rec-asset-evidence");
 const { vatEvidence } = require("./vat-evidence");
 const accruals = require("./accruals");
+const recInputs = require("./rec-inputs");
 
 const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
 const crypto = require("crypto");
@@ -1874,7 +1875,9 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
   // of the month that can be worked and is not with a reviewer, one run each,
   // worked one after another by a single runner (it hands on to a fresh one
   // when its time runs out). Recs that cannot go yet come back with why.
-  //   body: { period, reopen_signed? }
+  //   body: { period, reopen_signed?, include_unchanged? }
+  // A rec still in progress that FM1 finished on, with nothing it reads moved
+  // since, is left alone (lib/rec-inputs.js) unless include_unchanged is set.
   // Re-checks too (18 Nov 2026, the close in a day or two): a rec whose figure
   // moved after it was prepared goes back to FM1 by itself when it is with the
   // FC or the CFO; a signed one is reopened only when the CFO asks for it here
@@ -1884,6 +1887,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     const period = String(req.body?.period ?? "");
     if (!recs.isPeriod(period)) return { status: 422, body: { issues: ["period must be a month (YYYY-MM)"] } };
     const reopenSigned = req.body?.reopen_signed === true;
+    // A rec FM1 finished on, with nothing moved since, is left alone unless asked.
+    const includeUnchanged = req.body?.include_unchanged === true;
     if (reopenSigned && !recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO reopens signed reconciliations" } };
     const held = new Set((await conn.query(
       `SELECT DISTINCT t.subject_key FROM finance.thread_entries t
@@ -1923,6 +1928,12 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       if (!recs.workable(rec.line_key, rec.proof)) { skip(recs.notWorkableReason(rec.line_key, rec.proof)); continue; }
       if (rec.live) { skip("FM1 is already working on it"); continue; }
       if (recs.autoMethod(rec) === "counterpart" && !rec.counterpart_account_id) { skip("Choose its paired account in the other company first"); continue; }
+      if (!includeUnchanged && rec.status === "in_progress") {
+        const last = (await conn.query(
+          "SELECT at, detail FROM finance.rec_events WHERE rec_id = $1 AND action = 'agent_finished' ORDER BY at DESC LIMIT 1", [rec.id])).rows[0];
+        const why = recInputs.unchangedSince({ rec, last: last ? { ...last.detail, at: last.at } : null, key: last ? await inputsOf(conn, rec.id) : null });
+        if (why) { skip(why); continue; }
+      }
       if (queued.length >= 60) { skip("More than 60 in one go: start the rest after these"); continue; }
       const run = (await conn.query(
         `INSERT INTO finance.agent_runs (client_id, requested_by_email, requested_by_role, agent, instruction, status, rec_id)
@@ -2130,7 +2141,34 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
     }
   }
 
-  return { journalGate, markDrafted };
+  // What FM1 works from on a rec, read now, as one key (lib/rec-inputs.js).
+  async function inputsOf(db, recId) {
+    const q = (sql, args = [recId]) => db.query(sql, args).then((r) => r.rows);
+    const rec = (await q("SELECT id, client_id, rec_account_id, period, status, review_note FROM finance.recs WHERE id = $1"))[0];
+    if (!rec) return null;
+    const prior = (await q("SELECT status FROM finance.recs WHERE rec_account_id = $1 AND period = $2", [rec.rec_account_id, recs.priorPeriod(rec.period)]))[0];
+    const tolerate = async (sql, args) => { try { return await q(sql, args); } catch (e) { if (e?.code === "42P01" || e?.code === "42703") return []; throw e; } };
+    return recInputs.inputsKey({
+      status: rec.status, review_note: rec.review_note, prior_status: prior?.status ?? null,
+      balances: await q("SELECT entity_id, opening::text, closing::text FROM finance.rec_balances WHERE rec_id = $1"),
+      evidence: await q("SELECT id, entity_id, amount::text FROM finance.rec_evidence WHERE rec_id = $1"),
+      items: await q("SELECT id, updated_at, deleted_at FROM finance.rec_schedule_items WHERE rec_account_id = $1", [rec.rec_account_id]),
+      reconciling: await tolerate("SELECT id, state, kind, amount::text FROM finance.rec_reconciling_items WHERE rec_id = $1", [recId]),
+      statements: await tolerate("SELECT id FROM finance.rec_statements WHERE rec_id = $1", [recId]),
+      // A person's word on the thread; an agent's own notes are its output, not its input.
+      people: await tolerate("SELECT id FROM finance.thread_entries WHERE client_id = $1 AND subject_kind = 'reconciliation' AND subject_key = $2 AND via_agent IS NULL", [rec.client_id, recId]),
+    });
+  }
+
+  // Recorded when an FM1 run on a rec finishes (server.js), so Run all can
+  // tell whether anything has moved since.
+  async function runFinished(db, { runId, recId, clientId, status }) {
+    const inputs = await inputsOf(db, recId);
+    if (!inputs) return;
+    await event(db, recId, clientId, "automatic", "agent_finished", { run_id: runId, status, inputs });
+  }
+
+  return { journalGate, markDrafted, runFinished };
 }
 
 module.exports = { mountRecs };
