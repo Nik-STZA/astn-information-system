@@ -116,6 +116,28 @@ def contact_name(doc: dict) -> str:
     return str((doc.get("Contact") or {}).get("Name") or "(unattributed)").strip()
 
 
+# A manual journal has no supplier, and its narration names the month ("Jan
+# 2026 Payroll"), so grouping by it split one cost into a new supplier every
+# month (CFO, 19 Nov 2026, on the legacy pack's payroll tab). A journal line
+# groups by its own description, the same each month, with month names and
+# years taken out; the narration, cleaned the same way, only where a line has
+# none. The legacy builder (stza-xero-reporting) has the same rule.
+_MONTH = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+
+
+def journal_label(description, narration) -> str:
+    """The stable name a manual journal line is grouped under."""
+    for text in (description, narration):
+        t = str(text or "")
+        t = re.sub(rf"\b{_MONTH}\b(?:\s*'?\d{{2}}\b|\s+\d{{4}}\b)?", " ", t, flags=re.I)
+        t = re.sub(r"\b(?:19|20)\d{2}\b|\b\d{1,2}/\d{2,4}\b|\bFY\d{2}\b", " ", t)
+        t = re.sub(r"\(\s*\)", " ", t)
+        t = re.sub(r"\s+", " ", t).strip(" ,;:-'")
+        if t:
+            return t
+    return "(Manual journal)"
+
+
 def ledger_from_documents(invoices=(), credit_notes=(), bank_transactions=(), manual_journals=()) -> dict:
     """{(account code, supplier, month-end): signed amount}, debit positive. Pure."""
     ledger: dict = defaultdict(float)
@@ -151,9 +173,9 @@ def ledger_from_documents(invoices=(), credit_notes=(), bank_transactions=(), ma
         if status(doc) != "POSTED":
             continue
         when = parse_xero_date(doc.get("Date"))
-        supplier = str(doc.get("Narration") or "").strip() or "(Manual journal)"
         for li in doc.get("JournalLines") or []:
-            add(li.get("AccountCode"), supplier, when, net_amount(li, doc.get("LineAmountTypes")))
+            add(li.get("AccountCode"), journal_label(li.get("Description"), doc.get("Narration")), when,
+                net_amount(li, doc.get("LineAmountTypes")))
 
     return {k: round(v, 2) for k, v in ledger.items() if abs(round(v, 2)) >= 0.01}
 
