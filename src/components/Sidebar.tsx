@@ -18,7 +18,7 @@ import {
   BadgeCheck, BookOpen, FileQuestionMark, FileSignature, Package, Bot, Building2, ChevronRight, ClipboardPen, History, SlidersHorizontal, Coins, ClipboardCheck, ClipboardList, Database, FileBarChart, FileText,
   Filter, FolderOpen, Gauge, Globe, Inbox, LayoutDashboard, ListChecks, LogOut, Menu, Network, Newspaper, NotebookPen,
   CalendarClock, MessageSquareText, PanelLeftClose, PanelLeftOpen, PenLine, Receipt, ListPlus, Scale, ScrollText, Settings, Share2, ShieldCheck, SquareKanban, Table2, Users, X,
-  type LucideIcon, Percent,
+  type LucideIcon, Percent, Wallet,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import type { NavGroup } from "@/shared/layout/nav";
@@ -95,6 +95,8 @@ const CLIENT_FINANCE: Array<{ seg: string; label: string; icon: LucideIcon }> = 
   { seg: "contracts", label: "Contracts", icon: FileSignature },
   // Each company's Xero VAT export in, the group return and Xero's import file out (18 Nov 2026).
   { seg: "vat", label: "VAT returns", icon: Percent },
+  // The provider's salary report in, codes and figures only; the month's journals out (19 Nov 2026).
+  { seg: "payroll", label: "Payroll", icon: Wallet },
   { seg: "agents", label: "Agents", icon: Bot },
   { seg: "procedures", label: "Procedures", icon: BookOpen },
   { seg: "close", label: "Close", icon: ClipboardList },

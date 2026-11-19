@@ -55,7 +55,7 @@ class Sheetbook:
             return f"__R{len(refs) - 1}__"
 
         expr = re.sub(REF, swap, expr)
-        unknown = set(re.findall(r"[A-Z]{2,}", re.sub(r"__[Rs]\d+__", "", expr))) - {"SUM", "SUMIF", "SUMIFS", "IF", "ABS"}
+        unknown = set(re.findall(r"[A-Z]{2,}", re.sub(r"__[Rs]\d+__", "", expr))) - {"SUM", "SUMIF", "SUMIFS", "IF", "ABS", "ROUND"}
         if unknown:
             raise ValueError(f"recalc cannot evaluate {formula!r}")
 
@@ -92,4 +92,4 @@ class Sheetbook:
 
         expr = re.sub(r"__R(\d+)__", lambda m: f"R({m.group(1)})", expr)
         expr = re.sub(r"__s(\d+)__", lambda m: repr(strings[int(m.group(1))]), expr)
-        return eval(expr, {"__builtins__": {}}, {"R": cell_or_range, "SUM": sum_, "SUMIF": sumif, "SUMIFS": sumifs, "ABS": abs, "IF": lambda c, a, b=0: a if c else b})
+        return eval(expr, {"__builtins__": {}}, {"R": cell_or_range, "SUM": sum_, "SUMIF": sumif, "SUMIFS": sumifs, "ABS": abs, "ROUND": round, "IF": lambda c, a, b=0: a if c else b})

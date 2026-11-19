@@ -212,4 +212,4 @@ function carryForward(previous, employees) {
   return Object.fromEntries(employees.map((e) => [e.emp_code, { ...(previous?.[e.emp_code] ?? {}) }]));
 }
 
-module.exports = { FIGURES, ROLES, readSalaryReport, rolesIssues, payrollJournals, carryForward, PROJECT };
+module.exports = { CODE, FIGURES, ROLES, readSalaryReport, rolesIssues, payrollJournals, carryForward, PROJECT };

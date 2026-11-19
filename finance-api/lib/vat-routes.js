@@ -797,4 +797,4 @@ async function defaultStartJob({ project, region, job, env }, { fetchImpl = fetc
   return { execution: op.metadata?.name ?? null };
 }
 
-module.exports = { mountVat, keptSheets, companyCode, expandPath, submittable };
+module.exports = { mountVat, defaultStartJob, keptSheets, companyCode, expandPath, submittable };

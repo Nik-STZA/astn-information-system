@@ -116,11 +116,16 @@ def run(*, drive=None, now: datetime | None = None) -> int:
 
 
 def main() -> int:
-    """The job's entry point: a management pack, or a VAT return workbook
-    (JOB_KIND=vat_workbook, started by finance-api's VAT routes)."""
-    if os.environ.get("JOB_KIND", "").strip() == "vat_workbook":
+    """The job's entry point: a management pack, a VAT return workbook
+    (JOB_KIND=vat_workbook) or a payroll working file (JOB_KIND=payroll_workbook),
+    the last two started by finance-api."""
+    kind = os.environ.get("JOB_KIND", "").strip()
+    if kind == "vat_workbook":
         from .vat_workbook import run as run_vat
         return run_vat()
+    if kind == "payroll_workbook":
+        from .payroll_workbook import run as run_payroll
+        return run_payroll()
     return run()
 
 
