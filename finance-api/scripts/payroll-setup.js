@@ -6,7 +6,9 @@
 //
 // Dry run by default.
 //   node scripts/payroll-setup.js <file.json> --by <cfo email> [--apply]
-// The connection comes from DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD.
+// The connection: through the Cloud SQL Auth Proxy with your gcloud sign-in, as
+// scripts/migrate.mjs connects (scripts/db.mjs); or, when DB_HOST is set, from
+// DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (a local database).
 //
 // The file:
 //   { "client": "<slug>", "payroll_entity": "<slug>", "contracted_entity": "<slug>",
@@ -21,7 +23,7 @@
 // A contractor's name_word never leaves this computer: it is fingerprinted
 // here under the key in Secret Manager (payroll-match-key, made on first use)
 // and only the fingerprint is stored. Secret Manager is reached with this
-// computer's Google sign-in (gcloud auth application-default login).
+// computer's gcloud sign-in.
 
 const fs = require("fs");
 const { Pool } = require("pg");
@@ -30,25 +32,29 @@ const con = require("../lib/payroll-contractors");
 const { allocIssues } = require("../lib/payroll-routes");
 
 const SECRET_PROJECT = process.env.SECRET_PROJECT || "africanstn-research";
+// The fingerprint key, through the gcloud command line and so your own sign-in
+// (the laptop's default credentials are a service account that cannot read it).
+function gcloud(args, input) {
+  const { execSync } = require("child_process");
+  const cmd = ["gcloud", ...args].map((a) => (/[\s"^&|<>]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" ");
+  return execSync(cmd, { encoding: "utf-8", input, stdio: ["pipe", "pipe", "pipe"] }).trim();
+}
 async function matchKey({ create }) {
-  const { SecretManagerServiceClient } = await import("@google-cloud/secret-manager");
-  const sm = new SecretManagerServiceClient();
-  const path = `projects/${SECRET_PROJECT}/secrets/${con.KEY_SECRET}`;
+  const where = ["--project", SECRET_PROJECT];
   try {
-    const [v] = await sm.accessSecretVersion({ name: `${path}/versions/latest` });
-    return v.payload.data.toString("utf8");
+    return gcloud(["secrets", "versions", "access", "latest", "--secret", con.KEY_SECRET, ...where]);
   } catch (e) {
-    if (!(e.code === 5 || /NOT_FOUND/i.test(e.message || ""))) throw e;
+    if (!/NOT_FOUND|not found/i.test(String(e.stderr || e.message))) throw new Error(`could not read ${con.KEY_SECRET}: ${String(e.stderr || e.message).trim()}`);
   }
   if (!create) return null;
-  try {
-    await sm.createSecret({ parent: `projects/${SECRET_PROJECT}`, secretId: con.KEY_SECRET, secret: { replication: { automatic: {} } } });
-  } catch (e) {
-    if (!(e.code === 6 || /ALREADY_EXISTS/i.test(e.message || ""))) throw e;
-  }
   const key = require("crypto").randomBytes(32).toString("hex");
-  await sm.addSecretVersion({ parent: path, payload: { data: Buffer.from(key, "utf8") } });
-  return key;
+  try {
+    gcloud(["secrets", "create", con.KEY_SECRET, "--replication-policy", "automatic", ...where]);
+  } catch (e) {
+    if (!/ALREADY_EXISTS|already exists/i.test(String(e.stderr || e.message))) throw e;
+  }
+  gcloud(["secrets", "versions", "add", con.KEY_SECRET, "--data-file", "-", ...where], key);
+  return gcloud(["secrets", "versions", "access", "latest", "--secret", con.KEY_SECRET, ...where]);
 }
 
 function check(f) {
@@ -76,8 +82,18 @@ async function main() {
   const issues = check(f);
   if (issues.length) throw new Error(issues.join("\n"));
 
-  const pool = new Pool({ host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 5432), database: process.env.DB_NAME, user: process.env.DB_USER, password: process.env.DB_PASSWORD });
-  const db = await pool.connect();
+  let db, done;
+  if (process.env.DB_HOST) {
+    const pool = new Pool({ host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 5432), database: process.env.DB_NAME, user: process.env.DB_USER, password: process.env.DB_PASSWORD });
+    const c = await pool.connect();
+    db = c;
+    done = async () => { c.release(); await pool.end(); };
+  } else {
+    const { connect } = await import(require("url").pathToFileURL(require("path").join(__dirname, "..", "..", "scripts", "db.mjs")).href);
+    const { client, release } = await connect();
+    db = client;
+    done = release;
+  }
   try {
     const client = (await db.query("SELECT id, name FROM shared.clients WHERE slug = $1", [f.client])).rows[0];
     if (!client) throw new Error(`no client ${f.client}`);
@@ -155,8 +171,7 @@ async function main() {
     await db.query("ROLLBACK").catch(() => {});
     throw e;
   } finally {
-    db.release();
-    await pool.end();
+    await done();
   }
 }
 
