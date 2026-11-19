@@ -5,7 +5,7 @@
 // There is no tool to sign off, approve a journal, or set a line's class: those
 // routes refuse an agent, and the class comes from the balance sheet matrix.
 
-const NAMES = ["list_recs", "get_rec", "get_rec_history", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "remove_rec_evidence", "propose_rec_journal", "submit_rec", "review_rec"];
+const NAMES = ["list_recs", "get_rec", "get_rec_history", "save_rec_item", "run_rec_checks", "fetch_rec_evidence", "add_rec_evidence", "remove_rec_evidence", "add_rec_reconciling_item", "clear_rec_reconciling_item", "propose_rec_journal", "submit_rec", "review_rec"];
 
 const ITEM = {
   supplier: { type: "string" },
@@ -83,6 +83,33 @@ function tools(entityEnum) {
         type: "object",
         properties: { rec_id: { type: "string" }, evidence_id: { type: "string" }, why: { type: "string" } },
         required: ["rec_id", "evidence_id", "why"],
+      },
+    },
+    {
+      name: "add_rec_reconciling_item",
+      description: "Record one item that explains why a company's evidence and its ledger differ on a reconciliation proved by evidence, for the CFO's review: a late claim held for the next VAT return, a payment in the ledger not yet on a statement, an amount waiting to be written off. side: xero_only when it is in the ledger but not in the evidence (it adds to the evidence), bank_only when it is in the evidence but not in the ledger (it takes away). kind: timing when it clears by itself (the next return, the next statement); error when the ledger needs a journal; query when it is not yet explained; unreconciled when it is known but not matched. Only timing items let the rec be signed; the others stay open until fixed or cleared. Read the account's thread first (get_rec_history, read_threads): a working paper's findings may already explain the difference. Say where each item comes from in its note.",
+      input_schema: {
+        type: "object",
+        properties: {
+          rec_id: { type: "string" },
+          entity: { type: "string", enum: entityEnum },
+          side: { type: "string", enum: ["xero_only", "bank_only"] },
+          kind: { type: "string", enum: ["timing", "error", "query", "unreconciled"] },
+          amount: { type: "number", description: "Positive; the side says which way it moves the evidence" },
+          description: { type: "string", description: "What the item is, e.g. 'Late claim held for the November return'" },
+          txn_date: { type: "string", description: "YYYY-MM-DD, when there is one" },
+          note: { type: "string", description: "Where it comes from: the working paper, the bill, the thread entry" },
+        },
+        required: ["rec_id", "entity", "side", "kind", "amount", "description"],
+      },
+    },
+    {
+      name: "clear_rec_reconciling_item",
+      description: "Clear one open reconciling item on a reconciliation being prepared, with why it no longer stands: claimed on the return of a date, through the bank on a date, fixed in Xero by a journal. Items carried from last month stay open until cleared this way. Give its id from get_rec (evidence.reconciling).",
+      input_schema: {
+        type: "object",
+        properties: { rec_id: { type: "string" }, item_id: { type: "string" }, why: { type: "string" } },
+        required: ["rec_id", "item_id", "why"],
       },
     },
     {
@@ -211,6 +238,16 @@ function agentRecs({ apiCall, apiRequest, requesterOf }) {
     if (name === "remove_rec_evidence") {
       if (!isId(input.evidence_id)) return { error: "evidence_id must be an evidence row id from get_rec" };
       return send("DELETE", `${path}/evidence/${input.evidence_id}`);
+    }
+    if (name === "add_rec_reconciling_item") {
+      const e = entities.find((x) => x.slug === input.entity);
+      if (!e) return { saved: false, error: `No connected entity ${input.entity}` };
+      const amount = Math.abs(Number(input.amount));
+      return send("POST", `${path}/reconciling`, { entity_id: e.id, side: input.side, kind: input.kind, amount, description: input.description, txn_date: input.txn_date || null, note: input.note });
+    }
+    if (name === "clear_rec_reconciling_item") {
+      if (!isId(input.item_id)) return { error: "item_id must be a reconciling item id from get_rec" };
+      return send("PATCH", `${path}/reconciling/${input.item_id}`, { state: "cleared", cleared_note: input.why });
     }
     if (name === "propose_rec_journal") {
       const { rec_id, ...body } = input;

@@ -1193,7 +1193,9 @@ function prepareInstruction(rec) {
         : rec.proof === "schedule"
           ? "This account is proved by a schedule that is not built in os.stza.io yet, so record the schedule as evidence with add_rec_evidence: for each company, the schedule's total at the month end, where it comes from (the listing and its date) and the document. Build the listing from get_account_activity (what makes up the balance and what cleared it). If a company's balance is nil, record nil with the basis: what was on the account during the month and how it cleared; a nil balance with movement is still proved."
           : "There is no automatic source for this account. Find outside evidence for each company (a statement, a return, a register, a confirmation) with get_account_activity and list_attachments, and record it with add_rec_evidence: the amount, where it comes from, and the document.",
-      "Every company on the rec needs evidence. Where evidence and ledger differ, find the cause: name the transactions. If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
+      "Every company on the rec needs evidence. Where evidence and ledger differ, find the cause: name the transactions. Read the account's thread (read_threads, get_rec_history) first: a working paper's findings may already explain it.",
+      "Record each item that explains a difference with add_rec_reconciling_item (timing when it clears by itself, such as a late claim for the next return; error when the ledger needs a journal; query when not yet explained), saying where it comes from. Items carried from last month are already there: clear each one that has gone through with clear_rec_reconciling_item and why, and leave the rest open.",
+      "If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
       "Where you cannot find outside evidence, say so plainly; never record the ledger figure itself as its own evidence.",
       "If an evidence row is wrong, duplicated by a fresh fetch, or belongs to another account, remove it with remove_rec_evidence and say why.",
       "Then use submit_rec with a note in plain English and a fresh comment for every company that matches the evidence now held (replace any earlier comment that no longer fits), and hand off to fc.",
@@ -1219,7 +1221,8 @@ function sendBackInstruction(rec, note, by) {
     `${by} sent the ${rec.account_name} reconciliation for ${periodLabel(rec.period)} back to you. Reconciliation id: ${rec.id}.`,
     `What needs changing, in their words: ${String(note ?? "").trim()}`,
     "Deal with that first. Use get_rec to see the reconciliation as it stands, and run_rec_checks again if the ledger or the schedule may have moved.",
-    "If an evidence row is wrong or duplicated, remove it with remove_rec_evidence and say which and why. Where it helps, read how the account was done before with get_rec_history.",
+    "If an evidence row is wrong or duplicated, remove it with remove_rec_evidence and say which and why. Where it helps, read how the account was done before with get_rec_history, and the account's thread.",
+    "Where evidence and ledger differ by items you can explain, record each with add_rec_reconciling_item; clear one that has gone through with clear_rec_reconciling_item.",
     "Read the accruals-and-prepayments procedure if it is listed for you, and the balance-sheet-matrix procedure.",
     "If a journal is needed, use propose_rec_journal and show it in your answer under the heading Proposed journal (draft). Do not create it.",
     "Then use submit_rec with a note in plain English that says what you changed for each point, and hand off to fc.",

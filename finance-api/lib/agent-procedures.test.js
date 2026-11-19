@@ -128,7 +128,7 @@ describe("the agents' library", () => {
       sendBackInstruction({ id: "x", account_name: "VAT", period: "2026-10" }, "note", "CFO")].join(" ");
     const words = new Set(told.split(/[^a-z_]+/));
     const named = REC_TOOLS.filter((t) => words.has(t));
-    expect(named).toEqual(expect.arrayContaining(["get_rec_history", "remove_rec_evidence", "fetch_rec_evidence", "submit_rec"]));
+    expect(named).toEqual(expect.arrayContaining(["get_rec_history", "remove_rec_evidence", "fetch_rec_evidence", "submit_rec", "add_rec_reconciling_item", "clear_rec_reconciling_item"]));
     for (const t of named) expect(names("fm1"), t).toContain(t);
     for (const t of REC_TOOLS.filter((x) => x !== "review_rec")) expect(names("fm1"), t).toContain(t);
     for (const t of ["list_recs", "get_rec", "get_rec_history", "review_rec"]) expect(names("fc"), t).toContain(t);
