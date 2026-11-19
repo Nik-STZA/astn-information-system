@@ -182,6 +182,7 @@ function sourceOf(row) {
   if (row.source === "schedule") return "schedule";
   if (row.source === "vat") return "vat";
   if (row.source === "accrual") return "accrual";
+  if (row.source === "payroll") return "payroll";
   const m = /^agent:(.+)$/.exec(String(row.proposed_by ?? ""));
   return m ? m[1] : "agent";
 }

@@ -12,6 +12,26 @@ import { STATUS_LABEL as REC_STATUS, type RecList, type RecRow } from "./recs";
 import type { JournalList } from "./journals";
 import type { VatOverview } from "./vat";
 import type { AccrualMonth } from "./accruals";
+import type { PayrollMonth } from "./payroll";
+
+// The payroll step's evidence: the month's salary report, its roles, the
+// capitalisation shares (sent each month by email, entered and confirmed on
+// the Payroll page), and its journals. Null when the client keeps no payroll here.
+export function payrollEvidence(p: PayrollMonth | null, period: string, base: string): Evidence | null {
+  if (!p || p.migration_missing || !p.settings) return null;
+  const href = `${base}/payroll?period=${enc(period)}`;
+  const run = p.run;
+  if (!run) return { text: "The month's salary report is not uploaded yet", href, tone: "amber" };
+  if (run.no_role.length) return { text: `${plural(run.no_role.length, "employee code")} without a role`, href, tone: "red" };
+  if (!run.alloc_confirmed_at) return { text: "Waiting for the month's capitalisation shares: enter them from the email and confirm", href, tone: "amber" };
+  if (run.preview.issues.length) return { text: `${plural(run.preview.issues.length, "issue")} in the journals`, href, tone: "red" };
+  const live = run.journals.filter((j) => j.state !== "rejected");
+  const toPropose = run.preview.journals.length - new Set(live.map((j) => j.kind)).size;
+  if (toPropose > 0) return { text: `${plural(toPropose, "payroll journal")} to propose`, href, tone: "blue" };
+  const waiting = live.filter((j) => j.state === "proposed").length;
+  if (waiting) return { text: `${plural(waiting, "payroll journal")} to approve`, href, tone: "amber" };
+  return { text: "Payroll journals approved", href, tone: "green" };
+}
 
 // The accruals step's evidence (docs/accruals-spec.md): proposals still to
 // decide, pairs still to approve, and findings from the month's run. Null when
@@ -185,7 +205,7 @@ function recsEvidence(rows: RecRow[], href: string): Evidence | null {
   return { text: parts.join(", "), href, tone: recheck || notTying ? "red" : signed === rows.length ? "green" : "amber" };
 }
 
-export function closeView({ period, tasks, recs, journals, review, slug, today, vat = null, accruals = null }: {
+export function closeView({ period, tasks, recs, journals, review, slug, today, vat = null, accruals = null, payroll = null }: {
   period: string;
   tasks: Task[];
   recs: RecList | null;
@@ -195,6 +215,7 @@ export function closeView({ period, tasks, recs, journals, review, slug, today, 
   today: string; // YYYY-MM-DD
   vat?: VatOverview | null;
   accruals?: AccrualMonth | null;
+  payroll?: PayrollMonth | null;
 }): CloseView {
   const base = `/finance/clients/${enc(slug)}`;
   const recsHref = `${base}/reconciliations?period=${enc(period)}`;
@@ -238,6 +259,11 @@ export function closeView({ period, tasks, recs, journals, review, slug, today, 
     if (key === "accruals") {
       const a = accrualEvidence(accruals, period, base);
       if (a) return a;
+    }
+    // The month's payroll, where the client keeps it here; the recs are listed under the step.
+    if (key === "payroll") {
+      const p = payrollEvidence(payroll, period, base);
+      if (p) return p;
     }
     // The same recs the step lists, so the evidence and the list agree.
     if (key && (STEP_LINES[key] || REC_MATCH[key])) return recsEvidence(recsForStep(key, recRows), recsHref);

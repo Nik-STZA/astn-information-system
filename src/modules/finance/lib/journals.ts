@@ -93,6 +93,7 @@ export function sourceLabel(j: Pick<JournalRow, "source">): string {
   if (j.source === "schedule") return "Monthly release";
   if (j.source === "vat") return "VAT clearing";
   if (j.source === "accrual") return "Accrual pair";
+  if (j.source === "payroll") return "Payroll";
   return j.source.toUpperCase();
 }
 
@@ -110,7 +111,7 @@ export function whyLine(reason: string | null | undefined, max = 160): string | 
 
 // Where a journal came from, as the page filters it. FM1 and the FC, and any
 // other agent, are one choice: an agent's.
-export type SourceFilter = "all" | "person" | "agent" | "rec" | "schedule" | "accrual" | "vat";
+export type SourceFilter = "all" | "person" | "agent" | "rec" | "schedule" | "accrual" | "vat" | "payroll";
 export const SOURCE_FILTERS: Array<{ key: SourceFilter; label: string }> = [
   { key: "all", label: "Every source" },
   { key: "person", label: "A person" },
@@ -119,9 +120,10 @@ export const SOURCE_FILTERS: Array<{ key: SourceFilter; label: string }> = [
   { key: "schedule", label: "Monthly releases" },
   { key: "accrual", label: "Accruals" },
   { key: "vat", label: "VAT clearing" },
+  { key: "payroll", label: "Payroll" },
 ];
 
-const KNOWN = new Set(["person", "rec", "schedule", "accrual", "vat"]);
+const KNOWN = new Set(["person", "rec", "schedule", "accrual", "vat", "payroll"]);
 export const sourceKey = (j: Pick<JournalRow, "source">): Exclude<SourceFilter, "all"> => (KNOWN.has(j.source) ? j.source as Exclude<SourceFilter, "all"> : "agent");
 
 export function filtered(rows: JournalRow[], { source = "all", entity = "" }: { source?: SourceFilter; entity?: string }): JournalRow[] {
