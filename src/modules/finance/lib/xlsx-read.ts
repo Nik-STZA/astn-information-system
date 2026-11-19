@@ -72,9 +72,12 @@ async function openBook(data: ArrayBuffer | Uint8Array): Promise<Book> {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   const entries = zipEntries(buf);
   const byName = new Map(entries.map((e) => [e.name.replace(/^\/+/, ""), e]));
+  // Element names without their namespace prefix: software built on .NET's
+  // Open XML SDK writes <x:sheet>, <x:row>, <x:c>, which Excel reads the same
+  // as <sheet>, <row>, <c>. Attributes (r:id) keep theirs.
   const part = async (name: string) => {
     const e = byName.get(name);
-    return e ? readEntry(buf, e) : null;
+    return e ? (await readEntry(buf, e)).replace(/<(\/?)[A-Za-z_][\w.-]*:(?=[A-Za-z_])/g, "<$1") : null;
   };
 
   const workbook = await part("xl/workbook.xml");
