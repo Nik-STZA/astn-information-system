@@ -235,6 +235,9 @@ export default function ManagementPackPanel({
             </>
           )}
         </div>
+        <div className={styles.small}>
+          <a className={styles.link} href={`/finance/clients/${encodeURIComponent(slug)}/commentary?period=${period}`}>Open the commentary for {monthLabel(period)}</a>: drafted by FP&amp;A, edited and approved by you before the pack uses it.
+        </div>
         {error && <div className={styles.warn}>{error}</div>}
       </section>
 
