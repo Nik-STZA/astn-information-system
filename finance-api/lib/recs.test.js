@@ -701,3 +701,23 @@ describe("the agent's tools", () => {
     expect(text).toMatch(/If a step is refused, say so plainly in your answer and do not report it as done/);
   });
 });
+
+describe("journals that came back, or came twice (19 Nov 2026)", () => {
+  it("does not propose again a release the CFO rejected, unless the item changed after", async () => {
+    const { releaseHeld } = await import("./recs");
+    expect(releaseHeld({ rejectedAt: null, itemUpdatedAt: "2026-11-03T12:00:00Z" })).toBe(false);
+    expect(releaseHeld({ rejectedAt: "2026-11-06T17:48:00Z", itemUpdatedAt: "2026-11-03T12:00:00Z" })).toBe(true);
+    expect(releaseHeld({ rejectedAt: "2026-11-06T17:48:00Z", itemUpdatedAt: "2026-11-07T09:00:00Z" })).toBe(false);
+    expect(releaseHeld({ rejectedAt: "2026-11-06T17:48:00Z", itemUpdatedAt: null })).toBe(true);
+  });
+
+  it("finds the same correction already proposed on the account's rec in another month", async () => {
+    const { repeatsOtherMonth } = await import("./recs");
+    const lines = [{ account_code: "860", amount: 10.63 }, { account_code: "835", amount: -10.63 }];
+    const others = [{ jnl_no: 42, period: "2026-09", entity_id: "e1", state: "proposed", lines }];
+    expect(repeatsOtherMonth(others, { entity_id: "e1", lines: [...lines].reverse() })?.jnl_no).toBe(42);
+    expect(repeatsOtherMonth(others, { entity_id: "e2", lines })).toBeNull();
+    expect(repeatsOtherMonth([{ ...others[0], state: "rejected" }], { entity_id: "e1", lines })).toBeNull();
+    expect(repeatsOtherMonth(others, { entity_id: "e1", lines: [{ account_code: "860", amount: 3 }, { account_code: "412", amount: -3 }] })).toBeNull();
+  });
+});

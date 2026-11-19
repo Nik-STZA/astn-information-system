@@ -1032,6 +1032,27 @@ function journalProposalIssues(body, { period, recAccountCode }) {
   return issues;
 }
 
+// A monthly release the CFO rejected for an item and month is not proposed
+// again unless the item changed after the rejection (19 Nov 2026: the October
+// releases for three items were rejected three times each and kept coming
+// back each time the checks ran).
+//   rejectedAt     the latest rejection of this item's release for the month, or null
+//   itemUpdatedAt  when the schedule item last changed
+function releaseHeld({ rejectedAt, itemUpdatedAt }) {
+  if (!rejectedAt) return false;
+  if (!itemUpdatedAt) return true;
+  return new Date(itemUpdatedAt).getTime() <= new Date(rejectedAt).getTime();
+}
+
+// The same correction proposed on a reconciliation in another month is the
+// same journal (19 Nov 2026: two Rounding reclasses were proposed on both the
+// September and the October recs). Returns the live one it repeats, or null.
+//   others  [{ jnl_no, period, entity_id, state, lines }] this account's live rec journals in other months
+function repeatsOtherMonth(others, { entity_id, lines }) {
+  const key = amountsKey(lines);
+  return (others ?? []).find((o) => o.entity_id === entity_id && ["proposed", "approved", "draft_created", "posted"].includes(o.state) && amountsKey(o.lines) === key) ?? null;
+}
+
 // True only when a journal is exactly the one approved: same date, narration,
 // and the same code and amount on every line.
 const amountsKey = (lines) => (Array.isArray(lines) ? lines : [])
@@ -1202,6 +1223,7 @@ function sendBackInstruction(rec, note, by) {
 }
 
 module.exports = {
+  releaseHeld, repeatsOtherMonth,
   CATEGORY_LINE, chartLine,
   ACCEPT_MIN, AUTO_RESTARTS, autoRestartsInARow, sendBackInstruction,
   STATUS, CFO_ROLE, REVIEW_ROLE, MONTHS, END_WARNING_MONTHS, INFERRED_NOTE, MAX_NARRATION,

@@ -16,7 +16,7 @@ import { ChevronRight, Plus, RefreshCw, X } from "lucide-react";
 import MarkdownOutput from "@/modules/finance/components/MarkdownOutput";
 import { dayLabel, money, periodChoices, periodLong } from "@/modules/finance/lib/recs";
 import {
-  SOURCE_FILTERS, balanceOf, batchLines, batchable, blankLine, draftsIn, filtered, grouped, needsXeroCheck, sourceLabel, toLines,
+  SOURCE_FILTERS, balanceOf, batchLines, batchable, blankLine, draftsIn, filtered, grouped, needsXeroCheck, sourceLabel, toLines, whyLine,
   type DraftLine, type JournalList, type JournalRow, type SourceFilter,
 } from "@/modules/finance/lib/journals";
 import SearchSelect from "./SearchSelect";
@@ -189,6 +189,7 @@ export default function JournalsView({ slug, data }: { slug: string; data: Journ
                   <div className={styles.rowMeta}>
                     <span>{j.entity_name}</span><span>{dayLabel(j.journal_date)}{j.pair ? `, reversed ${dayLabel(j.pair.reversal_date)}` : ""}</span><span>{sourceLabel(j)}</span>
                   </div>
+                  {whyLine(j.reason) && <div className={styles.sub}>{whyLine(j.reason)}</div>}
                 </summary>
                 <div className={styles.foldBody}><Detail slug={slug} j={j} busy={busy} send={send} /></div>
               </details>
@@ -225,7 +226,7 @@ function Row({ slug, j, busy, send, pick, startOpen }: { slug: string; j: Journa
         <td className={`${styles.nowrap} ${styles.sub}`}>{j.jnl ?? ""}</td>
         <td>{j.entity_name}</td>
         <td className={styles.nowrap}>{dayLabel(j.journal_date)}{j.pair && <div className={styles.sub}>reversed {dayLabel(j.pair.reversal_date)}</div>}</td>
-        <td className={styles.strong}>{j.narration}</td>
+        <td className={styles.strong}>{j.narration}{whyLine(j.reason) && <div className={styles.sub} style={{ fontWeight: 400 }}>{whyLine(j.reason)}</div>}</td>
         <td className={styles.sub}>{sourceLabel(j)}</td>
         <td className={styles.num}>{money(j.total)}</td>
       </tr>
