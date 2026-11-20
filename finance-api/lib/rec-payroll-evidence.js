@@ -29,9 +29,15 @@ const STATE_WORD = { proposed: "proposed", approved: "approved", draft_created: 
 // cap: { found, confirmed, issues, total, by_project, journals: [{ jnl, state }] }
 // prior: null, or { period, signed: bool, evidence: [{ entity_id, amount, document_ref, method }] }
 //   (last month's rec of the same account; evidence from its signed snapshot)
+// register: what the register's own rows give for this company, or null.
 // Returns { row (or null), said: [] }.
-function staffTimeEvidence({ balance: b, cap, prior, period, date }) {
+function staffTimeEvidence({ balance: b, cap, prior, period, date, register = null }) {
   const who = b.entity_name;
+  // Once the register holds the staff time as cost lines by layer, its own
+  // figure is the whole balance and a separate row would count it twice.
+  if (register !== null && pence(register) === pence(b.closing)) {
+    return { row: null, said: [`${who}: the register holds the staff time by layer and covers the whole balance, so no separate staff-time row is needed.`] };
+  }
   if (!cap.found) return { row: null, said: [`${who}: no payroll month is loaded for ${period}, so staff time was not taken. Upload the salary report on the Payroll page, then fetch again.`] };
   if (!cap.confirmed) return { row: null, said: [`${who}: the ${period} capitalisation shares are not confirmed yet, so staff time was not taken. Confirm them on the Payroll page, then fetch again.`] };
   if (cap.issues?.length) return { row: null, said: [`${who}: the ${period} payroll cannot be worked out yet (${cap.issues.slice(0, 3).join("; ")}), so staff time was not taken.`] };

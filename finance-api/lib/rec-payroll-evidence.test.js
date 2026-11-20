@@ -38,6 +38,11 @@ describe("staff time capitalised through payroll", () => {
     expect(row.amount).toBe(30868.69);
     expect(row.note).toMatch(/less the 57,000.00 signed for it then/);
   });
+  it("adds no row once the register holds the staff time by layer", () => {
+    const { row, said } = staffTimeEvidence({ ...base, prior: first, register: 183868.69 });
+    expect(row).toBeNull();
+    expect(said[0]).toMatch(/register holds the staff time by layer/);
+  });
   it("takes nothing until payroll is loaded, confirmed and clean, or while last month is unsigned", () => {
     expect(staffTimeEvidence({ ...base, cap: { ...cap, found: false }, prior: first }).row).toBeNull();
     expect(staffTimeEvidence({ ...base, cap: { ...cap, confirmed: false }, prior: first }).said[0]).toMatch(/not confirmed yet/);

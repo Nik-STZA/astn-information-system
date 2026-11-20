@@ -80,3 +80,36 @@ describe("the month's intake", () => {
     expect(out.lines[0]).toMatchObject({ amount: -500, asset_id: "a-mmt", source_type: "invoice" });
   });
 });
+
+describe("a software build costed by layer", () => {
+  // Made-up: a project asset and two layer versions share the WIP account.
+  const layers = [
+    { id: "a-proj", asset_no: "IA-005", name: "Platform project", status: "wip", cost_account_id: "acc-789" },
+    { id: "a-l1", asset_no: "SW-003", name: "L1 Venue Gateway V1", status: "wip", cost_account_id: "acc-789", fields: { layer: "L1", version: "V1" } },
+    { id: "a-app", asset_no: "SW-006", name: "APP Application V1", status: "wip", cost_account_id: "acc-789", fields: { layer: "APP", version: "V1" } },
+    { id: "a-l2-v1", asset_no: "SW-004", name: "L2 V1", status: "available", cost_account_id: "acc-789", fields: { layer: "L2", version: "V1" } },
+  ];
+  const jnl = (lines) => ({ ManualJournalID: "mj-1", Status: "POSTED", Narration: "Recharge and capitalised development", DateString: "2026-10-23T00:00:00",
+    JournalLines: lines.map((l, i) => ({ JournalLineID: `jl-${i}`, AccountCode: l.code, LineAmount: l.amount, Description: l.desc })) });
+
+  it("puts each journal line on the open version of the layer it names", () => {
+    const out = intake({ period: "2026-10", grouping: "dev_project", map, assets: layers, docs: [{ entity_id: E, manual_journals: [jnl([
+      { code: "789", amount: 3608.01, desc: "Capitalised Development - Oct 2026 - L1" },
+      { code: "789", amount: 601.33, desc: "Capitalised Development -  Oct 2026 - APP" },
+      { code: "464", amount: -4209.34, desc: "Capitalised Development - Oct 2026" },
+    ])] }] });
+    expect(out.lines.map((l) => [l.asset_id, l.amount, l.fields.allocation])).toEqual([["a-l1", 3608.01, "layer"], ["a-app", 601.33, "layer"]]);
+    expect(out.lines[0].reason_text).toBe("Layer L1 in the line; SW-003 L1 Venue Gateway V1 is its open version.");
+  });
+
+  it("asks when the layer has no open version, and leaves bills to the project", () => {
+    const out = intake({ period: "2026-10", grouping: "dev_project", map, assets: layers, docs: [{ entity_id: E,
+      manual_journals: [jnl([{ code: "789", amount: 1202.67, desc: "Capitalised Development - Oct 2026 - L2" }])],
+      bills: [bill({ LineItems: [{ LineItemID: "li-9", AccountCode: "789", LineAmount: 96000, Description: "Platform development stage 3" }] })] }] });
+    const byAmount = Object.fromEntries(out.lines.map((l) => [l.amount, l]));
+    expect(byAmount[1202.67].asset_id).toBeNull();
+    expect(byAmount[1202.67].fields.question).toMatch(/Layer L2 has no open version/);
+    expect(byAmount[96000].asset_id).toBe("a-proj");
+    expect(out.findings.some((f) => f.kind === "layer_has_no_open_version")).toBe(true);
+  });
+});

@@ -1934,7 +1934,8 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
         const prior = prev ? { period: recs.priorPeriod(rec.period), signed: prev.status === "signed_off", evidence: prev.signed_snapshot?.evidence ?? [] } : null;
         for (const b of capped) {
-          const st = payrollEvidence.staffTimeEvidence({ balance: { ...b, entity_name: names.get(b.entity_id) }, cap, prior, period: rec.period, date });
+          const register = rows.filter((r) => r.entity_id === b.entity_id && r.document_ref !== payrollEvidence.MARK).reduce((a, r) => a + Number(r.amount || 0), 0);
+          const st = payrollEvidence.staffTimeEvidence({ balance: { ...b, entity_name: names.get(b.entity_id) }, cap, prior, period: rec.period, date, register });
           if (st.row) rows.push(st.row);
           said.push(...st.said);
         }
