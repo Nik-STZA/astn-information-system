@@ -14,7 +14,7 @@ The standard every step serves is `africanstn-editorial` (scope, writing, templa
 | 4 | Story clustering | Claude Haiku 5.5, one call | Built, `scope-check-job.js dedup` |
 | 5 | Registry matcher and importance | Code, model only to disambiguate | Designed here |
 | 6 | Nik reviews the queue | Human | Exists; 16 stories for w/e 19 November once screened |
-| 7 | Verifier | Claude Opus 5.5 with fetched sources | Designed here |
+| 7 | Verifier | Claude Opus 5.5 with fetched sources and web search | Built, `VERIFY` (`scripts/verify-job.js`) |
 | 8 | Editor | Claude Opus 5.5 | Designed here |
 | 9 | Independent reviewer | Claude Opus 5.5, fresh context | Designed here |
 | 10 | Approval and publish | Human sign-off, code gates | Partly exists; gates designed here |
@@ -77,7 +77,9 @@ The weights are a starting point. After four weeks, compare the score with Nik's
 
 **Output.** One `item_screen_decisions` row per item with `step = 'verify'`: decision `pass`, `fail` or `unverified`, a one-line reason, and in `detail` the list of claims with the matching source sentence for each. Nik sees failed and unverified items with the reason and can override, which is recorded.
 
-**Model.** Claude Opus 5.5. About 10 items a week, each with its source text: well under US$1 a week at current prices (to be measured on the first run).
+**Model.** Claude Opus 5.5. Measured on the w/e 19 November brief: US$1.78 for 10 items, including 30 web searches.
+
+**As built (20 November 2026).** Code fetches the page, finds the stated publication date and flags ambiguous place names; Opus reads the item against the source text (claims, figures, event date, what a procedure decides, technology, names); a second Opus call with web search runs whenever no other outlet in our feed reports the story, or a procedure's agenda is unknown. The verdict is computed in code from those answers. Source text is stored with a hash (`item_sources`, migration 072).
 
 ## 5. Step 8: editor
 

@@ -25,8 +25,10 @@ UPDATE content_sources SET lens = 'africa-sport-business'
 CREATE TABLE IF NOT EXISTS item_screen_decisions (
     id              BIGSERIAL PRIMARY KEY,
     item_id         UUID NOT NULL REFERENCES classified_items(id) ON DELETE CASCADE,
-    step            TEXT NOT NULL CHECK (step IN ('rule_screen', 'scope_check', 'dedup', 'importance')),
-    decision        TEXT NOT NULL CHECK (decision IN ('keep', 'archive')),
+    step            TEXT NOT NULL CHECK (step IN ('rule_screen', 'scope_check', 'dedup', 'importance', 'verify')),
+    -- keep/archive for the screens; pass/fail/unverified for the verifier.
+    -- A human override is a new row with rule = 'override' and the reason.
+    decision        TEXT NOT NULL CHECK (decision IN ('keep', 'archive', 'pass', 'fail', 'unverified')),
     rule            TEXT,               -- which rule kept it, or NULL when archived
     reason          TEXT NOT NULL,      -- one line, human-readable
     detail          JSONB DEFAULT '{}', -- matched terms, model answers, etc.
