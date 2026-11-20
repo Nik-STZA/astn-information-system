@@ -82,3 +82,14 @@ describe("whether the pack can use it", () => {
     expect(readyForPack([{ kind: "highlights", status: "approved" }, { kind: "dashboard", status: "approved" }]).ready).toBe(true);
   });
 });
+
+describe("commentary given as sections", () => {
+  it("is one text, each section under its heading in the standard's order", () => {
+    const { normalise } = require("./pack-commentary");
+    const h = { commentary: { operating_costs: "Costs rose.", executive_overview: "A quieter month.", cash_and_funding: "Cash is fine." }, kpis: [] };
+    expect(normalise(h).commentary).toBe("Executive overview\nA quieter month.\n\nOperating costs\nCosts rose.\n\nCash and funding\nCash is fine.");
+    expect(sections(h)[0].fields[0].text).toMatch(/^Executive overview\nA quieter month\./);
+    expect(applyEdits(h, [{ path: "commentary", text: "One text." }]).content.commentary).toBe("One text.");
+    expect(normalise({ commentary: "Already text." }).commentary).toBe("Already text.");
+  });
+});

@@ -18,10 +18,28 @@ const KINDS = ["highlights", "dashboard"];
 const MAX_TEXT = 20000;
 const MAX_BYTES = 2_000_000;
 
+// The month's commentary is one text: the pack writes it into one cell and one
+// slide. A draft that gives it as sections ({ executive_overview: "...",
+// operating_costs: "..." }, 20 Nov 2026: the page would not load) is turned
+// into one text, each section under its heading, in the standard's order.
+const ORDER = ["executive_overview", "revenue_and_trading", "ebitda_and_profitability", "operating_costs", "balance_sheet_and_investment", "cash_and_funding"];
+const headingOf = (k) => { const t = String(k).replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
+function commentaryText(v) {
+  if (typeof v === "string" || v == null) return v;
+  if (Array.isArray(v)) return v.map(commentaryText).filter((x) => String(x ?? "").trim()).join("\n\n");
+  if (typeof v !== "object") return String(v);
+  const keys = [...ORDER.filter((k) => k in v), ...Object.keys(v).filter((k) => !ORDER.includes(k))];
+  return keys.map((k) => [headingOf(k), commentaryText(v[k])].filter((x) => String(x ?? "").trim()).join("\n")).filter(Boolean).join("\n\n");
+}
+function normalise(h) {
+  if (!h || typeof h !== "object" || Array.isArray(h) || !("commentary" in h) || typeof h.commentary === "string" || h.commentary == null) return h;
+  return { ...h, commentary: commentaryText(h.commentary) };
+}
+
 // The text fields of a highlights file, by section, each with its path. The
 // same fields the Word review offered (commentary_to_docx.py).
 function sections(h) {
-  const x = h && typeof h === "object" ? h : {};
+  const x = normalise(h && typeof h === "object" ? h : {});
   const list = (key, title, rows) => ({ key, title, fields: rows.filter(Boolean) });
   return [
     list("commentary", "Commentary", "commentary" in x ? [{ path: "commentary", heading: "The month", text: x.commentary ?? "" }] : []),
@@ -49,7 +67,7 @@ function setPath(obj, path, value) {
 function applyEdits(h, edits) {
   const issues = [];
   const allowed = editablePaths(h);
-  const content = JSON.parse(JSON.stringify(h ?? {}));
+  const content = JSON.parse(JSON.stringify(normalise(h) ?? {}));
   const current = new Map(sections(h).flatMap((s) => s.fields.map((f) => [f.path, f.text])));
   const changed = [];
   if (!Array.isArray(edits) || !edits.length) return { content, changed, issues: ["nothing to save"] };
@@ -102,4 +120,4 @@ function readyForPack(rows) {
   return { ready: true, why: null };
 }
 
-module.exports = { KINDS, MAX_TEXT, sections, editablePaths, applyEdits, contentIssues, styleNotes, readyForPack };
+module.exports = { normalise, commentaryText, KINDS, MAX_TEXT, sections, editablePaths, applyEdits, contentIssues, styleNotes, readyForPack };
