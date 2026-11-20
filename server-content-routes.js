@@ -14,6 +14,7 @@
  */
 
 const crypto = require("crypto");
+const ruleScreen = require("./server-lib-rule-screen");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -282,7 +283,21 @@ app.post("/api/content/ingest", async (req, res) => {
     let totalFetched = 0;
     let totalNew = 0;
     let totalSkipped = 0;
+    let totalScreenedOut = 0;
     const errors = [];
+
+    // Rule screen (RULE_SCREEN=on; needs migration 069). Off by default: with
+    // the flag off this route behaves exactly as before.
+    let screen = null;
+    if (ruleScreen.isEnabled()) {
+      const { rows: orgs } = await pool.query(
+        `SELECT astn_id, organization_name, organization_website FROM organizations`
+      );
+      const africaSportSources = sources
+        .filter((s) => s.lens === "africa-sport-business")
+        .map((s) => s.source_name);
+      screen = ruleScreen.buildScreen(orgs, { africaSportSources }).screen;
+    }
 
     for (const source of sources) {
       sourcesChecked++;
@@ -309,14 +324,19 @@ app.post("/api/content/ingest", async (req, res) => {
 
         for (const item of items) {
           const hash = contentHash(item.url, item.title);
+          const verdict = screen
+            ? screen({ title: item.title, summary: item.summary, url: item.url, source_name: source.source_name })
+            : null;
+          const status = verdict && !verdict.keep ? "archived" : "pending_review";
 
           try {
-            const { rowCount } = await pool.query(
+            const { rowCount, rows: inserted } = await pool.query(
               `INSERT INTO classified_items
                  (source_id, source_name, source_url, url, title, summary, content_hash,
                   category, relevance_score, original_language, region, published_at, status)
-               VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending_review')
-               ON CONFLICT (content_hash) DO NOTHING`,
+               VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               ON CONFLICT (content_hash) DO NOTHING
+               RETURNING id`,
               [
                 source.id,
                 source.source_name,
@@ -335,8 +355,27 @@ app.post("/api/content/ingest", async (req, res) => {
                 source.languages ? source.languages.split(",")[0].trim() : "en",
                 source.region_focus,
                 item.publishedAt ? new Date(item.publishedAt) : null,
+                status,
               ]
             );
+
+            if (rowCount > 0 && verdict) {
+              await pool.query(
+                `INSERT INTO item_screen_decisions
+                   (item_id, step, decision, rule, reason, detail, source_url, version)
+                 VALUES ($1, 'rule_screen', $2, $3, $4, $5, $6, $7)`,
+                [
+                  inserted[0].id,
+                  verdict.keep ? "keep" : "archive",
+                  verdict.rule,
+                  verdict.reason,
+                  JSON.stringify(verdict.matches),
+                  item.url,
+                  ruleScreen.SCREEN_VERSION,
+                ]
+              );
+              if (!verdict.keep) totalScreenedOut++;
+            }
 
             if (rowCount > 0) {
               totalNew++;
@@ -375,7 +414,8 @@ app.post("/api/content/ingest", async (req, res) => {
     );
 
     console.log(
-      `Ingestion run ${runId} complete: ${sourcesChecked} sources, ${totalFetched} fetched, ${totalNew} new, ${totalSkipped} skipped, ${errors.length} errors`
+      `Ingestion run ${runId} complete: ${sourcesChecked} sources, ${totalFetched} fetched, ${totalNew} new, ${totalSkipped} skipped, ${errors.length} errors` +
+        (screen ? `, ${totalScreenedOut} archived by rule screen` : "")
     );
 
     res.json({
@@ -385,6 +425,7 @@ app.post("/api/content/ingest", async (req, res) => {
       items_fetched: totalFetched,
       items_new: totalNew,
       items_skipped: totalSkipped,
+      ...(screen ? { items_screened_out: totalScreenedOut } : {}),
       errors_count: errors.length,
     });
   } catch (err) {
