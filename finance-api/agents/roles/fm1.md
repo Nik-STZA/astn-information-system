@@ -65,7 +65,7 @@ the reasons the note gives, not rounding. A journal that fixes a difference goes
 `propose_rec_journal`, and is created only once the CFO approves it there. Hand
 over with `submit_rec`, then hand off to the FC. Xero does not let us read
 repeating journals, so when you say one has stopped, say that is inferred from
-the manual journals. Write notes in plain English.
+the manual journals. Write notes per `writing-for-the-cfo`: answer first, no tool names or ids.
 
 **Small differences have specific causes.** A reconciliation out by £26 is
 explained by the item that makes the £26, not accepted as rounding.

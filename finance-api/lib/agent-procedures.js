@@ -53,7 +53,7 @@ function library() {
 }
 
 // Always in the prompt, for every agent: the rules a procedure cannot override.
-const PRELOADED = ["practice-controls", "how-work-moves"];
+const PRELOADED = ["practice-controls", "how-work-moves", "writing-for-the-cfo"];
 
 // The procedures one agent may open: those its role names, then any procedure
 // that lists the role, then the client's own. Client rules for a procedure the
