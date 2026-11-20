@@ -1185,7 +1185,7 @@ const namesRecProposal = (instruction) => /reconciliation proposal [0-9a-f-]{36}
 // How a preparer starts (CFO, 19 Nov 2026): the month starts clear, and the
 // way it was done before is read first, as a finance person would open last
 // month's file, then followed or improved.
-const HISTORY = "First read how this account was reconciled before with get_rec_history: the evidence and its sources, the comments, the reconciling items and the CFO's decisions in the thread. This month starts clear: record this month's evidence fresh, following how it was done unless you find a better way, and never copy last month's figures. In your submit note, say what you followed from last month and anything you did differently and why.";
+const HISTORY = "First read how this account was reconciled before with get_rec_history: the evidence and its sources, the comments, the reconciling items and the CFO's decisions in the thread. This month starts clear: record this month's evidence fresh, following how it was done unless you find a better way, and never copy last month's figures. Don't describe last month's approach in your note. If you did something differently, say what and why in one sentence.";
 
 function prepareInstruction(rec) {
   if (usesEvidence(rec.line_key, rec.proof)) {
