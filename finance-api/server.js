@@ -3512,6 +3512,7 @@ const JOURNAL_TARGET_TYPE = "xero_journal";
 let recRoutes;
 let journalRoutes;
 let accrualRoutes;
+let payrollRoutes;
 
 // Reads the organisation's lock dates. A journal dated into a locked period is
 // rejected here rather than by Xero, so the caller gets a reason rather than a
@@ -6753,7 +6754,8 @@ app.post("/api/finance/clients/:slug/xero/:entity/suppliers/:contactId/write-to-
 
 // ── Reconciliations ─────────────────────────────────────────────────────────
 
-recRoutes = require("./lib/recs-routes").mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner });
+recRoutes = require("./lib/recs-routes").mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner,
+  payrollCapitalised: (clientId, period) => (payrollRoutes ? payrollRoutes.capitalisedFor(clientId, period) : null) });
 
 // ── Journals ────────────────────────────────────────────────────────────────
 
@@ -6944,7 +6946,7 @@ async function readPayrollMatchKey() {
   payrollMatchKey = await readSecret(name);
   return payrollMatchKey;
 }
-require("./lib/payroll-routes").mountPayroll(app, {
+payrollRoutes = require("./lib/payroll-routes").mountPayroll(app, {
   route, pool, audit, clientIdFromSlug, viaInput: work.viaInput, xeroEntityContext, xeroGet, matchKey: readPayrollMatchKey,
 });
 
