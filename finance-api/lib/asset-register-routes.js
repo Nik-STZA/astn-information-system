@@ -23,6 +23,7 @@ const intakeLib = require("./asset-intake");
 const monthLib = require("./asset-month");
 const engine = require("./asset-register");
 const scheduleLib = require("./asset-schedule");
+const releaseLib = require("./asset-release");
 
 const XERO_ASSETS_API = "https://api.xero.com/assets.xro/1.0";
 const groupingNames = Object.fromEntries(Object.values(require("./asset-groupings").GROUPINGS).map((g) => [g.key, g.name]));
@@ -707,6 +708,143 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     res.status(201).json({ added: rows.length });
   }));
 
+  // ── Releasing a version ────────────────────────────────────────────────────
+  //
+  // POST .../asset-register/release   { grouping, date: YYYY-MM-DD, wip_account (code) | assets: [asset_no],
+  //   accounts: { cost, accumulated, charge } (codes), policy: { class_key, class_name, life_months, start_convention },
+  //   evidence, dry_run (default true) }
+  // The CFO releases versions to use (lib/asset-release.js): each moves from
+  // its WIP account to the cost account by a signed transfer event dated the
+  // release, becomes available for use under the policy, and its next version
+  // opens on the WIP account. The month before must be signed (its cost is
+  // what moves). Returns the journals for Xero, to propose on the Journals page.
+
+  app.post(`${BASE}/release`, tolerant(async (req, res) => {
+    const who = person(req, res);
+    if (!who) return;
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    const role = await roleOf(pool, client.id, who.actorEmail);
+    if (!isCfo(role)) return res.status(403).json({ error: "only the CFO releases an asset to use" });
+    const b = req.body || {};
+    const dryRun = !(b.dry_run === false || b.dry_run === "false");
+    const grouping = String(b.grouping ?? "");
+    const date = String(b.date ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(422).json({ issues: ["date must be YYYY-MM-DD"] });
+    const period = date.slice(0, 7);
+    const before = engine.addMonths(period, -1);
+    const periods = await periodRows(pool, client.id, grouping);
+    if (periods.find((p) => p.period === before)?.status !== "signed") return res.status(422).json({ issues: [`Sign ${before} first: its cost is what is released.`] });
+    if (periods.find((p) => p.period === period)?.status === "signed") return res.status(409).json({ error: `${period} is signed.` });
+    const pol = b.policy || {};
+    const life = Number(pol.life_months);
+    if (!/^[a-z][a-z0-9_]{1,40}$/.test(String(pol.class_key ?? "")) || !String(pol.class_name ?? "").trim() || !(life > 0 && life <= 1200)
+      || !["same_month", "month_following"].includes(pol.start_convention)) {
+      return res.status(422).json({ issues: ["policy needs class_key, class_name, life_months and start_convention (same_month or month_following)"] });
+    }
+
+    const map = (await pool.query(
+      `SELECT m.xero_account_id, m.account_code, m.role, m.entity_id, e.reporting_framework
+         FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
+        WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
+    const all = (await pool.query(
+      "SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id, parent_asset_id, fields FROM finance.assets WHERE client_id = $1 AND grouping = $2",
+      [client.id, grouping])).rows;
+    const acc = b.accounts || {};
+    const lc = (x) => String(x ?? "").toLowerCase();
+    const idFor = (code, roles) => map.find((m) => String(m.account_code) === String(code) && roles.includes(m.role));
+    const wip = b.wip_account ? idFor(b.wip_account, ["wip"]) : null;
+    const costAcc = idFor(acc.cost, ["cost"]);
+    const accumAcc = idFor(acc.accumulated, ["accumulated"]);
+    const issues = [];
+    if (b.wip_account && !wip) issues.push(`${b.wip_account} is not a WIP account of this grouping`);
+    if (!costAcc) issues.push(`accounts.cost ${acc.cost ?? ""} is not a cost account of this grouping`);
+    if (!accumAcc) issues.push(`accounts.accumulated ${acc.accumulated ?? ""} is not an accumulated amortisation account of this grouping`);
+    if (!String(acc.charge ?? "").trim()) issues.push("accounts.charge (the amortisation expense code) is needed for the journal");
+    const chosen = wip
+      ? all.filter((a) => a.status === "wip" && lc(a.cost_account_id) === lc(wip.xero_account_id))
+      : all.filter((a) => (b.assets || []).map(String).includes(a.asset_no));
+    if (!chosen.length) issues.push("no assets to release");
+    if (new Set(chosen.map((a) => a.entity_id)).size > 1) issues.push("release one company's assets at a time");
+    if (issues.length) return res.status(422).json({ issues });
+
+    // Cost at the end of the month before, per asset.
+    const lines = (await pool.query(
+      `SELECT id, state, asset_id, owning_entity_id, amount::float AS amount, line_date::text AS line_date, treatment, posted_account_id, expected_account_id
+         FROM finance.asset_cost_lines WHERE client_id = $1 AND grouping = $2 AND state = 'approved'`, [client.id, grouping])).rows;
+    const events = (await pool.query(
+      `SELECT id, asset_id, entity_id, kind, period, amount::float AS amount, accounts, detail, reverses_event_id
+         FROM finance.asset_events WHERE client_id = $1 AND grouping = $2`, [client.id, grouping])).rows;
+    const rolled = engine.roll({ assets: all, lines, events, period: before });
+    const cost = new Map(chosen.map((a) => [a.id, rolled.assets.get(a.id)?.cost ?? 0]));
+    const framework = map.find((m) => m.entity_id === chosen[0].entity_id)?.reporting_framework === "IFRS" ? "IFRS" : "FRS 102";
+    const existing = (await pool.query(
+      `SELECT id FROM finance.asset_policies WHERE client_id = $1 AND grouping = $2 AND class_key = $3 AND basis = $4 AND superseded_by IS NULL
+          AND effective_from <= $5 AND (effective_to IS NULL OR effective_to >= $5)`, [client.id, grouping, pol.class_key, framework, date])).rows[0];
+    const reason = `Released to use ${date} (CFO)`;
+    const p = releaseLib.plan({ assets: chosen, cost, date, accounts: { cost: costAcc.xero_account_id, accumulated: accumAcc.xero_account_id },
+      policyId: existing?.id ?? "new", reason, evidence: b.evidence, held: new Set(all.map((a) => a.asset_no)) });
+    if (p.issues.length) return res.status(422).json({ issues: p.issues });
+    const wipCode = wip?.account_code ?? map.find((m) => lc(m.xero_account_id) === lc(chosen[0].cost_account_id))?.account_code;
+    const codes = { cost: costAcc.account_code, wip: wipCode, accumulated: accumAcc.account_code, charge: String(acc.charge) };
+    // The release month's charge, on the cost released.
+    const released = chosen.map((a) => ({ ...a, status: "available", policy_id: "policy", available_for_use_date: date, accum_account_id: accumAcc.xero_account_id }));
+    const first = releaseLib.monthCharges({ assets: released, before: rolled.assets, period,
+      policies: { policy: { life_months: life, life_kind: "finite", residual_value: 0, start_convention: pol.start_convention } } });
+    const entitySlug = (await pool.query("SELECT slug FROM finance.entities WHERE id = $1", [chosen[0].entity_id])).rows[0]?.slug;
+    const startsIn = pol.start_convention === "same_month" ? period : engine.addMonths(period, 1);
+    const journalsOut = [
+      { entity: entitySlug, date, narration: `Released to use ${date}`, lines: releaseLib.transferLines(p.events, codes),
+        reason: `Release of ${p.events.length} asset(s) on ${date} (CFO): cost moved out of work in progress.` },
+      { entity: entitySlug, date: engine.monthEnd(period), narration: `Amortisation ${period}`, lines: releaseLib.chargeLines(first, codes),
+        reason: `Straight line over ${life} months from ${startsIn}.` },
+    ].filter((j) => j.lines.length);
+    const view = {
+      grouping, date, released: p.events.map((e) => ({ asset_no: e.asset_no, cost: e.amount })), next_versions: p.next.map((n) => n.asset_no),
+      total: engine.r2(p.events.reduce((s, e) => s + e.amount, 0)), first_month_charge: first.map((c) => ({ asset_no: c.asset_no, amount: c.amount })),
+      policy: { ...pol, framework, existing: Boolean(existing) }, journals: journalsOut,
+    };
+    if (dryRun) return res.json({ dry_run: true, ...view });
+
+    const conn = await pool.connect();
+    try {
+      await conn.query("BEGIN");
+      const policyId = existing?.id ?? (await conn.query(
+        `INSERT INTO finance.asset_policies (client_id, grouping, class_key, class_name, framework, basis, life_kind, life_months, start_convention, start_trigger,
+           effective_from, approved_by, approved_at, created_by)
+         VALUES ($1,$2,$3,$4,$5,$5,'finite',$6,$7,'available_for_use',$8,$9,now(),$9) RETURNING id`,
+        [client.id, grouping, pol.class_key, String(pol.class_name).trim(), framework, life, pol.start_convention, date, who.actorEmail])).rows[0].id;
+      for (const e of p.events) {
+        const evId = (await conn.query(
+          `INSERT INTO finance.asset_events (client_id, entity_id, asset_id, grouping, kind, basis, period, event_date, amount, accounts, reason,
+             evidence_ref, signed_by, signed_at, created_by)
+           VALUES ($1,$2,$3,$4,'transfer',$5,$6,$7,$8,$9,$10,$11,$12,now(),$12) RETURNING id`,
+          [client.id, e.entity_id, e.asset_id, grouping, framework, e.period, e.event_date, e.amount, JSON.stringify(e.accounts), e.reason, e.evidence_ref, who.actorEmail])).rows[0].id;
+        const u = p.updates.find((x) => x.asset_id === e.asset_id);
+        await conn.query(
+          `UPDATE finance.assets SET status = 'available', available_for_use_date = $2, available_event_id = $3, cost_account_id = $4, accum_account_id = $5,
+             policy_id = $6, updated_at = now() WHERE id = $1`,
+          [e.asset_id, u.available_for_use_date, evId, u.cost_account_id, u.accum_account_id, policyId]);
+      }
+      for (const n of p.next) {
+        await conn.query(
+          `INSERT INTO finance.assets (client_id, entity_id, grouping, asset_no, name, parent_asset_id, status, cost_account_id, fields, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,'wip',$7,$8,$9)`,
+          [client.id, n.entity_id, grouping, n.asset_no, n.name, n.parent_asset_id, n.cost_account_id, JSON.stringify(n.fields), who.actorEmail]);
+      }
+      await audit(conn, { actorEmail: who.actorEmail, actorRole: role, action: "asset_register_release", targetType: "asset_register", targetId: grouping,
+        clientId: client.id, payload: { date, released: view.released, next_versions: view.next_versions, policy: view.policy }, ip: req.get("X-Forwarded-For") || req.ip });
+      await conn.query("COMMIT");
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      if (e.code === "23514" && /signed/.test(e.message)) return res.status(409).json({ error: e.message });
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.status(201).json({ released_to_use: true, ...view });
+  }));
+
   // ── Preparing and signing a month ──────────────────────────────────────────
   //
   // POST .../asset-register/periods/prepare  { grouping, period, dry_run (default true), rules, tb_acknowledgements: [{ entity, difference, reason }],
@@ -742,7 +880,9 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
       `SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to, e.slug, e.name AS company
          FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
         WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
-    const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id, fields FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
+    const assets = (await pool.query(
+      `SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id, fields, policy_id, available_for_use_date::text AS available_for_use_date
+         FROM finance.assets WHERE client_id = $1 AND grouping = $2`, [client.id, grouping])).rows;
     const lines = (await pool.query(
       `SELECT id, state, asset_id, owning_entity_id, amount::float AS amount, source_net::float AS source_net, line_date::text AS line_date, treatment,
               posted_account_id, expected_account_id, source_type, xero_source_id, xero_line_id, source_ref, fields, invoice_no
@@ -750,6 +890,13 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     const events = (await pool.query(
       `SELECT id, asset_id, entity_id, kind, period, amount::float AS amount, accounts, detail, reverses_event_id
          FROM finance.asset_events WHERE client_id = $1 AND grouping = $2`, [client.id, grouping])).rows;
+    // The month's amortisation of assets released to use (lib/asset-release.js),
+    // once per asset and month; recorded when the month is prepared.
+    const policies = Object.fromEntries((await pool.query("SELECT * FROM finance.asset_policies WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows.map((x) => [x.id, x]));
+    const charged = new Set(events.filter((e) => e.kind === "amortisation" && e.period === period).map((e) => e.asset_id));
+    const priorRoll = engine.roll({ assets, lines: lines.filter((l) => l.state === "approved").map((l) => ({ ...l, line_date: String(l.line_date) })), events, period: engine.addMonths(period, -1) });
+    const charges = releaseLib.monthCharges({ assets, policies, before: priorRoll.assets, period, done: charged });
+    events.push(...charges.map((c, i) => ({ id: `new-charge-${i}`, ...c, detail: {}, reverses_event_id: null })));
     const nameOf = Object.fromEntries(map.map((m) => [m.entity_id, m.company]));
     const end = engine.monthEnd(period);
     const asAt = opening.snapshot?.trial_balance_as_at ?? engine.monthEnd(opening.period);
@@ -810,7 +957,16 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     const result = monthLib.prepareMonth({ period, map, assets, lines, events, trialBalances, openingTrialBalances, namedItems, lastDepreciation,
       tbAcknowledgements: acks, tolerance: Number(cfg?.rec_tolerance ?? 0), nameOf });
     if (!result.prepared) return res.status(422).json(result);
-    if (dryRun) return res.json({ dry_run: true, ...result, ...(retired.length ? { retired_named_items: retired } : {}) });
+    const amortisation = charges.map((c) => ({ asset_no: c.asset_no, amount: c.amount }));
+    if (dryRun) return res.json({ dry_run: true, ...result, ...(retired.length ? { retired_named_items: retired } : {}), ...(charges.length ? { amortisation } : {}) });
+    for (const c of charges) {
+      const basis = policies[assets.find((a) => a.id === c.asset_id)?.policy_id]?.basis ?? "FRS 102";
+      await pool.query(
+        `INSERT INTO finance.asset_events (client_id, entity_id, asset_id, grouping, kind, basis, period, event_date, amount, accounts, reason, created_by)
+         SELECT $1,$2,$3,$4,'amortisation',$5,$6,$7,$8,$9,$10,$11
+          WHERE NOT EXISTS (SELECT 1 FROM finance.asset_events WHERE asset_id = $3 AND kind = 'amortisation' AND period = $6)`,
+        [client.id, c.entity_id, c.asset_id, grouping, basis, c.period, c.event_date, c.amount, JSON.stringify(c.accounts), `Amortisation ${c.period}, straight line under the asset's policy`, who.actorEmail]);
+    }
     await pool.query(
       `INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, trial_balance, prepared_by, prepared_at)
        VALUES ($1,$2,$3,'prepared',$4,$5,$6,now())
@@ -818,7 +974,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
          prepared_by = EXCLUDED.prepared_by, prepared_at = now(), updated_at = now()
        WHERE finance.asset_register_periods.status <> 'signed'`,
       [client.id, grouping, period, JSON.stringify({ kind: "month", ...result, named_items: namedItems, ...(retired.length ? { retired_named_items: retired } : {}) }), JSON.stringify({ as_at: end, read_at: new Date().toISOString() }), who.actorEmail]);
-    res.status(201).json({ prepared: true, ...result });
+    res.status(201).json({ prepared: true, ...result, ...(charges.length ? { amortisation } : {}) });
   }));
 
   // POST .../asset-register/periods/reopen   { grouping, period, reason }
