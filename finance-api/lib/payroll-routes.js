@@ -22,6 +22,7 @@ const con = require("./payroll-contractors");
 const recs = require("./recs");
 const { jnlRef } = require("./journals");
 const posted = require("./xero-posted-journals");
+const capEvidence = require("./rec-payroll-evidence");
 const { expandPath } = require("./vat-routes");
 
 const MISSING = "Payroll is waiting for migrations 065 and 066 to be applied.";
@@ -535,6 +536,27 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
       payload: { file_id: fileId, name: b.name }, ip: req.get("X-Forwarded-For") || req.ip });
     res.json({ ok: true });
   }));
+
+  // What the month's payroll capitalised to the capitalisation account, for
+  // that account's rec (lib/rec-payroll-evidence.js, migration 068). Null when
+  // payroll is not set up for the client.
+  async function capitalisedFor(clientId, period) {
+    const settings = await settingsOf(clientId);
+    const accountCode = settings?.accounts?.capdev?.capdev;
+    if (!settings || !accountCode) return null;
+    const base = { entity_id: settings.payroll_entity_id, account_code: String(accountCode) };
+    const run = await liveRun(clientId, period);
+    if (!run) return { ...base, found: false, confirmed: false, total: 0, by_project: {}, journals: [] };
+    const p = preview(run, settings, await rolesOf(clientId));
+    const journals = (await journalsOf(run.id)).filter((j) => ["capdev", "capdev_contractor"].includes(j.kind) && LIVE.includes(j.state));
+    return {
+      ...base, found: true, confirmed: Boolean(run.alloc_confirmed_at), issues: p.issues,
+      total: capEvidence.capitalisedTotal(p.journals, { entity: settings.payroll_entity, accountCode }),
+      by_project: p.by_project, journals: journals.map((j) => ({ jnl: j.jnl, kind: j.kind, state: j.state })),
+    };
+  }
+
+  return { capitalisedFor };
 }
 
 module.exports = { mountPayroll, strippedIssues, allocIssues, ALLOWED };

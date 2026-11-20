@@ -18,6 +18,7 @@ const bank = require("./bank-statement");
 const sheetRead = require("./sheet-read");
 const contractsLib = require("./contracts");
 const assetEvidence = require("./rec-asset-evidence");
+const payrollEvidence = require("./rec-payroll-evidence");
 const { vatEvidence } = require("./vat-evidence");
 const accruals = require("./accruals");
 const recInputs = require("./rec-inputs");
@@ -29,7 +30,7 @@ const MISSING = "Reconciliations are waiting for migration 032 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 const money = (p) => (p === null || p === undefined ? null : recs.pounds(p));
 
-function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner, viaInput = work.viaInput }) {
+function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContext, xeroGet, startAgentRunner, viaInput = work.viaInput, payrollCapitalised = null }) {
   const BASE = "/api/finance/clients/:slug/recs";
 
   const tolerant = (fn) => route(async (req, res) => {
@@ -1921,6 +1922,21 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           said.push(x.said);
         } catch (err) {
           said.push(`${e?.name ?? "A company"}: Xero's fixed asset register could not be read (${String(err.message || err).slice(0, 200)}). Nothing was taken for it.`);
+        }
+      }
+      // Staff time capitalised through payroll on the same account, beside the
+      // register's figure (lib/rec-payroll-evidence.js, CFO 20 Nov 2026).
+      const cap = payrollCapitalised ? await payrollCapitalised(who.client.id, rec.period) : null;
+      const capped = cap ? balances.filter((b) => b.entity_id === cap.entity_id && String(b.account_code) === cap.account_code) : [];
+      if (capped.length) {
+        const prev = (await pool.query(
+          "SELECT status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2 AND dropped_at IS NULL",
+          [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
+        const prior = prev ? { period: recs.priorPeriod(rec.period), signed: prev.status === "signed_off", evidence: prev.signed_snapshot?.evidence ?? [] } : null;
+        for (const b of capped) {
+          const st = payrollEvidence.staffTimeEvidence({ balance: { ...b, entity_name: names.get(b.entity_id) }, cap, prior, period: rec.period, date });
+          if (st.row) rows.push(st.row);
+          said.push(...st.said);
         }
       }
     } else if (method === "carry_forward") {
