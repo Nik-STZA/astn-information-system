@@ -111,3 +111,14 @@ describe("a draft in another shape", () => {
     expect(n.risks.map((r) => [r.title, r.description])).toEqual([["Arrears.", ""], ["Dormant account", "Blocks accounts."]]);
   });
 });
+
+describe("compliance and KPIs in another shape", () => {
+  const { normalise } = require("./pack-commentary");
+  it("makes one compliance object a list, and leaves raw KPI figures out", () => {
+    const n = normalise({ compliance: { status: "amber", details: "PAYE overdue." }, kpis: { net_loss_alpha: -1 } });
+    expect(n.compliance).toEqual([{ item: "Compliance and open items", status: "AMBER", detail: "PAYE overdue." }]);
+    expect("kpis" in n).toBe(false);
+    expect(normalise({ compliance: ["Late filing"] }).compliance).toEqual([{ item: "Late filing", status: "AMBER", detail: "" }]);
+    expect(normalise({ kpis: [{ label: "Loss", value: 1 }] }).kpis).toEqual([{ label: "Loss", value: 1 }]);
+  });
+});

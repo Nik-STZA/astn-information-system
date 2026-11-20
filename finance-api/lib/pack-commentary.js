@@ -67,6 +67,20 @@ function normalise(h) {
     x.actions = x.actions.map((a) => (typeof a === "string" ? { priority: "", owner: "", action: a }
       : { ...a, action: a?.action ?? a?.title ?? a?.description ?? "" }));
   }
+  // Compliance is a list of { item, status, detail }. A draft that gave one
+  // object ({ status, details }) is one item.
+  if (x.compliance && typeof x.compliance === "object" && !Array.isArray(x.compliance)) {
+    const c = x.compliance;
+    x.compliance = [{ item: c.item ?? c.title ?? "Compliance and open items", status: String(c.status ?? "AMBER").toUpperCase(),
+      detail: String(c.detail ?? c.details ?? c.description ?? "") }];
+  } else if (Array.isArray(x.compliance)) {
+    x.compliance = x.compliance.map((c) => (typeof c === "string" ? { item: c, status: "AMBER", detail: "" }
+      : { ...c, status: String(c?.status ?? "AMBER").toUpperCase(), detail: c?.detail ?? c?.details ?? "" }));
+  }
+  // KPI tiles are a list of { label, value, note }. Raw figures keyed by name
+  // ({ net_loss_udl_sep: -46911.61 }) are the drafter's working, not tiles:
+  // left out, so the pack keeps the month's own tiles.
+  if (x.kpis !== undefined && !Array.isArray(x.kpis)) delete x.kpis;
   if (Array.isArray(x.risks)) {
     x.risks = x.risks.map((r) => (typeof r === "string" ? { title: r, description: "" }
       : { ...r, title: r?.title ?? r?.risk ?? "", description: r?.description ?? r?.impact ?? r?.detail ?? "" }));
