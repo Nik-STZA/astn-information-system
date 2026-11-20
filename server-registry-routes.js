@@ -316,9 +316,14 @@ function isScreenedQueue() {
 }
 // Only items the scope check kept; duplicates were archived by the dedup step,
 // so each remaining item leads its story.
+// Also hides items the source published before this brief week began (the
+// Friday on or before today): the screening job dates and archives them, and
+// this keeps any it has not reached out of the queue. Undated items stay.
 const SCREENED_FILTER = `
          AND EXISTS (SELECT 1 FROM item_screen_decisions sc
-                      WHERE sc.item_id = c.id AND sc.step = 'scope_check' AND sc.decision = 'keep')`;
+                      WHERE sc.item_id = c.id AND sc.step = 'scope_check' AND sc.decision = 'keep')
+         AND (c.published_at IS NULL
+              OR c.published_at >= (CURRENT_DATE - ((EXTRACT(DOW FROM CURRENT_DATE)::int + 2) % 7)))`;
 const SCREENED_COLUMNS = `
               (SELECT sc.reason FROM item_screen_decisions sc
                 WHERE sc.item_id = c.id AND sc.step = 'scope_check'

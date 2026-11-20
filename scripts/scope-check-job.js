@@ -5,7 +5,8 @@
  *
  *   node scripts/scope-check-job.js submit
  *     First rule-screens any pending item not screened yet (items from the
- *     research agent's digest skip the API ingester), then picks pending_review
+ *     research agent's digest skip the API ingester), archives kept items the
+ *     source published before this brief week, then picks pending_review
  *     items the rule screen kept that have no scope_check decision yet,
  *     submits one batch and prints its id.
  *
@@ -78,8 +79,62 @@ async function screenPending() {
   console.log(`Rule screen: ${items.length} unscreened pending items, ${archived} archived.`);
 }
 
+// Archive kept items that the source published before this brief week began
+// (Friday to Thursday). The source date comes from the feed (raw_items),
+// else from the page itself (fetched with code, no model), and is saved to
+// classified_items.published_at where that is empty. Items with no date
+// anywhere stay in the queue: the verifier checks them later.
+// Why: after the 6 Nov outage, items from earlier weeks were rescored into
+// this week's queue; 7 of 10 test approvals on 20 Nov 2026 predated the week.
+function currentWeekStart(now = new Date()) {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 2) % 7)); // back to Friday
+  return d;
+}
+
+async function archiveStale() {
+  const { fetchSource } = require("../server-lib-source-fetch");
+  const weekStart = currentWeekStart();
+  const { rows: items } = await pool.query(
+    `SELECT ci.id, ci.published_at, r.published_at AS raw_published, COALESCE(ci.url, ci.source_url) AS url
+       FROM classified_items ci
+       JOIN item_screen_decisions rs ON rs.item_id = ci.id AND rs.step = 'rule_screen' AND rs.decision = 'keep'
+       LEFT JOIN raw_items r ON r.id = ci.raw_item_id
+      WHERE ci.status = 'pending_review'`
+  );
+  let archived = 0, fetched = 0, undated = 0;
+  for (const it of items) {
+    let date = it.published_at || it.raw_published;
+    let from = it.published_at ? "classified_items" : "feed";
+    if (!date && it.url) {
+      const s = await fetchSource(it.url);
+      fetched++;
+      if (s.published.date && !s.published.monthOnly) { date = s.published.date; from = `page (${s.published.where})`; }
+    }
+    if (!date) { undated++; continue; }
+    if (!it.published_at) {
+      await pool.query(`UPDATE classified_items SET published_at = $2 WHERE id = $1 AND published_at IS NULL`, [it.id, date]);
+    }
+    if (new Date(date) < weekStart) {
+      await pool.query(
+        `INSERT INTO item_screen_decisions (item_id, step, decision, rule, reason, detail, source_url, version)
+         VALUES ($1, 'rule_screen', 'archive', 'stale', $2, $3, $4, 'stale-1')`,
+        [it.id, `Published ${new Date(date).toISOString().slice(0, 10)}, before this week (from ${weekStart.toISOString().slice(0, 10)}).`,
+         JSON.stringify({ date_from: from, week_start: weekStart.toISOString().slice(0, 10) }), it.url]
+      );
+      await pool.query(
+        `UPDATE classified_items SET status = 'archived', updated_at = now() WHERE id = $1 AND status = 'pending_review'`,
+        [it.id]
+      );
+      archived++;
+    }
+  }
+  console.log(`Stale check: ${items.length} kept items, ${archived} archived as published before ${weekStart.toISOString().slice(0, 10)}, ${fetched} pages fetched for a date, ${undated} with no date.`);
+}
+
 async function submit() {
   await screenPending();
+  await archiveStale();
   const { rows } = await pool.query(
     `SELECT ci.id, ci.title, ci.summary, ci.translated_text, ci.source_name
        FROM classified_items ci
