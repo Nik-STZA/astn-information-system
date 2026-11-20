@@ -17,11 +17,13 @@ const journals = require("./journals");
 const recs = require("./recs");
 const work = require("./work");
 const accrualRules = require("./accruals");
+const posted = require("./xero-posted-journals");
 
 const MISSING = "Journals are waiting for migration 033 to be applied.";
 const isMissingTable = (e) => e?.code === "42P01" || e?.code === "42703";
 
-function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus, viaInput = work.viaInput }) {
+function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus, viaInput = work.viaInput,
+  xeroEntityContext = null, xeroGet = null }) {
   const BASE = "/api/finance/clients/:slug/journals";
 
   const tolerant = (fn) => route(async (req, res) => {
@@ -546,6 +548,46 @@ function mountJournals(app, { route, pool, audit, clientIdFromSlug, postManualJo
           WHERE id = $1`, [j.id, actorEmail, unknown]);
       await auditJournal(conn, req, { client, actorEmail, role, action: "journal_rejected", id: j.id, payload: { was: j.state, confirmed_not_in_xero: unknown } });
       return { status: 200, body: { ok: true } };
+    });
+    res.status(out.status).json(out.body);
+  }));
+
+  // POST /journals/:id/in-xero   the CFO records that a proposed journal is
+  // already posted in Xero by hand (20 Nov 2026). finance-api finds the posted
+  // manual journal in that company with the same effect, within a month of the
+  // journal's date and not linked to another journal here, and links it:
+  // the journal becomes posted with Xero's id, and nothing is drafted. A pair
+  // (accrual and reversal) is not linked here.
+  app.post(`${BASE}/:id/in-xero`, tolerant(async (req, res) => {
+    const who = caller(req, res, { peopleOnly: true });
+    if (!who) return;
+    if (!work.isGuid(req.params.id)) return res.status(400).json({ error: "id must be a journal id" });
+    const client = await clientIdFromSlug(req.params.slug);
+    if (!client) return res.status(404).json({ error: "client not found" });
+    if (!xeroEntityContext || !xeroGet) return res.status(503).json({ error: "reading Xero is not available here" });
+    const j = await loadJournal(pool, client.id, req.params.id);
+    if (!j || j.state !== "proposed") return res.status(409).json({ error: "Only a proposed journal can be linked to one already in Xero" });
+    if (j.reversal_date) return res.status(409).json({ error: "An accrual pair is not linked here: post both legs in Xero, then reject this pair with that reason." });
+    let hit;
+    try {
+      const xs = await posted.postedAround({ xeroEntityContext, xeroGet, clientSlug: client.slug, entitySlug: j.entity_slug, date: j.journal_date });
+      hit = posted.findPosted({ lines: j.lines }, xs, await posted.linkedIds(pool, client.id));
+    } catch (e) {
+      return res.status(503).json({ error: `Xero could not be read for ${j.entity_name}: ${String(e.message || e).slice(0, 200)}` });
+    }
+    if (!hit) return res.status(422).json({ issues: [`No posted journal in ${j.entity_name}'s Xero within a month of ${j.journal_date} has the same amount on every account. Nothing was changed.`] });
+    const out = await tx(client, who, async (conn, { actorEmail, role }) => {
+      if (!recs.CFO_ROLE.test(String(role))) return { status: 403, body: { error: "Only the CFO records a journal as already in Xero" } };
+      const now = await loadJournal(conn, client.id, j.id, true);
+      if (!now || now.state !== "proposed") return { status: 409, body: { error: "This journal is no longer waiting for a decision" } };
+      if ((await posted.linkedIds(conn, client.id)).has(hit.journal.ManualJournalID)) return { status: 409, body: { error: "That Xero journal is already linked to another journal here" } };
+      await conn.query(
+        `UPDATE finance.journals SET state = 'posted', xero_journal_id = $2, xero_status = 'POSTED', xero_checked_at = now(), updated_at = now(),
+           reason = coalesce(reason, '') || $3 WHERE id = $1`,
+        [j.id, hit.journal.ManualJournalID, posted.linkedNote(hit.journal, hit.match, actorEmail)]);
+      await auditJournal(conn, req, { client, actorEmail, role, action: "journal_found_in_xero", id: j.id,
+        payload: { xero_manual_journal_id: hit.journal.ManualJournalID, narration: hit.journal.Narration ?? null, match: hit.match } });
+      return { status: 200, body: { linked: true, xero_manual_journal_id: hit.journal.ManualJournalID, narration: hit.journal.Narration ?? null, match: hit.match } };
     });
     res.status(out.status).json(out.body);
   }));

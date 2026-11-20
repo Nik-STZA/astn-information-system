@@ -21,6 +21,7 @@ const pay = require("./payroll");
 const con = require("./payroll-contractors");
 const recs = require("./recs");
 const { jnlRef } = require("./journals");
+const posted = require("./xero-posted-journals");
 const { expandPath } = require("./vat-routes");
 
 const MISSING = "Payroll is waiting for migrations 065 and 066 to be applied.";
@@ -408,7 +409,27 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     const p = preview(run, settings, await rolesOf(client.id));
     if (p.issues.length) return res.status(422).json({ issues: p.issues });
     const entityIds = Object.fromEntries((await pool.query("SELECT slug, id FROM finance.entities WHERE client_id = $1", [client.id])).rows.map((r) => [r.slug, r.id]));
+    // A month posted by hand in Xero before os.stza.io (October 2026): each
+    // journal already there is linked, not proposed again (CFO, 19 Nov 2026).
+    // Xero is read first, outside the transaction; a company Xero cannot read
+    // stops the proposal, so nothing is proposed that may be a duplicate.
+    const inXero = new Map();
+    if (xeroEntityContext && xeroGet) {
+      const taken = await posted.linkedIds(pool, client.id);
+      const seen = {};
+      for (const j of p.journals) {
+        if (!KINDS.includes(j.kind)) continue;
+        try {
+          seen[j.entity] ??= await posted.postedAround({ xeroEntityContext, xeroGet, clientSlug: client.slug, entitySlug: j.entity, date: j.date });
+        } catch (e) {
+          return res.status(503).json({ error: `Xero could not be read for ${j.entity}, so it is not known whether this month is already posted there: ${String(e.message || e).slice(0, 200)}` });
+        }
+        const hit = posted.findPosted(j, seen[j.entity], taken);
+        if (hit) { inXero.set(j, hit); taken.add(hit.journal.ManualJournalID); }
+      }
+    }
     const made = [];
+    const linked = [];
     const conn = await pool.connect();
     try {
       await conn.query("BEGIN");
@@ -424,14 +445,18 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
           j.kind === "capdev_contractor" ? `Contractors' cost from Xero bills ${contractorCosts(run, settings).flatMap((c) => c.bills).join(", ")}.` : null,
           `Payroll month ${run.id}.`,
         ].filter(Boolean).join(" ");
+        const hit = inXero.get(j);
         const row = (await conn.query(
-          `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, payroll_run_id, payroll_kind)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'payroll',$8,$9,$10) RETURNING id, jnl_no`,
-          [client.id, entityId, run.period, j.date, j.narration, JSON.stringify(j.lines), reason, who.actor, run.id, j.kind])).rows[0];
-        await audit(conn, { actorEmail: who.actorEmail, actorRole: who.role, action: "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id,
+          `INSERT INTO finance.journals (client_id, entity_id, period, journal_date, narration, lines, reason, source, proposed_by, payroll_run_id, payroll_kind,
+             state, xero_journal_id, xero_status, xero_checked_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'payroll',$8,$9,$10,$11,$12,$13,$14) RETURNING id, jnl_no`,
+          [client.id, entityId, run.period, j.date, j.narration, JSON.stringify(j.lines), hit ? reason + posted.linkedNote(hit.journal, hit.match) : reason, who.actor, run.id, j.kind,
+            hit ? "posted" : "proposed", hit?.journal.ManualJournalID ?? null, hit ? "POSTED" : null, hit ? new Date() : null])).rows[0];
+        await audit(conn, { actorEmail: who.actorEmail, actorRole: who.role, action: hit ? "journal_found_in_xero" : "journal_proposed", targetType: "journal", targetId: row.id, clientId: client.id,
           ip: req.get("X-Forwarded-For") || req.ip,
-          payload: { jnl: jnlRef(row.jnl_no), from: "payroll", payroll_run: run.id, kind: j.kind, entity: j.entity, date: j.date, narration: j.narration, lines: j.lines } });
-        made.push({ jnl: jnlRef(row.jnl_no), kind: j.kind, entity: j.entity });
+          payload: { jnl: jnlRef(row.jnl_no), from: "payroll", payroll_run: run.id, kind: j.kind, entity: j.entity, date: j.date, narration: j.narration, lines: j.lines,
+            ...(hit ? { xero_manual_journal_id: hit.journal.ManualJournalID, match: hit.match } : {}) } });
+        (hit ? linked : made).push({ jnl: jnlRef(row.jnl_no), kind: j.kind, entity: j.entity });
       }
       await conn.query("COMMIT");
     } catch (e) {
@@ -441,7 +466,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     } finally {
       conn.release();
     }
-    res.status(made.length ? 201 : 200).json({ proposed: made });
+    res.status(made.length || linked.length ? 201 : 200).json({ proposed: made, linked });
   }));
 
   // POST /payroll/runs/:id/workbook   the pack engine builds the working file on the client's drive

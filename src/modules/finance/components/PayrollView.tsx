@@ -116,7 +116,12 @@ export default function PayrollView({ slug, data }: { slug: string; data: Payrol
     const r = await call("POST", `runs/${run.id}/propose`, {});
     if (!r.ok) return;
     const made = (r.body.proposed as Array<{ jnl: string }> | undefined) ?? [];
-    setNotice(made.length ? `${made.map((j) => j.jnl).join(", ")} proposed. Approve them on the Journals page.` : "Every journal for the month is already proposed.");
+    const linked = (r.body.linked as Array<{ jnl: string }> | undefined) ?? [];
+    const parts = [
+      made.length ? `${made.map((j) => j.jnl).join(", ")} proposed. Approve them on the Journals page.` : "",
+      linked.length ? `${linked.map((j) => j.jnl).join(", ")} already posted in Xero by hand, so linked, not proposed again.` : "",
+    ].filter(Boolean);
+    setNotice(parts.length ? parts.join(" ") : "Every journal for the month is already proposed.");
     router.refresh();
   };
 

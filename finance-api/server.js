@@ -6784,7 +6784,7 @@ async function xeroManualJournalStatus(slug, entitySlug, journalId) {
 }
 
 journalRoutes = require("./lib/journals-routes").mountJournals(app, {
-  route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus,
+  route, pool, audit, clientIdFromSlug, postManualJournal, journalPreflight, xeroManualJournalStatus, xeroEntityContext, xeroGet,
 });
 
 // ── Xero changes ────────────────────────────────────────────────────────────
