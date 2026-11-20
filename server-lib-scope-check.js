@@ -19,7 +19,7 @@
 const Anthropic = require("@anthropic-ai/sdk");
 
 const SCOPE_MODEL = process.env.SCOPE_MODEL || "claude-haiku-5-5";
-const SCOPE_VERSION = "scope-check-2";
+const SCOPE_VERSION = "scope-check-3";
 
 // Frozen: any change here invalidates the prompt cache and the evaluation.
 // Bump SCOPE_VERSION whenever it changes.
@@ -33,7 +33,7 @@ For each item, answer three separate yes/no questions, then give a one-line reas
 
 3. business: Is it about a deal, funding round, investment, broadcast or media rights, sponsorship, partnership, product or platform launch, regulation or policy, government budget, infrastructure (stadiums, venues, facilities), technology adoption, a hosting bid, governance or a leadership change at an organisation, or market data? No for match results, previews, predictions, line-ups, player transfers and transfer rumours, contracts of individual players, injuries, disciplinary cases and bans, coaching appointments of teams, fixtures and kick-off times, TV schedules and "where to watch" listings (which channel or stream shows a match is not a rights deal; a rights deal names who bought rights, for what, and for how long), betting tips and promotions, opinion about on-field performance, and personal stories of athletes. A result, transfer or ban is a yes only if the item states a commercial or technology consequence (for example, a ban that voids a sponsorship, or a transfer fee that funds a stadium).
 
-An esports or sports event with a named organiser, host city, venue or sponsor (a tournament launch, a hosting announcement, a festival) is a yes: events are part of the sports business. A routine fixture in an existing league or competition is not.
+Announcing a new esports or sports event, or who will host one (a tournament launch, a hosting announcement, a new festival or series), is a yes: events are part of the sports business. Reports about an event that is already running are a no, even when the event carries a sponsor's name: previews, entry numbers, draws, results, winners and prize-giving of a tournament, race or golf day. A routine fixture in an existing league or competition is also a no.
 
 in_scope is true only when all three answers are yes.
 
@@ -48,6 +48,7 @@ Examples (illustrative, not from the items you will see):
 - "Striker joins Saudi club on two-year contract" -> africa no or yes depending on the player, sport yes, business no. Reason: Player transfer, out of scope.
 - "Ghana v Sudan: which channel and what time to watch the qualifier" -> africa yes, sport yes, business no. Reason: TV listing for a match, not a rights deal.
 - "Accra to host a regional esports championship with a telecom sponsor in March" -> africa yes, sport yes, business yes. Reason: Esports event hosting with a named sponsor in Ghana.
+- "Local golfer wins the bank-sponsored Coast Open as 80 players compete" -> africa yes, sport yes, business no. Reason: Result of an existing sponsored tournament, no new deal or event.
 - "Kenya allocates KSh2bn to upgrade three stadiums ahead of AFCON 2027" -> africa yes, sport yes, business yes. Reason: Government infrastructure spending on stadiums for AFCON 2027.
 - "Club board approves electronic voting and a plan to create a football company open to investors" -> africa yes (if the club is African), sport yes, business yes. Reason: Governance and investment structure change, with e-voting technology.`;
 
