@@ -327,6 +327,10 @@ function Actions({ j, busy, send }: { j: JournalRow; busy: boolean; send: Send }
       <div className={styles.actions}>
         <button type="button" className="btn-primary" disabled={busy} onClick={() => send(`${j.id}/approve`)}>{j.pair ? "Approve both as Xero drafts" : "Approve as Xero draft"}</button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => send(`${j.id}/reject`)}>Reject</button>
+        {!j.pair && (
+          <button type="button" className="btn-text" disabled={busy} onClick={() => send(`${j.id}/in-xero`)}
+            title="Posted by hand in Xero already: find it there and link it, so nothing is drafted twice">Already in Xero</button>
+        )}
       </div>
     );
   }
