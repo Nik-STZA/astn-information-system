@@ -48,6 +48,8 @@ For each checklist line, answer pass or fail with a one-sentence note naming the
 - should fix: other AI-writing patterns, house style, missing technology line, weak "why it matters";
 - note: preference.
 
+Ignore the HTML comment that marks the editor's note as a draft for Nik: it is deliberate, and the publish gate makes sure it is removed. Review the note's text as written.
+
 Be specific and complete, but do not invent problems: if a line passes, say so. Check every sentence of any summary, context or editor's note section against the items: each fact there must appear in an item in this brief.`;
 
 const SCHEMA = {

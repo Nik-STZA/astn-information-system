@@ -779,18 +779,20 @@ function thinBriefError(itemIds, allowShort) {
 
 // Publish gates (PUBLISH_GATES=on; needs migrations 069, 072, 073). Checked
 // inside the publishing transaction, against the brief exactly as it stands:
+//  0. the editor's note is no longer the editor's draft (Nik removed the marker);
 //  1. every item in the markdown has a source link;
 //  2. the reviewer's latest result for this exact text is 'pass';
 //  3. every item the brief uses has a latest verifier decision of 'pass'
 //     (a recorded override counts: it is a 'pass' row with rule 'override').
 // Returns a list of reasons; empty means the brief may go out.
-const { itemsMissingLinks } = require("./server-lib-brief-checks");
+const { itemsMissingLinks, hasDraftNote } = require("./server-lib-brief-checks");
 function publishGatesOn() {
   return String(process.env.PUBLISH_GATES || "").toLowerCase() === "on";
 }
 async function publishGateErrors(client, briefId, markdown, itemIds) {
   if (!publishGatesOn()) return [];
   const reasons = [];
+  if (hasDraftNote(markdown)) reasons.push("The editor's note is still the editor's draft: rewrite or approve it and delete the draft line.");
   const missing = itemsMissingLinks(markdown);
   if (missing.length) reasons.push(`${missing.length} item(s) have no source link: ${missing.slice(0, 3).join("; ")}`);
 

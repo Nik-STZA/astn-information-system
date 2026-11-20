@@ -122,9 +122,15 @@ function codeChecks(md) {
   return { findings: f, brief };
 }
 
+// The editor drafts the editor's note for Nik and marks it with this
+// comment. Nik deletes it when he has rewritten or approved the note; the
+// publish gate refuses a brief that still carries it.
+const DRAFT_NOTE_MARKER = "<!-- draft: editor's note for Nik to rewrite or approve; delete this line when done -->";
+const hasDraftNote = (md) => String(md || "").includes("<!-- draft: editor's note");
+
 /** True when the item headings carry links: used by the publish gate. */
 function itemsMissingLinks(md) {
   return parseBrief(md).items.filter((it) => !it.links.length && !isQuickHits(it.section)).map((it) => it.heading);
 }
 
-module.exports = { markdownHash, parseBrief, codeChecks, itemsMissingLinks, ambiguousNames, AMBIGUOUS, AI_WORDS };
+module.exports = { markdownHash, parseBrief, codeChecks, itemsMissingLinks, ambiguousNames, AMBIGUOUS, AI_WORDS, DRAFT_NOTE_MARKER, hasDraftNote };
