@@ -18,6 +18,7 @@
 //     "drive_path": ["Client", "Payroll", "{yymm}"],
 //     "roles": { "<emp code>": "director" | "direct" | "intercompany" },
 //     "contractors": [ { "code": "C1", "contact_id": "<supplier's Xero ContactID>", "name_word": "<a word of the person's name on the bill line>" } ],
+//     "layers": { "<project>": { "name": "...", "capitalise": true|false, "from": "YYYY-MM", "why": "..." } },
 //     "alloc": { "period": "YYYY-MM", "shares": { "<emp code or contractor code>": { "<project>": percent } } } }
 //
 // A contractor's name_word never leaves this computer: it is fingerprinted
@@ -64,6 +65,7 @@ function check(f) {
   for (const [c, r] of Object.entries(f.roles ?? {})) if (!pay.ROLES.includes(r)) issues.push(`employee ${c}: ${r} is not a role`);
   if (!f.drive_id && !f.drive_from_vat) issues.push("drive_id or drive_from_vat is needed");
   if (f.alloc && !/^\d{4}-(0[1-9]|1[0-2])$/.test(f.alloc.period ?? "")) issues.push("alloc.period must be YYYY-MM");
+  if (f.layers) issues.push(...pay.layersShapeIssues(f.layers, f.projects ?? []));
   for (const c of f.contractors ?? []) {
     if (!con.CODE.test(String(c.code ?? ""))) issues.push(`${c.code} is not a contractor code (C1, C2, ...)`);
     if (con.wordsOf(c.name_word).length !== 1) issues.push(`contractor ${c.code}: name_word must be one word of the name as the bill shows it`);
@@ -115,6 +117,7 @@ async function main() {
 
     console.log(`${client.name}: payroll in ${payrollE.name}${contractedE ? `, intercompany staff costed in ${contractedE.name}` : ""}`);
     console.log(`  accounts: ${Object.entries(f.accounts).map(([g, a]) => `${g} ${Object.keys(a).length}`).join(", ")}; projects ${f.projects.join(", ")}`);
+    if (f.layers) console.log(`  layers: ${Object.entries(f.layers).map(([p, r]) => `${p}${r.capitalise === false ? " (never)" : r.from ? ` (from ${r.from})` : ""}`).join(", ")}`);
     console.log(`  working file: shared drive ${driveId}, ${f.drive_path.join(" / ")}`);
     const heldRoles = Object.fromEntries((await db.query("SELECT emp_code, role FROM finance.payroll_roles WHERE client_id = $1", [client.id])).rows.map((r) => [r.emp_code, r.role]));
     const roleChanges = Object.entries(f.roles).filter(([c, r]) => heldRoles[c] !== r);
@@ -138,7 +141,8 @@ async function main() {
       run = (await db.query("SELECT id, figures, alloc_confirmed_at FROM finance.payroll_runs WHERE client_id = $1 AND period = $2 AND superseded_at IS NULL", [client.id, f.alloc.period])).rows[0];
       if (!run) console.log(`  shares for ${f.alloc.period}: not set, as that month's report is not uploaded yet. Upload it, then run this again.`);
       else {
-        const ai = allocIssues(f.alloc.shares, f.projects, [...run.figures.map((e) => e.emp_code), ...(f.contractors ?? []).map((c) => c.code)]);
+        const ai = [...allocIssues(f.alloc.shares, f.projects, [...run.figures.map((e) => e.emp_code), ...(f.contractors ?? []).map((c) => c.code)]),
+          ...pay.layerIssues(f.alloc.shares, f.layers, f.alloc.period)];
         if (ai.length) throw new Error(ai.join("\n"));
         if (run.alloc_confirmed_at) { console.log(`  shares for ${f.alloc.period}: already confirmed on the page, left alone`); run = null; }
         else console.log(`  shares for ${f.alloc.period}: ${Object.keys(f.alloc.shares).length} employee(s), for the CFO to confirm on the Payroll page`);
@@ -155,6 +159,7 @@ async function main() {
          updated_by = EXCLUDED.updated_by, updated_at = now()`,
       [client.id, payrollE.id, contractedE?.id ?? null, JSON.stringify(f.accounts), f.projects, driveId, JSON.stringify(f.drive_path), by]);
     if (contractors) await db.query("UPDATE finance.payroll_settings SET contractors = $2 WHERE client_id = $1", [client.id, JSON.stringify(contractors)]);
+    if (f.layers) await db.query("UPDATE finance.payroll_settings SET layers = $2 WHERE client_id = $1", [client.id, JSON.stringify(f.layers)]);
     for (const [c, r] of roleChanges) {
       await db.query(
         `INSERT INTO finance.payroll_roles (client_id, emp_code, role, set_by) VALUES ($1,$2,$3,$4)
