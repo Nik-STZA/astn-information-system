@@ -699,6 +699,14 @@ app.post("/api/content/linkedin-drafts/:id/publish", async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "A newer draft replaced this one - approve the latest draft" });
     }
+    // Approving the post publishes a draft brief, so the thin-week guard applies.
+    if (draft.brief_status === "draft") {
+      const thin = thinBriefError(draft.item_ids, req.body && req.body.allow_short);
+      if (thin) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: thin });
+      }
+    }
 
     const text = typeof req.body.edited_text === "string" ? req.body.edited_text : null;
     const { rows: approved } = await client.query(
@@ -751,6 +759,19 @@ app.post("/api/content/linkedin-drafts/:id/publish", async (req, res) => {
   res.json(result);
 });
 
+// Thin-week guard (africanstn-editorial section 4: publish a shorter issue or
+// combine two weeks; never publish an empty brief). Public briefs with 0 or 1
+// items went out on 20 Aug and 17 Sep 2026. Returns an error message, or null.
+const MIN_BRIEF_ITEMS = 3;
+function thinBriefError(itemIds, allowShort) {
+  const n = Array.isArray(itemIds) ? itemIds.length : 0;
+  if (n === 0) return "This brief has no items. An empty brief is never published.";
+  if (n < MIN_BRIEF_ITEMS && allowShort !== true) {
+    return `This brief has ${n} item${n === 1 ? "" : "s"}. Combine it with next week's, or publish it as a short issue (allow_short).`;
+  }
+  return null;
+}
+
 // Rebuilds africanstn.com after an edition is published.
 async function triggerSiteRebuild() {
   const hook = (process.env.NETLIFY_BUILD_HOOK || "").trim();
@@ -790,6 +811,11 @@ app.post("/api/content/briefs/:id/publish", async (req, res) => {
     if (brief.open_posts > 0) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "This brief has a LinkedIn post: publish it by approving the post on the LinkedIn page" });
+    }
+    const thin = thinBriefError(brief.item_ids, req.body && req.body.allow_short);
+    if (thin) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: thin });
     }
     await client.query(
       `UPDATE weekly_reports SET status = 'published', published_at = NOW() WHERE id = $1 AND status = 'draft'`,
