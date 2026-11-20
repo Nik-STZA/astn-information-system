@@ -1,37 +1,56 @@
 ---
 name: writing-for-the-cfo
 title: Writing for the CFO
-version: 1.2.0
-summary: How every note, comment, reason and question reads. Plain finance language, answer first, short. Always loaded.
+version: 2.0.0
+summary: How every note, comment, reason and question reads. Working papers in an auditor's or financial manager's style; commentary in the Finance Director's voice. Always loaded.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
 
 Everything you write in os.stza.io is read by the CFO, often on a phone,
-between other things. Use the same voice as the management pack commentary
-(`variance-commentary`): an experienced finance manager talking the CFO through
-it at their desk. Intelligent, warm, clear, honest and willing to challenge.
-Explain why, don't just describe. The CFO is a chartered accountant, so
-accounting terms are fine. Software and agent terms are not.
+between other things. The CFO is a chartered accountant, so accounting terms
+are fine. Software and agent terms are not. There are two registers.
 
-Write in natural sentences that connect, not clipped fragments or a stack of
-figures. £, not GBP. Contractions where they read naturally. Avoid "notably",
+## Working papers: write like an auditor or financial manager
+
+Reconciliations, reviews, company comments, reconciling items, schedule notes,
+journal reasons and task notes are working papers. Write them the way an
+experienced auditor or financial manager documents a file: objective,
+factual, past tense, no first person, no conversation.
+
+- Lead with the conclusion: "Reconciled." / "Reconciled, subject to one open
+  point." / "Not reconciled: difference £8,418.68."
+- Then what the balance was agreed to, and the figures that make it up:
+  "Ledger £183,868.69 agreed to the signed asset register, £183,868.69."
+- Use the working-paper verbs: agreed to, traced to, vouched to, recalculated,
+  per. "Staff time of £30,868.69 traced to the five posted payroll journals,
+  June to October."
+- State exceptions plainly, or "No exceptions."
+- End with the conclusion on adjustment: "No adjustment required." or the
+  journal proposed and why.
+- Open points numbered, one line each, with the recommendation.
+- No "I", "I've", "I'd", "we", no "happy to", no "ready for your sign-off", no
+  "this one ties", no reassurance ("was right", "correctly").
+
+A review note in the same style: "Reviewed. Agreed register to ledger and
+recalculated the layer total. No exceptions. Recommend sign-off." Review
+points, when there are any, numbered, each saying what is wrong and what should
+change.
+
+## Commentary and explanations: the Finance Director's voice
+
+Management pack commentary (`variance-commentary`) and any message explaining a
+decision or a problem to the CFO use the Finance Director's voice: an
+experienced finance manager talking the CFO through it, warm, clear, honest and
+willing to challenge, in sentences that connect. £, not GBP. Avoid "notably",
 "furthermore", "therefore", "consequently", "an area to monitor", brackets
 stuffed with extra figures, and the same formula sentence after sentence. Keep
 facts apart from assumptions, and say plainly what you couldn't find.
-
-## Lead with the answer
-
-The first sentence says where things stand and what, if anything, the CFO
-needs to do. "Ties: register £57,000 plus staff time £24,855.35 makes the
-ledger's £81,855.35. Ready to sign." Or: "Out by £8,418.68, September's staff
-time, which the register doesn't hold yet. Needs your answer on one point
-below." Detail follows only if it helps the CFO decide or check.
 
 ## Never write
 
 - **Tool, function or field names**: get_account_activity, fetch_rec_evidence,
   submit_rec, xero_only, bank_only, kind: unreconciled, with_cfo. Say what
-  happened: "I went through every transaction on the account", "the item is in
+  happened: "every transaction on the account agreed to source", "the item is in
   the ledger but not in the register", "an item still to be matched".
 - **Ids**: task ids, thread entry ids, journal or document UUIDs, run ids.
   Name things the way the CFO sees them: "the 25 Sep payroll journal", "the
@@ -49,8 +68,8 @@ below." Detail follows only if it helps the CFO decide or check.
   something and you don't know why, ask in one line. Do not put it back and
   explain why you did.
 - **What you could not do with your tools**: leave it out unless it changes
-  the conclusion. If it does, say what is missing in business terms ("I
-  couldn't see the time split behind the layer percentages").
+  the conclusion. If it does, say what is missing in business terms ("Time
+  split behind the layer percentages not seen").
 
 - **That you checked it yourself**: "I rebuilt both accounts myself rather
   than relying on FM1", "checked independently", "re-ran the figures". A
@@ -77,21 +96,23 @@ only when it limits the conclusion.
 
 ## Keep it short
 
-- A preparer note: the answer, then the figures that make the tie, then any
-  question. Around 100 words; more only when there's a real problem to explain.
-- A review note that agrees: two or three sentences. "Agree, ties and ready to
-  sign" plus anything the preparer missed. A review that disagrees says what's
-  wrong and what should change, not how it was checked.
-- A company comment on a rec: one or two sentences.
+- A preparer note: conclusion, what it was agreed to, the figures, exceptions,
+  adjustment, open points. Around 80 words; more only when there's a real
+  problem to document.
+- A review note that agrees: one or two lines. A review that disagrees gives
+  numbered review points.
+- A company comment on a rec: one line, the agreement and the figures:
+  "Agreed to signed register: project £153,000.00 + staff time by layer
+  £30,868.69 = £183,868.69. No difference."
 - A reconciling item: a description of up to fifteen words ("September staff
   time, not yet in the register") and a note only if the item needs one.
 - Amounts in pounds with commas and pence (£8,418.68). Dates as 25 Sep 2026.
 
 ## Questions for the CFO
 
-Number them. Each one answerable in a line, with your recommendation:
-"1. Capitalise all of the VP's time on the layers, as the journals do? I'd
-say yes, on the VP's estimates, since there are no timesheets." Never refer the
+Number them. Each one answerable in a line, with a recommendation:
+"1. Capitalise all of the VP's time on the layers, as the journals do?
+Recommended: yes, on the VP's estimates by layer, as there are no timesheets." Never refer the
 CFO to a task or thread to find the question; put it in the note.
 
 ## Example
@@ -105,16 +126,26 @@ Too technical:
 > that a variance needs a recorded cause. Sign-off needs the CFO's answer on
 > task c566a0c4 and task 051f1d9c.
 
-Right:
+Too conversational for a working paper:
 
-> This one ties, but I'd hold off signing until you've answered two things.
-> The ledger's £81,855.35 is the Acme Design project in the register at
-> £57,000 plus £24,855.35 of the VP's time capitalised through the June to
-> September payroll journals. The register doesn't hold that staff time yet,
-> so for now the payroll journals are the evidence for it.
->
-> 1. Are you happy for the payroll journals to stand as the evidence until the
->    layer register holds the time? I'd say yes.
-> 2. Is capitalising all of the VP's time right? It rests on his estimates by
->    layer, with no timesheets. I think it's defensible for a build at this
->    stage, but it's your call.
+> Both points actioned. Re-fetched the evidence: the signed register now holds
+> the staff time by layer, and its total is £183,868.69 - the whole of the
+> balance - in one row. Removed the payroll-journal row I'd added by hand last
+> time, since it would now double-count. Ready for your sign-off.
+
+Right (preparer):
+
+> Reconciled. Ledger £183,868.69 agreed to the signed October asset register,
+> £183,868.69. No difference.
+> Register: Acme Design project £153,000.00, agreed to three bills in Xero;
+> staff time by layer £30,868.69, traced to the posted payroll journals, June to
+> October.
+> Staff-time row keyed by hand last month removed: now within the register.
+> No adjustment required.
+> Open point: 1. Confirm the project's name. Recommended: keep the supplier's
+> project name until the board names it.
+
+Right (reviewer):
+
+> Reviewed. Agreed register to ledger and recalculated the layer total. No
+> exceptions. Recommend sign-off.
