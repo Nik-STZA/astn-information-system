@@ -31,9 +31,47 @@ function commentaryText(v) {
   const keys = [...ORDER.filter((k) => k in v), ...Object.keys(v).filter((k) => !ORDER.includes(k))];
   return keys.map((k) => [headingOf(k), commentaryText(v[k])].filter((x) => String(x ?? "").trim()).join("\n")).filter(Boolean).join("\n\n");
 }
+// Text saved as UTF-8 read back as Latin-1 ("Â£64,208.48", 20 Nov 2026: every
+// pound sign in two FP&A drafts). Put right only when that is what it is: the
+// text is all single-byte characters and reads cleanly as UTF-8.
+function unmangle(s) {
+  if (typeof s !== "string" || !/[Â-ô][\u0080-¿]/.test(s) || /[^\u0000-ÿ]/.test(s)) return s;
+  const fixed = Buffer.from(s, "latin1").toString("utf8");
+  return fixed.includes("�") ? s : fixed;
+}
+const deep = (v, f) => (typeof v === "string" ? f(v) : Array.isArray(v) ? v.map((x) => deep(x, f))
+  : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x, f)])) : v);
+
+// The highlights file as the pack reads it (the board pack and the workbook):
+// commentary one text; variance_comments { label: text }; actions [{ priority,
+// owner, action }]; risks [{ title, description }]. A draft in another shape
+// FP&A has used is put into this one, wording unchanged.
 function normalise(h) {
-  if (!h || typeof h !== "object" || Array.isArray(h) || !("commentary" in h) || typeof h.commentary === "string" || h.commentary == null) return h;
-  return { ...h, commentary: commentaryText(h.commentary) };
+  if (!h || typeof h !== "object" || Array.isArray(h)) return h;
+  const x = deep(h, unmangle);
+  if ("commentary" in x && x.commentary != null && typeof x.commentary !== "string") x.commentary = commentaryText(x.commentary);
+  if (Array.isArray(x.variance_comments)) {
+    const out = {};
+    for (const [i, v] of x.variance_comments.entries()) {
+      if (typeof v === "string") { out[`Comment ${i + 1}`] = v; continue; }
+      const label = [v?.entity, v?.account].filter(Boolean).join(" ") || v?.label || `Comment ${i + 1}`;
+      let key = label;
+      for (let n = 2; key in out; n++) key = `${label} (${n})`;
+      out[key] = String(v?.explanation ?? v?.comment ?? v?.text ?? "");
+    }
+    x.variance_comments = out;
+  } else if (x.variance_comments && typeof x.variance_comments === "object") {
+    x.variance_comments = Object.fromEntries(Object.entries(x.variance_comments).map(([k, v]) => [k, typeof v === "string" ? v : commentaryText(v?.explanation ?? v)]));
+  }
+  if (Array.isArray(x.actions)) {
+    x.actions = x.actions.map((a) => (typeof a === "string" ? { priority: "", owner: "", action: a }
+      : { ...a, action: a?.action ?? a?.title ?? a?.description ?? "" }));
+  }
+  if (Array.isArray(x.risks)) {
+    x.risks = x.risks.map((r) => (typeof r === "string" ? { title: r, description: "" }
+      : { ...r, title: r?.title ?? r?.risk ?? "", description: r?.description ?? r?.impact ?? r?.detail ?? "" }));
+  }
+  return x;
 }
 
 // The text fields of a highlights file, by section, each with its path. The

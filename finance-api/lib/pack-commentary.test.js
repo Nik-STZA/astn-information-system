@@ -93,3 +93,21 @@ describe("commentary given as sections", () => {
     expect(normalise({ commentary: "Already text." }).commentary).toBe("Already text.");
   });
 });
+
+describe("a draft in another shape", () => {
+  const { normalise } = require("./pack-commentary");
+  it("puts pound signs read as Latin-1 right, and leaves good text alone", () => {
+    expect(normalise({ commentary: "Pay HMRC the \u00c2\u00a364,208.48" }).commentary).toBe("Pay HMRC the £64,208.48");
+    expect(normalise({ commentary: "Already £10 and caf\u00e9" }).commentary).toBe("Already £10 and café");
+  });
+  it("gives variance comments, actions and risks the shape the pack reads", () => {
+    const n = normalise({
+      variance_comments: [{ entity: "FSL", account: "Consulting", explanation: "New supplier." }, { entity: "FSL", account: "Consulting", explanation: "Second." }],
+      actions: ["Pay HMRC.", { owner: "CFO", priority: "P1", title: "Decide treatment." }],
+      risks: ["Arrears.", { risk: "Dormant account", impact: "Blocks accounts." }],
+    });
+    expect(n.variance_comments).toEqual({ "FSL Consulting": "New supplier.", "FSL Consulting (2)": "Second." });
+    expect(n.actions.map((a) => a.action)).toEqual(["Pay HMRC.", "Decide treatment."]);
+    expect(n.risks.map((r) => [r.title, r.description])).toEqual([["Arrears.", ""], ["Dormant account", "Blocks accounts."]]);
+  });
+});
