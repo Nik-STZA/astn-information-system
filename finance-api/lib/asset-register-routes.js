@@ -358,7 +358,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
   // ── The month's intake from Xero ───────────────────────────────────────────
   //
   // POST .../asset-register/intake   { grouping, period: YYYY-MM, dry_run (default true),
-  //   rules: [{ account_code, when_counterpart_code, belongs_to }], hints: [{ invoice_no, slices }], accounts?: [code] }
+  //   rules: [{ account_code, when_counterpart_code, belongs_to }], hints: [{ invoice_no, slices }], accounts?: [code], opening_lines?: true }
   // Every line Xero posted in the month to an account the grouping uses becomes
   // a proposed cost line, once (a line already held is skipped). The CFO only.
 
@@ -411,7 +411,18 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     // months without re-proposing the other accounts' workbook lines).
     const only = Array.isArray(b.accounts) && b.accounts.length ? new Set(b.accounts.map(String)) : null;
     if (only && ![...only].every((c) => map.some((m) => String(m.account_code) === c))) return res.status(422).json({ issues: [`accounts must be codes this grouping uses: ${[...new Set(map.map((m) => m.account_code))].join(", ")}`] });
-    const intakeMap = only ? map.filter((m) => only.has(String(m.account_code))) : map;
+    let intakeMap = only ? map.filter((m) => only.has(String(m.account_code))) : map;
+    // opening_lines: lines dated before the register's start, taken into the
+    // opening (staff time a paused grouping held as one named amount, now put
+    // on its assets). Only for named accounts, and only while the opening is
+    // reopened, so a signed opening never changes underneath its signature.
+    if (b.opening_lines === true) {
+      if (!only) return res.status(422).json({ issues: ["opening_lines needs accounts: the codes whose earlier lines go into the opening"] });
+      const op = (await pool.query("SELECT period, status FROM finance.asset_register_periods WHERE client_id = $1 AND grouping = $2 AND snapshot->>'kind' = 'opening_import'", [client.id, grouping])).rows[0];
+      if (!op || op.status === "signed") return res.status(409).json({ error: "Reopen the opening first: lines before the register's start go into it." });
+      if (b.period > op.period) return res.status(422).json({ issues: [`opening_lines is for months up to the opening (${op.period})`] });
+      intakeMap = intakeMap.map((m) => ({ ...m, effective_from: "0001-01-01" }));
+    }
     // A Xero line is held while a line for it is proposed, approved or
     // rejected. Once withdrawn (with a split's original, superseded), it is
     // taken in again as it now stands in Xero.
