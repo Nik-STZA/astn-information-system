@@ -2069,6 +2069,21 @@ app.post("/api/finance/clients/:slug/report-runs", route(async (req, res) => {
     [client.id, report, period, STALE_RUNNING_MINUTES, STALE_QUEUED_HOURS]
   );
 
+  // One pack build per client at a time, whatever the month: every build of a
+  // year rewrites the same shared data tabs, and two at once (September and
+  // October, 0.3s apart on 20 Nov 2026) left tabs holding every account twice.
+  const busy = (await pool.query(
+    `SELECT period FROM finance.report_runs
+      WHERE client_id = $1 AND report = $2 AND period <> $3
+        AND ((status = 'running' AND started_at >= now() - make_interval(mins => $4))
+          OR (status = 'queued'  AND queued_at  >= now() - make_interval(hours => $5)))
+      LIMIT 1`,
+    [client.id, report, period, STALE_RUNNING_MINUTES, STALE_QUEUED_HOURS]
+  )).rows[0];
+  if (busy) {
+    return res.status(409).json({ error: `The ${busy.period} pack is still building. Build one month at a time: start this one when it has finished.`, building: busy.period });
+  }
+
   // A cloud client's run is never offered to the laptop runner: it is created
   // already running, because /report-runs/claim only takes queued rows and the
   // Cloud Run Job is handed its run id directly rather than claiming one.
