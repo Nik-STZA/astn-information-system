@@ -398,7 +398,6 @@ function Evidence({ slug, data, ev, preparing, busy, send }: { slug: string; dat
           ))}
           {ev.method === "vat_return" && <span> · <Link className={styles.link} href={`/finance/clients/${encodeURIComponent(slug)}/vat`}>Open the VAT returns</Link></span>}
           {ev.method === "accrual_schedule" && <span> · <Link className={styles.link} href={`/finance/clients/${encodeURIComponent(slug)}/accruals?period=${data.rec.period}`}>Open the accruals</Link></span>}
-          {ev.method === "payroll_capitalisation" && <span> · <Link className={styles.link} href={`/finance/clients/${encodeURIComponent(slug)}/payroll?period=${data.rec.period}`}>Open the payroll</Link></span>}
         </span>
       </div>
       {ev.method === "counterpart" && (

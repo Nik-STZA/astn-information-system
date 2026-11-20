@@ -1,43 +1,46 @@
 import { describe, expect, it } from "vitest";
-const { payrollCapEvidence, capitalisedTotal } = require("./rec-payroll-evidence");
+const { staffTimeEvidence, capitalisedTotal, MARK } = require("./rec-payroll-evidence");
 
-const bal = { entity_id: "udl", entity_name: "Alpha Ltd", opening: 100000, closing: 112000 };
-const cap = { entity_id: "udl", account_code: "789", found: true, confirmed: true, total: 12000, by_project: { P1: 9000, P2: 3000, P3: 0 },
-  journals: [{ jnl: "JNL-70", kind: "capdev", state: "posted" }] };
-const base = { period: "2026-10", date: "2026-10-31" };
+// Made-up figures in the shape of the October 2026 tie: last month signed the
+// register at 57,000.00 against a ledger of 81,855.35; this month's payroll
+// capitalised 6,013.34; the register now signs 153,000.00 and the ledger holds
+// 183,868.69. Staff time = 24,855.35 + 6,013.34 = 30,868.69, the difference.
+const balance = { entity_id: "a", entity_name: "Alpha Ltd", opening: 81855.35, closing: 183868.69 };
+const cap = { found: true, confirmed: true, issues: [], total: 6013.34, by_project: { P1: 1202.67, P2: 3608.01, P3: 601.33, P4: 601.33, P5: 0 },
+  journals: [{ jnl: "JNL-70", state: "posted" }] };
+const first = { period: "2026-09", signed: true, evidence: [{ entity_id: "a", amount: "57000.00", document_ref: null }] };
+const base = { balance, cap, period: "2026-10", date: "2026-10-31" };
 
-describe("capitalised development from payroll", () => {
-  it("rolls last month's signed figure forward by the month's capitalisation", () => {
-    const out = payrollCapEvidence({ ...base, balances: [bal], cap, prior: { signed: true, period: "2026-09", by_entity: { udl: 100000 } } });
-    expect(out.rows).toEqual([{ entity_id: "udl", amount: 112000,
-      source: "Signed 2026-09 figure 100,000.00 plus 2026-10 payroll capitalisation 12,000.00 at 2026-10-31",
-      note: "By project: P1 9,000.00, P2 3,000.00. Journals: JNL-70 posted in Xero." }]);
-    expect(out.said[0]).toMatch(/which ties/);
+describe("staff time capitalised through payroll", () => {
+  it("starts from last month's balance less what was signed for it, and ties the register's difference", () => {
+    const { row, said } = staffTimeEvidence({ ...base, prior: first });
+    expect(row.amount).toBe(30868.69);
+    expect(row.amount + 153000).toBe(183868.69);
+    expect(row.document_ref).toBe(MARK);
+    expect(row.note).toMatch(/^Starting figure: the 2026-09 balance 81,855.35 less the 57,000.00 signed for it then\./);
+    expect(row.note).toMatch(/P1 1,202.67, P2 3,608.01, P3 601.33, P4 601.33\. Journals: JNL-70 posted in Xero\./);
+    expect(said[0]).toMatch(/\(starting figure\)/);
   });
-  it("uses the ledger's opening when last month is not signed, and says so", () => {
-    const out = payrollCapEvidence({ ...base, balances: [{ ...bal, closing: 112500 }], cap, prior: null });
-    expect(out.rows[0].amount).toBe(112000);
-    expect(out.rows[0].note).toMatch(/not signed, so the ledger's opening balance is used/);
-    expect(out.said[0]).toMatch(/500.00 more: other postings to the account to explain/);
+  it("rolls last month's signed staff-time row forward after that", () => {
+    const prior = { period: "2026-10", signed: true, evidence: [{ entity_id: "a", amount: "153000.00" }, { entity_id: "a", amount: "30868.69", document_ref: MARK }] };
+    const { row } = staffTimeEvidence({ ...base, balance: { ...balance, opening: 183868.69 }, cap: { ...cap, total: 5000 }, prior, period: "2026-11", date: "2026-11-30" });
+    expect(row.amount).toBe(35868.69);
+    expect(row.note).not.toMatch(/Starting figure/);
   });
-  it("takes nothing until the month is loaded and its shares confirmed", () => {
-    expect(payrollCapEvidence({ ...base, balances: [bal], cap: { ...cap, found: false } }).rows).toEqual([]);
-    const out = payrollCapEvidence({ ...base, balances: [bal], cap: { ...cap, confirmed: false } });
-    expect(out.rows).toEqual([]);
-    expect(out.said[0]).toMatch(/not confirmed yet/);
-    expect(payrollCapEvidence({ ...base, balances: [bal], cap: { ...cap, issues: ["employee code 14 has no role"] } }).said[0]).toMatch(/cannot be worked out yet \(employee code 14 has no role\)/);
-  });
-  it("takes nothing for another company, or with no payroll set up", () => {
-    expect(payrollCapEvidence({ ...base, balances: [{ ...bal, entity_id: "fgh" }], cap }).rows).toEqual([]);
-    expect(payrollCapEvidence({ ...base, balances: [bal], cap: null }).said[0]).toMatch(/not set up/);
+  it("takes nothing until payroll is loaded, confirmed and clean, or while last month is unsigned", () => {
+    expect(staffTimeEvidence({ ...base, cap: { ...cap, found: false }, prior: first }).row).toBeNull();
+    expect(staffTimeEvidence({ ...base, cap: { ...cap, confirmed: false }, prior: first }).said[0]).toMatch(/not confirmed yet/);
+    expect(staffTimeEvidence({ ...base, cap: { ...cap, issues: ["employee code 14 has no role"] }, prior: first }).said[0]).toMatch(/\(employee code 14 has no role\)/);
+    expect(staffTimeEvidence({ ...base, prior: { ...first, signed: false } }).said[0]).toMatch(/not signed/);
+    expect(staffTimeEvidence({ ...base, prior: null }).row).toBeNull();
   });
   it("adds the account's lines of the staff and contractor capitalisation journals only", () => {
     const journals = [
-      { kind: "capdev", entity: "udl", lines: [{ account_code: "789", amount: 9000.1 }, { account_code: "789", amount: 3000 }, { account_code: "464", amount: -12000.1 }] },
-      { kind: "capdev_contractor", entity: "udl", lines: [{ account_code: "789", amount: 500.25 }, { account_code: "466", amount: -500.25 }] },
-      { kind: "capdev_other", entity: "fgh", lines: [{ account_code: "789", amount: 1 }] },
-      { kind: "payroll", entity: "udl", lines: [{ account_code: "789", amount: 7 }] },
+      { kind: "capdev", entity: "a", lines: [{ account_code: "789", amount: 9000.1 }, { account_code: "789", amount: 3000 }, { account_code: "464", amount: -12000.1 }] },
+      { kind: "capdev_contractor", entity: "a", lines: [{ account_code: "789", amount: 500.25 }, { account_code: "466", amount: -500.25 }] },
+      { kind: "capdev_other", entity: "b", lines: [{ account_code: "789", amount: 1 }] },
+      { kind: "payroll", entity: "a", lines: [{ account_code: "789", amount: 7 }] },
     ];
-    expect(capitalisedTotal(journals, { entity: "udl", accountCode: "789" })).toBe(12500.35);
+    expect(capitalisedTotal(journals, { entity: "a", accountCode: "789" })).toBe(12500.35);
   });
 });

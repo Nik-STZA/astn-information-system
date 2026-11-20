@@ -135,7 +135,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
             -- Read through jsonb so a database without migration 034 still answers.
             COALESCE((to_jsonb(a)->>'releases_on')::boolean, false) AS releases_on,
             to_jsonb(a)->>'releases_by' AS releases_by, to_jsonb(a)->>'releases_at' AS releases_at,
-            to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id, to_jsonb(a)->>'evidence_method' AS evidence_method
+            to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id
        FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
       WHERE r.id = $1 AND r.client_id = $2 ${lock ? "FOR UPDATE OF r" : ""}`, [id, clientId])).rows[0];
 
@@ -250,7 +250,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
         pool.query(
           `SELECT r.id, r.rec_account_id, r.period, r.status, r.owner, r.challenge, r.class, r.artefact, r.proof, r.recheck_reason,
                   r.sole_reviewer, r.signed_snapshot, r.line_key, a.account_name,
-                  to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id, to_jsonb(a)->>'evidence_method' AS evidence_method,
+                  to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id,
                   COALESCE(json_agg(json_build_object('entity_id', b.entity_id, 'closing', b.closing, 'code', b.account_code, 'currency', b.currency)) FILTER (WHERE b.rec_id IS NOT NULL), '[]') AS balances
              FROM finance.recs r
              JOIN finance.rec_accounts a ON a.id = r.rec_account_id
@@ -408,7 +408,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       if (!["42P01", "42703", "23514"].includes(e?.code)) out.carry_error = String(e.message || e).slice(0, 300);
     }
     const due = (await pool.query(
-      `SELECT r.id, r.line_key, a.account_name, to_jsonb(a)->>'evidence_method' AS evidence_method FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
+      `SELECT r.id, r.line_key, a.account_name FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
         WHERE r.client_id = $1 AND r.period = $2 AND r.dropped_at IS NULL AND r.status IN ('not_started', 'in_progress', 'sent_back')`,
       [who.client.id, period])).rows.filter((r) => recs.OWN_METHODS.includes(recs.autoMethod(r)));
     for (const r of due) {
@@ -1832,25 +1832,6 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           note: "Net of VAT; each item reverses on the 1st of the next month." });
         said.push(`${names.get(b.entity_id)}: ${mine.length} item${mine.length === 1 ? "" : "s"} on the accruals schedule, ${money(p)} in all.`);
       }
-    } else if (method === "payroll_capitalisation") {
-      // The capitalisation account from payroll (migration 068,
-      // lib/rec-payroll-evidence.js): last month's signed figure plus the
-      // month's capitalisation by project.
-      const cap = payrollCapitalised ? await payrollCapitalised(who.client.id, rec.period) : null;
-      // Last month's figure as signed (its snapshot), never the evidence since.
-      const prev = (await pool.query(
-        "SELECT status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2 AND dropped_at IS NULL",
-        [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
-      let prior = null;
-      const signedEv = prev?.status === "signed_off" ? (prev.signed_snapshot?.evidence ?? []) : [];
-      if (signedEv.length) {
-        const by = {};
-        for (const v of signedEv) by[v.entity_id] = recs.pounds((recs.pence(by[v.entity_id] ?? 0)) + recs.pence(v.amount));
-        prior = { signed: true, period: recs.priorPeriod(rec.period), by_entity: by };
-      }
-      const ev = payrollEvidence.payrollCapEvidence({ balances: balances.map((b) => ({ ...b, entity_name: names.get(b.entity_id) })), cap, prior, period: rec.period, date });
-      rows.push(...ev.rows);
-      said.push(...ev.said);
     } else if (method === "vat_return") {
       // The VAT returns kept in os.stza.io (lib/vat-evidence.js): every return
       // of the client's registrations ending by the month end, with each
@@ -1941,6 +1922,21 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
           said.push(x.said);
         } catch (err) {
           said.push(`${e?.name ?? "A company"}: Xero's fixed asset register could not be read (${String(err.message || err).slice(0, 200)}). Nothing was taken for it.`);
+        }
+      }
+      // Staff time capitalised through payroll on the same account, beside the
+      // register's figure (lib/rec-payroll-evidence.js, CFO 20 Nov 2026).
+      const cap = payrollCapitalised ? await payrollCapitalised(who.client.id, rec.period) : null;
+      const capped = cap ? balances.filter((b) => b.entity_id === cap.entity_id && String(b.account_code) === cap.account_code) : [];
+      if (capped.length) {
+        const prev = (await pool.query(
+          "SELECT status, signed_snapshot FROM finance.recs WHERE rec_account_id = $1 AND period = $2 AND dropped_at IS NULL",
+          [rec.rec_account_id, recs.priorPeriod(rec.period)])).rows[0];
+        const prior = prev ? { period: recs.priorPeriod(rec.period), signed: prev.status === "signed_off", evidence: prev.signed_snapshot?.evidence ?? [] } : null;
+        for (const b of capped) {
+          const st = payrollEvidence.staffTimeEvidence({ balance: { ...b, entity_name: names.get(b.entity_id) }, cap, prior, period: rec.period, date });
+          if (st.row) rows.push(st.row);
+          said.push(...st.said);
         }
       }
     } else if (method === "carry_forward") {
@@ -2035,7 +2031,7 @@ function mountRecs(app, { route, pool, audit, clientIdFromSlug, xeroEntityContex
       [client.id])).rows.map((r) => r.subject_key));
     const rows = (await conn.query(
       `SELECT r.*, r.period_end::text AS period_end, a.account_name, a.account_key,
-              to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id, to_jsonb(a)->>'evidence_method' AS evidence_method,
+              to_jsonb(a)->>'counterpart_account_id' AS counterpart_account_id,
               EXISTS (SELECT 1 FROM finance.agent_runs x WHERE x.rec_id = r.id AND x.status IN ('queued', 'running')
                         AND x.queued_at > now() - interval '45 minutes') AS live
          FROM finance.recs r JOIN finance.rec_accounts a ON a.id = r.rec_account_id
