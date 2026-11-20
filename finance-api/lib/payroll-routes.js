@@ -152,7 +152,7 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
   function preview(run, settings, roles) {
     const out = pay.payrollJournals({
       employees: run.figures, roles, alloc: run.alloc, period: run.period, payDate: run.pay_date, contractors: contractorCosts(run, settings),
-      settings: settings ? { payroll_entity: settings.payroll_entity, contracted_entity: settings.contracted_entity, accounts: settings.accounts, projects: settings.projects } : null,
+      settings: settings ? { payroll_entity: settings.payroll_entity, contracted_entity: settings.contracted_entity, accounts: settings.accounts, projects: settings.projects, layers: settings.layers } : null,
     });
     const [payroll, contracted] = out.journals;
     const kinds = [];
@@ -228,18 +228,20 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     }
     const projects = Array.isArray(b.projects) ? b.projects.map(String) : [];
     for (const p of projects) if (!pay.PROJECT.test(p)) issues.push(`${p} is not a project code (letters and digits, up to 8)`);
+    const layers = b.layers ?? {};
+    issues.push(...pay.layersShapeIssues(layers, projects));
     const drivePath = Array.isArray(b.drive_path) ? b.drive_path.map(String) : [];
     if (b.drive_id != null && !/^[A-Za-z0-9_-]{5,100}$/.test(String(b.drive_id))) issues.push("drive_id is not a shared drive id");
     if (issues.length) return res.status(422).json({ issues });
     await pool.query(
-      `INSERT INTO finance.payroll_settings (client_id, payroll_entity_id, contracted_entity_id, accounts, projects, drive_id, drive_path, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO finance.payroll_settings (client_id, payroll_entity_id, contracted_entity_id, accounts, projects, drive_id, drive_path, updated_by, layers)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (client_id) DO UPDATE SET payroll_entity_id = EXCLUDED.payroll_entity_id, contracted_entity_id = EXCLUDED.contracted_entity_id,
          accounts = EXCLUDED.accounts, projects = EXCLUDED.projects, drive_id = EXCLUDED.drive_id, drive_path = EXCLUDED.drive_path,
-         updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [client.id, payrollId, contractedId, JSON.stringify(accounts), projects, b.drive_id ?? null, JSON.stringify(drivePath), who.actorEmail]);
+         layers = EXCLUDED.layers, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [client.id, payrollId, contractedId, JSON.stringify(accounts), projects, b.drive_id ?? null, JSON.stringify(drivePath), who.actorEmail, JSON.stringify(layers)]);
     await audit(pool, { actorEmail: who.actorEmail, actorRole: who.role, action: "payroll_settings_set", targetType: "client", targetId: client.id, clientId: client.id,
-      payload: { payroll_entity: b.payroll_entity, contracted_entity: b.contracted_entity ?? null, accounts, projects, drive_path: drivePath }, ip: req.get("X-Forwarded-For") || req.ip });
+      payload: { payroll_entity: b.payroll_entity, contracted_entity: b.contracted_entity ?? null, accounts, projects, layers, drive_path: drivePath }, ip: req.get("X-Forwarded-For") || req.ip });
     res.json({ ok: true });
   }));
 
@@ -351,7 +353,8 @@ function mountPayroll(app, { route, pool, audit, clientIdFromSlug, viaInput, sta
     const alloc = req.body?.alloc ?? run.alloc;
     const note = String(req.body?.note ?? "").trim();
     const contractors = contractorCosts(run, settings);
-    const issues = allocIssues(alloc, settings?.projects ?? [], [...run.figures.map((e) => e.emp_code), ...contractors.map((c) => c.code)]);
+    const issues = [...allocIssues(alloc, settings?.projects ?? [], [...run.figures.map((e) => e.emp_code), ...contractors.map((c) => c.code)]),
+      ...pay.layerIssues(alloc, settings?.layers, run.period)];
     for (const c of contractors) {
       if (!Object.values(alloc?.[c.code] ?? {}).some((v) => Number(v) > 0)) continue;
       if (c.cost == null) issues.push(`contractor ${c.code}: read the month's bills from Xero before confirming a share`);

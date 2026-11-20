@@ -117,3 +117,36 @@ describe("the month's journals", () => {
     expect(carryForward({ 11: { P1: 50 }, 99: { P2: 10 } }, employees)).toEqual({ 11: { P1: 50 }, 12: {}, 13: {} });
   });
 });
+
+describe("layer rules", () => {
+  const { layerIssues, layersShapeIssues } = require("./payroll");
+  const layers = {
+    H1: { name: "Hardware", capitalise: false, why: "tangible, kept in the hardware register" },
+    S1: { name: "Surface", from: "2026-11", why: "until the IP transfers" },
+    A1: { name: "Application" },
+  };
+  it("refuses a share on a layer never capitalised to the software account", () => {
+    expect(layerIssues({ 12: { H1: 10, A1: 5 } }, layers, "2026-10")).toEqual(["12: H1 Hardware is not capitalised to the software account (tangible, kept in the hardware register)"]);
+  });
+  it("refuses a share before the layer's first month, and allows it from then", () => {
+    expect(layerIssues({ C1: { S1: 20 } }, layers, "2026-10")).toEqual(["C1: S1 Surface cannot be capitalised before 2026-11 (until the IP transfers)"]);
+    expect(layerIssues({ C1: { S1: 20 } }, layers, "2026-11")).toEqual([]);
+  });
+  it("ignores nil shares and layers with no rule", () => {
+    expect(layerIssues({ 12: { H1: 0, A1: 50, Z9: 5 } }, layers, "2026-10")).toEqual([]);
+    expect(layerIssues({ 12: { H1: 10 } }, undefined, "2026-10")).toEqual([]);
+  });
+  it("checks the rules as set", () => {
+    expect(layersShapeIssues(layers, ["H1", "S1", "A1"])).toEqual([]);
+    expect(layersShapeIssues({ X1: { capitalise: "no", from: "Nov" } }, ["H1"])).toEqual([
+      "layers: X1 is not a project", "layers.X1.capitalise must be true or false", "layers.X1.from must be YYYY-MM",
+    ]);
+    expect(layersShapeIssues([], [])).toEqual(["layers must be { project: { name, capitalise, from, why } }"]);
+  });
+  it("shows a share against the rules as an issue on the month's journals", () => {
+    const employees = [{ emp_code: "12", basic: 1000, er_nic: 100, er_pension: 30, bonus: 0, pay_bill: 1130, tax: 200, ee_nic: 80, net_pay: 700, ee_pension: 20 }];
+    const out = payrollJournals({ employees, roles: { 12: "intercompany" }, alloc: { 12: { H1: 10 } }, period: "2026-10", payDate: "2026-10-23",
+      settings: { payroll_entity: "a", contracted_entity: "b", accounts: {}, projects: ["H1", "S1", "A1"], layers } });
+    expect(out.issues).toContain("12: H1 Hardware is not capitalised to the software account (tangible, kept in the hardware register)");
+  });
+});

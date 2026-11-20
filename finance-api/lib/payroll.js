@@ -239,11 +239,50 @@ function payrollJournals({ employees, roles, alloc = {}, settings, period, payDa
     };
   }
 
+  allocIssues.push(...layerIssues(alloc, settings?.layers, period));
   const journals = [payroll, contracted].filter(Boolean);
   return {
     journals, capdev, capdev_contractor: capdevContractor,
     issues: [...issues, ...allocIssues, ...journals.flatMap((j) => j.issues), ...(capdev?.issues ?? []), ...(capdevContractor?.issues ?? [])],
   };
+}
+
+// The layer rules (CFO, 20 Nov 2026): which projects may be capitalised to
+// the software account, and from when. layers: { code: { name, capitalise,
+// from, why } }. capitalise false: never to the software account (a tangible
+// memo layer, e.g. hardware). from YYYY-MM: not before that month (e.g. until
+// the IP transfers). A project with no rule is allowed. Only shares above nil
+// are checked. Returns issues naming the layer.
+function layerIssues(alloc, layers, period) {
+  const out = [];
+  for (const [who, shares] of Object.entries(alloc ?? {})) {
+    for (const [p, v] of Object.entries(shares ?? {})) {
+      if (!(Number(v) > 0)) continue;
+      const r = layers?.[p];
+      if (!r) continue;
+      const label = r.name ? `${p} ${r.name}` : p;
+      const why = r.why ? ` (${r.why})` : "";
+      if (r.capitalise === false) out.push(`${who}: ${label} is not capitalised to the software account${why}`);
+      else if (r.from && period < r.from) out.push(`${who}: ${label} cannot be capitalised before ${r.from}${why}`);
+    }
+  }
+  return out;
+}
+
+// The layer rules as set: each a project, with a name, capitalise true or
+// false, from YYYY-MM, and why. Returns issues.
+function layersShapeIssues(layers, projects) {
+  if (!layers || typeof layers !== "object" || Array.isArray(layers)) return ["layers must be { project: { name, capitalise, from, why } }"];
+  const out = [];
+  for (const [p, r] of Object.entries(layers)) {
+    if (!projects.includes(p)) out.push(`layers: ${p} is not a project`);
+    if (!r || typeof r !== "object" || Array.isArray(r)) { out.push(`layers.${p} must be { name, capitalise, from, why }`); continue; }
+    if (r.name != null && (typeof r.name !== "string" || r.name.length > 80)) out.push(`layers.${p}.name must be text up to 80 characters`);
+    if (r.capitalise != null && typeof r.capitalise !== "boolean") out.push(`layers.${p}.capitalise must be true or false`);
+    if (r.from != null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(r.from))) out.push(`layers.${p}.from must be YYYY-MM`);
+    if (r.why != null && (typeof r.why !== "string" || r.why.length > 200)) out.push(`layers.${p}.why must be text up to 200 characters`);
+  }
+  return out;
 }
 
 // Last month's percentages proposed for this month: the same people, the same
@@ -252,4 +291,4 @@ function carryForward(previous, employees) {
   return Object.fromEntries(employees.map((e) => [e.emp_code, { ...(previous?.[e.emp_code] ?? {}) }]));
 }
 
-module.exports = { CODE, FIGURES, ROLES, readSalaryReport, rolesIssues, payrollJournals, carryForward, PROJECT };
+module.exports = { CODE, FIGURES, ROLES, readSalaryReport, rolesIssues, payrollJournals, carryForward, layerIssues, layersShapeIssues, PROJECT };
