@@ -1,6 +1,6 @@
 -- 068: the capitalised development account reconciled from payroll (CFO, 20 Nov 2026).
 --
--- Software WIP (Feldspar's 789) is staff and contractor time capitalised by
+-- Software WIP (a client's capitalised development account) is staff and contractor time capitalised by
 -- project each month, worked out in os.stza.io's payroll (065, 066). The asset
 -- register cannot prove it while the Software grouping is paused, so the rec's
 -- evidence is the roll-forward: last month's signed figure, plus this month's
