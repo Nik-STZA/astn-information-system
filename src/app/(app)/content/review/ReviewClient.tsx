@@ -573,6 +573,14 @@ export default function ReviewClient({
                     </td>
                     <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "var(--tx)", lineHeight: 1.35 }}>
                       {item.title ?? "Untitled"}
+                      {item.related_count ? (
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "var(--sub)", whiteSpace: "nowrap" }}>
+                          +{item.related_count} related
+                        </span>
+                      ) : null}
+                      {item.scope_reason ? (
+                        <div style={{ marginTop: 3, fontSize: 11.5, fontWeight: 400, color: "var(--sub)" }}>{item.scope_reason}</div>
+                      ) : null}
                     </td>
                     <td style={{ padding: "9px 14px", fontSize: 11.5, color: "var(--sub)", whiteSpace: "nowrap" }}>
                       {item.source_name ?? "—"} ·{" "}

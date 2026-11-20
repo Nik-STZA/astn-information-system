@@ -4,8 +4,10 @@
  * minutes to hours:
  *
  *   node scripts/scope-check-job.js submit
- *     Picks pending_review items that the rule screen kept and that have no
- *     scope_check decision yet, submits one batch and prints its id.
+ *     First rule-screens any pending item not screened yet (items from the
+ *     research agent's digest skip the API ingester), then picks pending_review
+ *     items the rule screen kept that have no scope_check decision yet,
+ *     submits one batch and prints its id.
  *
  *   node scripts/scope-check-job.js collect <batch-id>
  *     Waits for the batch, writes one item_screen_decisions row per item
@@ -35,7 +37,49 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
 });
 
+// Rule-screen every pending item that has no rule_screen decision yet,
+// whichever path it came in by. Most items arrive through the research
+// agent's digest, which writes classified_items directly and never passes the
+// API ingester's screen, so the job screens them here.
+async function screenPending() {
+  const ruleScreen = require("../server-lib-rule-screen");
+  const { rows: items } = await pool.query(
+    `SELECT ci.id, ci.title, ci.summary, ci.translated_text, ci.source_name,
+            COALESCE(ci.url, ci.source_url) AS url
+       FROM classified_items ci
+      WHERE ci.status = 'pending_review'
+        AND NOT EXISTS (SELECT 1 FROM item_screen_decisions rs
+                         WHERE rs.item_id = ci.id AND rs.step = 'rule_screen')`
+  );
+  if (!items.length) return;
+  const { rows: orgs } = await pool.query(
+    `SELECT astn_id, organization_name, organization_website FROM organizations`
+  );
+  const { rows: srcRows } = await pool.query(
+    `SELECT source_name FROM content_sources WHERE lens = 'africa-sport-business'`
+  );
+  const { screen } = ruleScreen.buildScreen(orgs, { africaSportSources: srcRows.map((r) => r.source_name) });
+  let archived = 0;
+  for (const it of items) {
+    const v = screen(it);
+    await pool.query(
+      `INSERT INTO item_screen_decisions (item_id, step, decision, rule, reason, detail, source_url, version)
+       VALUES ($1, 'rule_screen', $2, $3, $4, $5, $6, $7)`,
+      [it.id, v.keep ? "keep" : "archive", v.rule, v.reason, JSON.stringify(v.matches), it.url, ruleScreen.SCREEN_VERSION]
+    );
+    if (!v.keep) {
+      await pool.query(
+        `UPDATE classified_items SET status = 'archived', updated_at = now() WHERE id = $1 AND status = 'pending_review'`,
+        [it.id]
+      );
+      archived++;
+    }
+  }
+  console.log(`Rule screen: ${items.length} unscreened pending items, ${archived} archived.`);
+}
+
 async function submit() {
+  await screenPending();
   const { rows } = await pool.query(
     `SELECT ci.id, ci.title, ci.summary, ci.translated_text, ci.source_name
        FROM classified_items ci

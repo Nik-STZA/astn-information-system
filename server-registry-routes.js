@@ -311,6 +311,22 @@ app.get("/api/news/recent", async (req, res) => {
 
 // ─── News review queue (editorial gate — replaces the Notion review loop) ──
 
+function isScreenedQueue() {
+  return String(process.env.SCREENED_QUEUE || "").toLowerCase() === "on";
+}
+// Only items the scope check kept; duplicates were archived by the dedup step,
+// so each remaining item leads its story.
+const SCREENED_FILTER = `
+         AND EXISTS (SELECT 1 FROM item_screen_decisions sc
+                      WHERE sc.item_id = c.id AND sc.step = 'scope_check' AND sc.decision = 'keep')`;
+const SCREENED_COLUMNS = `
+              (SELECT sc.reason FROM item_screen_decisions sc
+                WHERE sc.item_id = c.id AND sc.step = 'scope_check'
+                ORDER BY sc.created_at DESC LIMIT 1) AS scope_reason,
+              COALESCE((SELECT jsonb_array_length(d.detail->'duplicate_ids') FROM item_screen_decisions d
+                WHERE d.item_id = c.id AND d.step = 'dedup' AND d.decision = 'keep'
+                ORDER BY d.created_at DESC LIMIT 1), 0) AS related_count,`;
+
 app.get("/api/news/review-queue", async (req, res) => {
   try {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "25", 10)));
@@ -326,16 +342,23 @@ app.get("/api/news/review-queue", async (req, res) => {
     const orderBy = req.query.sort === "relevance"
       ? "relevance_score DESC NULLS LAST, created_at DESC"
       : "created_at DESC";
+    // SCREENED_QUEUE=on (needs migration 069 and the scope-check job): the
+    // pending queue shows only items the scope check kept, one per story, with
+    // the number of related items folded under it. ?screened=0 shows the raw
+    // queue. Approved/rejected views are unaffected.
+    const screened = isScreenedQueue() && status === "pending_review" && req.query.screened !== "0";
     const params = [status, minScore, days, limit, offset];
     const { rows } = await pool.query(
       `SELECT id, title, summary, source_name, source_url, url, category, region,
               relevance_score, confidence, verticals, original_language, created_at, status,
+              ${screened ? SCREENED_COLUMNS : "NULL::text AS scope_reason, 0 AS related_count,"}
               count(*) OVER()::int AS __total
-       FROM classified_items
+       FROM classified_items c
        WHERE status = $1 AND (is_duplicate IS NOT TRUE)
          AND ($2::float = 0 OR relevance_score >= $2::float)
          AND ($3::int = 0 OR created_at >= NOW() - ($3::int || ' days')::interval)
          AND id NOT IN (SELECT unnest(item_ids) FROM weekly_reports WHERE item_ids IS NOT NULL)
+         ${screened ? SCREENED_FILTER : ""}
        ORDER BY ${orderBy}
        LIMIT $4 OFFSET $5`,
       params
@@ -350,14 +373,18 @@ app.get("/api/news/review-queue", async (req, res) => {
 
 app.get("/api/news/review-stats", async (_req, res) => {
   try {
+    // With SCREENED_QUEUE=on the pending counts match what the queue shows.
+    const pendingWhere = isScreenedQueue()
+      ? `status = 'pending_review' AND is_duplicate IS NOT TRUE ${SCREENED_FILTER}`
+      : `status = 'pending_review' AND is_duplicate IS NOT TRUE`;
     const { rows } = await pool.query(`
       SELECT
-        count(*) FILTER (WHERE status = 'pending_review' AND is_duplicate IS NOT TRUE)::int AS pending,
+        count(*) FILTER (WHERE ${pendingWhere})::int AS pending,
         count(*) FILTER (WHERE status = 'approved')::int AS approved,
         count(*) FILTER (WHERE status = 'rejected')::int AS rejected,
-        count(*) FILTER (WHERE status = 'pending_review' AND is_duplicate IS NOT TRUE
+        count(*) FILTER (WHERE ${pendingWhere}
                          AND created_at >= NOW() - INTERVAL '7 days')::int AS pending_this_week
-      FROM classified_items
+      FROM classified_items c
     `);
     res.json(rows[0]);
   } catch (err) {
