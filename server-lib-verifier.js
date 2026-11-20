@@ -39,17 +39,8 @@ function weekBounds(weekEnding) {
   return { start, endExclusive, label: `${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}` };
 }
 
-// ─── Ambiguous place names (africanstn-editorial section 3) ───────────────
-const AMBIGUOUS = [
-  { name: "Congo", re: /(?<!Republic of (the )?|DR |Democratic Republic of (the )?)\bCongo\b(?![- ]?(Brazzaville|Kinshasa))/i,
-    advice: "Say Republic of Congo (Congo-Brazzaville) or DR Congo." },
-  { name: "Guinea", re: /(?<!Equatorial |Papua New )\bGuinea\b(?!-Bissau)/i,
-    advice: "Check it is Guinea, not Guinea-Bissau or Equatorial Guinea, and say so if the source is unclear." },
-  { name: "Sudan", re: /(?<!South )\bSudan\b/i, advice: "Check it is Sudan, not South Sudan." },
-];
-function ambiguousNames(text) {
-  return AMBIGUOUS.filter((a) => a.re.test(text)).map(({ name, advice }) => ({ name, advice }));
-}
+// Ambiguous place names (africanstn-editorial section 3): shared list.
+const { ambiguousNames } = require("./server-lib-brief-checks");
 
 // ─── Related items (the story cluster) ────────────────────────────────────
 const STOP = new Set("about after again against their there these those which while would could should african africa sport sports football league first years million billion with from that this have will into over more than under".split(" "));

@@ -679,7 +679,7 @@ app.post("/api/content/linkedin-drafts/:id/publish", async (req, res) => {
   try {
     await client.query("BEGIN");
     const { rows: found } = await client.query(
-      `SELECT d.id, d.status, d.brief_id, w.status AS brief_status, w.item_ids, w.week_ending
+      `SELECT d.id, d.status, d.brief_id, w.status AS brief_status, w.item_ids, w.week_ending, w.report_markdown
          FROM linkedin_drafts d
          LEFT JOIN weekly_reports w ON w.id = d.brief_id
         WHERE d.id = $1
@@ -705,6 +705,11 @@ app.post("/api/content/linkedin-drafts/:id/publish", async (req, res) => {
       if (thin) {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: thin });
+      }
+      const gates = await publishGateErrors(client, draft.brief_id, draft.report_markdown, draft.item_ids);
+      if (gates.length) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: `Not published: ${gates.join(" ")}`, gates });
       }
     }
 
@@ -772,6 +777,66 @@ function thinBriefError(itemIds, allowShort) {
   return null;
 }
 
+// Publish gates (PUBLISH_GATES=on; needs migrations 069, 072, 073). Checked
+// inside the publishing transaction, against the brief exactly as it stands:
+//  1. every item in the markdown has a source link;
+//  2. the reviewer's latest result for this exact text is 'pass';
+//  3. every item the brief uses has a latest verifier decision of 'pass'
+//     (a recorded override counts: it is a 'pass' row with rule 'override').
+// Returns a list of reasons; empty means the brief may go out.
+const { itemsMissingLinks } = require("./server-lib-brief-checks");
+function publishGatesOn() {
+  return String(process.env.PUBLISH_GATES || "").toLowerCase() === "on";
+}
+async function publishGateErrors(client, briefId, markdown, itemIds) {
+  if (!publishGatesOn()) return [];
+  const reasons = [];
+  const missing = itemsMissingLinks(markdown);
+  if (missing.length) reasons.push(`${missing.length} item(s) have no source link: ${missing.slice(0, 3).join("; ")}`);
+
+  const { rows: rev } = await client.query(
+    `SELECT result FROM brief_checks
+      WHERE brief_id = $1 AND step = 'reviewer' AND markdown_hash = md5($2)
+      ORDER BY created_at DESC LIMIT 1`,
+    [briefId, markdown || ""]
+  );
+  if (!rev.length) reasons.push("The reviewer has not checked this version of the brief.");
+  else if (rev[0].result !== "pass") reasons.push("The reviewer failed this version of the brief.");
+
+  if (Array.isArray(itemIds) && itemIds.length) {
+    const { rows: unverified } = await client.query(
+      `SELECT x.id FROM unnest($1::uuid[]) AS x(id)
+        WHERE COALESCE((SELECT d.decision FROM item_screen_decisions d
+                         WHERE d.item_id = x.id AND d.step = 'verify'
+                         ORDER BY d.created_at DESC LIMIT 1), 'none') <> 'pass'`,
+      [itemIds]
+    );
+    if (unverified.length) reasons.push(`${unverified.length} item(s) have not passed the verifier and have no recorded override.`);
+  }
+  return reasons;
+}
+
+// Records Nik's decision to run an item the verifier failed or could not
+// verify. Kept as its own 'verify' row, so the original verdict stays on record.
+app.post("/api/content/items/:id/verify-override", async (req, res) => {
+  try {
+    const reason = String((req.body && req.body.reason) || "").trim();
+    if (reason.length < 10) return res.status(400).json({ error: "Give a reason of at least 10 characters." });
+    const { rows } = await pool.query(
+      `INSERT INTO item_screen_decisions (item_id, step, decision, rule, reason, detail, source_url, version)
+       SELECT id, 'verify', 'pass', 'override', $2, jsonb_build_object('by', $3::text), COALESCE(url, source_url), 'override'
+         FROM classified_items WHERE id = $1
+       RETURNING id`,
+      [req.params.id, reason, (req.body && req.body.by) || "editor"]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Item not found" });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /api/content/items/:id/verify-override error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Rebuilds africanstn.com after an edition is published.
 async function triggerSiteRebuild() {
   const hook = (process.env.NETLIFY_BUILD_HOOK || "").trim();
@@ -794,7 +859,7 @@ app.post("/api/content/briefs/:id/publish", async (req, res) => {
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `SELECT w.id, w.status, w.item_ids, w.week_ending,
+      `SELECT w.id, w.status, w.item_ids, w.week_ending, w.report_markdown,
               (SELECT count(*)::int FROM linkedin_drafts d WHERE d.brief_id = w.id AND d.status IN ('draft', 'approved')) AS open_posts
          FROM weekly_reports w WHERE w.id = $1 FOR UPDATE`,
       [req.params.id]
@@ -816,6 +881,11 @@ app.post("/api/content/briefs/:id/publish", async (req, res) => {
     if (thin) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: thin });
+    }
+    const gates = await publishGateErrors(client, brief.id, brief.report_markdown, brief.item_ids);
+    if (gates.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: `Not published: ${gates.join(" ")}`, gates });
     }
     await client.query(
       `UPDATE weekly_reports SET status = 'published', published_at = NOW() WHERE id = $1 AND status = 'draft'`,

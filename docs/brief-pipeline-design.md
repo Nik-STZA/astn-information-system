@@ -16,8 +16,8 @@ The standard every step serves is `africanstn-editorial` (scope, writing, templa
 | 6 | Nik reviews the queue | Human | Exists; 16 stories for w/e 19 November once screened |
 | 7 | Verifier | Claude Opus 5.5 with fetched sources and web search | Built, `VERIFY` (`scripts/verify-job.js`) |
 | 8 | Editor | Claude Opus 5.5 | Designed here |
-| 9 | Independent reviewer | Claude Opus 5.5, fresh context | Designed here |
-| 10 | Approval and publish | Human sign-off, code gates | Partly exists; gates designed here |
+| 9 | Independent reviewer | Code checks and Claude Opus 5.5, fresh context | Built, `REVIEW` (`scripts/review-job.js`) |
+| 10 | Approval and publish | Human sign-off, code gates | Sign-off exists; gates built, `PUBLISH_GATES` |
 | 11 | Newsletter draft | Claude Opus 5.5 | Designed here |
 
 Each step reads records and writes records. No step reads another step's transcript or reasoning.
