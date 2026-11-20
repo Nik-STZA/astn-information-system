@@ -19,7 +19,7 @@
 const Anthropic = require("@anthropic-ai/sdk");
 
 const SCOPE_MODEL = process.env.SCOPE_MODEL || "claude-haiku-5-5";
-const SCOPE_VERSION = "scope-check-1";
+const SCOPE_VERSION = "scope-check-2";
 
 // Frozen: any change here invalidates the prompt cache and the evaluation.
 // Bump SCOPE_VERSION whenever it changes.
@@ -31,7 +31,9 @@ For each item, answer three separate yes/no questions, then give a one-line reas
 
 2. sport: Is the story about sport? Sport includes professional and grassroots sport, esports, sports media and broadcasting, sports venues, sports betting as an industry, fitness and the sports technology industry. No for general technology, fintech, telecoms, payments, AI, start-up funding or creative industries with no sport in them, and for video games that are not esports.
 
-3. business: Is it about a deal, funding round, investment, broadcast or media rights, sponsorship, partnership, product or platform launch, regulation or policy, government budget, infrastructure (stadiums, venues, facilities), technology adoption, a hosting bid, governance or a leadership change at an organisation, or market data? No for match results, previews, predictions, line-ups, player transfers and transfer rumours, contracts of individual players, injuries, disciplinary cases and bans, coaching appointments of teams, fixtures and kick-off times, betting tips and promotions, opinion about on-field performance, and personal stories of athletes. A result, transfer or ban is a yes only if the item states a commercial or technology consequence (for example, a ban that voids a sponsorship, or a transfer fee that funds a stadium).
+3. business: Is it about a deal, funding round, investment, broadcast or media rights, sponsorship, partnership, product or platform launch, regulation or policy, government budget, infrastructure (stadiums, venues, facilities), technology adoption, a hosting bid, governance or a leadership change at an organisation, or market data? No for match results, previews, predictions, line-ups, player transfers and transfer rumours, contracts of individual players, injuries, disciplinary cases and bans, coaching appointments of teams, fixtures and kick-off times, TV schedules and "where to watch" listings (which channel or stream shows a match is not a rights deal; a rights deal names who bought rights, for what, and for how long), betting tips and promotions, opinion about on-field performance, and personal stories of athletes. A result, transfer or ban is a yes only if the item states a commercial or technology consequence (for example, a ban that voids a sponsorship, or a transfer fee that funds a stadium).
+
+An esports or sports event with a named organiser, host city, venue or sponsor (a tournament launch, a hosting announcement, a festival) is a yes: events are part of the sports business. A routine fixture in an existing league or competition is not.
 
 in_scope is true only when all three answers are yes.
 
@@ -44,6 +46,8 @@ Examples (illustrative, not from the items you will see):
 - "Premier League agrees new US broadcast deal" -> africa no, sport yes, business yes. Reason: Global sport rights deal with no African link.
 - "Moroccan federation adopts video assistant referee system for top league" -> africa yes, sport yes, business yes. Reason: Technology adoption (VAR) by Morocco's federation.
 - "Striker joins Saudi club on two-year contract" -> africa no or yes depending on the player, sport yes, business no. Reason: Player transfer, out of scope.
+- "Ghana v Sudan: which channel and what time to watch the qualifier" -> africa yes, sport yes, business no. Reason: TV listing for a match, not a rights deal.
+- "Accra to host a regional esports championship with a telecom sponsor in March" -> africa yes, sport yes, business yes. Reason: Esports event hosting with a named sponsor in Ghana.
 - "Kenya allocates KSh2bn to upgrade three stadiums ahead of AFCON 2027" -> africa yes, sport yes, business yes. Reason: Government infrastructure spending on stadiums for AFCON 2027.
 - "Club board approves electronic voting and a plan to create a football company open to investors" -> africa yes (if the club is African), sport yes, business yes. Reason: Governance and investment structure change, with e-voting technology.`;
 

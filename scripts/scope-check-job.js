@@ -12,6 +12,10 @@
  *     (step 'scope_check'), and archives the out-of-scope items. Archiving is
  *     reversible: set status back to 'pending_review'.
  *
+ *   node scripts/scope-check-job.js dedup
+ *     Groups the in-scope pending items into stories (one Haiku call) and
+ *     archives all but the lead of each story, recording which lead.
+ *
  * Does nothing unless SCOPE_CHECK=on. Needs migration 069, DB_* env vars and
  * ANTHROPIC_API_KEY (Secret Manager: anthropic-api-key). Never publishes.
  */
@@ -69,11 +73,51 @@ async function collect(batchId) {
   console.log(`Batch ${batchId}: ${kept} kept for review, ${archived} archived as out of scope.`);
 }
 
+// Group in-scope pending items into stories; mark all but the lead of each
+// story as a duplicate (archived, reversible), recording the lead's id.
+async function dedup() {
+  const { clusterStories, CLUSTER_VERSION } = require("../server-lib-story-cluster");
+  const { rows: items } = await pool.query(
+    `SELECT ci.id, ci.title, ci.summary, ci.translated_text, ci.source_name, COALESCE(ci.url, ci.source_url) AS url
+       FROM classified_items ci
+       JOIN item_screen_decisions sc
+         ON sc.item_id = ci.id AND sc.step = 'scope_check' AND sc.decision = 'keep'
+      WHERE ci.status = 'pending_review'
+        AND NOT EXISTS (SELECT 1 FROM item_screen_decisions d WHERE d.item_id = ci.id AND d.step = 'dedup')`
+  );
+  const { rows: srcRows } = await pool.query(
+    `SELECT source_name FROM content_sources WHERE lens = 'africa-sport-business'`
+  );
+  const { stories } = await clusterStories(items, { preferredSources: srcRows.map((r) => r.source_name) });
+  let dupes = 0;
+  for (const s of stories) {
+    await pool.query(
+      `INSERT INTO item_screen_decisions (item_id, step, decision, rule, reason, detail, source_url, version)
+       VALUES ($1, 'dedup', 'keep', 'story_lead', $2, $3, $4, $5)`,
+      [s.lead.id, `Lead of story: ${s.label}`, JSON.stringify({ duplicate_ids: s.duplicates.map((d) => d.id) }), s.lead.url, CLUSTER_VERSION]
+    );
+    for (const d of s.duplicates) {
+      await pool.query(
+        `INSERT INTO item_screen_decisions (item_id, step, decision, rule, reason, detail, source_url, version)
+         VALUES ($1, 'dedup', 'archive', 'same_story', $2, $3, $4, $5)`,
+        [d.id, `Same story as "${s.lead.title}".`, JSON.stringify({ lead_id: s.lead.id }), d.url, CLUSTER_VERSION]
+      );
+      await pool.query(
+        `UPDATE classified_items SET status = 'archived', updated_at = now() WHERE id = $1 AND status = 'pending_review'`,
+        [d.id]
+      );
+      dupes++;
+    }
+  }
+  console.log(`${items.length} in-scope items -> ${stories.length} stories (${dupes} duplicates archived).`);
+}
+
 (async () => {
   const [cmd, arg] = process.argv.slice(2);
   if (cmd === "submit") await submit();
   else if (cmd === "collect" && arg) await collect(arg);
-  else throw new Error("Usage: scope-check-job.js submit | collect <batch-id>");
+  else if (cmd === "dedup") await dedup();
+  else throw new Error("Usage: scope-check-job.js submit | collect <batch-id> | dedup");
 })()
   .catch((e) => { console.error("ERR", e.message); process.exitCode = 1; })
   .finally(() => pool.end());

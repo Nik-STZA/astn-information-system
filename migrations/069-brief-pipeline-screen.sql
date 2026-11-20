@@ -5,7 +5,8 @@
 -- 1. content_sources.lens: what each source is for, so the screen can treat a
 --    specialist Africa sport-business outlet differently from a broad feed.
 -- 2. item_screen_decisions: one structured record per item per pipeline step
---    (rule screen now; scope check and importance later). Steps pass records,
+--    (rule screen, scope check, dedup; importance later). A 'dedup' archive
+--    means "same story as detail.lead_id", so the lead can list its duplicates. Steps pass records,
 --    not transcripts. Archiving is reversible: the item keeps its row and the
 --    decision says why it was archived.
 
@@ -24,7 +25,7 @@ UPDATE content_sources SET lens = 'africa-sport-business'
 CREATE TABLE IF NOT EXISTS item_screen_decisions (
     id              BIGSERIAL PRIMARY KEY,
     item_id         UUID NOT NULL REFERENCES classified_items(id) ON DELETE CASCADE,
-    step            TEXT NOT NULL CHECK (step IN ('rule_screen', 'scope_check', 'importance')),
+    step            TEXT NOT NULL CHECK (step IN ('rule_screen', 'scope_check', 'dedup', 'importance')),
     decision        TEXT NOT NULL CHECK (decision IN ('keep', 'archive')),
     rule            TEXT,               -- which rule kept it, or NULL when archived
     reason          TEXT NOT NULL,      -- one line, human-readable

@@ -119,6 +119,20 @@ function costOf(usage) {
     return;
   }
 
-  console.error("Usage: node scripts/eval-scope-check.js <data-dir> sample|submit|collect [arg]");
+  if (cmd === "cluster") {
+    const { clusterStories } = require("../server-lib-story-cluster");
+    const ids = new Set(fs.readFileSync(path.join(dir, "scope-pending-survivors.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).id));
+    const items = pending.filter((p) => ids.has(p.id));
+    const { stories, usage } = await clusterStories(items, { preferredSources: ["Business of Sports Africa", "Esports Africa News"] });
+    console.log(`${items.length} in-scope items -> ${stories.length} stories\n`);
+    for (const s of stories) {
+      console.log(`* ${s.label}\n    lead: [${s.lead.source_name}] ${s.lead.title.slice(0, 90)}`);
+      for (const d of s.duplicates) console.log(`    dup:  [${d.source_name}] ${d.title.slice(0, 90)}`);
+    }
+    console.log(`\nCost: $${(costOf(usage) * 2).toFixed(4)} (synchronous call, no batch discount)`);
+    return;
+  }
+
+  console.error("Usage: node scripts/eval-scope-check.js <data-dir> sample|submit|collect|cluster [arg]");
   process.exit(1);
 })().catch((e) => { console.error("ERR", e.message); process.exit(1); });
