@@ -94,7 +94,7 @@ function mountPackCommentary(app, { route, pool, audit, clientIdFromSlug, viaInp
     const part = (r) => (r ? { status: r.status, version: r.version, updated_by: r.updated_by, updated_at: r.updated_at, approved_by: r.approved_by, approved_at: r.approved_at } : null);
     res.json({
       period, label: recs.periodLabel(period),
-      highlights: h ? { ...part(h), sections: pc.sections(h.content), notes: pc.styleNotes(h.content), content: h.content } : null,
+      highlights: h ? { ...part(h), sections: pc.sections(h.content), notes: pc.styleNotes(h.content), content: pc.normalise(h.content) } : null,
       dashboard: d ? { ...part(d), content: d.content } : null,
       pack: pc.readyForPack(rows),
       versions,
@@ -112,7 +112,7 @@ function mountPackCommentary(app, { route, pool, audit, clientIdFromSlug, viaInp
     const of = (kind) => rows.find((r) => r.kind === kind);
     res.json({
       period: req.params.period, ready: true,
-      highlights: of("highlights").content, highlights_version: of("highlights").version,
+      highlights: pc.normalise(of("highlights").content), highlights_version: of("highlights").version,
       dashboard: of("dashboard")?.content ?? null, dashboard_version: of("dashboard")?.version ?? null,
     });
   }));
@@ -123,6 +123,7 @@ function mountPackCommentary(app, { route, pool, audit, clientIdFromSlug, viaInp
     if (!who) return;
     const b = req.body || {};
     if (!recs.isPeriod(b.period)) return res.status(422).json({ issues: ["period must be a month (YYYY-MM)"] });
+    if (b.kind === "highlights") b.content = pc.normalise(b.content);
     const issues = pc.contentIssues(b.kind, b.content);
     if (issues.length) return res.status(422).json({ issues });
     const client = await clientIdFromSlug(req.params.slug);

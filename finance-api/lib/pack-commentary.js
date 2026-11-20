@@ -18,10 +18,66 @@ const KINDS = ["highlights", "dashboard"];
 const MAX_TEXT = 20000;
 const MAX_BYTES = 2_000_000;
 
+// The month's commentary is one text: the pack writes it into one cell and one
+// slide. A draft that gives it as sections ({ executive_overview: "...",
+// operating_costs: "..." }, 20 Nov 2026: the page would not load) is turned
+// into one text, each section under its heading, in the standard's order.
+const ORDER = ["executive_overview", "revenue_and_trading", "ebitda_and_profitability", "operating_costs", "balance_sheet_and_investment", "cash_and_funding"];
+const headingOf = (k) => { const t = String(k).replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
+function commentaryText(v) {
+  if (typeof v === "string" || v == null) return v;
+  if (Array.isArray(v)) return v.map(commentaryText).filter((x) => String(x ?? "").trim()).join("\n\n");
+  if (typeof v !== "object") return String(v);
+  const keys = [...ORDER.filter((k) => k in v), ...Object.keys(v).filter((k) => !ORDER.includes(k))];
+  return keys.map((k) => [headingOf(k), commentaryText(v[k])].filter((x) => String(x ?? "").trim()).join("\n")).filter(Boolean).join("\n\n");
+}
+// Text saved as UTF-8 read back as Latin-1 ("Â£64,208.48", 20 Nov 2026: every
+// pound sign in two FP&A drafts). Put right only when that is what it is: the
+// text is all single-byte characters and reads cleanly as UTF-8.
+function unmangle(s) {
+  if (typeof s !== "string" || !/[Â-ô][\u0080-¿]/.test(s) || /[^\u0000-ÿ]/.test(s)) return s;
+  const fixed = Buffer.from(s, "latin1").toString("utf8");
+  return fixed.includes("�") ? s : fixed;
+}
+const deep = (v, f) => (typeof v === "string" ? f(v) : Array.isArray(v) ? v.map((x) => deep(x, f))
+  : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x, f)])) : v);
+
+// The highlights file as the pack reads it (the board pack and the workbook):
+// commentary one text; variance_comments { label: text }; actions [{ priority,
+// owner, action }]; risks [{ title, description }]. A draft in another shape
+// FP&A has used is put into this one, wording unchanged.
+function normalise(h) {
+  if (!h || typeof h !== "object" || Array.isArray(h)) return h;
+  const x = deep(h, unmangle);
+  if ("commentary" in x && x.commentary != null && typeof x.commentary !== "string") x.commentary = commentaryText(x.commentary);
+  if (Array.isArray(x.variance_comments)) {
+    const out = {};
+    for (const [i, v] of x.variance_comments.entries()) {
+      if (typeof v === "string") { out[`Comment ${i + 1}`] = v; continue; }
+      const label = [v?.entity, v?.account].filter(Boolean).join(" ") || v?.label || `Comment ${i + 1}`;
+      let key = label;
+      for (let n = 2; key in out; n++) key = `${label} (${n})`;
+      out[key] = String(v?.explanation ?? v?.comment ?? v?.text ?? "");
+    }
+    x.variance_comments = out;
+  } else if (x.variance_comments && typeof x.variance_comments === "object") {
+    x.variance_comments = Object.fromEntries(Object.entries(x.variance_comments).map(([k, v]) => [k, typeof v === "string" ? v : commentaryText(v?.explanation ?? v)]));
+  }
+  if (Array.isArray(x.actions)) {
+    x.actions = x.actions.map((a) => (typeof a === "string" ? { priority: "", owner: "", action: a }
+      : { ...a, action: a?.action ?? a?.title ?? a?.description ?? "" }));
+  }
+  if (Array.isArray(x.risks)) {
+    x.risks = x.risks.map((r) => (typeof r === "string" ? { title: r, description: "" }
+      : { ...r, title: r?.title ?? r?.risk ?? "", description: r?.description ?? r?.impact ?? r?.detail ?? "" }));
+  }
+  return x;
+}
+
 // The text fields of a highlights file, by section, each with its path. The
 // same fields the Word review offered (commentary_to_docx.py).
 function sections(h) {
-  const x = h && typeof h === "object" ? h : {};
+  const x = normalise(h && typeof h === "object" ? h : {});
   const list = (key, title, rows) => ({ key, title, fields: rows.filter(Boolean) });
   return [
     list("commentary", "Commentary", "commentary" in x ? [{ path: "commentary", heading: "The month", text: x.commentary ?? "" }] : []),
@@ -49,7 +105,7 @@ function setPath(obj, path, value) {
 function applyEdits(h, edits) {
   const issues = [];
   const allowed = editablePaths(h);
-  const content = JSON.parse(JSON.stringify(h ?? {}));
+  const content = JSON.parse(JSON.stringify(normalise(h) ?? {}));
   const current = new Map(sections(h).flatMap((s) => s.fields.map((f) => [f.path, f.text])));
   const changed = [];
   if (!Array.isArray(edits) || !edits.length) return { content, changed, issues: ["nothing to save"] };
@@ -102,4 +158,4 @@ function readyForPack(rows) {
   return { ready: true, why: null };
 }
 
-module.exports = { KINDS, MAX_TEXT, sections, editablePaths, applyEdits, contentIssues, styleNotes, readyForPack };
+module.exports = { normalise, commentaryText, KINDS, MAX_TEXT, sections, editablePaths, applyEdits, contentIssues, styleNotes, readyForPack };
