@@ -27,7 +27,7 @@ const STATE_WORD = { proposed: "proposed", approved: "approved", draft_created: 
 
 // balance: { entity_id, entity_name, opening, closing }
 // cap: { found, confirmed, issues, total, by_project, journals: [{ jnl, state }] }
-// prior: null, or { period, signed: bool, evidence: [{ entity_id, amount, document_ref }] }
+// prior: null, or { period, signed: bool, evidence: [{ entity_id, amount, document_ref, method }] }
 //   (last month's rec of the same account; evidence from its signed snapshot)
 // Returns { row (or null), said: [] }.
 function staffTimeEvidence({ balance: b, cap, prior, period, date }) {
@@ -44,8 +44,14 @@ function staffTimeEvidence({ balance: b, cap, prior, period, date }) {
     opening = pence(last.amount);
   } else {
     // First month through payroll: last month's closing (this month's
-    // opening) less what last month signed as the register's.
-    const others = mine.reduce((a, v) => a + pence(v.amount), 0);
+    // opening) less what last month signed as the register's. Only the
+    // register's own fetched rows count: a staff-time row keyed by hand last
+    // month (method null) is staff time, not register, and subtracting it
+    // started October at nil (20 Nov 2026). Snapshots from before rows carried
+    // a method count every row, as before.
+    const tagged = mine.some((v) => v.method !== undefined);
+    const register = tagged ? mine.filter((v) => v.method === "asset_register") : mine;
+    const others = register.reduce((a, v) => a + pence(v.amount), 0);
     opening = pence(b.opening) - others;
     start = `Starting figure: the ${prior.period} balance ${money(pence(b.opening))} less the ${money(others)} signed for it then.`;
   }

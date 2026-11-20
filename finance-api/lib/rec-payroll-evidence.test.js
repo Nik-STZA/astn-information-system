@@ -27,6 +27,17 @@ describe("staff time capitalised through payroll", () => {
     expect(row.amount).toBe(35868.69);
     expect(row.note).not.toMatch(/Starting figure/);
   });
+  it("does not count last month's staff time keyed by hand as the register's", () => {
+    // Last month the preparer keyed the staff time as its own row (no method);
+    // only the register's fetched row is taken off the opening.
+    const prior = { period: "2026-09", signed: true, evidence: [
+      { entity_id: "a", amount: "57000.00", document_ref: null, method: "asset_register" },
+      { entity_id: "a", amount: "24855.35", document_ref: null, method: null },
+    ] };
+    const { row } = staffTimeEvidence({ ...base, prior });
+    expect(row.amount).toBe(30868.69);
+    expect(row.note).toMatch(/less the 57,000.00 signed for it then/);
+  });
   it("takes nothing until payroll is loaded, confirmed and clean, or while last month is unsigned", () => {
     expect(staffTimeEvidence({ ...base, cap: { ...cap, found: false }, prior: first }).row).toBeNull();
     expect(staffTimeEvidence({ ...base, cap: { ...cap, confirmed: false }, prior: first }).said[0]).toMatch(/not confirmed yet/);

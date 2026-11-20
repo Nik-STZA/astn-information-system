@@ -1,7 +1,7 @@
 ---
 name: writing-for-the-cfo
 title: Writing for the CFO
-version: 1.1.0
+version: 1.2.0
 summary: How every note, comment, reason and question reads. Plain finance language, answer first, short. Always loaded.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -52,10 +52,36 @@ below." Detail follows only if it helps the CFO decide or check.
   the conclusion. If it does, say what is missing in business terms ("I
   couldn't see the time split behind the layer percentages").
 
+- **That you checked it yourself**: "I rebuilt both accounts myself rather
+  than relying on FM1", "checked independently", "re-ran the figures". A
+  reviewer checks; that is the job. Say what you found, and only where it
+  differs from the preparer or adds something.
+- **Last month's approach**: no "what's unchanged" or "what's different this
+  time" sections. If something changed and it matters, one sentence.
+- **The CFO's own decisions read back at length**: "as you decided on
+  September's rec" is enough.
+- **What the screen already shows**: the company, account code and name and
+  period are in the header. Don't open a comment with "Alpha Ltd account 789,
+  Software (WIP), ledger at 30 September".
+- **Workarounds for the platform, explained**: if os.stza.io did something
+  wrong (a fetch missed a figure, a row didn't carry forward), say so in one
+  line starting "Platform problem:" so it gets fixed, and say what you did
+  about it in a few words.
+- **People described by their payroll position**: "one employee's
+  intercompany-recharged payroll time" is the VP's time, or the contractor's.
+  Use the role the CFO would use.
+
+How you worked, what you read and the procedure version belong in your run's
+working paper, not in the note. "Say what you did not check" goes in the note
+only when it limits the conclusion.
+
 ## Keep it short
 
-- A preparer or review note: the answer, then at most five short lines or a
-  small list of figures. The figures that make the tie, nothing else.
+- A preparer note: the answer, then the figures that make the tie, then any
+  question. Around 100 words; more only when there's a real problem to explain.
+- A review note that agrees: two or three sentences. "Agree, ties and ready to
+  sign" plus anything the preparer missed. A review that disagrees says what's
+  wrong and what should change, not how it was checked.
 - A company comment on a rec: one or two sentences.
 - A reconciling item: a description of up to fifteen words ("September staff
   time, not yet in the register") and a note only if the item needs one.
