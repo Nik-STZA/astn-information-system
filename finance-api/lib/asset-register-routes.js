@@ -358,7 +358,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
   // ── The month's intake from Xero ───────────────────────────────────────────
   //
   // POST .../asset-register/intake   { grouping, period: YYYY-MM, dry_run (default true),
-  //   rules: [{ account_code, when_counterpart_code, belongs_to }], hints: [{ invoice_no, slices }] }
+  //   rules: [{ account_code, when_counterpart_code, belongs_to }], hints: [{ invoice_no, slices }], accounts?: [code] }
   // Every line Xero posted in the month to an account the grouping uses becomes
   // a proposed cost line, once (a line already held is skipped). The CFO only.
 
@@ -406,7 +406,12 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
       `SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to, e.slug
          FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
         WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
-    const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
+    const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id, fields FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
+    // accounts: take in only these account codes (taking in an account's past
+    // months without re-proposing the other accounts' workbook lines).
+    const only = Array.isArray(b.accounts) && b.accounts.length ? new Set(b.accounts.map(String)) : null;
+    if (only && ![...only].every((c) => map.some((m) => String(m.account_code) === c))) return res.status(422).json({ issues: [`accounts must be codes this grouping uses: ${[...new Set(map.map((m) => m.account_code))].join(", ")}`] });
+    const intakeMap = only ? map.filter((m) => only.has(String(m.account_code))) : map;
     // A Xero line is held while a line for it is proposed, approved or
     // rejected. Once withdrawn (with a split's original, superseded), it is
     // taken in again as it now stands in Xero.
@@ -423,7 +428,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
         return res.status(503).json({ error: `Xero could not be read for ${slug}: ${e.message}` });
       }
     }
-    const out = intakeLib.intake({ period: b.period, grouping, map, assets, docs, existing, rules: b.rules || [], hints: b.hints || [] });
+    const out = intakeLib.intake({ period: b.period, grouping, map: intakeMap, assets, docs, existing, rules: b.rules || [], hints: b.hints || [] });
     const assetNo = Object.fromEntries(assets.map((a) => [a.id, a.asset_no]));
     const view = {
       grouping, period: b.period,
@@ -693,7 +698,8 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
 
   // ── Preparing and signing a month ──────────────────────────────────────────
   //
-  // POST .../asset-register/periods/prepare  { grouping, period, dry_run (default true), rules, tb_acknowledgements: [{ entity, difference, reason }] }
+  // POST .../asset-register/periods/prepare  { grouping, period, dry_run (default true), rules, tb_acknowledgements: [{ entity, difference, reason }],
+  //   retire_named_items?: [{ entity, account, label_starts, reason }] }
   // POST .../asset-register/periods/sign     { grouping, period }
   // Months are prepared and signed in order after the opening. A signed month
   // refuses any change dated in it (migration 049).
@@ -725,7 +731,7 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
       `SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to, e.slug, e.name AS company
          FROM finance.asset_account_map m JOIN finance.entities e ON e.id = m.entity_id
         WHERE m.client_id = $1 AND m.grouping = $2 AND m.ended_at IS NULL`, [client.id, grouping])).rows;
-    const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
+    const assets = (await pool.query("SELECT id, entity_id, asset_no, name, status, cost_account_id, accum_account_id, fields FROM finance.assets WHERE client_id = $1 AND grouping = $2", [client.id, grouping])).rows;
     const lines = (await pool.query(
       `SELECT id, state, asset_id, owning_entity_id, amount::float AS amount, source_net::float AS source_net, line_date::text AS line_date, treatment,
               posted_account_id, expected_account_id, source_type, xero_source_id, xero_line_id, source_ref, fields, invoice_no
@@ -770,7 +776,19 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     }
     const idOf = (slug, code) => map.find((m) => m.slug === slug && String(m.account_code) === String(code))?.xero_account_id;
     const entityOf = (slug) => map.find((m) => m.slug === slug)?.entity_id;
-    const namedItems = (opening.snapshot?.named_items || []).map((n) => ({ entity_id: entityOf(n.entity), account_id: idOf(n.entity, n.account), label: n.label, amount: Number(n.amount) }))
+    // retire_named_items: an opening named item whose lines are now in the
+    // register (staff time held aside while its grouping was paused, then
+    // taken in by layer) stops being carried, with the CFO's reason.
+    const retire = Array.isArray(b.retire_named_items) ? b.retire_named_items : [];
+    for (const r of retire) if (String(r.reason ?? "").trim().length < 10) return res.status(422).json({ issues: ["Each retired named item needs a reason of at least 10 characters"] });
+    const retired = [];
+    const kept = (opening.snapshot?.named_items || []).filter((n) => {
+      const r = retire.find((x) => x.entity === n.entity && String(x.account) === String(n.account) && String(n.label).startsWith(String(x.label_starts ?? "")));
+      if (r) retired.push({ entity: n.entity, account: n.account, label: n.label, amount: Number(n.amount), reason: String(r.reason).trim() });
+      return !r;
+    });
+    if (retire.length && retired.length !== retire.length) return res.status(422).json({ issues: ["A retired named item does not match one in the opening: give entity, account and the start of its label"] });
+    const namedItems = kept.map((n) => ({ entity_id: entityOf(n.entity), account_id: idOf(n.entity, n.account), label: n.label, amount: Number(n.amount) }))
       .concat(Object.entries(setAside).map(([k, amount]) => {
         const [entityId, code, belongs] = k.split("|");
         return { entity_id: entityId, account_id: map.find((m) => m.entity_id === entityId && String(m.account_code) === code)?.xero_account_id,
@@ -781,14 +799,14 @@ function mountAssetRegister(app, { route, pool, audit, clientIdFromSlug, xeroEnt
     const result = monthLib.prepareMonth({ period, map, assets, lines, events, trialBalances, openingTrialBalances, namedItems, lastDepreciation,
       tbAcknowledgements: acks, tolerance: Number(cfg?.rec_tolerance ?? 0), nameOf });
     if (!result.prepared) return res.status(422).json(result);
-    if (dryRun) return res.json({ dry_run: true, ...result });
+    if (dryRun) return res.json({ dry_run: true, ...result, ...(retired.length ? { retired_named_items: retired } : {}) });
     await pool.query(
       `INSERT INTO finance.asset_register_periods (client_id, grouping, period, status, snapshot, trial_balance, prepared_by, prepared_at)
        VALUES ($1,$2,$3,'prepared',$4,$5,$6,now())
        ON CONFLICT (client_id, grouping, period) DO UPDATE SET status = 'prepared', snapshot = EXCLUDED.snapshot, trial_balance = EXCLUDED.trial_balance,
          prepared_by = EXCLUDED.prepared_by, prepared_at = now(), updated_at = now()
        WHERE finance.asset_register_periods.status <> 'signed'`,
-      [client.id, grouping, period, JSON.stringify({ kind: "month", ...result, named_items: namedItems }), JSON.stringify({ as_at: end, read_at: new Date().toISOString() }), who.actorEmail]);
+      [client.id, grouping, period, JSON.stringify({ kind: "month", ...result, named_items: namedItems, ...(retired.length ? { retired_named_items: retired } : {}) }), JSON.stringify({ as_at: end, read_at: new Date().toISOString() }), who.actorEmail]);
     res.status(201).json({ prepared: true, ...result });
   }));
 

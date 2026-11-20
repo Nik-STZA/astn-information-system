@@ -10,8 +10,11 @@
 // document's rate.
 //
 // Allocation, in order: an allocation the caller supplies for that invoice
-// (from the register workbook or an agent), then the one asset that holds the
-// account, else unallocated with a question. A line on a shared account that
+// (from the register workbook or an agent), then the layer named in the line
+// (a software build costed by layer, e.g. "Capitalised Development - Oct 2026 -
+// L1", goes to that layer's open version: an asset whose fields carry
+// { layer, version }), then the one asset that holds the account, else
+// unallocated with a question. A line on a shared account that
 // belongs to another grouping (by its counterpart in the same document, e.g.
 // staff time credited to the capitalisation account) is set aside, not taken.
 
@@ -139,7 +142,27 @@ function allocate(c, { kind, assets, hints, findings }) {
     }
     findings.push({ kind: "allocation_does_not_match", number: c.number, account: c.account_code, line: c.amount, allocation: total });
   }
-  const holders = assets.filter((a) => lc(a.cost_account_id) === lc(c.account_id) && !["disposed", "lapsed", "impaired"].includes(a.status));
+  const live = assets.filter((a) => lc(a.cost_account_id) === lc(c.account_id) && !["disposed", "lapsed", "impaired"].includes(a.status));
+  // A layer's open version: the one still in progress (status wip). A released
+  // version is available for use and takes no more cost.
+  const layered = live.filter((a) => a.fields?.layer);
+  const code = layerIn(c.description, layered.map((a) => a.fields.layer));
+  if (code) {
+    const open = layered.filter((a) => a.fields.layer === code && a.status === "wip");
+    if (open.length === 1) {
+      const a = open[0];
+      return [{ ...base, asset_id: a.id, amount: c.amount, treatment: "capitalise",
+        reason_text: `Layer ${code} in the line; ${a.asset_no} ${a.name} is its open version.`,
+        fields: { ...fields, allocation: "layer", layer: code } }];
+    }
+    const question = open.length
+      ? `Layer ${code} has ${open.length} open versions (${open.map((a) => a.asset_no).join(", ")}). Which is this for?`
+      : `Layer ${code} has no open version. Open the next version, or say which asset this is for.`;
+    findings.push({ kind: open.length ? "layer_has_several_open_versions" : "layer_has_no_open_version", number: c.number, layer: code, amount: c.amount });
+    return [{ ...base, asset_id: null, amount: c.amount, treatment: null, reason_text: null, fields: { ...fields, question } }];
+  }
+  // A line naming no layer belongs to the account's other assets.
+  const holders = live.filter((a) => !a.fields?.layer);
   if (holders.length === 1) {
     return [{ ...base, asset_id: holders[0].id, amount: c.amount, treatment: "capitalise",
       reason_text: `Posted to ${c.account_code}; ${holders[0].asset_no} ${holders[0].name} is the only asset on it.`,
@@ -152,4 +175,14 @@ function allocate(c, { kind, assets, hints, findings }) {
   return [{ ...base, asset_id: null, amount: c.amount, treatment: null, reason_text: null, fields: { ...fields, question } }];
 }
 
-module.exports = { intake, lineNet, xeroDay };
+// The layer code a line names, among codes, or null. Codes are matched whole
+// and case-sensitive ("APP", not "app"); the last one in the line wins, as
+// journals end with it.
+function layerIn(description, codes) {
+  if (!codes.length) return null;
+  const tokens = String(description ?? "").split(/[\s\-–—:;,()\/|]+/).filter(Boolean);
+  for (let i = tokens.length - 1; i >= 0; i--) if (codes.includes(tokens[i])) return tokens[i];
+  return null;
+}
+
+module.exports = { intake, lineNet, xeroDay, layerIn };
