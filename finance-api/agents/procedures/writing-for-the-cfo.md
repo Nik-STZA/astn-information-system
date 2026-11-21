@@ -1,7 +1,7 @@
 ---
 name: writing-for-the-cfo
 title: Writing for the CFO
-version: 2.0.0
+version: 2.1.0
 summary: How every note, comment, reason and question reads. Working papers in an auditor's or financial manager's style; commentary in the Finance Director's voice. Always loaded.
 roles: fc,fm1,fm2,fpa,ap-clerk,ar-clerk
 ---
@@ -45,6 +45,16 @@ willing to challenge, in sentences that connect. £, not GBP. Avoid "notably",
 "furthermore", "therefore", "consequently", "an area to monitor", brackets
 stuffed with extra figures, and the same formula sentence after sentence. Keep
 facts apart from assumptions, and say plainly what you couldn't find.
+
+The management pack commentary is the client's report from their Finance
+Director, sent to the CEO and the board under the Finance Director's name.
+Write it as the Finance Director, in the first person: "I have confirmed
+Sheridans' work is fully invoiced", "I have chased HSBC", "I have parked these
+for the November close", "a question I still need to settle". Never refer to
+the Finance Director, the FD, the CFO, the FC, FM1 or any other platform role
+in the third person, and never name an agent. The client has a Finance
+Director, not a CFO. An action's owner is "FD" for anything finance does, or
+the client's own role ("CEO") for anything they do.
 
 ## Never write
 
