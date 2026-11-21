@@ -565,14 +565,31 @@ export default function ReviewClient({
                       cursor: "pointer",
                     }}
                   >
-                    <td style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: scoreColor(item.relevance_score), fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                      {item.relevance_score != null ? Number(item.relevance_score).toFixed(1) : "—"}
-                    </td>
+                    {item.importance_score != null ? (
+                      <td
+                        title={item.importance_reason ?? undefined}
+                        style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: "var(--tx)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
+                      >
+                        {item.importance_score}
+                      </td>
+                    ) : (
+                      <td style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: scoreColor(item.relevance_score), fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                        {item.relevance_score != null ? Number(item.relevance_score).toFixed(1) : "—"}
+                      </td>
+                    )}
                     <td style={{ padding: "9px 14px", fontSize: 11.5, fontWeight: 600, color: "var(--gold-dark)", whiteSpace: "nowrap" }}>
                       {item.category ? CATEGORY_LABELS[item.category] ?? item.category : "—"}
                     </td>
                     <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "var(--tx)", lineHeight: 1.35 }}>
                       {item.title ?? "Untitled"}
+                      {item.related_count ? (
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "var(--sub)", whiteSpace: "nowrap" }}>
+                          +{item.related_count} related
+                        </span>
+                      ) : null}
+                      {item.scope_reason ? (
+                        <div style={{ marginTop: 3, fontSize: 11.5, fontWeight: 400, color: "var(--sub)" }}>{item.scope_reason}</div>
+                      ) : null}
                     </td>
                     <td style={{ padding: "9px 14px", fontSize: 11.5, color: "var(--sub)", whiteSpace: "nowrap" }}>
                       {item.source_name ?? "—"} ·{" "}

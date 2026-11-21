@@ -62,6 +62,13 @@ export type ReviewItem = {
   original_language: string | null;
   created_at: string;
   status: string;
+  /** Scope check's one-line reason (screened queue only). */
+  scope_reason?: string | null;
+  /** Other items reporting the same story, folded under this one. */
+  related_count?: number;
+  /** Importance score 0-100 and its parts (screened queue only). */
+  importance_score?: number | null;
+  importance_reason?: string | null;
 };
 
 export type ReviewStats = {
