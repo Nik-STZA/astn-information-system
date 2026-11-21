@@ -18,7 +18,7 @@ The standard every step serves is `africanstn-editorial` (scope, writing, templa
 | 8 | Editor | Claude Opus 5.5 | Built, `EDITOR` (`scripts/editor-job.js`: draft, review, one revision) |
 | 9 | Independent reviewer | Code checks and Claude Opus 5.5, fresh context | Built, `REVIEW` (`scripts/review-job.js`) |
 | 10 | Approval and publish | Human sign-off, code gates | Sign-off exists; gates built, `PUBLISH_GATES` |
-| 11 | Newsletter draft | Claude Opus 5.5 | Designed here |
+| 11 | Newsletter draft | Claude Opus 5.5, code-assembled to the template | Built, `NEWSLETTER` (`scripts/newsletter-job.js`) |
 
 Each step reads records and writes records. No step reads another step's transcript or reasoning.
 
