@@ -66,6 +66,9 @@ export type ReviewItem = {
   scope_reason?: string | null;
   /** Other items reporting the same story, folded under this one. */
   related_count?: number;
+  /** Importance score 0-100 and its parts (screened queue only). */
+  importance_score?: number | null;
+  importance_reason?: string | null;
 };
 
 export type ReviewStats = {

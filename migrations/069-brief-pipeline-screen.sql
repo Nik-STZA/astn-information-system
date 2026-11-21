@@ -5,7 +5,7 @@
 -- 1. content_sources.lens: what each source is for, so the screen can treat a
 --    specialist Africa sport-business outlet differently from a broad feed.
 -- 2. item_screen_decisions: one structured record per item per pipeline step
---    (rule screen, scope check, dedup; importance later). A 'dedup' archive
+--    (rule screen, scope check, dedup, importance, verify). A 'dedup' archive
 --    means "same story as detail.lead_id", so the lead can list its duplicates. Steps pass records,
 --    not transcripts. Archiving is reversible: the item keeps its row and the
 --    decision says why it was archived.

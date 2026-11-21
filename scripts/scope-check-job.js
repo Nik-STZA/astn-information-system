@@ -17,7 +17,9 @@
  *
  *   node scripts/scope-check-job.js dedup
  *     Groups the in-scope pending items into stories (one Haiku call) and
- *     archives all but the lead of each story, recording which lead.
+ *     archives all but the lead of each story, recording which lead. Then
+ *     scores each remaining item for importance (no model) with its parts
+ *     and registry matches (step 'importance').
  *
  * Does nothing unless SCOPE_CHECK=on. Needs migration 069, DB_* env vars and
  * ANTHROPIC_API_KEY (Secret Manager: anthropic-api-key). Never publishes.
@@ -209,6 +211,62 @@ async function dedup() {
     }
   }
   console.log(`${items.length} in-scope items -> ${stories.length} stories (${dupes} duplicates archived).`);
+  await importance();
+}
+
+// Score every in-scope story lead for importance (no model) and record the
+// parts, so the queue can rank by it and Nik can see why. Uses the story
+// cluster from dedup (other outlets reporting it) and the last four
+// published briefs (for "country not covered recently").
+async function importance() {
+  const imp = require("../server-lib-importance");
+  const { rows: items } = await pool.query(
+    `SELECT ci.id, ci.title, ci.summary, ci.translated_text, ci.source_name, COALESCE(ci.url, ci.source_url) AS url,
+            d.detail->'duplicate_ids' AS duplicate_ids
+       FROM classified_items ci
+       JOIN item_screen_decisions sc ON sc.item_id = ci.id AND sc.step = 'scope_check' AND sc.decision = 'keep'
+       LEFT JOIN LATERAL (SELECT detail FROM item_screen_decisions x
+                           WHERE x.item_id = ci.id AND x.step = 'dedup' AND x.decision = 'keep'
+                           ORDER BY x.created_at DESC LIMIT 1) d ON true
+      WHERE ci.status = 'pending_review'
+        AND NOT EXISTS (SELECT 1 FROM item_screen_decisions i WHERE i.item_id = ci.id AND i.step = 'importance')`
+  );
+  if (!items.length) return;
+  const { rows: orgs } = await pool.query(
+    `SELECT astn_id, organization_name, level, organization_type, country FROM organizations`
+  );
+  const { rows: srcRows } = await pool.query(`SELECT source_name FROM content_sources WHERE lens = 'africa-sport-business'`);
+  const { rows: recent } = await pool.query(
+    `SELECT report_markdown FROM weekly_reports WHERE status = 'published' ORDER BY week_ending DESC NULLS LAST LIMIT 4`
+  );
+  const matcher = imp.buildMatcher(orgs);
+  const countries = [...new Set(orgs.map((o) => o.country).filter(Boolean))];
+  const recentBriefText = recent.map((r) => r.report_markdown).join("\n");
+
+  for (const it of items) {
+    const dupIds = Array.isArray(it.duplicate_ids) ? it.duplicate_ids : [];
+    let clusterOutlets = 0;
+    if (dupIds.length) {
+      const { rows } = await pool.query(
+        `SELECT count(DISTINCT source_name)::int AS n FROM classified_items WHERE id = ANY($1::uuid[]) AND source_name IS DISTINCT FROM $2`,
+        [dupIds, it.source_name]
+      );
+      clusterOutlets = rows[0].n;
+    }
+    const s = imp.scoreItem(it, {
+      matcher, africaSportSources: srcRows.map((r) => r.source_name), clusterOutlets, countries, recentBriefText,
+    });
+    const why = Object.entries(s.parts).filter(([, v]) => v > 0).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(", ") || "nothing scored";
+    await pool.query(
+      `INSERT INTO item_screen_decisions (item_id, step, decision, rule, reason, detail, source_url, version)
+       VALUES ($1, 'importance', 'keep', NULL, $2, $3, $4, $5)`,
+      [it.id, `Importance ${s.score}: ${why}.`,
+       JSON.stringify({ score: s.score, parts: s.parts, money: s.money,
+         registry: s.matches.map((m) => ({ matched_as: m.matched_as, ambiguous: m.ambiguous, orgs: m.orgs })) }),
+       it.url, imp.IMPORTANCE_VERSION]
+    );
+  }
+  console.log(`Importance: scored ${items.length} in-scope items.`);
 }
 
 (async () => {
@@ -216,7 +274,8 @@ async function dedup() {
   if (cmd === "submit") await submit();
   else if (cmd === "collect" && arg) await collect(arg);
   else if (cmd === "dedup") await dedup();
-  else throw new Error("Usage: scope-check-job.js submit | collect <batch-id> | dedup");
+  else if (cmd === "importance") await importance();
+  else throw new Error("Usage: scope-check-job.js submit | collect <batch-id> | dedup | importance");
 })()
   .catch((e) => { console.error("ERR", e.message); process.exitCode = 1; })
   .finally(() => pool.end());

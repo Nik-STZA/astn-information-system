@@ -330,7 +330,13 @@ const SCREENED_COLUMNS = `
                 ORDER BY sc.created_at DESC LIMIT 1) AS scope_reason,
               COALESCE((SELECT jsonb_array_length(d.detail->'duplicate_ids') FROM item_screen_decisions d
                 WHERE d.item_id = c.id AND d.step = 'dedup' AND d.decision = 'keep'
-                ORDER BY d.created_at DESC LIMIT 1), 0) AS related_count,`;
+                ORDER BY d.created_at DESC LIMIT 1), 0) AS related_count,
+              (SELECT (i.detail->>'score')::int FROM item_screen_decisions i
+                WHERE i.item_id = c.id AND i.step = 'importance'
+                ORDER BY i.created_at DESC LIMIT 1) AS importance_score,
+              (SELECT i.reason FROM item_screen_decisions i
+                WHERE i.item_id = c.id AND i.step = 'importance'
+                ORDER BY i.created_at DESC LIMIT 1) AS importance_reason,`;
 
 app.get("/api/news/review-queue", async (req, res) => {
   try {
@@ -344,7 +350,7 @@ app.get("/api/news/review-queue", async (req, res) => {
     // Pass min_score=0 / days=0 / sort=newest to see the raw table.
     const minScore = req.query.min_score !== undefined ? parseFloat(req.query.min_score) : 0;
     const days = req.query.days !== undefined ? Math.max(0, parseInt(req.query.days, 10) || 0) : 0;
-    const orderBy = req.query.sort === "relevance"
+    let orderBy = req.query.sort === "relevance"
       ? "relevance_score DESC NULLS LAST, created_at DESC"
       : "created_at DESC";
     // SCREENED_QUEUE=on (needs migration 069 and the scope-check job): the
@@ -352,11 +358,13 @@ app.get("/api/news/review-queue", async (req, res) => {
     // the number of related items folded under it. ?screened=0 shows the raw
     // queue. Approved/rejected views are unaffected.
     const screened = isScreenedQueue() && status === "pending_review" && req.query.screened !== "0";
+    // The screened queue ranks by importance unless a sort is asked for.
+    if (screened && !req.query.sort) orderBy = "importance_score DESC NULLS LAST, created_at DESC";
     const params = [status, minScore, days, limit, offset];
     const { rows } = await pool.query(
       `SELECT id, title, summary, source_name, source_url, url, category, region,
               relevance_score, confidence, verticals, original_language, created_at, status,
-              ${screened ? SCREENED_COLUMNS : "NULL::text AS scope_reason, 0 AS related_count,"}
+              ${screened ? SCREENED_COLUMNS : "NULL::text AS scope_reason, 0 AS related_count, NULL::int AS importance_score, NULL::text AS importance_reason,"}
               count(*) OVER()::int AS __total
        FROM classified_items c
        WHERE status = $1 AND (is_duplicate IS NOT TRUE)

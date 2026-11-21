@@ -12,7 +12,7 @@ The standard every step serves is `africanstn-editorial` (scope, writing, templa
 | 2 | Rule screen | Code | Built, `RULE_SCREEN` |
 | 3 | Scope check | Claude Haiku 5.5, batched | Built, `SCOPE_CHECK` |
 | 4 | Story clustering | Claude Haiku 5.5, one call | Built, `scope-check-job.js dedup` |
-| 5 | Registry matcher and importance | Code, model only to disambiguate | Designed here |
+| 5 | Registry matcher and importance | Code only (shared names settled by country) | Built, `scope-check-job.js dedup` / `importance` |
 | 6 | Nik reviews the queue | Human | Exists; 16 stories for w/e 19 November once screened |
 | 7 | Verifier | Claude Opus 5.5 with fetched sources and web search | Built, `VERIFY` (`scripts/verify-job.js`) |
 | 8 | Editor | Claude Opus 5.5 | Built, `EDITOR` (`scripts/editor-job.js`: draft, review, one revision) |
@@ -56,6 +56,8 @@ The publish gate (step 10) reads this table, so a pass must belong to the exact 
 - country not yet covered in the last four briefs: 5.
 
 The weights are a starting point. After four weeks, compare the score with Nik's approvals and adjust.
+
+**As built (21 November 2026).** Tested on Nik's 131 in-scope reviewed items, the weights above ranked approvals above rejections with AUC 0.63, below the old Gemini relevance score (0.69). Technology named was the strongest part (79% approved when present, 49% when absent); money and registry matches made little difference. The default is now an "editorial" set (technology 30, money up to 15, specialist source 15, registry 10 plus 5, story 10, new country 5): AUC 0.67 overall, 0.68 on November reviews against 0.59 for the old score, and 90% of its top 20 were approvals against a base rate of 58%. The old score is flattered by the comparison, because Nik's queue was sorted and filtered by it. Shared registry names are settled by the country the item names, and generic one-word names ("Olympic", "Nations") and an outlet naming itself are not counted; no model call was needed. Registry matches neither help nor hurt the ranking, but are shown on each item. Re-check after four weeks of live decisions.
 
 **Failure behaviour.** A failed match leaves the item unscored and in the queue. Nothing is archived at this step.
 

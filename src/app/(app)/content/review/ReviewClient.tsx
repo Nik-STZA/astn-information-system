@@ -565,9 +565,18 @@ export default function ReviewClient({
                       cursor: "pointer",
                     }}
                   >
-                    <td style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: scoreColor(item.relevance_score), fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                      {item.relevance_score != null ? Number(item.relevance_score).toFixed(1) : "—"}
-                    </td>
+                    {item.importance_score != null ? (
+                      <td
+                        title={item.importance_reason ?? undefined}
+                        style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: "var(--tx)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
+                      >
+                        {item.importance_score}
+                      </td>
+                    ) : (
+                      <td style={{ padding: "9px 14px", fontWeight: 800, fontSize: 12.5, color: scoreColor(item.relevance_score), fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                        {item.relevance_score != null ? Number(item.relevance_score).toFixed(1) : "—"}
+                      </td>
+                    )}
                     <td style={{ padding: "9px 14px", fontSize: 11.5, fontWeight: 600, color: "var(--gold-dark)", whiteSpace: "nowrap" }}>
                       {item.category ? CATEGORY_LABELS[item.category] ?? item.category : "—"}
                     </td>
