@@ -42,7 +42,7 @@ describe("pack templates", () => {
   });
 
   it("Feldspar draws impairment and FX below EBITDA; the standard templates leave it to non-cash", () => {
-    expect(layoutOf("feldspar_management").belowEbitda).toEqual(["depreciation", "impairment", "fx"]);
+    expect(layoutOf("feldspar_management").belowEbitda).toEqual(["depreciation", "impairment", "fx", "penalties_fines"]);
     expect(layoutOf("standard_management").belowEbitda).toBeNull();
     const rows = Object.fromEntries(templateRows("feldspar_management").map((r) => [r.key, r]));
     expect(rows.impairment).toMatchObject({ cash_flow: "non_cash", section: "overheads" });
@@ -81,6 +81,7 @@ describe("pack templates", () => {
     expect(categoryForHeading("feldspar_management", "Amortisation")).toBe("depreciation");
     expect(categoryForHeading("feldspar_management", "Rounding")).toBeNull();   // a balance sheet account
     expect(categoryForHeading("feldspar_management", "Impairment")).toBe("impairment");
+    expect(categoryForHeading("feldspar_management", "Penalties and Fines")).toBe("penalties_fines");
     expect(categoryForHeading("feldspar_management", "Exceptional items")).toBeNull();
     expect(categoryForHeading("standard_management", "Revenue")).toBe("turnover");
     expect(categoryForHeading("standard_management", "")).toBeNull();

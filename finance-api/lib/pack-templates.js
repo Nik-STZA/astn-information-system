@@ -115,12 +115,13 @@ const TEMPLATES = {
     key: "feldspar_management",
     name: "Feldspar management",
     description: "Feldspar's management layout: Marketing, Payroll & Related, Property & General, IT, Travel & Entertainment, Legal & Professional, Capitalised Development, then Management EBITDA.",
-    version: 2,
+    version: 3,
     ebitda: true,
     labels: { ...STANDARD_LABELS },
     // CFO 18 Nov 2026: impairment beside depreciation and amortisation, and FX
-    // (realised, unrealised, bank revaluations) below EBITDA.
-    belowEbitda: ["depreciation", "impairment", "fx"],
+    // (realised, unrealised, bank revaluations) below EBITDA. CFO 20 Nov 2026:
+    // Penalties and Fines on its own line below EBITDA.
+    belowEbitda: ["depreciation", "impairment", "fx", "penalties_fines"],
     categories: [
       pnl("turnover", "Revenue", "turnover", 10),
       pnl("cost_of_sales", "Direct Costs", "cost_of_sales", 20),
@@ -133,6 +134,7 @@ const TEMPLATES = {
       pnl("capitalised_dev", "Capitalised Development", "overheads", 65),
       pnl("impairment", "Impairment", "overheads", 72, "non_cash"),
       pnl("fx", "FX Gains / (Losses)", "overheads", 80),
+      pnl("penalties_fines", "Penalties and Fines", "overheads", 82),
       pnl("other_income", "Other Income", "finance", 90),
       pnl("interest_payable", "Interest", "finance", 100),
       pnl("taxation", "Taxes", "taxation", 110),
@@ -153,7 +155,7 @@ const TEMPLATES = {
         "Premises - Storage & warehousing"],
       travel: ["Entertainment - business", "Entertainment - non-deductible", "Motor Vehicle Expenses",
         "Meals & subsistence", "Travel - National", "Travel - International", "Airfares", "Rail",
-        "Taxi, car hire & parking", "Accommodation"],
+        "Taxi, car hire & parking", "Accommodation", "Travel - EV Charging"],
       it_costs: ["Website", "Software & Subscriptions", "Consumables", "Hosting & Infrastructure",
         "Hardware & Equipment - below threshold"],
     },
@@ -176,6 +178,7 @@ const TEMPLATES = {
       "Impairment": "impairment",
       "Taxes": "taxation",
       "Capitalised Development": "capitalised_dev",
+      "Penalties and Fines": "penalties_fines",
     },
     // The 10 Nov master's BS Mapping, as applied on 18 Nov 2026.
     bsHeadings: {
